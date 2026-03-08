@@ -45,4 +45,6 @@ export interface LLMStreamChunk {
   finishReason?: string;
   /** Token 用量（最后一块） */
   usageMetadata?: UsageMetadata;
+  /** Gemini 思考签名（需原样保留回传） */
+  thoughtSignature?: string;
 }

@@ -147,6 +147,7 @@ export class Orchestrator {
     let fullText = '';
     const collectedCalls: FunctionCallPart[] = [];
     let usageMetadata: UsageMetadata | undefined;
+    let thoughtSignature: string | undefined;
 
     const llmStream = this.llm.chatStream!(request);
 
@@ -159,6 +160,7 @@ export class Orchestrator {
         }
         if (chunk.functionCalls) collectedCalls.push(...chunk.functionCalls);
         if (chunk.usageMetadata) usageMetadata = chunk.usageMetadata;
+        if (chunk.thoughtSignature) thoughtSignature = chunk.thoughtSignature;
       }
     })();
 
@@ -166,8 +168,12 @@ export class Orchestrator {
 
     // 累积为完整 Content
     const parts: Part[] = [];
-    if (fullText) parts.push({ text: fullText });
-    parts.push(...collectedCalls);
+    if (fullText) {
+      const textPart: any = { text: fullText };
+      if (thoughtSignature) textPart.thoughtSignature = thoughtSignature;
+      parts.push(textPart);
+    }
+    parts.push(...collectedCalls.map(c => thoughtSignature ? { ...c, thoughtSignature } as any : c));
     if (parts.length === 0) parts.push({ text: '' });
 
     const content: Content = { role: 'model', parts };

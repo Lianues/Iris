@@ -44,6 +44,10 @@ export class GeminiFormat implements FormatAdapter {
           if (!chunk.functionCalls) chunk.functionCalls = [];
           chunk.functionCalls.push(part);
         }
+        // 提取思考签名（Gemini thinking model 返回）
+        if ('thoughtSignature' in part && !chunk.thoughtSignature) {
+          chunk.thoughtSignature = part.thoughtSignature as string;
+        }
       }
     }
 
