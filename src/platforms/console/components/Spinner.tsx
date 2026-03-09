@@ -1,11 +1,11 @@
 /**
- * 加载指示器 - 极简点状
+ * 加载指示器
  */
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Text } from 'ink';
 
-const FRAMES = ['·  ', '·· ', '···', ' ··', '  ·', '   '];
+const FRAMES = ['·  ', '·· ', '···', ' ··', '  ·'];
 const INTERVAL = 120;
 
 export function Spinner() {

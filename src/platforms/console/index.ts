@@ -1,24 +1,19 @@
 /**
- * Console 平台适配器（基于 Ink TUI）
+ * Console 平台适配器 (Ink 5+ / React 18)
  *
- * 通过 ink + React 渲染终端界面，替代原有的 readline 纯文本输出。
- * 监听 ToolStateManager 事件，实时同步工具执行状态到界面。
- *
- * 职责分离：
- *   - 本类仅作为“控制器”，将核心层事件转换为 UI 状态更新
- *   - App.tsx 及其子组件负责渲染
+ * 通过现代化的 TUI 渲染终端界面。
  */
 
 import React from 'react';
-import { render } from 'ink';
+import { render, Instance } from 'ink';
 import { PlatformAdapter } from '../base';
 import { ToolStateManager } from '../../tools/state';
-import { setGlobalLogLevel, LogLevel } from '../../logger';
+import { setGlobalLogLevel, LogLevel } from '../../logger/index';
 import { App, AppHandle } from './App';
 
 export class ConsolePlatform extends PlatformAdapter {
   private sessionId: string;
-  private inkInstance?: { unmount: () => void; waitUntilExit: () => Promise<void> };
+  private inkInstance?: Instance;
   private appHandle?: AppHandle;
   private toolStateManager?: ToolStateManager;
 
@@ -33,7 +28,7 @@ export class ConsolePlatform extends PlatformAdapter {
   // ============ 平台接口 ============
 
   /** 接收工具状态管理器，监听事件以同步 UI */
-  setToolStateManager(manager: ToolStateManager): void {
+  override setToolStateManager(manager: ToolStateManager): void {
     this.toolStateManager = manager;
 
     manager.on('created', (invocation) => {
@@ -46,59 +41,63 @@ export class ConsolePlatform extends PlatformAdapter {
     });
   }
 
-  async start(): Promise<void> {
-    // 压制日志输出，防止干扰 ink 渲染
+  override async start(): Promise<void> {
+    // 屏蔽全局日志输出，避免干扰 TUI 渲染
     setGlobalLogLevel(LogLevel.SILENT);
 
-    // 等待 App 组件挂载完成并交付 AppHandle
-    const readyPromise = new Promise<AppHandle>((resolve) => {
-      this.inkInstance = render(
-        React.createElement(App, {
-          onReady: (handle: AppHandle) => {
-            this.appHandle = handle;
-            resolve(handle);
-          },
-          onSubmit: (text: string) => this.handleInput(text),
-          onExit: () => this.stop(),
-        }),
-      );
+    // 渲染根组件
+    return new Promise<void>((resolve) => {
+      const element = React.createElement(App, {
+        onReady: (handle: AppHandle) => {
+          this.appHandle = handle;
+          resolve();
+        },
+        onSubmit: (text: string) => this.handleInput(text),
+        onExit: () => this.stop(),
+      });
+      // 捕获不可用的 TTY
+      try {
+        this.inkInstance = render(element);
+      } catch (err: unknown) {
+        if (err instanceof Error && err.message?.includes('Raw mode is not supported')) {
+          console.error('[ConsolePlatform] Fatal: 当前终端不支持 Raw mode。请尝试在原生命令行 (如 CMD, PowerShell, iTerm) 而非内嵌面板中运行。');
+          process.exit(1);
+        } else {
+          throw err;
+        }
+      }
     });
-
-    await readyPromise;
   }
-
-  async stop(): Promise<void> {
+  override async stop(): Promise<void> {
     this.inkInstance?.unmount();
     process.exit(0);
   }
 
   /** 非流式发送消息 */
-  async sendMessage(_sessionId: string, text: string): Promise<void> {
+  override async sendMessage(_sessionId: string, text: string): Promise<void> {
     this.appHandle?.addMessage('assistant', text);
   }
 
   /** 流式发送消息 */
-  async sendMessageStream(_sessionId: string, stream: AsyncIterable<string>): Promise<void> {
+  override async sendMessageStream(_sessionId: string, stream: AsyncIterable<string>): Promise<void> {
     this.appHandle?.startStream();
     for await (const chunk of stream) {
-    this.appHandle?.pushStreamChunk(chunk);
+      this.appHandle?.pushStreamChunk(chunk);
     }
     this.appHandle?.endStream();
   }
 
-  // ============ 内部方法 ============
+  // ============ 内部逻辑 ============
 
-  /** 处理用户输入 */
   private async handleInput(text: string): Promise<void> {
     if (!this.messageHandler) return;
 
-    // 显示用户消息，进入生成状态
+    // 状态更新：显示用户消息，进入生成状态
     this.appHandle?.addMessage('user', text);
     this.appHandle?.setGenerating(true);
 
-    // 清空上一轮的工具调用记录
+    // 清空上一轮工具 ID（工具已在上轮结束时快照）
     this.currentToolIds.clear();
-    this.appHandle?.setToolInvocations([]);
 
     try {
       await this.messageHandler({
@@ -107,16 +106,17 @@ export class ConsolePlatform extends PlatformAdapter {
       });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      this.appHandle?.addMessage('assistant', `错误: ${errorMsg}`);
+      this.appHandle?.addMessage('assistant', `!! CRITICAL_ERROR: ${errorMsg}`);
     } finally {
+      // 当前轮结束，将工具快照到最后一条 assistant 消息
+      this.appHandle?.commitTools();
       this.appHandle?.setGenerating(false);
     }
   }
 
-  /** 将当前周期的工具调用状态同步到 UI */
   private syncToolDisplay(): void {
     if (!this.toolStateManager || !this.appHandle) return;
-    const invocations = this.toolStateManager
+ const invocations = this.toolStateManager
       .getAll()
       .filter(inv => this.currentToolIds.has(inv.id));
     this.appHandle.setToolInvocations(invocations);

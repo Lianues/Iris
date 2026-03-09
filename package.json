@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "description": "模块化、可解耦的 AI 聊天框架，支持多平台、多 LLM、工具调用",
   "main": "dist/index.js",
+  "type": "module",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx --experimental-specifier-resolution=node src/index.ts"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -14,17 +15,17 @@
   "dependencies": {
     "discord.js": "^14.25.1",
     "grammy": "^1.41.1",
-    "ink": "^3.2.0",
-    "ink-divider": "^2.0.0",
-    "ink-gradient": "^2.0.0",
-    "ink-spinner": "^4.0.3",
-    "ink-text-input": "^4.0.0",
-    "react": "^17.0.2",
+    "ink": "^5.0.1",
+    "ink-divider": "^4.0.0",
+    "ink-gradient": "^3.0.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^18.2.0",
     "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/node": "^22.19.15",
-    "@types/react": "^17.0.91",
+    "@types/react": "^18.3.28",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

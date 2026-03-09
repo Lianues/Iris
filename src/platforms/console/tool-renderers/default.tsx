@@ -1,14 +1,11 @@
 /**
- * 默认工具结果渲染器
- *
- * 将结果 JSON 序列化后截断显示，作为未知工具的兆底渲染。
+ * 默认工具结果渲染器 - 极致紧凑版
+ * 将 JSON 压平为一行，最多显示 100 字符。
  */
 
-import { Box, Text } from 'ink';
+import React from 'react';
+import { Text } from 'ink';
 
-const MAX_LINES = 10;
-
-/** 工具渲染器统一 Props */
 export interface ToolRendererProps {
   toolName: string;
   args: Record<string, unknown>;
@@ -17,19 +14,10 @@ export interface ToolRendererProps {
 
 export function DefaultRenderer({ result }: ToolRendererProps) {
   const text = typeof result === 'string'
-    ? result
-    : JSON.stringify(result, null, 2);
+    ? result.replace(/\n/g, ' ')
+    : JSON.stringify(result).replace(/\n/g, ' ');
 
-  const lines = text.split('\n');
-  const truncated = lines.length > MAX_LINES;
-  const display = truncated ? lines.slice(0, MAX_LINES).join('\n') : text;
+  const truncated = text.length > 80 ? text.slice(0, 80) + '...' : text;
 
-  return (
-    <Box flexDirection="column">
-      <Text color="gray">{display}</Text>
-      {truncated && (
-        <Text color="gray">  … ({lines.length - MAX_LINES} 行已省略)</Text>
-      )}
-    </Box>
-  );
+  return <Text dimColor italic> ↳ {truncated}</Text>;
 }

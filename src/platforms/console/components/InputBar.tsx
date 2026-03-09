@@ -1,8 +1,8 @@
 /**
- * 底部输入栏 - IRIS 系统终端风格
+ * 底部输入栏
  */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 
@@ -15,6 +15,7 @@ export function InputBar({ disabled, onSubmit }: InputBarProps) {
   const [value, setValue] = useState('');
 
   const handleSubmit = (text: string) => {
+    if (disabled) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     onSubmit(trimmed);
@@ -22,22 +23,15 @@ export function InputBar({ disabled, onSubmit }: InputBarProps) {
   };
 
   return (
-    <Box marginTop={1} flexDirection="column">
-      <Box>
-        <Text bold color={disabled ? 'gray' : 'cyan'}>
-          IRIS@LOCAL:~ $
-        </Text>
-        {!disabled && (
-          <Box marginLeft={1}>
-            <TextInput
-              value={value}
-              onChange={setValue}
-              onSubmit={handleSubmit}
-              placeholder="..."
-            />
-          </Box>
-        )}
-        {disabled && <Text color="gray"> [BUSY]</Text>}
+    <Box flexDirection="row" width="100%">
+      <Text color={disabled ? 'gray' : 'cyan'} bold>{"\u276F"} </Text>
+      <Box flexGrow={1}>
+        <TextInput
+          value={value}
+          onChange={setValue}
+          onSubmit={handleSubmit}
+          placeholder=""
+        />
       </Box>
     </Box>
   );

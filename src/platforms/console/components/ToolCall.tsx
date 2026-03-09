@@ -1,7 +1,8 @@
 /**
- * 工具调用卡片 - 终端控制台风格
+ * 工具调用卡片
  */
 
+import React from 'react';
 import { Box, Text } from 'ink';
 import { Spinner } from './Spinner';
 import { ToolInvocation, ToolStatus } from '../../../types';
@@ -9,24 +10,8 @@ import { getToolRenderer } from '../tool-renderers';
 
 interface ToolCallProps {
   invocation: ToolInvocation;
+  lineColor?: string;
 }
-
-interface StatusConfig {
-  tag: string;
-  color: string;
-  useSpinner?: boolean;
-}
-
-const STATUS_MAP: Record<ToolStatus, StatusConfig> = {
-  streaming:         { tag: 'STREAM',  color: 'yellow' },
-  queued:            { tag: 'QUEUED',  color: 'gray'   },
-  awaiting_approval: { tag: 'CONFIRM', color: 'yellow' },
-  executing:         { tag: 'EXEC',    color: 'cyan',   useSpinner: true },
-  awaiting_apply:    { tag: 'APPLY',   color: 'yellow' },
-  success:           { tag: 'OK',      color: 'green'  },
-  warning:           { tag: 'WARN',    color: 'yellow' },
-  error:             { tag: 'FAIL',    color: 'red'},
-};
 
 const TERMINAL_STATUSES = new Set<ToolStatus>(['success', 'warning', 'error']);
 
@@ -34,7 +19,7 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
   switch (toolName) {
     case 'terminal': {
       const cmd = String(args.command || '');
-      return cmd.length > 50 ? `$ ${cmd.slice(0, 50)}…` : `$ ${cmd}`;
+      return cmd.length > 30 ? `"${cmd.slice(0, 30)}\u2026"` : `"${cmd}"`;
     }
     case 'read_file':
       return String(args.path || '');
@@ -47,34 +32,40 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
   }
 }
 
-export function ToolCall({ invocation }: ToolCallProps) {
+export function ToolCall({ invocation, lineColor = 'green' }: ToolCallProps) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
-  const cfg = STATUS_MAP[status];
+  const isFinal = TERMINAL_STATUSES.has(status);
+  const isExecuting = status === 'executing';
 
   const argsSummary = getArgsSummary(toolName, args);
-  const isTerminal = TERMINAL_STATUSES.has(status);
-  const Renderer = isTerminal && result != null ? getToolRenderer(toolName) : null;
-  const duration = isTerminal ? ((updatedAt - createdAt) / 1000).toFixed(1) + 's' : '';
+  const Renderer = isFinal && result != null ? getToolRenderer(toolName) : null;
+  const duration = isFinal ? ((updatedAt - createdAt) / 1000).toFixed(1) + 's' : '';
 
   return (
-    <Box flexDirection="column" marginLeft={2} marginBottom={1}>
-      <Text>
-        <Text color="gray">└─ </Text>
-        <Text bold color={cfg.color}>[{cfg.tag}]</Text>
-        <Text> </Text>
-        <Text color="white">{toolName}</Text>
-        {argsSummary && <Text color="gray"> {argsSummary}</Text>}
-        {cfg.useSpinner && <Spinner />}
-        {duration && <Text color="gray"> [{duration}]</Text>}
-        {status === 'error' && error && <Text color="red"> ERR: {error}</Text>}
-      </Text>
-
+    <Box flexDirection="column">
+      <Box>
+        <Text>
+          <Text dimColor color={lineColor}>{"\u251C\u2500 "}</Text>
+          <Text bold={!isFinal} color={isFinal ? 'gray' : undefined}>{toolName}</Text>
+          {argsSummary.length > 0 && <Text dimColor> {argsSummary}</Text>}
+          {status === 'success' && <Text dimColor> {'\u2713'}</Text>}
+          {status === 'warning' && <Text color="yellow"> !</Text>}
+          {status === 'error' && <Text color="red"> {'\u2717'}</Text>}
+          {!isFinal && !isExecuting && <Text dimColor> [{status}]</Text>}
+          {duration && <Text dimColor> {duration}</Text>}
+        </Text>
+        {isExecuting && <Spinner />}
+      </Box>
+      {status === 'error' && error && (
+        <Text>
+          <Text dimColor color={lineColor}>{"\u2502  "}</Text>
+          <Text color="red" italic>{'\u21B3'} {error}</Text>
+        </Text>
+      )}
       {Renderer && result != null && (
-        <Box marginLeft={3} paddingLeft={1}>
-          <Text color="gray">│ </Text>
-          <Box flexGrow={1}>
-            <Renderer toolName={toolName} args={args} result={result} />
-          </Box>
+        <Box>
+          <Text dimColor color={lineColor}>{"\u2502  "}</Text>
+          <Renderer toolName={toolName} args={args} result={result} />
         </Box>
       )}
     </Box>
