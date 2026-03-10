@@ -9,6 +9,10 @@ export interface LLMConfig {
   baseUrl: string;
   /** 模型上下文窗口大小（token 数），用于 TUI 显示占用比例 */
   contextWindow?: number;
+  /** 自定义请求头，会覆盖 provider 内置同名 header */
+  headers?: Record<string, string>;
+  /** 自定义请求体，会深合并到 provider 编码后的最终请求体，支持嵌套参数 */
+  requestBody?: Record<string, unknown>;
 }
 
 /** 三层 LLM 配置：primary 必填，secondary/light 可选（未配置时自动向上回退） */

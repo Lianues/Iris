@@ -9,6 +9,8 @@ export interface ClaudeProviderConfig {
   apiKey: string;
   model?: string;
   baseUrl?: string;
+  headers?: Record<string, string>;
+  requestBody?: Record<string, unknown>;
 }
 
 export function createClaudeProvider(config: ClaudeProviderConfig): LLMProvider {
@@ -22,8 +24,10 @@ export function createClaudeProvider(config: ClaudeProviderConfig): LLMProvider 
       headers: {
         'x-api-key': config.apiKey,
         'anthropic-version': '2023-06-01',
+        ...config.headers,
       },
     },
     'Claude',
+    config.requestBody,
   );
 }

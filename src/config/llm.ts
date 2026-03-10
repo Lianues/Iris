@@ -33,6 +33,8 @@ export function parseSingleLLMConfig(raw: any = {}): LLMConfig {
     model: raw.model || defaults.model || '',
     baseUrl: raw.baseUrl || defaults.baseUrl || '',
     contextWindow: typeof raw.contextWindow === 'number' ? raw.contextWindow : defaults.contextWindow,
+    headers: raw.headers && typeof raw.headers === 'object' && !Array.isArray(raw.headers) ? raw.headers : undefined,
+    requestBody: raw.requestBody && typeof raw.requestBody === 'object' && !Array.isArray(raw.requestBody) ? raw.requestBody : undefined,
   };
 }
 

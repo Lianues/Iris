@@ -7,6 +7,17 @@
 import { Content, Part, UsageMetadata, FunctionCallPart } from './message';
 import { FunctionDeclaration } from './tool';
 
+/** 统一生成参数（允许 provider 扩展字段） */
+export interface LLMGenerationConfig {
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  maxOutputTokens?: number;
+  stopSequences?: string[];
+  /** 允许透传 provider 特有的嵌套参数，如 thinkingConfig */
+  [key: string]: unknown;
+}
+
 /** LLM 请求体（Gemini generateContent 格式） */
 export interface LLMRequest {
   contents: Content[];
@@ -16,13 +27,7 @@ export interface LLMRequest {
   systemInstruction?: {
     parts: Part[];
   };
-  generationConfig?: {
-    temperature?: number;
-    topP?: number;
-    topK?: number;
-    maxOutputTokens?: number;
-    stopSequences?: string[];
-  };
+  generationConfig?: LLMGenerationConfig;
 }
 
 /** LLM 响应（统一格式） */

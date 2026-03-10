@@ -11,6 +11,8 @@ export interface OpenAICompatibleProviderConfig {
   apiKey: string;
   model?: string;
   baseUrl?: string;
+  headers?: Record<string, string>;
+  requestBody?: Record<string, unknown>;
 }
 
 export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderConfig): LLMProvider {
@@ -21,8 +23,9 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderC
     new OpenAICompatibleFormat(model),
     {
       url: `${baseUrl}/v1/chat/completions`,
-      headers: { 'Authorization': `Bearer ${config.apiKey}` },
+      headers: { 'Authorization': `Bearer ${config.apiKey}`, ...config.headers },
     },
     'OpenAICompatible',
+    config.requestBody,
   );
 }

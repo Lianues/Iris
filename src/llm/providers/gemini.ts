@@ -9,6 +9,8 @@ export interface GeminiProviderConfig {
   apiKey: string;
   model?: string;
   baseUrl?: string;
+  headers?: Record<string, string>;
+  requestBody?: Record<string, unknown>;
 }
 
 export function createGeminiProvider(config: GeminiProviderConfig): LLMProvider {
@@ -21,8 +23,9 @@ export function createGeminiProvider(config: GeminiProviderConfig): LLMProvider 
     {
       url: `${baseUrl}/v1beta/models/${model}:generateContent`,
       streamUrl: `${baseUrl}/v1beta/models/${model}:streamGenerateContent?alt=sse`,
-      headers: { 'x-goog-api-key': key },
+      headers: { 'x-goog-api-key': key, ...config.headers },
     },
     'Gemini',
+    config.requestBody,
   );
 }

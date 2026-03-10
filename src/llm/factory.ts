@@ -19,12 +19,16 @@ export function createLLMFromConfig(config: LLMConfig): LLMProvider {
         apiKey: config.apiKey,
         model: config.model,
         baseUrl: config.baseUrl,
+        headers: config.headers,
+        requestBody: config.requestBody,
       });
     case 'claude':
       return createClaudeProvider({
         apiKey: config.apiKey,
         model: config.model,
         baseUrl: config.baseUrl,
+        headers: config.headers,
+        requestBody: config.requestBody,
       });
     case 'gemini':
     default:
@@ -32,6 +36,8 @@ export function createLLMFromConfig(config: LLMConfig): LLMProvider {
         apiKey: config.apiKey,
         model: config.model,
         baseUrl: config.baseUrl,
+        headers: config.headers,
+        requestBody: config.requestBody,
       });
   }
 }

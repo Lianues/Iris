@@ -13,6 +13,22 @@ primary:
   # 常见模型已有内置默认值，通常无需手动设置
   # contextWindow: 1048576
 
+  # 自定义请求头：会覆盖 provider 内置同名 header
+  # headers:
+  #   x-goog-api-key: your-override-key
+  #   x-custom-header: hello
+
+  # 自定义请求体：会深合并到 provider 编码后的最终请求体，支持嵌套参数
+  # 例如 Gemini thinking / 输出长度 / 温度等都可以直接这样配置
+  # requestBody:
+  #   generationConfig:
+  #     maxOutputTokens: 32000
+  #     temperature: 1
+  #     topP: 1
+  #     thinkingConfig:
+  #       thinkingBudget: 1228
+  #       includeThoughts: true
+
 # secondary:
 #   provider: openai-compatible
 #   apiKey: your-api-key-here
