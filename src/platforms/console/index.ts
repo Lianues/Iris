@@ -159,11 +159,13 @@ export class ConsolePlatform extends PlatformAdapter {
     this.appHandle?.addMessage('user', text);
     this.appHandle?.setGenerating(true);
     this.currentToolIds.clear();
+    const startTime = Date.now();
 
     try {
       await this.backend.chat(this.sessionId, text);
     } finally {
       this.appHandle?.commitTools();
+      this.appHandle?.finalizeResponse(Date.now() - startTime);
       this.appHandle?.setGenerating(false);
     }
   }

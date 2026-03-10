@@ -28,6 +28,7 @@ export interface AppHandle {
   clearMessages(): void;
   commitTools(): void;
   setUsage(usage: UsageMetadata): void;
+  finalizeResponse(durationMs: number): void;
 }
 
 interface AppProps {
@@ -50,7 +51,6 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolInvocations, setToolInvocations] = useState<ToolInvocation[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [lastUsage, setLastUsage] = useState<UsageMetadata | null>(null);
   const [contextTokens, setContextTokens] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
   const [sessionList, setSessionList] = useState<SessionMeta[]>([]);
@@ -60,6 +60,7 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
   const streamRef = useRef('');
   const toolInvocationsRef = useRef<ToolInvocation[]>([]);
   const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastUsageRef = useRef<UsageMetadata | null>(null);
 
   useEffect(() => {
     const handle: AppHandle = {
@@ -167,9 +168,27 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
       },
 
       setUsage(usage: UsageMetadata) {
-        setLastUsage(usage);
         setContextTokens(usage.totalTokenCount ?? 0);
-    },
+        lastUsageRef.current = usage;
+      },
+
+      finalizeResponse(durationMs: number) {
+        const usage = lastUsageRef.current;
+        setMessages(prev => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          if (last.role !== 'assistant') return prev;
+          const copy = [...prev];
+          copy[copy.length - 1] = {
+            ...last,
+            tokenIn: usage?.promptTokenCount,
+            tokenOut: usage?.candidatesTokenCount,
+            durationMs,
+          };
+          return copy;
+        });
+        lastUsageRef.current = null;
+      },
     };
     onReady(handle);
   }, [onReady]);
@@ -341,13 +360,9 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
         <Text wrap="truncate-end">
           <Text dimColor>{'\u2500'.repeat(Math.max(3, termWidth - 6))}</Text>
         </Text>
-        <Box>
-          <Text dimColor>MODE: {(modeName ?? 'normal').toUpperCase()}</Text>
-          <Text dimColor>  CTX: {contextTokens > 0 ? contextTokens.toLocaleString() : '-'}</Text>
-          {lastUsage && (
-            <Text dimColor>  IN: {lastUsage.promptTokenCount?.toLocaleString() ?? '-'} OUT: {lastUsage.candidatesTokenCount?.toLocaleString() ?? '-'}</Text>
-          )}
-        </Box>
+        <Text dimColor>
+          MODE: {(modeName ?? 'normal').toUpperCase()}  CTX: {contextTokens > 0 ? contextTokens.toLocaleString() : '-'}
+        </Text>
         <Text dimColor>{process.cwd()}</Text>
         <InputBar disabled={isGenerating} onSubmit={handleSubmit} />
       </Box>

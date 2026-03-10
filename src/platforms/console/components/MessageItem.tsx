@@ -32,6 +32,12 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   parts: MessagePart[];
+  /** 输入 token 数 */
+  tokenIn?: number;
+  /** 输出 token 数 */
+  tokenOut?: number;
+  /** 回答耗时（毫秒） */
+  durationMs?: number;
 }
 
 // ====== 组件 ======
@@ -104,6 +110,20 @@ export const MessageItem = React.memo(function MessageItem(
         }
         return null;
       })}
+
+      {/* assistant 消息的 token / 耗时信息 */}
+      {!isUser && !isStreaming && (msg.tokenIn != null || msg.durationMs != null) && (
+        <Box paddingLeft={0}>
+          <Text dimColor color={themeColor}>{PIPE} </Text>
+          <Text dimColor>
+            {msg.tokenIn != null && `IN: ${msg.tokenIn.toLocaleString()}`}
+            {msg.tokenIn != null && msg.tokenOut != null && '  '}
+            {msg.tokenOut != null && `OUT: ${msg.tokenOut.toLocaleString()}`}
+            {msg.durationMs != null && (msg.tokenIn != null ? '  ' : '')}
+            {msg.durationMs != null && `TIME: ${(msg.durationMs / 1000).toFixed(1)}s`}
+          </Text>
+        </Box>
+      )}
 
       {/* 没有内容但正在流式生成 */}
       {!hasAnyContent && isStreaming && (
