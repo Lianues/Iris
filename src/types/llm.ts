@@ -37,6 +37,8 @@ export interface LLMResponse {
 
 /** 流式响应的单个数据块 */
 export interface LLMStreamChunk {
+  /** 本块新增的有序 parts（优先使用） */
+  partsDelta?: Part[];
   /** 本块新增的文本 */
   textDelta?: string;
   /** 完整的函数调用（通常在最后一块或专用块中出现） */

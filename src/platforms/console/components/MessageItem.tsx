@@ -8,6 +8,12 @@ import { ToolInvocation } from '../../../types';
 import { Spinner } from './Spinner';
 import { ToolCall } from './ToolCall';
 
+function getLatestThoughtLine(text: string): string {
+  const lines = text.replace(/\r\n/g, '\n').split('\n').map(s => s.trim()).filter(Boolean);
+  if (lines.length === 0) return '';
+  return lines[lines.length - 1];
+}
+
 /** 极简 Markdown 渲染 */
 function renderMarkdown(text: string, baseColor: string) {
   const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
@@ -26,6 +32,7 @@ function renderMarkdown(text: string, baseColor: string) {
 
 export type MessagePart =
   | { type: 'text'; text: string }
+  | { type: 'thought'; text: string }
   | { type: 'tool_use'; tools: ToolInvocation[] };
 
 export interface ChatMessage {
@@ -45,7 +52,7 @@ export interface ChatMessage {
 interface MessageItemProps {
   msg: ChatMessage;
   liveTools?: ToolInvocation[];
-  streamingAppend?: string;
+  liveParts?: MessagePart[];
   isStreaming?: boolean;
 }
 
@@ -54,7 +61,7 @@ const CIRCLE_OPEN = '○';
 const CIRCLE_FILL = '●';
 
 export const MessageItem = React.memo(function MessageItem(
-  { msg, liveTools, streamingAppend, isStreaming }: MessageItemProps
+  { msg, liveTools, liveParts, isStreaming }: MessageItemProps
 ) {
   const isUser = msg.role === 'user';
   const themeColor = isUser ? 'cyan' : 'green';
@@ -62,11 +69,11 @@ export const MessageItem = React.memo(function MessageItem(
   const textColor = 'white';
 
   const displayParts: MessagePart[] = [...msg.parts];
+  if (liveParts && liveParts.length > 0) {
+    displayParts.push(...liveParts);
+  }
   if (liveTools && liveTools.length > 0) {
     displayParts.push({ type: 'tool_use', tools: liveTools });
-  }
-  if (streamingAppend && streamingAppend.length > 0) {
-    displayParts.push({ type: 'text', text: streamingAppend });
   }
 
   const hasAnyContent = displayParts.length > 0;
@@ -90,6 +97,22 @@ export const MessageItem = React.memo(function MessageItem(
                 <Text wrap="wrap">
                   {renderMarkdown(part.text, textColor)}
                   {isLastPart && isStreaming && <Text backgroundColor="green"> </Text>}
+                </Text>
+              </Box>
+            </Box>
+          );
+        }
+        if (part.type === 'thought') {
+          const latestLine = getLatestThoughtLine(part.text);
+          const isLastPart = i === displayParts.length - 1;
+          return (
+            <Box key={i} paddingLeft={0}>
+              <Text dimColor color={themeColor}>{PIPE} </Text>
+              <Box flexGrow={1}>
+                <Text wrap="truncate-end">
+                  <Text bold color="yellow">[THINKING]</Text>
+                  {latestLine ? <Text dimColor> {latestLine}</Text> : null}
+                  {isLastPart && isStreaming && <Text backgroundColor="yellow"> </Text>}
                 </Text>
               </Box>
             </Box>

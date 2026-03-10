@@ -18,6 +18,70 @@ function nextMsgId() {
   return `msg-${++_msgIdCounter}`;
 }
 
+function appendMergedMessagePart(parts: MessagePart[], nextPart: MessagePart): void {
+  const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
+  if (lastPart && lastPart.type === 'text' && nextPart.type === 'text') {
+    lastPart.text += nextPart.text;
+    return;
+  }
+  if (lastPart && lastPart.type === 'thought' && nextPart.type === 'thought') {
+    lastPart.text += nextPart.text;
+    return;
+  }
+  if (lastPart && lastPart.type === 'tool_use' && nextPart.type === 'tool_use') {
+    lastPart.tools.push(...nextPart.tools);
+    return;
+  }
+  parts.push(nextPart);
+}
+
+function mergeMessageParts(parts: MessagePart[]): MessagePart[] {
+  const merged: MessagePart[] = [];
+  for (const part of parts) {
+    appendMergedMessagePart(merged, { ...part } as MessagePart);
+  }
+  return merged;
+}
+
+function applyToolInvocationsToParts(parts: MessagePart[], invocations: ToolInvocation[]): MessagePart[] {
+  const nextParts: MessagePart[] = [];
+  let cursor = 0;
+
+  for (const part of parts) {
+    if (part.type !== 'tool_use') {
+      nextParts.push(part);
+      continue;
+    }
+
+    const expectedCount = Math.max(1, part.tools.length);
+    const assigned = invocations.slice(cursor, cursor + expectedCount);
+    cursor += assigned.length;
+
+    nextParts.push({
+      type: 'tool_use',
+      tools: assigned.length > 0 ? assigned : part.tools,
+    });
+  }
+
+  if (cursor < invocations.length) {
+    nextParts.push({ type: 'tool_use', tools: invocations.slice(cursor) });
+  }
+
+  return nextParts;
+}
+
+function appendAssistantParts(prev: ChatMessage[], partsToAppend: MessagePart[], meta?: MessageMeta): ChatMessage[] {
+  const normalizedParts = mergeMessageParts(partsToAppend);
+  if (normalizedParts.length === 0) return prev;
+  if (prev.length > 0 && prev[prev.length - 1].role === 'assistant') {
+    const copy = [...prev];
+    const last = copy[copy.length - 1];
+    copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...last.parts, ...normalizedParts]), ...meta };
+    return copy;
+  }
+  return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta }];
+}
+
 export interface MessageMeta {
   tokenIn?: number;
   tokenOut?: number;
@@ -26,10 +90,12 @@ export interface MessageMeta {
 
 export interface AppHandle {
   addMessage(role: 'user' | 'assistant', content: string, meta?: MessageMeta): void;
+  addStructuredMessage(role: 'user' | 'assistant', parts: MessagePart[], meta?: MessageMeta): void;
 
   startStream(): void;
-  pushStreamChunk(chunk: string): void;
+  pushStreamParts(parts: MessagePart[]): void;
   endStream(): void;
+  finalizeAssistantParts(parts: MessagePart[]): void;
   setToolInvocations(invocations: ToolInvocation[]): void;
   setGenerating(generating: boolean): void;
   clearMessages(): void;
@@ -55,9 +121,8 @@ type ViewMode = 'chat' | 'session-list';
 
 export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSessions, onRunCommand, onExit, modeName, contextWindow }: AppProps) {
   const [messages, setMessages] =useState<ChatMessage[]>([]);
-  const [streamingText, setStreamingText] = useState('');
+  const [streamingParts, setStreamingParts] = useState<MessagePart[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [toolInvocations, setToolInvocations] = useState<ToolInvocation[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [contextTokens, setContextTokens] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
@@ -65,30 +130,33 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
   const [selectedIndex, setSelectedIndex] = useState(0);
   const { stdout } = useStdout();
 
-  const streamRef = useRef('');
+  const streamPartsRef = useRef<MessagePart[]>([]);
   const toolInvocationsRef = useRef<ToolInvocation[]>([]);
   const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCommittedStreamPartsRef = useRef(0);
   const lastUsageRef = useRef<UsageMetadata | null>(null);
 
   useEffect(() => {
     const handle: AppHandle = {
       addMessage(role, content, meta?) {
+        const textPart: MessagePart = { type: 'text', text: content };
+        if (role === 'assistant') {
+          setMessages(prev => appendAssistantParts(prev, [textPart], meta));
+          return;
+        }
         setMessages(prev => {
-          if (role === 'assistant' && prev.length > 0 && prev[prev.length - 1].role === 'assistant') {
-            const copy = [...prev];
-            const last = copy[copy.length - 1];
-            const parts = [...last.parts];
-            const lastPart = parts.length > 0 ? parts[parts.length - 1] : null;
-            if (lastPart && lastPart.type === 'text') {
-              parts[parts.length - 1] = { type: 'text', text: lastPart.text + content };
-            } else {
-              parts.push({ type: 'text', text: content });
-            }
-            copy[copy.length - 1] = { ...last, parts, ...meta };
-            return copy;
-          }
-          return [...prev, { id: nextMsgId(), role, parts: [{ type: 'text', text: content }], ...meta }];
+          return [...prev, { id: nextMsgId(), role, parts: [textPart], ...meta }];
         });
+      },
+
+      addStructuredMessage(role, parts, meta?) {
+        const normalizedParts = mergeMessageParts(parts);
+        if (normalizedParts.length === 0) return;
+        if (role === 'assistant') {
+          setMessages(prev => appendAssistantParts(prev, normalizedParts, meta));
+          return;
+        }
+        setMessages(prev => [...prev, { id: nextMsgId(), role, parts: normalizedParts, ...meta }]);
       },
 
       startStream() {
@@ -96,16 +164,19 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
           handle.commitTools();
         }
         setIsStreaming(true);
-        streamRef.current = '';
-        setStreamingText('');
+        pendingCommittedStreamPartsRef.current = 0;
+        streamPartsRef.current = [];
+        setStreamingParts([]);
       },
 
-      pushStreamChunk(chunk) {
-        streamRef.current += chunk;
+      pushStreamParts(parts) {
+        for (const part of parts) {
+          appendMergedMessagePart(streamPartsRef.current, { ...part } as MessagePart);
+        }
         if (!throttleTimerRef.current) {
           throttleTimerRef.current = setTimeout(() => {
             throttleTimerRef.current = null;
-            setStreamingText(streamRef.current);
+            setStreamingParts([...streamPartsRef.current]);
           }, 60);
         }
       },
@@ -116,33 +187,48 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
           throttleTimerRef.current = null;
         }
         setIsStreaming(false);
-        const text = streamRef.current;
-        streamRef.current = '';
-        setStreamingText('');
-        if (!text) return;
+        const parts = [...streamPartsRef.current];
+        if (parts.length > 0) {
+          pendingCommittedStreamPartsRef.current = parts.length;
+          setMessages(prev => appendAssistantParts(prev, parts));
+        } else {
+          pendingCommittedStreamPartsRef.current = 0;
+        }
+        streamPartsRef.current = [];
+        setStreamingParts([]);
+      },
 
+      finalizeAssistantParts(parts) {
+        const normalizedParts = mergeMessageParts(parts);
         setMessages(prev => {
-          if (prev.length > 0 && prev[prev.length - 1].role === 'assistant') {
-            const copy = [...prev];
-            const last = copy[copy.length - 1];
-            const parts = [...last.parts];
-            const lastPart = parts.length > 0 ? parts[parts.length - 1] : null;
-            if (lastPart && lastPart.type === 'text') {
-              parts[parts.length - 1] = { type: 'text', text: lastPart.text + text };
-            } else {
-              parts.push({ type: 'text', text });
-            }
-            copy[copy.length - 1] = { ...last, parts };
-            return copy;
+          if (normalizedParts.length === 0) return prev;
+          if (prev.length === 0) return [{ id: nextMsgId(), role: 'assistant', parts: normalizedParts }];
+          const last = prev[prev.length - 1];
+          if (last.role !== 'assistant') {
+            return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts }];
           }
-          return [...prev, { id: nextMsgId(), role: 'assistant', parts: [{ type: 'text', text }] }];
+          const replaceCount = pendingCommittedStreamPartsRef.current;
+          const baseParts = replaceCount > 0 ? last.parts.slice(0, Math.max(0, last.parts.length - replaceCount)) : last.parts;
+          const copy = [...prev];
+          copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...baseParts, ...normalizedParts]) };
+          return copy;
         });
+        pendingCommittedStreamPartsRef.current = 0;
       },
 
       setToolInvocations(invocations) {
         const copy = [...invocations];
         toolInvocationsRef.current = copy;
-        setToolInvocations(copy);
+        setMessages(prev => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          if (last.role !== 'assistant') return prev;
+
+          const nextParts = applyToolInvocationsToParts(last.parts, copy);
+          const copyMessages = [...prev];
+          copyMessages[copyMessages.length - 1] = { ...last, parts: mergeMessageParts(nextParts) };
+          return copyMessages;
+        });
       },
 
       setGenerating(generating) {
@@ -151,28 +237,13 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
 
       clearMessages() {
         setMessages([]);
-        setToolInvocations([]);
-        setStreamingText('');
-        streamRef.current = '';
+        setStreamingParts([]);
+        streamPartsRef.current = [];
+        pendingCommittedStreamPartsRef.current = 0;
       },
 
       commitTools() {
-        const currentTools = toolInvocationsRef.current;
-        if (currentTools.length === 0) return;
-        const toolPart: MessagePart = { type: 'tool_use', tools: [...currentTools] };
-        setMessages(prev => {
-          const last = prev.length > 0 ? prev[prev.length - 1] : null;
-          if (last && last.role === 'assistant') {
-            const copy = [...prev];
-            const parts = [...last.parts];
-            parts.push(toolPart);
-            copy[copy.length - 1] = { ...last, parts };
-            return copy;
-          }
-          return [...prev, { id: nextMsgId(), role: 'assistant' as const, parts: [toolPart] }];
-        });
         toolInvocationsRef.current = [];
-        setToolInvocations([]);
       },
 
       setUsage(usage: UsageMetadata) {
@@ -210,7 +281,7 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
     }
     if (text === '/new') {
       setMessages([]);
-      setToolInvocations([]);
+      toolInvocationsRef.current = [];
       onNewSession();
       return;
     }
@@ -249,7 +320,7 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
         const selected =sessionList[selectedIndex];
         if (selected) {
           setMessages([]);
-          setToolInvocations([]);
+          toolInvocationsRef.current = [];
           setViewMode('chat');
           onLoadSession(selected.id);
         }
@@ -348,16 +419,14 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
         {activeMessage && (
           <MessageItem
             msg={activeMessage}
-            liveTools={toolInvocations.length > 0 ? toolInvocations : undefined}
-            streamingAppend={isStreaming ? streamingText : undefined}
+            liveParts={streamingParts.length > 0 ? streamingParts : undefined}
             isStreaming={isStreaming}
           />
         )}
         {isGenerating && !lastIsActiveAssistant && !activeMessage && (
           <MessageItem
             msg={{ id: 'tmp', role: 'assistant', parts: [] }}
-            liveTools={toolInvocations.length > 0 ? toolInvocations : undefined}
-            streamingAppend={isStreaming ? streamingText : undefined}
+            liveParts={streamingParts.length > 0 ? streamingParts : undefined}
             isStreaming={isStreaming}
           />
         )}

@@ -6,7 +6,7 @@
 
 import {
   LLMRequest, LLMResponse, LLMStreamChunk, Part, FunctionCallPart,
-  isTextPart, isFunctionCallPart, isFunctionResponsePart,
+  isTextPart, isVisibleTextPart, isFunctionCallPart, isFunctionResponsePart,
 } from '../../types';
 import { FormatAdapter, StreamDecodeState } from './types';
 
@@ -21,7 +21,7 @@ export class ClaudeFormat implements FormatAdapter {
     // systemInstruction → system 字符串
     if (request.systemInstruction?.parts) {
       const text = request.systemInstruction.parts
-        .filter(isTextPart).map(p => p.text).join('\n');
+        .filter(isVisibleTextPart).map(p => p.text).join('\n');
       if (text) body.system = text;
     }
 
@@ -30,7 +30,7 @@ export class ClaudeFormat implements FormatAdapter {
     let toolUseIdCounter = 0;
 
     for (const content of request.contents) {
-      const textParts = content.parts.filter(isTextPart);
+      const textParts = content.parts.filter(isVisibleTextPart);
       const funcCallParts = content.parts.filter(isFunctionCallPart);
       const funcRespParts = content.parts.filter(isFunctionResponsePart);
 

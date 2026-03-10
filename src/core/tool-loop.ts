@@ -19,7 +19,7 @@ import { PromptAssembler } from '../prompt/assembler';
 import { createLogger } from '../logger';
 import {
   Content, Part, LLMRequest,
-  isFunctionCallPart, isTextPart,
+  isFunctionCallPart, extractText,
   FunctionCallPart, FunctionResponsePart,
 } from '../types';
 import { LLMTier } from '../llm/router';
@@ -92,7 +92,7 @@ export class ToolLoop {
       // 检查工具调用
       const functionCalls = modelContent.parts.filter(isFunctionCallPart);
       if (functionCalls.length === 0) {
-        const text = modelContent.parts.filter(isTextPart).map(p => p.text).join('');
+        const text = extractText(modelContent.parts);
         return { text, history };
       }
 

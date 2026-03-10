@@ -26,10 +26,25 @@ import { createLogger } from '../logger';
 import {
   Content, Part, LLMRequest, UsageMetadata, ToolInvocation,
   isFunctionCallPart, isTextPart,
-  FunctionCallPart,
 } from '../types';
 
 const logger = createLogger('Backend');
+
+function appendMergedPart(parts: Part[], nextPart: Part): void {
+  const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
+  if (lastPart && 'text' in lastPart && 'text' in nextPart) {
+    const lastThought = lastPart.thought === true;
+    const nextThought = nextPart.thought === true;
+    if (lastThought === nextThought) {
+      lastPart.text += nextPart.text;
+      if (nextPart.thoughtSignature && !lastPart.thoughtSignature) {
+        lastPart.thoughtSignature = nextPart.thoughtSignature;
+      }
+      return;
+    }
+  }
+  parts.push(nextPart);
+}
 
 // ============ 配置与事件类型 ============
 
@@ -51,6 +66,8 @@ export interface BackendEvents {
   'response': (sessionId: string, text: string) => void;
   /** 流式段开始 */
   'stream:start': (sessionId: string) => void;
+  /** 流式结构化 part 增量（按顺序） */
+  'stream:parts': (sessionId: string, parts: Part[]) => void;
   /** 流式文本块 */
   'stream:chunk': (sessionId: string, chunk: string) => void;
   /** 流式段结束 */
@@ -61,6 +78,10 @@ export interface BackendEvents {
   'error': (sessionId: string, error: string) => void;
   /** Token 用量（每轮 LLM 调用后发出） */
   'usage': (sessionId: string, usage: UsageMetadata) => void;
+  /** 当前用户回合完成（统一耗时来源） */
+  'done': (sessionId: string, durationMs: number) => void;
+  /** 一轮模型输出完成后的完整内容（结构化） */
+  'assistant:content': (sessionId: string, content: Content) => void;
 }
 
 // ============ Backend 类 ============
@@ -306,17 +327,19 @@ export class Backend extends EventEmitter {
 
     // 3. 构建 LLM 调用函数
     const callLLM: LLMCaller = async (request, tier) => {
+      let content: Content;
       if (this.stream) {
-        return this.callLLMStream(sessionId, request, tier);
+        content = await this.callLLMStream(sessionId, request, tier);
       } else {
         const response = await this.router.chat(request, tier);
-        const content = response.content;
+        content = response.content;
         if (response.usageMetadata) {
           content.usageMetadata = response.usageMetadata;
           this.emit('usage', sessionId, response.usageMetadata);
         }
-        return content;
       }
+      this.emit('assistant:content', sessionId, content);
+      return content;
     };
 
     // 4. 解析模式工具过滤
@@ -350,6 +373,7 @@ export class Backend extends EventEmitter {
     if (!this.stream && result.text) {
       this.emit('response', sessionId, result.text);
     }
+    this.emit('done', sessionId, durationMs);
 
     this.activeSessionId = undefined;
   }
@@ -361,22 +385,37 @@ export class Backend extends EventEmitter {
     request: LLMRequest,
     tier: LLMTier = 'primary',
   ): Promise<Content> {
-    let fullText = '';
-    const collectedCalls: FunctionCallPart[] = [];
+    const parts: Part[] = [];
     let usageMetadata: UsageMetadata | undefined;
-    let thoughtSignature: string | undefined;
 
     this.emit('stream:start', sessionId);
 
     const llmStream = this.router.chatStream(request, tier);
     for await (const chunk of llmStream) {
+      const deltaParts: Part[] = [];
+
+      if (chunk.partsDelta && chunk.partsDelta.length > 0) {
+        deltaParts.push(...chunk.partsDelta);
+      } else {
+        if (chunk.textDelta) {
+          deltaParts.push({ text: chunk.textDelta });
+        }
+        if (chunk.functionCalls) {
+          deltaParts.push(...chunk.functionCalls);
+        }
+      }
+
+      if (deltaParts.length > 0) {
+        for (const part of deltaParts) {
+          appendMergedPart(parts, part);
+        }
+        this.emit('stream:parts', sessionId, deltaParts);
+      }
+
       if (chunk.textDelta) {
-        fullText += chunk.textDelta;
         this.emit('stream:chunk', sessionId, chunk.textDelta);
-    }
-      if (chunk.functionCalls) collectedCalls.push(...chunk.functionCalls);
+      }
       if (chunk.usageMetadata) usageMetadata = chunk.usageMetadata;
-      if (chunk.thoughtSignature) thoughtSignature = chunk.thoughtSignature;
     }
 
     this.emit('stream:end', sessionId, usageMetadata);
@@ -384,13 +423,6 @@ export class Backend extends EventEmitter {
       this.emit('usage', sessionId, usageMetadata);
     }
 
-    const parts: Part[] = [];
-    if (fullText) {
-      const textPart: any = { text: fullText };
-      if (thoughtSignature) textPart.thoughtSignature = thoughtSignature;
-      parts.push(textPart);
-    }
-    parts.push(...collectedCalls.map(c => thoughtSignature ? { ...c, thoughtSignature } as any : c));
     if (parts.length === 0) parts.push({ text: '' });
 
     const content: Content = { role: 'model', parts };

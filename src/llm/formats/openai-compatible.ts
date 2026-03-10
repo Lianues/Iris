@@ -7,7 +7,7 @@
 
 import {
   LLMRequest, LLMResponse, LLMStreamChunk, Part,
-  isTextPart, isFunctionCallPart, isFunctionResponsePart,
+  isTextPart, isVisibleTextPart, isFunctionCallPart, isFunctionResponsePart,
 } from '../../types';
 import { FormatAdapter, StreamDecodeState } from './types';
 
@@ -22,14 +22,14 @@ export class OpenAICompatibleFormat implements FormatAdapter {
     // systemInstruction → system message
     if (request.systemInstruction?.parts) {
       const text = request.systemInstruction.parts
-        .filter(isTextPart).map(p => p.text).join('\n');
+        .filter(isVisibleTextPart).map(p => p.text).join('\n');
       if (text) messages.push({ role: 'system', content: text });
     }
 
     // contents → messages
     let pendingCallId = 0;
     for (const content of request.contents) {
-      const textParts = content.parts.filter(isTextPart);
+      const textParts = content.parts.filter(isVisibleTextPart);
       const funcCallParts = content.parts.filter(isFunctionCallPart);
       const funcRespParts = content.parts.filter(isFunctionResponsePart);
 

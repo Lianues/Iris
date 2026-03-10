@@ -8,6 +8,10 @@
 /** 文本部分 */
 export interface TextPart {
   text: string;
+  /** Gemini thinking 文本块 */
+  thought?: boolean;
+  /** Gemini thinking 签名 */
+  thoughtSignature?: string;
 }
 
 /** 内联数据部分（图片等二进制数据，base64 编码） */
@@ -71,6 +75,14 @@ export function isTextPart(part: Part): part is TextPart {
   return 'text'in part;
 }
 
+export function isThoughtTextPart(part: Part): part is TextPart & { thought: true } {
+  return 'text' in part && (part as TextPart).thought === true;
+}
+
+export function isVisibleTextPart(part: Part): part is TextPart {
+  return 'text' in part && (part as TextPart).thought !== true;
+}
+
 export function isInlineDataPart(part: Part): part is InlineDataPart {
   return 'inlineData' in part;
 }
@@ -85,5 +97,5 @@ export function isFunctionResponsePart(part: Part): part is FunctionResponsePart
 
 /** 从 Parts 数组中提取所有文本并拼接 */
 export function extractText(parts: Part[]): string {
-  return parts.filter(isTextPart).map(p => p.text).join('');
+  return parts.filter(isVisibleTextPart).map(p => p.text).join('');
 }

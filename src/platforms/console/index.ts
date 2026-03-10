@@ -9,9 +9,57 @@ import { render, Instance } from 'ink';
 import { PlatformAdapter } from '../base';
 import { Backend } from '../../core/backend';
 import { SessionMeta } from '../../storage/base';
-import { ToolInvocation, UsageMetadata } from '../../types';
+import { Content, Part, ToolInvocation, ToolStatus, UsageMetadata } from '../../types';
 import { setGlobalLogLevel, LogLevel } from '../../logger/index';
-import { App, AppHandle } from './App';
+import { App, AppHandle, MessageMeta } from './App';
+import { MessagePart } from './components/MessageItem';
+
+function createToolInvocationFromFunctionCall(part: any, index: number, status: ToolStatus): ToolInvocation {
+  return {
+    id: `history-tool-${Date.now()}-${index}-${part.functionCall.name}`,
+    toolName: part.functionCall.name,
+    args: part.functionCall.args ?? {},
+    status,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+function convertPartsToMessageParts(parts: Part[], toolStatus: ToolStatus = 'success'): MessagePart[] {
+  const result: MessagePart[] = [];
+  let toolIndex = 0;
+
+  for (const part of parts) {
+    if ('text' in part) {
+      if (part.thought === true) {
+        result.push({ type: 'thought', text: part.text });
+      } else {
+        result.push({ type: 'text', text: part.text });
+      }
+      continue;
+    }
+
+    if ('functionCall' in part) {
+      const invocation = createToolInvocationFromFunctionCall(part, toolIndex++, toolStatus);
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last && last.type === 'tool_use') {
+        last.tools.push(invocation);
+      } else {
+        result.push({ type: 'tool_use', tools: [invocation] });
+      }
+    }
+  }
+
+  return result;
+}
+
+function getMessageMeta(content: Content): MessageMeta | undefined {
+  const meta: MessageMeta = {};
+  if (content.usageMetadata?.promptTokenCount != null) meta.tokenIn = content.usageMetadata.promptTokenCount;
+  if (content.usageMetadata?.candidatesTokenCount != null) meta.tokenOut = content.usageMetadata.candidatesTokenCount;
+  if (content.durationMs != null) meta.durationMs = content.durationMs;
+  return Object.keys(meta).length > 0 ? meta : undefined;
+}
 
 /** 生成基于时间戳的会话 ID */
 function generateSessionId(): string {
@@ -50,9 +98,10 @@ export class ConsolePlatform extends PlatformAdapter {
     setGlobalLogLevel(LogLevel.SILENT);
 
     // 监听 Backend 事件
-    this.backend.on('response', (sid: string, text: string) => {
+    this.backend.on('assistant:content', (sid: string, content: Content) => {
       if (sid === this.sessionId) {
-        this.appHandle?.addMessage('assistant', text);
+        const parts = convertPartsToMessageParts(content.parts, 'queued');
+        this.appHandle?.finalizeAssistantParts(parts);
       }
     });
 
@@ -62,9 +111,15 @@ export class ConsolePlatform extends PlatformAdapter {
       }
     });
 
-    this.backend.on('stream:chunk', (sid: string, chunk: string) => {
+    this.backend.on('stream:parts', (sid: string, parts: Part[]) => {
       if (sid === this.sessionId) {
-        this.appHandle?.pushStreamChunk(chunk);
+        this.appHandle?.pushStreamParts(convertPartsToMessageParts(parts, 'streaming'));
+      }
+    });
+
+    this.backend.on('stream:chunk', (sid: string, _chunk: string) => {
+      if (sid === this.sessionId) {
+        // console 走 stream:parts，保留 stream:chunk 仅兼容其他平台
       }
     });
 
@@ -89,6 +144,12 @@ export class ConsolePlatform extends PlatformAdapter {
     this.backend.on('usage', (sid: string, usage: UsageMetadata) => {
       if (sid === this.sessionId) {
         this.appHandle?.setUsage(usage);
+      }
+    });
+
+    this.backend.on('done', (sid: string, durationMs: number) => {
+      if (sid === this.sessionId) {
+        this.appHandle?.finalizeResponse(durationMs);
       }
     });
 
@@ -144,24 +205,12 @@ export class ConsolePlatform extends PlatformAdapter {
     const history = await this.backend.getHistory(id);
     for (const msg of history) {
       const role = msg.role === 'user' ? 'user' : 'assistant';
-      const text = msg.parts
-        ?.filter((p: any) => p.text)
-        .map((p: any) => p.text)
-        .join('') || '';
-      if (text) {
-        const meta: Record<string, number> = {};
-        if (msg.usageMetadata?.promptTokenCount != null) {
-          meta.tokenIn = msg.usageMetadata.promptTokenCount;
-        }
-        if (msg.usageMetadata?.candidatesTokenCount != null) {
-          meta.tokenOut = msg.usageMetadata.candidatesTokenCount;
-        }
-        if (msg.durationMs != null) {
-          meta.durationMs = msg.durationMs;
-        }
-        this.appHandle?.addMessage(role as 'user' | 'assistant', text, Object.keys(meta).length > 0 ? meta : undefined);
+      const parts = convertPartsToMessageParts(msg.parts);
+      const meta = getMessageMeta(msg);
+      if (parts.length > 0) {
+        this.appHandle?.addStructuredMessage(role as 'user' | 'assistant', parts, meta);
       }
-      // 更新 CTX 显示
+
       if (msg.usageMetadata) {
         this.appHandle?.setUsage(msg.usageMetadata);
       }
@@ -176,13 +225,11 @@ export class ConsolePlatform extends PlatformAdapter {
     this.appHandle?.addMessage('user', text);
     this.appHandle?.setGenerating(true);
     this.currentToolIds.clear();
-    const startTime = Date.now();
 
     try {
       await this.backend.chat(this.sessionId, text);
     } finally {
       this.appHandle?.commitTools();
-      this.appHandle?.finalizeResponse(Date.now() - startTime);
       this.appHandle?.setGenerating(false);
     }
   }

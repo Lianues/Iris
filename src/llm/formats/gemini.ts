@@ -29,7 +29,7 @@ export class GeminiFormat implements FormatAdapter {
     };
   }
 
-  /** 流式块：从每个 SSE chunk 的 candidates 提取 textDelta / functionCalls */
+  /** 流式块：从每个 SSE chunk 的 candidates 提取有序 parts / 可见文本 / functionCalls */
   decodeStreamChunk(raw: unknown, _state: StreamDecodeState): LLMStreamChunk {
     const data = raw as any;
     const candidate = data.candidates?.[0];
@@ -38,11 +38,17 @@ export class GeminiFormat implements FormatAdapter {
     if (candidate?.content?.parts) {
       for (const part of candidate.content.parts) {
         if ('text' in part) {
-          chunk.textDelta = (chunk.textDelta ?? '') + part.text;
+          if (!chunk.partsDelta) chunk.partsDelta = [];
+          chunk.partsDelta.push(part);
+          if (!part.thought) {
+            chunk.textDelta = (chunk.textDelta ?? '') + part.text;
+          }
         }
         if ('functionCall' in part) {
           if (!chunk.functionCalls) chunk.functionCalls = [];
           chunk.functionCalls.push(part);
+          if (!chunk.partsDelta) chunk.partsDelta = [];
+          chunk.partsDelta.push(part);
         }
         // 提取思考签名（Gemini thinking model 返回）
         if ('thoughtSignature' in part && !chunk.thoughtSignature) {
