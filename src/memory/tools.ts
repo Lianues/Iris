@@ -11,6 +11,7 @@ import { MemoryProvider } from './base';
 /** 根据 MemoryProvider 实例创建记忆工具数组 */
 export function createMemoryTools(provider: MemoryProvider): ToolDefinition[] {
   const memorySearch: ToolDefinition = {
+    parallel: true,
     declaration: {
       name: 'memory_search',
       description: '搜索长期记忆中的相关信息。当需要回忆用户偏好、历史事实或之前保存的信息时使用。',

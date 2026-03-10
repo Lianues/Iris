@@ -9,6 +9,7 @@ import { ToolDefinition } from '../../types';
 
 /** 获取当前时间 */
 export const getCurrentTime: ToolDefinition = {
+  parallel: true,
   declaration: {
     name: 'get_current_time',
     description: '获取当前的日期和时间',
@@ -78,6 +79,7 @@ function safeEvaluate(expr: string): number {
 
 /** 简单计算器 */
 export const calculator: ToolDefinition = {
+  parallel: true,
   declaration: {
     name: 'calculator',
     description: '计算一个数学表达式的结果',

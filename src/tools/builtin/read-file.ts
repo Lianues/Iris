@@ -52,6 +52,7 @@ function formatWithLineNumbers(content: string, startLine: number): string {
 }
 
 export const readFile: ToolDefinition = {
+  parallel: true,
   declaration: {
     name: 'read_file',
     description: [

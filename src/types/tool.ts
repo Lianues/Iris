@@ -70,4 +70,9 @@ export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 export interface ToolDefinition {
   declaration: FunctionDeclaration;
   handler: ToolHandler;
+  /**
+   * 是否允许与相邻的同样标记为 parallel 的工具并行执行。
+   * 默认 false（串行）。仅适用于无副作用的只读工具。
+   */
+  parallel?: boolean;
 }

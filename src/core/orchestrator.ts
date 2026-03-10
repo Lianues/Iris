@@ -12,6 +12,7 @@ import { LLMRouter, LLMTier } from '../llm/router';
 import { StorageProvider } from '../storage/base';
 import { ToolRegistry } from '../tools/registry';
 import { ToolStateManager } from '../tools/state';
+import { buildExecutionPlan, executePlan } from '../tools/scheduler';
 import { PromptAssembler } from '../prompt/assembler';
 import { MemoryProvider } from '../memory/base';
 import { createLogger } from '../logger';
@@ -270,9 +271,7 @@ export class Orchestrator {
   // ============ 工具执行 ============
 
   private async executeTools(sessionId: string, functionCalls: FunctionCallPart[]): Promise<void> {
-    const responseParts: FunctionResponsePart[] = [];
-
-    // 1. 为所有待执行的工具调用创建实例（初始状态 queued）
+    // 1. 创建所有 invocation（状态 queued，UI 可立即展示）
     const invocations = functionCalls.map(call =>
       this.toolState.create(
         call.functionCall.name,
@@ -280,41 +279,13 @@ export class Orchestrator {
         'queued',
       ),
     );
+    const invocationIds = invocations.map(inv => inv.id);
 
-    // 2. 逐个执行
-    for (let i = 0; i < functionCalls.length; i++) {
-      const call = functionCalls[i];
-      const invocation = invocations[i];
-
-      // 转为 executing
-      this.toolState.transition(invocation.id, 'executing');
-      logger.info(`执行工具: ${call.functionCall.name} (${invocation.id})`);
-
-      try {
-        const result = await this.tools.execute(
-          call.functionCall.name,
-          call.functionCall.args as Record<string, unknown>,
-        );
-        this.toolState.transition(invocation.id, 'success', { result });
-        responseParts.push({
-          functionResponse: {
-          name: call.functionCall.name,
-            response: { result } as Record<string, unknown>,
-          },
-        });
-      } catch (err: unknown) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        this.toolState.transition(invocation.id, 'error', { error: errorMsg });
-        logger.error(`工具执行失败: ${call.functionCall.name} (${invocation.id}):`, errorMsg);
-        responseParts.push({
-          functionResponse: {
-            name: call.functionCall.name,
-            response: { error: errorMsg },
-          },
-        });
-      }
-    }
+    // 2. 分批调度执行（连续只读工具并行，其余串行）
+    const plan = buildExecutionPlan(functionCalls, this.tools);
+    const responseParts = await executePlan(functionCalls, plan, invocationIds, this.tools, this.toolState);
 
     await this.storage.addMessage(sessionId, { role: 'user', parts: responseParts });
   }
 }
+
