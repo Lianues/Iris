@@ -89,16 +89,6 @@ export class GeminiFormat implements FormatAdapter {
           chunk.partsDelta.push(part);
         }
 
-        // 提取思考签名（从原始响应中提取并存入统一字段）
-        const rawPart = part as any;
-        if (rawPart.thoughtSignature) {
-          if (!chunk.thoughtSignatures) chunk.thoughtSignatures = {};
-          chunk.thoughtSignatures.gemini = rawPart.thoughtSignature;
-          // 如果 Delta 中包含 thoughtSignatures 对象，也合并进去
-          if (part.thoughtSignatures?.gemini) {
-            chunk.thoughtSignatures.gemini = part.thoughtSignatures.gemini;
-          }
-        }
       }
     }
 
