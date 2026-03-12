@@ -41,6 +41,7 @@ export async function sendRequest(
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'User-Agent': 'Iris',
     ...endpoint.headers,
   };
 
