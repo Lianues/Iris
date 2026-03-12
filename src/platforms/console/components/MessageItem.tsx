@@ -5,7 +5,7 @@
 import React from 'react';
 import { Box, Text, useStdout } from 'ink';
 import { ToolInvocation } from '../../../types';
-import { Spinner } from './Spinner';
+import { GeneratingTimer } from './GeneratingTimer';
 import { ToolCall } from './ToolCall';
 
 function getLatestThoughtLine(text: string): string {
@@ -69,7 +69,6 @@ interface MessageItemProps {
   liveTools?: ToolInvocation[];
   liveParts?: MessagePart[];
   isStreaming?: boolean;
-  generatingTime?: number;
 }
 
 const PIPE = '│';
@@ -77,7 +76,7 @@ const CIRCLE_OPEN = '○';
 const CIRCLE_FILL = '●';
 
 export const MessageItem = React.memo(function MessageItem(
-  { msg, liveTools, liveParts, isStreaming, generatingTime }: MessageItemProps
+  { msg, liveTools, liveParts, isStreaming }: MessageItemProps
 ) {
   const { stdout } = useStdout();
   const isUser = msg.role === 'user';
@@ -170,12 +169,8 @@ export const MessageItem = React.memo(function MessageItem(
       {/* 没有内容但正在流式生成 */}
       {!hasAnyContent && isStreaming && (
         <Box paddingLeft={0} width="100%">
-          <Text>
-            <Text dimColor color={themeColor}>{PIPE} </Text>
-            <Spinner />
-            <Text dimColor italic> generating...</Text>
-            {generatingTime != null && <Text dimColor italic> ({generatingTime}s)</Text>}
-          </Text>
+          <Text dimColor color={themeColor}>{PIPE} </Text>
+          <GeneratingTimer isGenerating={true} />
         </Box>
       )}
 

@@ -376,6 +376,9 @@ export class Backend extends EventEmitter {
     this.activeSessionId = sessionId;
     const startTime = Date.now();
 
+    // 清除上一轮残留的工具调用记录，防止多轮循环中 tool:update 广播历史 invocations 导致 UI 重复显示
+    this.toolState.clearAll();
+
     // 1. 加载历史并追加用户消息
     const storedHistory = await this.storage.getHistory(sessionId);
     const history = this.prepareHistoryForLLM(storedHistory);

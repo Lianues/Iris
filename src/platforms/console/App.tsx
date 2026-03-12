@@ -1,16 +1,18 @@
 /**
  * TUI 根组件
  *
- * 消息区使用普通渲染，保证终端宽度变化时能够重新换行。
+ * 已完成消息使用 <Static> 写入终端缓冲区，不再重绘。
+ * 活动消息和输入栏在动态区域实时更新。
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Box, Text, useInput, useStdout } from 'ink';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Box, Text, Static, useInput, useStdout } from 'ink';
 import { UsageMetadata } from '../../types';
 import Gradient from 'ink-gradient';
 import { ToolInvocation } from '../../types';
 import { SessionMeta } from '../../storage/base';
 import { MessageItem, ChatMessage, MessagePart } from './components/MessageItem';
+import { GeneratingTimer } from './components/GeneratingTimer';
 import { InputBar } from './components/InputBar';
 import { SettingsView } from './components/SettingsView';
 import { ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
@@ -132,7 +134,6 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
   const [streamingParts, setStreamingParts] = useState<MessagePart[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generatingTime, setGeneratingTime] = useState(0);
   const [contextTokens, setContextTokens] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
   const [sessionList, setSessionList] = useState<SessionMeta[]>([]);
@@ -142,22 +143,6 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
 
   const streamPartsRef = useRef<MessagePart[]>([]);
   const toolInvocationsRef = useRef<ToolInvocation[]>([]);
-  const generatingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const startTimer = useCallback(() => {
-    setGeneratingTime(0);
-    if (generatingTimerRef.current) clearInterval(generatingTimerRef.current);
-    generatingTimerRef.current = setInterval(() => {
-      setGeneratingTime((t: number) => +(t + 0.1).toFixed(1));
-    }, 100);
-  }, []);
-
-  const stopTimer = useCallback(() => {
-    if (generatingTimerRef.current) {
-      clearInterval(generatingTimerRef.current);
-      generatingTimerRef.current = null;
-    }
-  }, []);
   const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingCommittedStreamPartsRef = useRef(0);
   const lastUsageRef = useRef<UsageMetadata | null>(null);
@@ -260,11 +245,6 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
 
       setGenerating(generating) {
         setIsGenerating(generating);
-        if (generating) {
-          startTimer();
-        } else {
-          stopTimer();
-        }
       },
 
       clearMessages() {
@@ -302,7 +282,7 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
       },
     };
     onReady(handle);
-  }, [onReady, startTimer, stopTimer]);
+  }, [onReady]);
 
   // ============ 命令处理 ============
 
@@ -435,43 +415,64 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
 
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastIsActiveAssistant = isGenerating && lastMsg?.role === 'assistant';
-  const staticMessages = lastIsActiveAssistant ? messages.slice(0,-1) : messages;
   const activeMessage = lastIsActiveAssistant ? lastMsg : null;
+
+  // Static 需要稳定的 items 数组：只包含已经渲染过不会再变的消息
+  const staticMessages = useMemo(() => {
+    const candidates = lastIsActiveAssistant ? messages.slice(0, -1) : messages;
+    // 过滤掉已被 <Static> 渲染过的（Ink 内部会去重），这里只需返回全量即可
+    // Ink 的 <Static> 只会渲染新增的 items
+    return candidates;
+  }, [messages, lastIsActiveAssistant]);
 
   return (
     <Box flexDirection="column" width="100%">
-      <Box marginBottom={1}>
-        <Gradient name="atlas">
-          <Text bold italic>IRIS</Text>
-        </Gradient>
-      </Box>
-
-      {/* 已完成内容 */}
-      <Box flexDirection="column">
-        {staticMessages.map((msg: ChatMessage) => (
-          <Box key={msg.id} marginBottom={1}>
+      {/* 已完成消息 — 写入终端缓冲区，不再重绘 */}
+      <Static items={staticMessages}>
+        {(msg: ChatMessage, index: number) => (
+          <Box key={msg.id} flexDirection="column" marginBottom={1}>
+            {index === 0 && (
+              <Box marginBottom={1}>
+                <Gradient name="atlas">
+                  <Text bold italic>IRIS</Text>
+                </Gradient>
+              </Box>
+            )}
             <MessageItem msg={msg} />
           </Box>
-        ))}
-      </Box>
+        )}
+      </Static>
 
       {/* 动态区域 */}
       <Box flexDirection="column">
+        {/* 首条消息前显示 Logo */}
+        {staticMessages.length === 0 && (
+          <Box marginBottom={1}>
+            <Gradient name="atlas">
+              <Text bold italic>IRIS</Text>
+            </Gradient>
+          </Box>
+        )}
+
         {activeMessage && (
           <MessageItem
             msg={activeMessage}
             liveParts={streamingParts.length > 0 ? streamingParts : undefined}
             isStreaming={isStreaming}
-            generatingTime={generatingTime}
           />
         )}
-        {isGenerating && !lastIsActiveAssistant && !activeMessage && (
-          <MessageItem
-            msg={{ id: 'tmp', role: 'assistant', parts: [] }}
-            liveParts={streamingParts.length > 0 ? streamingParts : undefined}
-            isStreaming={isStreaming}
-            generatingTime={generatingTime}
-          />
+        {isGenerating && !activeMessage && (
+          <>
+            {streamingParts.length > 0 ? (
+              <MessageItem
+                msg={{ id: 'tmp', role: 'assistant', parts: [] }}
+                liveParts={streamingParts}
+                isStreaming={isStreaming}
+              />
+            ) : (
+              <GeneratingTimer isGenerating={isGenerating} />
+            )}
+          </>
         )}
       </Box>
 
