@@ -47,8 +47,112 @@ const DOCUMENT_UNAVAILABLE_NOTICE = (count: number) => (
     : '[用户发送了 1 个文档，但当前模型无法查看文档内容]'
 );
 
+export interface ChatSuggestion {
+  label: string;
+  text: string;
+}
+
+const DEFAULT_CHAT_SUGGESTIONS: ChatSuggestion[] = [
+  { label: '继续推进', text: '请基于刚才的内容继续推进，并告诉我下一步最值得做什么。' },
+  { label: '梳理关键点', text: '请先帮我梳理当前问题的关键点、风险和建议方案。' },
+  { label: '校验结果', text: '请检查当前结论是否有遗漏，并给出我应该优先补充的内容。' },
+];
+
 interface ThoughtTimingState {
   activeStartedAt?: number;
+}
+
+function stripMarkdownCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenced ? fenced[1].trim() : trimmed;
+}
+
+function normalizeSuggestionText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
+function buildSuggestionLabel(text: string): string {
+  const normalized = normalizeSuggestionText(text).replace(/[。！？!?；;：:、,，]+$/g, '');
+  if (!normalized) return '';
+
+  const labelRules: Array<{ pattern: RegExp; label: string }> = [
+    { pattern: /(附件|文档|图片|资料|文件)/, label: '分析附件' },
+    { pattern: /(继续|推进|下一步|优先)/, label: '继续推进' },
+    { pattern: /(梳理|思路|关键点|脉络)/, label: '梳理思路' },
+    { pattern: /(定位|排查|报错|异常|bug|问题)/i, label: '定位问题' },
+    { pattern: /(遗漏|漏项|缺口)/, label: '检查遗漏' },
+    { pattern: /(检查|校验|核对|验证)/, label: '校验结果' },
+    { pattern: /(风险|隐患)/, label: '检查风险' },
+    { pattern: /(方案|建议|实现|做法)/, label: '给出方案' },
+    { pattern: /(总结|结论|提炼|归纳)/, label: '总结结论' },
+  ];
+
+  for (const rule of labelRules) {
+    if (rule.pattern.test(normalized)) {
+      return rule.label;
+    }
+  }
+
+  const compact = normalized
+    .replace(/^(请先|请帮我先|请帮我|请你先|请你|请|先|帮我|麻烦你|麻烦|可以帮我|可以|能否)/, '')
+    .replace(/^(基于刚才的内容|基于当前内容|基于上面的内容|围绕当前问题|针对当前问题)/, '')
+    .replace(/(并告诉我.*|并给出.*|并说明.*|并列出.*)$/u, '')
+    .trim();
+
+  if (!compact) return '';
+  return compact.length > 10 ? `${compact.slice(0, 10).trim()}…` : compact;
+}
+
+function ensureChatSuggestions(suggestions: ChatSuggestion[]): ChatSuggestion[] {
+  const result: ChatSuggestion[] = [];
+  const seen = new Set<string>();
+
+  for (const item of [...suggestions, ...DEFAULT_CHAT_SUGGESTIONS]) {
+    const text = normalizeSuggestionText(item.text);
+    const label = buildSuggestionLabel(item.label || item.text);
+    if (!text || !label || seen.has(text)) continue;
+    seen.add(text);
+    result.push({ label, text });
+    if (result.length >= 3) break;
+  }
+
+  return result;
+}
+
+function parseChatSuggestions(rawText: string): ChatSuggestion[] {
+  const normalized = stripMarkdownCodeFence(rawText);
+  const arrayBlock = normalized.match(/\[[\s\S]*\]/)?.[0];
+  if (!arrayBlock) return [];
+
+  try {
+    const parsed = JSON.parse(arrayBlock) as unknown;
+    const items = Array.isArray(parsed)
+      ? parsed
+      : (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).suggestions)
+        ? (parsed as any).suggestions
+        : []);
+
+    const suggestions: ChatSuggestion[] = [];
+    for (const item of items) {
+      const rawTextValue = typeof item === 'string'
+        ? item
+        : (item && typeof item === 'object' && typeof (item as any).text === 'string'
+          ? (item as any).text
+          : (item && typeof item === 'object' && typeof (item as any).label === 'string' ? (item as any).label : ''));
+      const rawLabelValue = item && typeof item === 'object' && typeof (item as any).label === 'string'
+        ? (item as any).label
+        : rawTextValue;
+      const text = normalizeSuggestionText(rawTextValue);
+      const label = buildSuggestionLabel(rawLabelValue || rawTextValue);
+      if (!text || !label) continue;
+      suggestions.push({ label, text });
+    }
+
+    return ensureChatSuggestions(suggestions);
+  } catch {
+    return [];
+  }
 }
 
 export interface ImageInput {
@@ -249,6 +353,29 @@ export class Backend extends EventEmitter {
   /** 获取所有会话 ID */
   async listSessions(): Promise<string[]> {
     return this.storage.listSessions();
+  }
+
+  /** 使用 light 层级生成输入框快捷建议 */
+  async generateChatSuggestions(sessionId?: string | null): Promise<ChatSuggestion[]> {
+    try {
+      const history = sessionId ? await this.storage.getHistory(sessionId) : [];
+      const request: LLMRequest = {
+        systemInstruction: {
+          parts: [{ text: '你是 Iris Web GUI 的快捷建议生成器。请只返回 JSON，不要 Markdown、不要解释、不要代码块。输出一个长度为 3 的数组，每个元素都包含 label 和 text 两个字段。label 用于按钮展示，控制在 4-8 个中文字符，必须写成动作短语，风格类似“继续推进”“梳理思路”“分析附件”“定位问题”“校验结果”“给出方案”，禁止直接截断 text 或写成完整问句；text 用于点击后直接发送，控制在 12-40 个中文字符。建议必须紧扣上下文、方向不同、可立即执行。' }],
+        },
+        contents: [{ role: 'user', parts: [{ text: this.buildChatSuggestionPrompt(history) }] }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 220,
+        },
+      };
+
+      const response = await this.router.chat(request, 'light');
+      return ensureChatSuggestions(parseChatSuggestions(extractText(response.content.parts)));
+    } catch (err) {
+      logger.warn('生成聊天快捷建议失败:', err);
+      return ensureChatSuggestions([]);
+    }
   }
 
   /** 截断会话历史 */
@@ -815,6 +942,51 @@ export class Backend extends EventEmitter {
     }
 
     return prepared;
+  }
+
+  private summarizeContentForSuggestion(content: Content): string {
+    let text = '';
+    let imageCount = 0;
+    let documentCount = 0;
+    let toolCallCount = 0;
+    let toolResponseCount = 0;
+
+    for (const part of content.parts) {
+      if (isOCRTextPart(part)) continue;
+      if (isTextPart(part)) {
+        const value = (part.text ?? '').trim();
+        if (!value || value.startsWith('[Image: original ') || value.startsWith('[Document: ')) continue;
+        text += (text ? ' ' : '') + value;
+        continue;
+      }
+      if (isInlineDataPart(part)) {
+        if (isDocumentMimeType(part.inlineData.mimeType)) documentCount += 1;
+        else imageCount += 1;
+        continue;
+      }
+      if (isFunctionCallPart(part)) toolCallCount += 1;
+      if (isFunctionResponsePart(part)) toolResponseCount += 1;
+    }
+
+    const summaryParts: string[] = [];
+    if (text) summaryParts.push(text.replace(/\s+/g, ' ').slice(0, 180));
+    if (imageCount > 0) summaryParts.push(`${imageCount}张图片`);
+    if (documentCount > 0) summaryParts.push(`${documentCount}个文档`);
+    if (toolCallCount > 0) summaryParts.push(`${toolCallCount}次工具调用`);
+    if (toolResponseCount > 0) summaryParts.push(`${toolResponseCount}个工具结果`);
+    return summaryParts.join('；');
+  }
+
+  private buildChatSuggestionPrompt(history: Content[]): string {
+    const recentHistory = history.slice(-6)
+      .map((content, index) => `${index + 1}. ${content.role === 'user' ? '用户' : 'Iris'}：${this.summarizeContentForSuggestion(content) || '（无可见文本）'}`)
+      .join('\n');
+
+    if (!recentHistory) {
+      return '当前是一个空白新对话。请生成 3 条适合作为首条消息的中文建议，方向尽量覆盖：继续推进任务、梳理思路、分析资料或附件。';
+    }
+
+    return `请基于下面最近对话，生成 3 条用户下一步最适合发送的中文建议。\n最近上下文：\n${recentHistory}`;
   }
 
   private async updateSessionMeta(sessionId: string, userParts: Part[], isNewSession: boolean): Promise<void> {

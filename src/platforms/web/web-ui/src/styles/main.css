@@ -2449,6 +2449,45 @@ select:focus-visible {
   transform: translateY(0) scale(var(--motion-press-scale));
 }
 
+.input-quick-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.input-quick-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan, var(--accent));
+  animation: input-quick-status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes input-quick-status-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.9); }
+  50% { opacity: 0.95; transform: scale(1); }
+}
+
+.input-quick-toggle {
+  color: var(--accent-cyan, var(--accent));
+  border-style: dashed;
+  white-space: nowrap;
+}
+
+.input-quick-toggle.active {
+  background: rgba(89, 214, 154, 0.12);
+  border-color: rgba(89, 214, 154, 0.2);
+  color: var(--success);
+}
+
+.input-quick-toggle.active:hover {
+  background: rgba(89, 214, 154, 0.16);
+}
+
 .input-attachment-summary {
   display: flex;
   align-items: center;

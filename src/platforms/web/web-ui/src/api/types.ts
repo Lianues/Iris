@@ -49,6 +49,17 @@ export interface StatusInfo {
   platform: string
 }
 
+/** 聊天输入区快捷建议 */
+export interface ChatSuggestion {
+  label: string
+  text: string
+}
+
+/** 快捷建议响应 */
+export interface ChatSuggestionsResponse {
+  suggestions: ChatSuggestion[]
+}
+
 /** 设置中心模型候选项 */
 export interface ConfigModelOption {
   id: string

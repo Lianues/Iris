@@ -17,7 +17,7 @@ import { Backend } from '../../core/backend';
 import type { ImageInput } from '../../core/backend';
 import type { DocumentInput } from '../../media/document-extract.js';
 import { Router, sendJSON } from './router';
-import { createChatHandler } from './handlers/chat';
+import { createChatHandler, createChatSuggestionsHandler } from './handlers/chat';
 import { createSessionsHandlers } from './handlers/sessions';
 import { createConfigHandlers } from './handlers/config';
 import { createLogger } from '../../logger';
@@ -244,6 +244,7 @@ export class WebPlatform extends PlatformAdapter {
 
     // 聊天 API
     this.router.post('/api/chat', createChatHandler(this));
+    this.router.get('/api/chat/suggestions', createChatSuggestionsHandler(this.backend));
 
     // 会话管理 API
     const sessions = createSessionsHandlers(storage);

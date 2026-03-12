@@ -79,15 +79,14 @@
           >
             <button class="session-button" type="button" @click="handleSwitchSession(session.id)">
               <span class="session-caption">{{ formatSessionTime(session.updatedAt) }}</span>
-              <span class="session-name">{{ session.title || session.id }}</span>
-              <span class="session-id">{{ session.id }}</span>
+              <span class="session-name">{{ displaySessionTitle(session) }}</span>
             </button>
             <button
               class="btn-delete-session"
               type="button"
               title="删除会话"
               :disabled="deletingSessionId === session.id"
-              @click.stop="handleDeleteSession(session.id, session.title || session.id)"
+              @click.stop="handleDeleteSession(session.id, displaySessionTitle(session))"
             >
               <AppIcon :name="ICONS.common.close" />
             </button>
@@ -137,7 +136,7 @@ import AppIcon from './AppIcon.vue'
 import { ICONS } from '../constants/icons'
 import { useSessions } from '../composables/useSessions'
 import { getStatus } from '../api/client'
-import type { StatusInfo } from '../api/types'
+import type { SessionSummary, StatusInfo } from '../api/types'
 import { loadManagementToken, subscribeManagementTokenChange } from '../utils/managementToken'
 import { loadAuthToken, subscribeAuthTokenChange } from '../utils/authToken'
 
@@ -280,6 +279,17 @@ function formatSessionTime(updatedAt?: string): string {
   }).format(date)
 }
 
+function displaySessionTitle(session: SessionSummary): string {
+  const title = session.title?.trim() || ''
+  const looksLikeRawSessionId = /^web-[0-9a-f-]+$/i.test(title)
+
+  if (title && title !== session.id && !looksLikeRawSessionId) {
+    return title
+  }
+
+  return '未命名会话'
+}
+
 async function handleReloadSessions() {
   sessionActionError.value = ''
   await loadSessions()
@@ -305,7 +315,7 @@ async function handleSwitchSession(id: string) {
 
 async function handleDeleteSession(id: string, title: string) {
   if (deletingSessionId.value) return
-  const confirmed = window.confirm(`确认删除会话？\n\n${title}\n(${id})`)
+  const confirmed = window.confirm(`确认删除会话？\n\n${title}`)
   if (!confirmed) return
 
   deletingSessionId.value = id

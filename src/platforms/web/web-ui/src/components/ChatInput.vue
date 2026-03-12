@@ -36,16 +36,32 @@
         </div>
       </div>
 
-      <div v-if="showQuickPrompts" class="input-quick-actions">
+      <div v-if="showQuickPromptBar" class="input-quick-actions">
         <button
+          v-if="showQuickPrompts"
           v-for="prompt in quickPrompts"
-          :key="prompt.label"
+          :key="prompt.text"
           class="input-quick-chip"
           type="button"
           @click="applyQuickPrompt(prompt.text)"
         >
           {{ prompt.label }}
         </button>
+        <span
+          v-if="quickPromptsEnabled && quickPromptsLoading"
+          class="input-quick-status"
+          aria-live="polite"
+        >
+          <span class="input-quick-status-dot" aria-hidden="true"></span>
+          正在生成建议...
+        </span>
+        <button
+          class="input-quick-chip input-quick-toggle"
+          :class="{ active: quickPromptsEnabled }"
+          type="button"
+          :aria-pressed="quickPromptsEnabled"
+          @click="toggleQuickPrompts"
+        >{{ quickPromptsEnabled ? '关闭建议' : '开启建议' }}</button>
       </div>
 
       <div v-if="images.length > 0 || documents.length > 0" class="input-attachment-summary">
@@ -141,10 +157,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
-import type { ImageInput, DocumentInput } from '../api/types'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import * as api from '../api/client'
+import type { ChatSuggestion, ImageInput, DocumentInput } from '../api/types'
 import AppIcon from './AppIcon.vue'
 import { ICONS } from '../constants/icons'
+import { useSessions } from '../composables/useSessions'
 
 const MAX_IMAGES = 5
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -159,14 +177,17 @@ const SUPPORTED_DOC_MIMES = new Set([
   'application/vnd.ms-excel',
 ])
 
-const quickPrompts = [
-  { label: '继续推进上一步', text: '继续推进上一步，并告诉我下一步最值得做什么。' },
-  { label: '帮我梳理思路', text: '请先帮我梳理这个问题的关键点、风险和建议方案。' },
-  { label: '分析附件内容', text: '请先分析我上传的附件，提炼重点并给出可执行结论。' },
-] as const
+const fallbackQuickPrompts: ChatSuggestion[] = [
+  { label: '继续推进', text: '请基于刚才的内容继续推进，并告诉我下一步最值得做什么。' },
+  { label: '梳理关键点', text: '请先帮我梳理当前问题的关键点、风险和建议方案。' },
+  { label: '校验结果', text: '请检查当前结论是否有遗漏，并给出我应该优先补充的内容。' },
+]
+
+const QUICK_PROMPTS_ENABLED_STORAGE_KEY = 'iris-chat-quick-prompts-enabled'
 
 const props = defineProps<{ disabled: boolean }>()
 const emit = defineEmits<{ send: [text: string, images?: ImageInput[], documents?: DocumentInput[]] }>()
+const { currentSessionId } = useSessions()
 
 const disabled = computed(() => props.disabled)
 const text = ref('')
@@ -175,13 +196,18 @@ const documents = ref<DocumentInput[]>([])
 const errorMessage = ref('')
 const attachmentsProcessing = ref(false)
 const dragActive = ref(false)
+const quickPromptsLoading = ref(false)
+const quickPromptsEnabled = ref(loadQuickPromptsEnabled())
+const quickPrompts = ref<ChatSuggestion[]>(fallbackQuickPrompts.map((prompt) => ({ ...prompt })))
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
 let dragDepth = 0
+let quickPromptLoadVersion = 0
 
 const interactionDisabled = computed(() => disabled.value || attachmentsProcessing.value)
 const canSend = computed(() => !attachmentsProcessing.value && (text.value.trim().length > 0 || images.value.length > 0 || documents.value.length > 0))
-const showQuickPrompts = computed(() => !interactionDisabled.value && !text.value.trim() && images.value.length === 0 && documents.value.length === 0)
+const showQuickPromptBar = computed(() => !interactionDisabled.value && !text.value.trim() && images.value.length === 0 && documents.value.length === 0)
+const showQuickPrompts = computed(() => showQuickPromptBar.value && quickPromptsEnabled.value)
 const sendButtonText = computed(() => {
   if (disabled.value) return '生成中...'
   if (attachmentsProcessing.value) return '处理中...'
@@ -230,11 +256,135 @@ function focusComposer() {
   })
 }
 
+function loadQuickPromptsEnabled(): boolean {
+  try {
+    return window.localStorage.getItem(QUICK_PROMPTS_ENABLED_STORAGE_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+function cloneFallbackQuickPrompts(): ChatSuggestion[] {
+  return fallbackQuickPrompts.map((prompt) => ({ ...prompt }))
+}
+
+function normalizeQuickPromptLabel(text: string, fallbackText = ''): string {
+  const normalized = `${text} ${fallbackText}`.replace(/\s+/g, ' ').replace(/[。！？!?；;：:、,，]+$/g, '').trim()
+  if (!normalized) return ''
+
+  const labelRules: Array<{ pattern: RegExp; label: string }> = [
+    { pattern: /(附件|文档|图片|资料|文件)/, label: '分析附件' },
+    { pattern: /(继续|推进|下一步|优先)/, label: '继续推进' },
+    { pattern: /(梳理|思路|关键点|脉络)/, label: '梳理思路' },
+    { pattern: /(定位|排查|报错|异常|bug|问题)/i, label: '定位问题' },
+    { pattern: /(遗漏|漏项|缺口)/, label: '检查遗漏' },
+    { pattern: /(检查|校验|核对|验证)/, label: '校验结果' },
+    { pattern: /(风险|隐患)/, label: '检查风险' },
+    { pattern: /(方案|建议|实现|做法)/, label: '给出方案' },
+    { pattern: /(总结|结论|提炼|归纳)/, label: '总结结论' },
+  ]
+
+  for (const rule of labelRules) {
+    if (rule.pattern.test(normalized)) return rule.label
+  }
+
+  const compact = normalized
+    .replace(/^(请先|请帮我先|请帮我|请你先|请你|请|先|帮我|麻烦你|麻烦|可以帮我|可以|能否)/, '')
+    .replace(/^(基于刚才的内容|基于当前内容|基于上面的内容|围绕当前问题|针对当前问题)/, '')
+    .replace(/(并告诉我.*|并给出.*|并说明.*|并列出.*)$/u, '')
+    .trim()
+
+  if (!compact) return ''
+  return compact.length > 10 ? `${compact.slice(0, 10).trim()}…` : compact
+}
+
+function normalizeQuickPrompts(prompts: ChatSuggestion[] | undefined): ChatSuggestion[] {
+  const result: ChatSuggestion[] = []
+  const seen = new Set<string>()
+
+  for (const prompt of [...(prompts ?? []), ...cloneFallbackQuickPrompts()]) {
+    const textValue = typeof prompt?.text === 'string' ? prompt.text.replace(/\s+/g, ' ').trim() : ''
+    const labelSource = typeof prompt?.label === 'string' && prompt.label.trim() ? prompt.label : textValue
+    const labelValue = normalizeQuickPromptLabel(labelSource, textValue)
+    if (!textValue || !labelValue || seen.has(textValue)) continue
+    seen.add(textValue)
+    result.push({ label: labelValue, text: textValue })
+    if (result.length >= 3) break
+  }
+
+  return result
+}
+
+function persistQuickPromptsEnabled(value: boolean) {
+  try {
+    window.localStorage.setItem(QUICK_PROMPTS_ENABLED_STORAGE_KEY, value ? '1' : '0')
+  } catch {
+    // 忽略存储失败，回退为当前会话内生效
+  }
+}
+
+async function loadQuickPrompts() {
+  if (!quickPromptsEnabled.value) {
+    quickPromptLoadVersion += 1
+    quickPromptsLoading.value = false
+    quickPrompts.value = cloneFallbackQuickPrompts()
+    return
+  }
+
+  const requestVersion = ++quickPromptLoadVersion
+  quickPromptsLoading.value = true
+
+  try {
+    const data = await api.getChatSuggestions(currentSessionId.value)
+    if (requestVersion !== quickPromptLoadVersion) return
+    quickPrompts.value = normalizeQuickPrompts(data.suggestions)
+  } catch {
+    if (requestVersion !== quickPromptLoadVersion) return
+    quickPrompts.value = normalizeQuickPrompts([])
+  } finally {
+    if (requestVersion === quickPromptLoadVersion) {
+      quickPromptsLoading.value = false
+    }
+  }
+}
+
 function applyQuickPrompt(prompt: string) {
   text.value = prompt
   clearError()
   focusComposer()
 }
+
+function toggleQuickPrompts() {
+  quickPromptsEnabled.value = !quickPromptsEnabled.value
+}
+
+onMounted(() => {
+  if (quickPromptsEnabled.value) {
+    void loadQuickPrompts()
+  }
+})
+
+watch(currentSessionId, () => {
+  if (quickPromptsEnabled.value) {
+    void loadQuickPrompts()
+  }
+})
+
+watch(disabled, (value, oldValue) => {
+  if (!value && oldValue && quickPromptsEnabled.value) {
+    void loadQuickPrompts()
+  }
+})
+
+watch(quickPromptsEnabled, (value) => {
+  persistQuickPromptsEnabled(value)
+  if (value) {
+    void loadQuickPrompts()
+  } else {
+    quickPromptLoadVersion += 1
+    quickPromptsLoading.value = false
+  }
+})
 
 function openFilePicker() {
   if (interactionDisabled.value || (images.value.length >= MAX_IMAGES && documents.value.length >= MAX_DOCUMENTS)) return

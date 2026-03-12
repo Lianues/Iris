@@ -1,6 +1,11 @@
 <template>
-  <div class="overlay" @click.self="requestClose">
-    <div class="settings-panel">
+  <div
+    class="overlay"
+    @pointerdown.self="handleOverlayPointerDown"
+    @pointerup.self="handleOverlayPointerUp"
+    @pointercancel.self="resetOverlayCloseIntent"
+  >
+    <div class="settings-panel" @pointerdown="resetOverlayCloseIntent">
       <div class="settings-header">
         <div class="settings-title-group">
           <span class="settings-kicker">Control Center</span>
@@ -858,6 +863,27 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     void requestClose()
   }
+}
+
+const overlayCloseArmed = ref(false)
+
+function resetOverlayCloseIntent() {
+  overlayCloseArmed.value = false
+}
+
+function handleOverlayPointerDown(event: PointerEvent) {
+  if (event.button !== 0) {
+    overlayCloseArmed.value = false
+    return
+  }
+
+  overlayCloseArmed.value = true
+}
+
+function handleOverlayPointerUp(event: PointerEvent) {
+  const shouldClose = event.button === 0 && overlayCloseArmed.value
+  overlayCloseArmed.value = false
+  if (shouldClose) void requestClose()
 }
 
 async function requestClose() {

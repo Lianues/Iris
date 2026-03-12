@@ -7,7 +7,7 @@
 import type {
   ImageInput, DocumentInput, Message, StatusInfo, ChatCallbacks, DetectResponse, DeployResponse, DeploySyncCloudflareResponse,
   DeployFormOptions, DeployStateResponse, DeployPreviewResponse,
-  CfStatusResponse, CfDnsRecord, CfDnsInput, CfSetupResponse, SessionSummary, ConfigModelListResponse,
+  CfStatusResponse, CfDnsRecord, CfDnsInput, CfSetupResponse, SessionSummary, ConfigModelListResponse, ChatSuggestionsResponse,
 } from './types'
 import { clearManagementToken, loadManagementToken } from '../utils/managementToken'
 import { clearAuthToken, loadAuthToken } from '../utils/authToken'
@@ -129,6 +129,12 @@ export async function truncateMessages(sessionId: string, keepCount: number): Pr
 
 export async function getStatus(): Promise<StatusInfo> {
   const res = await request('/api/status')
+  return res.json()
+}
+
+export async function getChatSuggestions(sessionId?: string | null): Promise<ChatSuggestionsResponse> {
+  const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''
+  const res = await request(`/api/chat/suggestions${query}`)
   return res.json()
 }
 

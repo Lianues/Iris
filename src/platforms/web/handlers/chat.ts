@@ -6,7 +6,7 @@
 
 import * as http from 'http';
 import * as crypto from 'crypto';
-import type { ImageInput } from '../../../core/backend';
+import { Backend, type ImageInput } from '../../../core/backend';
 import type { DocumentInput } from '../../../media/document-extract.js';
 import { isSupportedDocumentMime } from '../../../media/document-extract.js';
 import { readBody, sendJSON } from '../router';
@@ -97,6 +97,21 @@ function normalizeDocuments(raw: unknown): DocumentInput[] | null {
   }
 
   return documents;
+}
+
+export function createChatSuggestionsHandler(backend: Backend) {
+  return async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const sessionId = url.searchParams.get('sessionId');
+
+    try {
+      const suggestions = await backend.generateChatSuggestions(sessionId && sessionId.trim() ? sessionId.trim() : null);
+      sendJSON(res, 200, { suggestions });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : '生成建议失败';
+      sendJSON(res, 500, { error: errorMsg });
+    }
+  };
 }
 
 export function createChatHandler(platform: WebPlatform) {
