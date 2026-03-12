@@ -119,8 +119,8 @@ export interface BackendConfig {
   stream?: boolean;
   /** 是否自动召回记忆 */
   autoRecall?: boolean;
-  /** Agent 协调指导文本 */
-  agentGuidance?: string;
+  /** 子代理协调指导文本 */
+  subAgentGuidance?: string;
   /** 默认模式名称 */
   defaultMode?: string;
   /** 当前 primary LLM 配置（用于 vision 能力判定） */
@@ -161,7 +161,7 @@ export class Backend extends EventEmitter {
   private prompt: PromptAssembler;
   private stream: boolean;
   private autoRecall: boolean;
-  private agentGuidance?: string;
+  private subAgentGuidance?: string;
   private memory?: MemoryProvider;
   private modeRegistry?: ModeRegistry;
   private defaultMode?: string;
@@ -193,7 +193,7 @@ export class Backend extends EventEmitter {
     this.prompt = prompt;
     this.stream = config?.stream ?? false;
     this.autoRecall = config?.autoRecall ?? true;
-    this.agentGuidance = config?.agentGuidance;
+    this.subAgentGuidance = config?.subAgentGuidance;
     this.memory = memory;
     this.modeRegistry = modeRegistry;
     this.defaultMode = config?.defaultMode;
@@ -383,7 +383,6 @@ export class Backend extends EventEmitter {
     const storedHistory = await this.storage.getHistory(sessionId);
     const history = this.prepareHistoryForLLM(storedHistory);
     const isNewSession = storedHistory.length === 0;
-    const historyLenBefore = history.length;
     history.push({ role: 'user', parts: llmUserParts });
 
     // 2. 构建 per-request 额外上下文
@@ -402,10 +401,10 @@ export class Backend extends EventEmitter {
       }
     }
 
-    // Agent 协调指导
-    if (this.agentGuidance) {
+    // 子代理协调指导
+    if (this.subAgentGuidance) {
       if (!extraParts) extraParts = [];
-      extraParts.push({ text: this.agentGuidance });
+      extraParts.push({ text: this.subAgentGuidance });
     }
 
     // 模式提示词覆盖
@@ -441,13 +440,20 @@ export class Backend extends EventEmitter {
 
     const hasVisionParts = history.some(content => content.parts.some(isInlineDataPart));
 
-    // 5. 执行工具循环
+    // 5. 立即持久化用户消息（不等工具循环结束，防止中途中断丢失）
+    await this.storage.addMessage(sessionId, { role: 'user', parts: storedUserParts });
+    if (isNewSession) {
+      await this.updateSessionMeta(sessionId, storedUserParts, true);
+    }
+
+    // 6. 执行工具循环（新增消息通过回调实时持久化）
     const result = await loop.run(history, callLLM, {
       extraParts,
       secondaryTier: hasVisionParts ? 'primary' : undefined,
+      onMessageAppend: (content) => this.storage.addMessage(sessionId, content),
     });
 
-    // 6. 将耗时写入最后一条 model 消息
+    // 7. 将耗时写入最后一条 model 消息（同时更新已持久化的记录）
     const durationMs = Date.now() - startTime;
     for (let i = result.history.length - 1; i >= 0; i--) {
       if (result.history[i].role === 'model') {
@@ -455,15 +461,15 @@ export class Backend extends EventEmitter {
         break;
       }
     }
-
-    // 7. 持久化新增消息
-    await this.storage.addMessage(sessionId, { role: 'user', parts: storedUserParts });
-    for (let i = historyLenBefore + 1; i < result.history.length; i++) {
-      await this.storage.addMessage(sessionId, result.history[i]);
-    }
+    await this.storage.updateLastMessage(sessionId, (content) => {
+      if (content.role === 'model') {
+        content.durationMs = durationMs;
+      }
+      return content;
+    });
 
     // 8. 管理会话元数据
-    await this.updateSessionMeta(sessionId, storedUserParts, isNewSession);
+    await this.updateSessionMeta(sessionId, storedUserParts, false);
 
     // 9. 非流式模式：发送最终文本
     if (!this.stream && result.text) {

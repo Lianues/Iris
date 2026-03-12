@@ -58,6 +58,18 @@ export class SqliteStorage extends StorageProvider {
       .run(sessionId, JSON.stringify(normalized));
   }
 
+  async updateLastMessage(sessionId: string, updater: (content: Content) => Content): Promise<void> {
+    const row = this.db
+      .prepare('SELECT id, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1')
+      .get(sessionId) as { id: number; content: string } | undefined;
+    if (!row) return;
+    const content = JSON.parse(row.content) as Content;
+    const updated = this.normalize(updater(content));
+    this.db
+      .prepare('UPDATE messages SET content = ? WHERE id = ?')
+      .run(JSON.stringify(updated), row.id);
+  }
+
   async truncateHistory(sessionId: string, keepCount: number): Promise<void> {
     this.db
       .prepare(

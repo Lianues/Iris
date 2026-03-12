@@ -35,6 +35,9 @@ export abstract class StorageProvider {
   /** 清空指定会话的历史 */
   abstract clearHistory(sessionId: string): Promise<void>;
 
+  /** 更新指定会话最后一条消息（用于补充 durationMs 等元信息） */
+  abstract updateLastMessage(sessionId: string, updater: (content: Content) => Content): Promise<void>;
+
   /** 截断历史：只保留前 keepCount 条消息，删除之后的所有消息 */
   abstract truncateHistory(sessionId: string, keepCount: number): Promise<void>;
 

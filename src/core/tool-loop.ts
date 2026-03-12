@@ -46,6 +46,8 @@ export interface ToolLoopResult {
 export interface ToolLoopRunOptions {
   /** 额外系统提示词片段（per-request） */
   extraParts?: Part[];
+  /** 新消息追加到历史时的回调（用于实时持久化） */
+  onMessageAppend?: (content: Content) => Promise<void>;
   /** 首轮 LLM 层级（默认 primary） */
   primaryTier?: LLMTier;
   /** 后续轮次 LLM 层级（默认 secondary） */
@@ -99,6 +101,7 @@ export class ToolLoop {
         };
       }
       history.push(modelContent);
+      await options?.onMessageAppend?.(modelContent);
 
       // 检查工具调用
       const functionCalls = modelContent.parts.filter(isFunctionCallPart);
@@ -109,7 +112,9 @@ export class ToolLoop {
 
       // 执行工具（通过 scheduler 分批调度）
       const responseParts = await this.executeTools(functionCalls);
-      history.push({ role: 'user', parts: responseParts });
+      const toolResponseContent: Content = { role: 'user', parts: responseParts };
+      history.push(toolResponseContent);
+      await options?.onMessageAppend?.(toolResponseContent);
     }
 
     logger.warn(`工具轮次超过上限 (${this.config.maxRounds})`);

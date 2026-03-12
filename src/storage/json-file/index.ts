@@ -46,6 +46,16 @@ export class JsonFileStorage extends StorageProvider {
     });
   }
 
+  async updateLastMessage(sessionId: string, updater: (content: Content) => Content): Promise<void> {
+    await this.withLock(sessionId, async () => {
+      const history = await this.getHistory(sessionId);
+      if (history.length === 0) return;
+      history[history.length - 1] = this.normalize(updater(history[history.length - 1]));
+      await this.ensureDir();
+      await fs.writeFile(this.historyPath(sessionId), JSON.stringify(history, null, 2), 'utf-8');
+    });
+  }
+
   async truncateHistory(sessionId: string, keepCount: number): Promise<void> {
     await this.withLock(sessionId, async () => {
       const history = await this.getHistory(sessionId);
