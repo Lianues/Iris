@@ -17,7 +17,7 @@ const TERMINAL_STATUSES = new Set<ToolStatus>(['success', 'warning', 'error']);
 
 function getArgsSummary(toolName: string, args: Record<string, unknown>): string {
   switch (toolName) {
-    case 'terminal': {
+    case 'shell': {
       const cmd = String(args.command || '');
       return cmd.length > 30 ? `"${cmd.slice(0, 30)}\u2026"` : `"${cmd}"`;
     }
@@ -25,8 +25,12 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
       return String(args.path || '');
     case 'apply_diff':
       return String(args.path || '');
-    case 'search_replace':
-      return String(args.path || '');
+    case 'search_in_files': {
+      const q = String(args.query || '');
+      const p = String(args.path || '');
+      const head = q.length > 20 ? `"${q.slice(0, 20)}\u2026"` : `"${q}"`;
+      return p ? `${head} in ${p}` : head;
+    }
     default:
       return '';
   }

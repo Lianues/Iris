@@ -11,11 +11,11 @@ src/tools/
 ├── registry.ts          ToolRegistry 工具注册中心
 ├── utils.ts             公共工具函数（路径安全校验等）
 └── builtin/
-    ├── example.ts       示例工具
+    ├── (已移除)         示例工具
     ├── read-file.ts     读取文件内容（带行号）
-    ├── search-replace.ts搜索替换（支持正则）
+    ├── search-in-files.ts在文件中搜索/替换（支持正则）
     ├── apply-diff.ts    应用 unified diff 补丁
-    ├── terminal.ts      执行 Shell 命令
+    ├── shell.ts         执行 Shell 命令
     └── agent.ts         子 Agent 委派工具
 ```
 
@@ -59,11 +59,11 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
 | 工具名 | 文件 | 功能 |
 |--------|------|------|
-| `get_current_time` | `example.ts` | 返回当前日期时间（ISO / 本地 / Unix 时间戳） |
+| （已移除） | `example.ts` | 示例工具已移除 |
 | `read_file` | `read-file.ts` | 读取文本文件，返回带行号内容，支持指定行范围 |
-| `search_replace` | `search-replace.ts` | 搜索/替换文件内容，支持正则表达式 |
+| `search_in_files` | `search-in-files.ts` | 在目录或文件中搜索/替换内容，支持正则表达式 |
 | `apply_diff` | `apply-diff.ts` | 应用 unified diff 补丁，支持多 hunk |
-| `terminal` | `terminal.ts` | 执行 Shell 命令，支持超时和工作目录 |
+| `shell` | `shell.ts` | 执行 Shell 命令，支持超时和工作目录 |
 | `memory_search` | 由 `memory/tools.ts` 动态创建 | 搜索长期记忆 |
 | `memory_add` | 同上 | 保存记忆 |
 | `memory_delete` | 同上 | 删除记忆 |

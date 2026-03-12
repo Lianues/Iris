@@ -65,7 +65,7 @@ export function createDefaultSubAgentTypes(): SubAgentTypeConfig[] {
       name: 'explore',
       description: '只读搜索和阅读文件、执行查询命令。不做修改，只返回发现的信息。',
       systemPrompt: '你是一个只读探索代理，负责搜索和阅读信息。不要修改任何文件，只返回你发现的内容。',
-      allowedTools: ['read_file', 'terminal'],
+      allowedTools: ['read_file', 'shell'],
       parallel: false,
       maxToolRounds: 200,
     },

@@ -245,7 +245,7 @@ interface SubAgentType {
 | 类型 | 固定模型 | 轮次 | 并行调度 | 工具过滤 | 用途 |
 |------|----------|------|----------|----------|------|
 | `general-purpose` | 跟随当前模型 | 200 | false | 排除 `sub_agent` | 多步骤通用任务 |
-| `explore` | 跟随当前模型 | 200 | false | 仅 `read_file`、`terminal` | 只读探索 |
+| `explore` | 跟随当前模型 | 200 | false | 仅 `read_file`、`shell` | 只读探索 |
 | `recall` | 跟随当前模型 | 3 | false | 仅 `memory_search` | 记忆搜索 |
 
 `parallel` 的含义是：当前类型的 `sub_agent` 调用是否作为 parallel 工具参与调度。默认 `false`。不写就是 `false`，只有显式写 `true` 的类型，才会在同一轮里与相邻的 parallel 工具一起进入并行批次。

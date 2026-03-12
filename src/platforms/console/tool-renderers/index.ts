@@ -8,16 +8,16 @@
 import type { FC } from 'react';
 import type { ToolRendererProps } from './default';
 import { DefaultRenderer } from './default';
-import { TerminalRenderer } from './terminal';
+import { ShellRenderer } from './shell';
 import { ReadFileRenderer } from './read-file';
 import { ApplyDiffRenderer } from './apply-diff';
-import{ SearchReplaceRenderer } from './search-replace';
+import { SearchInFilesRenderer } from './search-in-files';
 
 const renderers: Record<string, FC<ToolRendererProps>> = {
-  terminal: TerminalRenderer,
+  shell: ShellRenderer,
   read_file: ReadFileRenderer,
   apply_diff: ApplyDiffRenderer,
-  search_replace: SearchReplaceRenderer,
+  search_in_files: SearchInFilesRenderer,
 };
 
 export function getToolRenderer(toolName: string): FC<ToolRendererProps> {

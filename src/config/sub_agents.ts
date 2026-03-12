@@ -14,7 +14,7 @@
  *       maxToolRounds: 200
  *     explore:
  *       description: "只读搜索和阅读文件"
- *       allowedTools: [read_file, terminal]
+ *       allowedTools: [read_file, shell]
  *       parallel: false
  *       maxToolRounds: 200
  */

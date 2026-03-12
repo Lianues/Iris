@@ -302,7 +302,7 @@ types:
     systemPrompt: "你是一个只读探索代理，负责搜索和阅读信息。不要修改任何文件，只返回你发现的内容。"
     allowedTools:
       - read_file
-      - terminal
+      - shell
     parallel: true
     # modelName: gpt4o_mini
     maxToolRounds: 200

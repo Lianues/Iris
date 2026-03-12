@@ -30,8 +30,8 @@ import { OCRService } from './ocr';
 import { ToolRegistry } from './tools/registry';
 import { ToolStateManager } from './tools/state';
 import { readFile } from './tools/internal/read_file';
-import { searchReplace } from './tools/internal/search_replace';
-import { terminal } from './tools/internal/terminal';
+import { searchInFiles } from './tools/internal/search_in_files';
+import { shell } from './tools/internal/shell';
 import { applyDiff } from './tools/internal/apply_diff';
 import { writeFile } from './tools/internal/write_file';
 import { listFiles } from './tools/internal/list_files';
@@ -90,7 +90,7 @@ async function main() {
 
   // ---- 3. 注册工具 ----
   const tools = new ToolRegistry();
-  tools.registerAll([readFile, writeFile, applyDiff, searchReplace, terminal, listFiles, deleteFile, createDirectory, insertCode, deleteCode]);
+  tools.registerAll([readFile, writeFile, applyDiff, searchInFiles, shell, listFiles, deleteFile, createDirectory, insertCode, deleteCode]);
   if (memory) {
     const { createMemoryTools } = await import('./memory');
     tools.registerAll(createMemoryTools(memory));
