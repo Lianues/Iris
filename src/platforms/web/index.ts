@@ -290,6 +290,7 @@ export class WebPlatform extends PlatformAdapter {
     });
     this.router.get('/api/config', config.get);
     this.router.put('/api/config', config.update);
+    this.router.post('/api/config/models', config.listModels);
 
     // 状态 API
     this.router.get('/api/status', async (_req, res) => {

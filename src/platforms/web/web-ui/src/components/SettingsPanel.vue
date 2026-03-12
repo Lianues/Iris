@@ -46,7 +46,19 @@
                 </div>
                 <div class="form-group">
                   <label>模型</label>
-                  <input type="text" v-model="tiers.primary.model" placeholder="例如：gemini-2.0-flash" />
+                  <div class="inline-field-actions">
+                    <input type="text" v-model="tiers.primary.model" placeholder="例如：gemini-2.0-flash" />
+                    <button class="btn-inline-action" type="button"
+                            :disabled="modelCatalog.primary.loading || (managementEnabled && !managementReady)"
+                            @click="fetchTierModels('primary')">
+                      {{ modelCatalog.primary.loading ? '拉取中...' : '拉取列表' }}
+                    </button>
+                  </div>
+                  <select v-if="modelCatalog.primary.options.length > 0" v-model="tiers.primary.model" class="model-list-select">
+                    <option value="">选择已发现的模型（也可继续手动输入）</option>
+                    <option v-for="option in modelCatalog.primary.options" :key="option.id" :value="option.id">{{ option.label }}</option>
+                  </select>
+                  <p class="field-hint" :class="{ 'model-fetch-error': !!modelCatalog.primary.error }">{{ tierModelHint('primary') }}</p>
                 </div>
                 <div class="form-group full-width">
                   <label>API Key</label>
@@ -85,7 +97,19 @@
                 </div>
                 <div class="form-group">
                   <label>模型</label>
-                  <input type="text" v-model="tiers.secondary.model" placeholder="例如：gpt-4o" />
+                  <div class="inline-field-actions">
+                    <input type="text" v-model="tiers.secondary.model" placeholder="例如：gpt-4o" />
+                    <button class="btn-inline-action" type="button"
+                            :disabled="modelCatalog.secondary.loading || (managementEnabled && !managementReady)"
+                            @click="fetchTierModels('secondary')">
+                      {{ modelCatalog.secondary.loading ? '拉取中...' : '拉取列表' }}
+                    </button>
+                  </div>
+                  <select v-if="modelCatalog.secondary.options.length > 0" v-model="tiers.secondary.model" class="model-list-select">
+                    <option value="">选择已发现的模型（也可继续手动输入）</option>
+                    <option v-for="option in modelCatalog.secondary.options" :key="option.id" :value="option.id">{{ option.label }}</option>
+                  </select>
+                  <p class="field-hint" :class="{ 'model-fetch-error': !!modelCatalog.secondary.error }">{{ tierModelHint('secondary') }}</p>
                 </div>
                 <div class="form-group full-width">
                   <label>API Key</label>
@@ -124,7 +148,19 @@
                 </div>
                 <div class="form-group">
                   <label>模型</label>
-                  <input type="text" v-model="tiers.light.model" placeholder="例如：gemini-2.0-flash" />
+                  <div class="inline-field-actions">
+                    <input type="text" v-model="tiers.light.model" placeholder="例如：gemini-2.0-flash" />
+                    <button class="btn-inline-action" type="button"
+                            :disabled="modelCatalog.light.loading || (managementEnabled && !managementReady)"
+                            @click="fetchTierModels('light')">
+                      {{ modelCatalog.light.loading ? '拉取中...' : '拉取列表' }}
+                    </button>
+                  </div>
+                  <select v-if="modelCatalog.light.options.length > 0" v-model="tiers.light.model" class="model-list-select">
+                    <option value="">选择已发现的模型（也可继续手动输入）</option>
+                    <option v-for="option in modelCatalog.light.options" :key="option.id" :value="option.id">{{ option.label }}</option>
+                  </select>
+                  <p class="field-hint" :class="{ 'model-fetch-error': !!modelCatalog.light.error }">{{ tierModelHint('light') }}</p>
                 </div>
                 <div class="form-group full-width">
                   <label>API Key</label>
@@ -432,8 +468,8 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
-import { getConfig, updateConfig, getStatus, cfGetStatus, cfSetup, cfListDns, cfAddDns, cfRemoveDns, cfGetSsl, cfSetSsl } from '../api/client'
-import type { CfDnsRecord } from '../api/types'
+import { getConfig, updateConfig, getStatus, fetchConfigModels, cfGetStatus, cfSetup, cfListDns, cfAddDns, cfRemoveDns, cfGetSsl, cfSetSsl } from '../api/client'
+import type { CfDnsRecord, ConfigModelOption } from '../api/types'
 import { useTheme, type ThemeMode } from '../composables/useTheme'
 import AppIcon from './AppIcon.vue'
 import { ICONS } from '../constants/icons'
@@ -474,6 +510,8 @@ const config = reactive({
   maxToolRounds: 10,
   stream: true,
 })
+
+type TierName = 'primary' | 'secondary' | 'light'
 
 interface TierConfig {
   provider: string
@@ -522,11 +560,98 @@ watchTierProvider(tiers.primary)
 watchTierProvider(tiers.secondary)
 watchTierProvider(tiers.light)
 
+interface TierModelCatalogState {
+  loading: boolean
+  error: string
+  options: ConfigModelOption[]
+  baseUrl: string
+  usedStoredApiKey: boolean
+}
+
+function createTierModelCatalogState(): TierModelCatalogState {
+  return {
+    loading: false,
+    error: '',
+    options: [],
+    baseUrl: '',
+    usedStoredApiKey: false,
+  }
+}
+
+const modelCatalog = reactive<Record<TierName, TierModelCatalogState>>({
+  primary: createTierModelCatalogState(),
+  secondary: createTierModelCatalogState(),
+  light: createTierModelCatalogState(),
+})
+
+function resetTierModelCatalog(tierName: TierName) {
+  Object.assign(modelCatalog[tierName], createTierModelCatalogState())
+}
+
 function tierKeyHint(apiKey: string): string {
   if (!apiKey) return '未配置 API Key。'
   if (apiKey.startsWith('****')) return '已读取已保存密钥，保持不变则不会覆盖。'
   return '将使用当前输入的密钥保存配置。'
 }
+
+function tierModelHint(tierName: TierName): string {
+  const state = modelCatalog[tierName]
+  if (state.error) return state.error
+  if (managementEnabled.value && !managementReady.value) return '管理令牌未解锁，暂时无法拉取模型列表。'
+  if (state.options.length > 0) {
+    return `已从 ${state.baseUrl} 拉取 ${state.options.length} 个模型${state.usedStoredApiKey ? '（使用已保存 API Key）' : ''}。也可继续手动输入。`
+  }
+  return '填写 API 地址与 Key 后，可拉取模型列表，也可继续手动输入模型名称。'
+}
+
+function normalizeApiKeyForLookup(apiKey: string): string | undefined {
+  const trimmed = apiKey.trim()
+  if (!trimmed || trimmed.startsWith('****')) return undefined
+  return trimmed
+}
+
+async function fetchTierModels(tierName: TierName) {
+  const tier = tiers[tierName]
+  const state = modelCatalog[tierName]
+
+  state.loading = true
+  state.error = ''
+
+  try {
+    const result = await fetchConfigModels({
+      tier: tierName,
+      provider: tier.provider,
+      baseUrl: tier.baseUrl,
+      apiKey: normalizeApiKeyForLookup(tier.apiKey),
+    })
+
+    state.options = result.models
+    state.baseUrl = result.baseUrl
+    state.usedStoredApiKey = result.usedStoredApiKey
+
+    if (result.models.length === 0) {
+      state.error = '接口已连接，但没有返回可用模型。你仍可手动输入模型名称。'
+      return
+    }
+
+    if (!tier.model) {
+      tier.model = result.models[0].id
+    }
+  } catch (err: any) {
+    state.error = '拉取失败：' + (err?.message || '未知错误')
+  } finally {
+    state.loading = false
+  }
+}
+
+function watchTierModelCatalogInvalidation(tierName: TierName, tier: TierConfig) {
+  watch([() => tier.provider, () => tier.baseUrl, () => tier.apiKey], () => {
+    resetTierModelCatalog(tierName)
+  })
+}
+watchTierModelCatalogInvalidation('primary', tiers.primary)
+watchTierModelCatalogInvalidation('secondary', tiers.secondary)
+watchTierModelCatalogInvalidation('light', tiers.light)
 
 const tools = ref<string[]>([])
 const statusText = ref('')

@@ -7,7 +7,7 @@
 import type {
   ImageInput, DocumentInput, Message, StatusInfo, ChatCallbacks, DetectResponse, DeployResponse, DeploySyncCloudflareResponse,
   DeployFormOptions, DeployStateResponse, DeployPreviewResponse,
-  CfStatusResponse, CfDnsRecord, CfDnsInput, CfSetupResponse, SessionSummary,
+  CfStatusResponse, CfDnsRecord, CfDnsInput, CfSetupResponse, SessionSummary, ConfigModelListResponse,
 } from './types'
 import { clearManagementToken, loadManagementToken } from '../utils/managementToken'
 import { clearAuthToken, loadAuthToken } from '../utils/authToken'
@@ -143,6 +143,21 @@ export async function updateConfig(data: any): Promise<{ ok: boolean; restartReq
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
+  return res.json()
+}
+
+export async function fetchConfigModels(data: {
+  tier: 'primary' | 'secondary' | 'light'
+  provider: string
+  baseUrl: string
+  apiKey?: string
+}): Promise<ConfigModelListResponse> {
+  const res = await request('/api/config/models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+
   return res.json()
 }
 

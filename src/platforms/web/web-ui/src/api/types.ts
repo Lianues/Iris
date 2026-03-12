@@ -49,6 +49,20 @@ export interface StatusInfo {
   platform: string
 }
 
+/** 设置中心模型候选项 */
+export interface ConfigModelOption {
+  id: string
+  label: string
+}
+
+/** 设置中心模型列表响应 */
+export interface ConfigModelListResponse {
+  provider: string
+  baseUrl: string
+  usedStoredApiKey: boolean
+  models: ConfigModelOption[]
+}
+
 /** Cloudflare token 来源 */
 export type CloudflareTokenSource = 'inline' | 'env' | 'file'
 
