@@ -50,9 +50,9 @@ abstract class StorageProvider {
 [
   { "role": "user",  "parts": [{ "text": "你好" }] },
   { "role": "model", "parts": [{ "text": "你好！有什么可以帮你的？" }] },
-  { "role": "model", "parts": [{ "functionCall": { "name": "calculator", "args": { "expression": "2+3" } } }] },
-  { "role": "user",  "parts": [{ "functionResponse": { "name": "calculator", "response": { "result": 5 } } }] },
-  { "role": "model", "parts": [{ "text": "2+3 等于 5。" }] }
+  { "role": "model", "parts": [{ "functionCall": { "name": "read_file", "args": { "path": "src/index.ts" } } }] },
+  { "role": "user",  "parts": [{ "functionResponse": { "name": "read_file", "response": { "content": "..." } } }] },
+  { "role": "model", "parts": [{ "text": "这是文件的内容..." }] }
 ]
 ```
 

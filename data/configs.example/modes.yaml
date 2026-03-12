@@ -10,9 +10,9 @@
 # readonly:
 #   description: "只读分析模式"
 #   tools:
-#     include: [read_file, memory_search, get_current_time, calculator]
+#     include: [read_file, memory_search, get_current_time]
 #
 # chat:
 #   description: "纯聊天模式"
 #   tools:
-#     include: [get_current_time, calculator]
+#     include: [get_current_time]

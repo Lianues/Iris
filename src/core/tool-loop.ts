@@ -86,7 +86,18 @@ export class ToolLoop {
       );
 
       // 调用 LLM（具体方式由 callLLM 决定）
-      const modelContent = await callLLM(request, tier);
+      let modelContent: Content;
+      try {
+        modelContent = await callLLM(request, tier);
+      } catch (err: unknown) {
+        // LLM 调用失败时不中断整个对话，返回错误信息让上层可以保存已有历史
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        logger.error(`LLM 调用失败 (round=${rounds}): ${errorMsg}`);
+        return {
+          text: `LLM 调用出错: ${errorMsg}`,
+          history,
+        };
+      }
       history.push(modelContent);
 
       // 检查工具调用

@@ -15,6 +15,7 @@ import { WebPlatform } from './platforms/web';
 
 // LLM
 import { createLLMRouter } from './llm/factory';
+import { setRequestLogging } from './llm/transport';
 
 // 存储
 import { JsonFileStorage } from './storage/json-file';
@@ -32,7 +33,6 @@ import { OCRService } from './ocr';
 // 工具
 import { ToolRegistry } from './tools/registry';
 import { ToolStateManager } from './tools/state';
-import { getCurrentTime, calculator } from './tools/internal/example';
 import { readFile } from './tools/internal/read_file';
 import { searchReplace } from './tools/internal/search_replace';
 import { terminal } from './tools/internal/terminal';
@@ -61,6 +61,9 @@ async function main() {
   const configDir = findConfigFile();
   const config = loadConfig();
 
+  // ---- 0. 配置日志 ----
+  setRequestLogging(!!config.system.logRequests);
+
   // ---- 1. 创建 LLM 路由器 ----
   const router = createLLMRouter(config.llm);
 
@@ -87,7 +90,7 @@ async function main() {
 
   // ---- 3. 注册工具 ----
   const tools = new ToolRegistry();
-  tools.registerAll([getCurrentTime, calculator, readFile, writeFile, applyDiff, searchReplace, terminal, listFiles, deleteFile, createDirectory, insertCode, deleteCode]);
+  tools.registerAll([readFile, writeFile, applyDiff, searchReplace, terminal, listFiles, deleteFile, createDirectory, insertCode, deleteCode]);
   if (memory) {
     tools.registerAll(createMemoryTools(memory));
   }

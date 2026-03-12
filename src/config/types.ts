@@ -54,6 +54,8 @@ export interface SystemConfig {
   maxAgentDepth: number;
   /** 默认模式名称（可选，需与 modes 中定义的名称对应） */
   defaultMode?: string;
+  /** 是否记录 LLM 请求日志到文件，默认 false */
+  logRequests?: boolean;
 }
 
 export interface MemoryConfig {

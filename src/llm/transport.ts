@@ -5,6 +5,15 @@
  * 支持流式和非流式请求，通过 streamUrl 字段区分 URL。
  */
 
+import { logRequest } from '../logger/request-logger';
+
+let loggingEnabled = false;
+
+/** 启用/禁用请求日志 */
+export function setRequestLogging(enabled: boolean) {
+  loggingEnabled = enabled;
+}
+
 export interface EndpointConfig {
   /** 非流式请求 URL */
   url: string;
@@ -30,12 +39,18 @@ export async function sendRequest(
   const url = stream ? (endpoint.streamUrl ?? endpoint.url) : endpoint.url;
   const effectiveTimeout = timeout ?? (stream ? DEFAULT_STREAM_TIMEOUT : DEFAULT_TIMEOUT);
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...endpoint.headers,
+  };
+
+  if (loggingEnabled) {
+    logRequest({ url, method: 'POST', headers, body }).catch(() => {});
+  }
+
   return fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...endpoint.headers,
-    },
+    headers,
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(effectiveTimeout),
   });

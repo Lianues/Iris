@@ -211,6 +211,7 @@ export class Backend extends EventEmitter {
 
   /** 发送消息，触发完整的 LLM + 工具循环 */
   async chat(sessionId: string, text: string, images?: ImageInput[], documents?: DocumentInput[]): Promise<void> {
+    const startTime = Date.now();
     try {
       const storedUserParts = await this.buildStoredUserParts(text, images, documents);
       const llmUserParts = this.preparePartsForLLM(storedUserParts);
@@ -219,6 +220,7 @@ export class Backend extends EventEmitter {
       const errorMsg = err instanceof Error ? err.message : String(err);
       logger.error(`处理消息失败 (session=${sessionId}):`, err);
       this.emit('error', sessionId, errorMsg);
+      this.emit('done', sessionId, Date.now() - startTime);
     } finally {
       this.activeSessionId = undefined;
     }
@@ -509,7 +511,17 @@ export class Backend extends EventEmitter {
         streamOutputLastChunkAt = now;
         streamOutputChunkCount++;
         for (const part of deltaParts) {
-          emittedParts.push(appendMergedPart(parts, part, now, thoughtTiming));
+          const merged = appendMergedPart(parts, part, now, thoughtTiming);
+          // appendMergedPart 返回的是 parts 数组中累积后的对象引用（原地拼接），
+          // 不能直接作为增量发送，否则前端会收到全量内容导致重复。
+          // 这里用原始的 delta part 浅拷贝作为增量发送。
+          const delta: Part = { ...part };
+          // 如果是 thought 类型，补上 appendMergedPart 计算出的 timing 信息
+          if ('text' in delta && 'text' in merged
+            && delta.thought === true && merged.thoughtDurationMs != null) {
+            delta.thoughtDurationMs = merged.thoughtDurationMs;
+          }
+          emittedParts.push(delta);
         }
         this.emit('stream:parts', sessionId, emittedParts);
       }

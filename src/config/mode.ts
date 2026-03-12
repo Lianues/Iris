@@ -13,7 +13,7 @@
  *     readonly:
  *       description: "只读分析模式"
  *       tools:
- *         include: [read_file, memory_search, get_current_time, calculator]
+ *         include: [read_file, memory_search, get_current_time]
  */
 
 import { ModeDefinition, ToolFilter } from '../modes/types';

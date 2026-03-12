@@ -60,7 +60,6 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 | 工具名 | 文件 | 功能 |
 |--------|------|------|
 | `get_current_time` | `example.ts` | 返回当前日期时间（ISO / 本地 / Unix 时间戳） |
-| `calculator` | `example.ts` | 计算数学表达式（递归下降解析器，支持四则运算和括号） |
 | `read_file` | `read-file.ts` | 读取文本文件，返回带行号内容，支持指定行范围 |
 | `search_replace` | `search-replace.ts` | 搜索/替换文件内容，支持正则表达式 |
 | `apply_diff` | `apply-diff.ts` | 应用 unified diff 补丁，支持多 hunk |

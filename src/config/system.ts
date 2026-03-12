@@ -10,5 +10,6 @@ export function parseSystemConfig(raw: any = {}): SystemConfig {
     maxToolRounds: raw.maxToolRounds ?? 200,
     stream: raw.stream ?? true,
     maxAgentDepth: raw.maxAgentDepth ?? 3,
+    logRequests: raw.logRequests ?? false,
   };
 }
