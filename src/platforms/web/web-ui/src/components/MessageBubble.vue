@@ -1,10 +1,18 @@
 <template>
   <div class="message-stack" :class="[`message-stack-${role}`, { streaming }]">
     <div class="message-meta-row">
-      <div class="message-meta">{{ roleLabel }}</div>
+      <div class="message-meta-group">
+        <div class="message-meta-badge" :class="`message-meta-badge-${role}`">
+          <AppIcon :name="roleIcon" class="message-meta-icon" />
+          <span>{{ roleLabel }}</span>
+        </div>
+        <div v-if="streaming" class="message-stream-status">实时生成中</div>
+      </div>
+
       <div class="message-actions">
-        <button class="message-action-btn" type="button" @click="copyMessage">
-          {{ messageCopyText }}
+        <button class="message-action-btn" :class="messageCopyStateClass" type="button" @click="copyMessage">
+          <AppIcon :name="ICONS.common.copy" class="message-action-icon" />
+          <span>{{ messageCopyText }}</span>
         </button>
         <button
           v-if="role === 'model' && !streaming"
@@ -12,7 +20,8 @@
           type="button"
           @click="emit('retry', messageIndex ?? -1)"
         >
-          重试
+          <AppIcon :name="ICONS.common.retry" class="message-action-icon" />
+          <span>重试</span>
         </button>
       </div>
     </div>
@@ -29,6 +38,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
+import AppIcon from './AppIcon.vue'
+import { ICONS } from '../constants/icons'
 
 const props = defineProps<{
   role: 'user' | 'model'
@@ -40,9 +51,17 @@ const props = defineProps<{
 const emit = defineEmits<{ retry: [messageIndex: number] }>()
 
 const roleLabel = computed(() => (props.role === 'user' ? '你' : 'Iris'))
+const roleIcon = computed(() => (props.role === 'user' ? ICONS.common.send : ICONS.common.sparkle))
 const messageEl = ref<HTMLDivElement | null>(null)
 const messageCopyText = ref('复制')
+const messageCopyState = ref<'idle' | 'success' | 'error'>('idle')
 let messageCopyTimer: number | null = null
+
+const messageCopyStateClass = computed(() => {
+  if (messageCopyState.value === 'success') return 'copied'
+  if (messageCopyState.value === 'error') return 'error'
+  return ''
+})
 
 /** 用户消息纯文本转义，模型消息 Markdown 渲染 */
 const renderedText = computed(() => {
@@ -60,6 +79,7 @@ function scheduleMessageCopyReset() {
   }
   messageCopyTimer = window.setTimeout(() => {
     messageCopyText.value = '复制'
+    messageCopyState.value = 'idle'
     messageCopyTimer = null
   }, 1800)
 }
@@ -68,8 +88,10 @@ async function copyMessage() {
   try {
     await navigator.clipboard.writeText(props.text)
     messageCopyText.value = '已复制'
+    messageCopyState.value = 'success'
   } catch {
     messageCopyText.value = '复制失败'
+    messageCopyState.value = 'error'
   }
   scheduleMessageCopyReset()
 }

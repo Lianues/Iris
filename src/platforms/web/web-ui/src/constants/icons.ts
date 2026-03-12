@@ -8,6 +8,10 @@ export const ICONS = {
     attach: 'attach_file',
     send: 'north_east',
     document: 'description',
+    copy: 'content_copy',
+    retry: 'refresh',
+    arrowDown: 'south',
+    sparkle: 'auto_awesome',
   },
   sidebar: {
     chat: 'chat',

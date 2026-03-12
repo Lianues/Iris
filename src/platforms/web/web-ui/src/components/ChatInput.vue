@@ -12,15 +12,47 @@
 
     <div
       class="input-shell"
-      :class="{ 'drag-active': dragActive }"
+      :class="{ 'drag-active': dragActive, 'input-shell-busy': disabled }"
       @dragenter.prevent="handleDragEnter"
       @dragover.prevent="handleDragOver"
       @dragleave.prevent="handleDragLeave"
       @drop.prevent="handleDrop"
     >
+      <div v-if="dragActive" class="input-drag-mask">
+        <div class="input-drag-mask-card">
+          <AppIcon :name="ICONS.common.attach" class="input-drag-mask-icon" />
+          <strong>释放即可附加到当前对话</strong>
+          <span>支持图片、PDF 与 Office 文档</span>
+        </div>
+      </div>
+
       <div class="input-meta">
-        <div class="input-title">继续当前工作流</div>
-        <div class="input-hint">Enter 发送 · Shift + Enter 换行</div>
+        <div>
+          <div class="input-title">继续当前工作流</div>
+          <div class="input-hint">Enter 发送 · Shift + Enter 换行</div>
+        </div>
+        <div class="input-status-badge" :class="{ busy: disabled }">
+          {{ disabled ? 'Iris 正在整理回复' : '已连接工作流上下文' }}
+        </div>
+      </div>
+
+      <div v-if="showQuickPrompts" class="input-quick-actions">
+        <button
+          v-for="prompt in quickPrompts"
+          :key="prompt.label"
+          class="input-quick-chip"
+          type="button"
+          @click="applyQuickPrompt(prompt.text)"
+        >
+          {{ prompt.label }}
+        </button>
+      </div>
+
+      <div v-if="images.length > 0 || documents.length > 0" class="input-attachment-summary">
+        <span>{{ attachmentSummary }}</span>
+        <button class="input-clear-attachments" type="button" :disabled="disabled" @click="clearAttachments">
+          清空附件
+        </button>
       </div>
 
       <div v-if="images.length > 0 || documents.length > 0" class="image-preview-strip">
@@ -80,22 +112,28 @@
             @click="openFilePicker"
           >
             <AppIcon :name="ICONS.common.attach" class="btn-attach-icon" />
-            <span>上传文件</span>
+            <span>{{ attachButtonLabel }}</span>
           </button>
 
           <button
             class="btn-send"
+            :class="{ sending: disabled }"
             :disabled="disabled || !canSend"
             @click="handleSend"
           >
-            <span class="btn-send-label">{{ disabled ? '生成中...' : '发送' }}</span>
-            <AppIcon :name="ICONS.common.send" class="btn-send-icon" />
+            <span class="btn-send-label">{{ sendButtonText }}</span>
+            <span v-if="disabled" class="btn-send-spinner" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+            <AppIcon v-else :name="ICONS.common.send" class="btn-send-icon" />
           </button>
         </div>
       </div>
 
       <div class="input-upload-hint">
-        <span>支持拖拽/粘贴上传 · 图片最多 {{ MAX_IMAGES }} 张(5MB) · 文档最多 {{ MAX_DOCUMENTS }} 个(50MB)</span>
+        <span>{{ disabled ? '当前回答完成前，附件与输入将暂时锁定。' : '支持拖拽 / 粘贴上传 · 图片最多 ' + MAX_IMAGES + ' 张(5MB) · 文档最多 ' + MAX_DOCUMENTS + ' 个(50MB)' }}</span>
         <span v-if="errorMessage" class="input-error">{{ errorMessage }}</span>
       </div>
     </div>
@@ -121,6 +159,12 @@ const SUPPORTED_DOC_MIMES = new Set([
   'application/vnd.ms-excel',
 ])
 
+const quickPrompts = [
+  { label: '继续推进上一步', text: '继续推进上一步，并告诉我下一步最值得做什么。' },
+  { label: '帮我梳理思路', text: '请先帮我梳理这个问题的关键点、风险和建议方案。' },
+  { label: '分析附件内容', text: '请先分析我上传的附件，提炼重点并给出可执行结论。' },
+] as const
+
 const props = defineProps<{ disabled: boolean }>()
 const emit = defineEmits<{ send: [text: string, images?: ImageInput[], documents?: DocumentInput[]] }>()
 
@@ -135,6 +179,15 @@ const fileInputEl = ref<HTMLInputElement | null>(null)
 let dragDepth = 0
 
 const canSend = computed(() => text.value.trim().length > 0 || images.value.length > 0 || documents.value.length > 0)
+const showQuickPrompts = computed(() => !disabled.value && !text.value.trim() && images.value.length === 0 && documents.value.length === 0)
+const sendButtonText = computed(() => (disabled.value ? '生成中...' : '发送'))
+const attachButtonLabel = computed(() => (images.value.length > 0 || documents.value.length > 0 ? '继续添加' : '上传文件'))
+const attachmentSummary = computed(() => {
+  const parts: string[] = []
+  if (images.value.length > 0) parts.push(`${images.value.length} 张图片`)
+  if (documents.value.length > 0) parts.push(`${documents.value.length} 个文档`)
+  return parts.join(' · ')
+})
 
 function setError(message: string) {
   errorMessage.value = message
@@ -154,9 +207,28 @@ function isDocumentFile(file: File): boolean {
   return ext ? SUPPORTED_DOC_EXTENSIONS.includes(ext) : false
 }
 
+function focusComposer() {
+  nextTick(() => {
+    inputEl.value?.focus()
+    autoResize()
+  })
+}
+
+function applyQuickPrompt(prompt: string) {
+  text.value = prompt
+  clearError()
+  focusComposer()
+}
+
 function openFilePicker() {
   if (props.disabled || (images.value.length >= MAX_IMAGES && documents.value.length >= MAX_DOCUMENTS)) return
   fileInputEl.value?.click()
+}
+
+function clearAttachments() {
+  images.value = []
+  documents.value = []
+  clearError()
 }
 
 function removeImage(index: number) {

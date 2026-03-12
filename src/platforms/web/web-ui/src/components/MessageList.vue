@@ -1,7 +1,7 @@
 <template>
   <div ref="containerEl" class="messages" @scroll="handleScroll">
     <div class="messages-shell">
-      <div v-if="messages.length === 0 && !isStreaming" class="welcome">
+      <div v-if="messages.length === 0 && !isStreaming && !sending" class="welcome">
         <div class="welcome-badge">Iris Workspace</div>
         <h2>把灵感、问题和工具流都放进一个对话里</h2>
         <p>
@@ -88,6 +88,24 @@
         </template>
       </template>
 
+      <div v-if="showThinkingBubble" class="message-stack message-stack-model message-stack-thinking">
+        <div class="message-meta-row">
+          <div class="message-meta-group">
+            <div class="message-meta">Iris</div>
+            <div class="message-stream-status">正在组织回复与工具结果</div>
+          </div>
+        </div>
+
+        <div class="message message-model message-thinking" aria-live="polite">
+          <div class="thinking-dots" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="thinking-copy">请稍候，Iris 正在整理上下文。</div>
+        </div>
+      </div>
+
       <MessageBubble
         v-if="isStreaming && streamingText"
         role="model"
@@ -95,11 +113,21 @@
         :streaming="true"
       />
     </div>
+
+    <button
+      v-if="showJumpToBottom"
+      class="messages-jump"
+      type="button"
+      @click="scrollToBottom(true)"
+    >
+      <AppIcon :name="ICONS.common.arrowDown" class="messages-jump-icon" />
+      <span>回到底部</span>
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import type { Message } from '../api/types'
 import MessageBubble from './MessageBubble.vue'
 import ImageBubble from './ImageBubble.vue'
@@ -110,6 +138,7 @@ import { ICONS } from '../constants/icons'
 
 const props = defineProps<{
   messages: Message[]
+  sending: boolean
   streamingText: string
   isStreaming: boolean
 }>()
@@ -121,6 +150,16 @@ const shouldStickToBottom = ref(true)
 
 /** 记录哪些消息索引的工具被折叠 */
 const collapsedTools = reactive(new Set<number>())
+
+const showThinkingBubble = computed(() => {
+  if (!props.sending || props.isStreaming || !!props.streamingText) return false
+  const lastMessage = props.messages[props.messages.length - 1]
+  return !lastMessage || lastMessage.role === 'user'
+})
+
+const showJumpToBottom = computed(() => {
+  return !shouldStickToBottom.value && (props.messages.length > 0 || props.isStreaming || props.sending)
+})
 
 /** 后端存储的内部标记文本，不应在 UI 中单独展示 */
 function isInternalMarker(text: string): boolean {
@@ -177,7 +216,7 @@ function scrollToBottom(force = false) {
   nextTick(() => {
     if (!containerEl.value) return
     if (force || shouldStickToBottom.value) {
-      containerEl.value.scrollTop = containerEl.value.scrollHeight
+      containerEl.value.scrollTo({ top: containerEl.value.scrollHeight, behavior: force ? 'smooth' : 'auto' })
       shouldStickToBottom.value = true
     }
   })
@@ -201,5 +240,9 @@ watch(() => props.messages, () => {
 
 watch(() => props.streamingText, () => {
   scrollToBottom(false)
+})
+
+watch(() => props.sending, (value) => {
+  if (value) scrollToBottom(false)
 })
 </script>

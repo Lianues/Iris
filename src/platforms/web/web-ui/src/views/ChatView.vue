@@ -11,6 +11,7 @@
 
       <MessageList
         :messages="messages"
+        :sending="sending"
         :streaming-text="streamingText"
         :is-streaming="isStreaming"
         @retry="retryLastMessage"
