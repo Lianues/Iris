@@ -1,11 +1,11 @@
 /**
  * 图片缩放模块
  *
- * 移植自 Pi 的 image-resize.ts，使用 sharp 替代 Photon WASM。
+ * 使用 sharp 进行图片处理。
  * 自动将图片缩放到 API 限制以内（尺寸 + 文件大小）。
+ *
+ * sharp 采用延迟加载，不支持的平台（如 Termux/Android）在不使用图片功能时不会崩溃。
  */
-
-import sharp from 'sharp';
 
 export interface ImageResizeOptions {
   maxWidth?: number;    // Default: 2000
@@ -34,6 +34,17 @@ const DEFAULT_OPTIONS: Required<ImageResizeOptions> = {
   jpegQuality: 80,
 };
 
+/** 延迟加载 sharp，避免在不支持的平台上启动即崩溃 */
+let _sharp: typeof import('sharp') | null = null;
+
+async function getSharp() {
+  if (!_sharp) {
+    const mod = await import('sharp');
+    _sharp = (mod.default ?? mod) as typeof import('sharp');
+  }
+  return _sharp;
+}
+
 /**
  * Resize an image to fit within the specified max dimensions and file size.
  * Returns the original image if it already fits within the limits.
@@ -55,6 +66,7 @@ export async function resizeImage(
   const inputBuffer = Buffer.from(base64Data, 'base64');
 
   try {
+    const sharp = await getSharp();
     const metadata = await sharp(inputBuffer).metadata();
     const originalWidth = metadata.width ?? 0;
     const originalHeight = metadata.height ?? 0;
@@ -200,7 +212,7 @@ export async function resizeImage(
       wasResized: true,
     };
   } catch {
-    // Failed to process image - return original
+    // Failed to process image (or sharp unavailable) - return original
     return {
       data: base64Data,
       mimeType,
