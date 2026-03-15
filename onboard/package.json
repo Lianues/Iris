@@ -1,0 +1,22 @@
+{
+  "name": "iris-onboard",
+  "version": "1.0.0",
+  "description": "Iris 交互式配置引导工具 (OpenTUI)",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.tsx",
+    "build": "bun run build.ts",
+    "build:linux-x64": "bun build src/index.tsx --compile --target=bun-linux-x64 --outfile dist/iris-onboard-linux-x64",
+    "build:linux-arm64": "bun build src/index.tsx --compile --target=bun-linux-arm64 --outfile dist/iris-onboard-linux-arm64"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.1.87",
+    "@opentui/react": "^0.1.87",
+    "react": "^19.1.0",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}
