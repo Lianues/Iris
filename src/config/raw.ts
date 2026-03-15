@@ -13,6 +13,7 @@ export const CONFIG_SECTION_KEYS = [
   'ocr',
   'platform',
   'storage',
+  'tools',
   'system',
   'memory',
   'cloudflare',

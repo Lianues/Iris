@@ -198,6 +198,9 @@ export class ConsolePlatform extends PlatformAdapter {
           resolve();
         },
         onSubmit: (text: string) => this.handleInput(text),
+        onToolApproval: (toolId: string, approved: boolean) => {
+          this.backend.approveTool(toolId, approved);
+        },
         onNewSession: () => this.handleNewSession(),
         onLoadSession: (id: string) => this.handleLoadSession(id),
         onListSessions: () => this.handleListSessions(),

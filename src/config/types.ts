@@ -53,6 +53,19 @@ export interface StorageConfig {
   dbPath?: string;
 }
 
+export interface ToolPolicyConfig {
+  /** 工具执行前是否自动批准（无需用户确认），默认 false */
+  autoApprove: boolean;
+}
+
+export interface ToolsConfig {
+  /**
+   * 按工具名称定义执行策略。
+   * 未配置的工具视为不允许执行。
+   */
+  permissions: Record<string, ToolPolicyConfig>;
+}
+
 export interface SystemConfig {
   systemPrompt: string;
   maxToolRounds: number;
@@ -93,6 +106,7 @@ export interface AppConfig {
   ocr?: OCRConfig;
   platform: PlatformConfig;
   storage: StorageConfig;
+  tools: ToolsConfig;
   system: SystemConfig;
   memory?: MemoryConfig;
   mcp?: MCPConfig;

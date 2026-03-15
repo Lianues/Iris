@@ -9,6 +9,7 @@
  */
 
 import { ToolDefinition } from '../../../types';
+import { ToolPolicyConfig } from '../../../config';
 import { LLMRouter } from '../../../llm/router';
 import { ToolRegistry } from '../../registry';
 import { ToolLoop, LLMCaller } from '../../../core/tool-loop';
@@ -32,6 +33,7 @@ export interface SubAgentToolDeps {
   tools: ToolRegistry;
   subAgentTypes: SubAgentTypeRegistry;
   maxDepth: number;
+  getToolPolicies: () => Record<string, ToolPolicyConfig>;
 }
 
 /** 工具名称常量 */
@@ -125,6 +127,7 @@ export function createSubAgentTool(deps: SubAgentToolDeps, currentDepth: number 
 
       const loop = new ToolLoop(subTools, subPrompt, {
         maxRounds: typeConfig.maxToolRounds,
+        toolPolicies: deps.getToolPolicies(),
       });
 
       const callLLM: LLMCaller = async (request, modelName) => {

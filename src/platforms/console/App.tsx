@@ -119,6 +119,7 @@ interface SwitchModelResult { ok: boolean; message: string; modelId?: string; mo
 interface AppProps {
   onReady: (handle: AppHandle) => void;
   onSubmit: (text: string) => void;
+  onToolApproval: (toolId: string, approved: boolean) => void;
   onNewSession: () => void;
   onLoadSession: (id: string) => Promise<void>;
   onListSessions: () => Promise<SessionMeta[]>;
@@ -137,7 +138,7 @@ interface AppProps {
 /** 视图模式 */
 type ViewMode = 'chat' | 'session-list' | 'model-list' | 'settings';
 
-export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSessions, onRunCommand, onListModels, onSwitchModel, onLoadSettings, onSaveSettings, onExit, modeName, modelId, modelName, contextWindow }: AppProps) {
+export function App({ onReady, onSubmit, onToolApproval, onNewSession, onLoadSession, onListSessions, onRunCommand, onListModels, onSwitchModel, onLoadSettings, onSaveSettings, onExit, modeName, modelId, modelName, contextWindow }: AppProps) {
   const [messages, setMessages] =useState<ChatMessage[]>([]);
   const [streamingParts, setStreamingParts] = useState<MessagePart[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -153,6 +154,9 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
   const [modelList, setModelList] = useState<LLMModelInfo[]>([]);
   const [resizeTick, setResizeTick] = useState(0);
   const { stdout } = useStdout();
+
+  /** 当前等待用户确认的工具调用列表 */
+  const [pendingApprovals, setPendingApprovals] = useState<ToolInvocation[]>([]);
 
   const streamPartsRef = useRef<MessagePart[]>([]);
   const toolInvocationsRef = useRef<ToolInvocation[]>([]);
@@ -258,6 +262,9 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
       setToolInvocations(invocations) {
         const copy = [...invocations];
         toolInvocationsRef.current = copy;
+        // 更新待确认队列
+        const awaiting = copy.filter(inv => inv.status === 'awaiting_approval');
+        setPendingApprovals(awaiting);
         setMessages((prev: ChatMessage[]) => {
           if (prev.length === 0) return prev;
           const last = prev[prev.length - 1];
@@ -286,6 +293,7 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
 
       commitTools() {
         toolInvocationsRef.current = [];
+        setPendingApprovals([]);
       },
 
       setUsage(usage: UsageMetadata) {
@@ -381,6 +389,22 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
 
   useInput((input: string, key: any) => {
     if (viewMode === 'settings') {
+      return;
+    }
+    // 工具审批拦截：生成期间有待确认的工具时，Y/N 按键用于批准/拒绝
+    if (isGenerating && pendingApprovals.length > 0) {
+      const lower = input.toLowerCase();
+      if (lower === 'y') {
+        // 批准第一个待确认工具
+        onToolApproval(pendingApprovals[0].id, true);
+        return;
+      }
+      if (lower === 'n') {
+        // 拒绝第一个待确认工具
+        onToolApproval(pendingApprovals[0].id, false);
+        return;
+      }
+      // 其他按键在审批模式下忽略
       return;
     }
     if (viewMode === 'session-list') {
@@ -627,7 +651,18 @@ export function App({ onReady, onSubmit, onNewSession, onLoadSession, onListSess
           {'  │  '}{process.cwd()}
           {resizeTick % 2 === 0 ? '' : '\u200B'}
         </Text>
-        <InputBar disabled={isGenerating} onSubmit={handleSubmit} />
+        {/* 工具审批提示（有待确认的工具时替代输入栏） */}
+        {pendingApprovals.length > 0 ? (
+          <Box paddingLeft={1}>
+            <Text color="yellow" bold>{'? '}</Text>
+            <Text>确认执行 </Text>
+            <Text bold color="yellow">{pendingApprovals[0].toolName}</Text>
+            <Text dimColor>{'  (Y) 批准  (N) 拒绝'}</Text>
+            {pendingApprovals.length > 1 && <Text dimColor>{`  (剩余 ${pendingApprovals.length - 1} 个)`}</Text>}
+          </Box>
+        ) : (
+          <InputBar disabled={isGenerating} onSubmit={handleSubmit} />
+        )}
       </Box>
     </Box>
   );

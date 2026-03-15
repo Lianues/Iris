@@ -14,7 +14,7 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
-import type { LLMConfig } from '../config/types';
+import type { LLMConfig, ToolsConfig, ToolPolicyConfig } from '../config/types';
 import { LLMRouter } from '../llm/router';
 import { supportsVision as llmSupportsVision, isDocumentMimeType, supportsNativePDF, supportsNativeOffice } from '../llm/vision';
 import { StorageProvider, SessionMeta } from '../storage/base';
@@ -255,6 +255,8 @@ function appendMergedPart(parts: Part[], nextPart: Part, now: number, thoughtTim
 export interface BackendConfig {
   /** 工具执行最大轮次 */
   maxToolRounds?: number;
+  /** 工具执行策略配置 */
+  toolsConfig?: ToolsConfig;
   /** 是否启用流式输出 */
   stream?: boolean;
   /** 是否自动召回记忆 */
@@ -340,7 +342,7 @@ export class Backend extends EventEmitter {
     this.currentLLMConfig = config?.currentLLMConfig;
     this.ocrService = config?.ocrService;
 
-    this.toolLoopConfig = { maxRounds: config?.maxToolRounds ?? 200 };
+    this.toolLoopConfig = { maxRounds: config?.maxToolRounds ?? 200, toolPolicies: config?.toolsConfig?.permissions ?? {} };
     this.toolLoop = new ToolLoop(tools, prompt, this.toolLoopConfig, toolState);
 
     // 转发工具状态事件
@@ -535,6 +537,25 @@ export class Backend extends EventEmitter {
     return this.toolState;
   }
 
+  /** 获取当前工具执行策略 */
+  getToolPolicies(): Record<string, ToolPolicyConfig> {
+    return this.toolLoopConfig.toolPolicies;
+  }
+
+  /**
+   * 批准或拒绝一个处于 awaiting_approval 状态的工具调用。
+   *
+   * @param toolId   工具调用实例 ID
+   * @param approved true=批准（转为 executing），false=拒绝（转为 error）
+   */
+  approveTool(toolId: string, approved: boolean): void {
+    if (approved) {
+      this.toolState.transition(toolId, 'executing');
+    } else {
+      this.toolState.transition(toolId, 'error', { error: '用户已拒绝执行' });
+    }
+  }
+
   /** 获取流式设置 */
   isStreamEnabled(): boolean {
     return this.stream;
@@ -555,16 +576,18 @@ export class Backend extends EventEmitter {
   reloadConfig(opts: {
     stream?: boolean;
     maxToolRounds?: number;
+    toolsConfig?: ToolsConfig;
     systemPrompt?: string;
     currentLLMConfig?: LLMConfig;
     ocrService?: OCRService;
   }): void {
     if (opts.stream !== undefined) this.stream = opts.stream;
     if (opts.maxToolRounds !== undefined) this.toolLoopConfig.maxRounds = opts.maxToolRounds;
+    if (opts.toolsConfig !== undefined) this.toolLoopConfig.toolPolicies = opts.toolsConfig.permissions;
     if (opts.systemPrompt !== undefined) this.prompt.setSystemPrompt(opts.systemPrompt);
     if ('currentLLMConfig' in opts) this.currentLLMConfig = opts.currentLLMConfig;
     if ('ocrService' in opts) this.ocrService = opts.ocrService;
-    logger.info(`配置已热重载: stream=${this.stream} maxToolRounds=${this.toolLoopConfig.maxRounds}`);
+    logger.info(`配置已热重载: stream=${this.stream} maxToolRounds=${this.toolLoopConfig.maxRounds} toolPolicies=${Object.keys(this.toolLoopConfig.toolPolicies).length}`);
   }
 
   // ============ 核心流程 ============

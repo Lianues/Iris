@@ -37,6 +37,11 @@ export type ToolStatus =
   | 'warning'            // 终态：部分成功
   | 'error';             // 终态：执行失败、超时、被取消或拒绝
 
+/** 终态集合（可在多处复用） */
+export const TERMINAL_TOOL_STATUSES: ReadonlySet<ToolStatus> = new Set([
+  'success', 'warning', 'error',
+]);
+
 /** 单次工具调用实例 */
 export interface ToolInvocation {
   /** 调用唯一标识 */

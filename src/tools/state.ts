@@ -15,7 +15,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { ToolStatus, ToolInvocation, ToolStateChangeEvent } from '../types';
+import { ToolStatus, ToolInvocation, ToolStateChangeEvent, TERMINAL_TOOL_STATUSES } from '../types';
 import { createLogger } from '../logger';
 
 const logger = createLogger('ToolState');
@@ -35,9 +35,7 @@ const VALID_TRANSITIONS: Record<ToolStatus, ToolStatus[]> = {
 };
 
 /** 终态集合 */
-const TERMINAL_STATUSES: ReadonlySet<ToolStatus> = new Set([
-  'success', 'warning', 'error',
-]);
+const TERMINAL_STATUSES = TERMINAL_TOOL_STATUSES;
 
 // ============ 事件类型声明 ============
 
@@ -202,5 +200,40 @@ export class ToolStateManager extends EventEmitter {
   clearAll(): void {
     this.invocations.clear();
     this.counter = 0;
+  }
+
+  // ---- 审批等待 ----
+
+  /**
+   * 等待工具调用被用户批准或拒绝。
+   *
+   * 调用方应先将工具状态转为 `awaiting_approval`，然后调用此方法阻塞。
+   * 当外部代码将状态转为 `executing` 时返回 `true`（已批准）；
+   * 当外部代码将状态转为 `error` 时返回 `false`（已拒绝）。
+   */
+  waitForApproval(id: string): Promise<boolean> {
+    const invocation = this.invocations.get(id);
+    if (!invocation) {
+      throw new Error(`工具调用不存在: ${id}`);
+    }
+
+    // 如果状态已经不是 awaiting_approval，则直接返回
+    if (invocation.status !== 'awaiting_approval') {
+      return Promise.resolve(invocation.status === 'executing');
+    }
+
+    return new Promise<boolean>((resolve) => {
+      const handler = (event: ToolStateChangeEvent) => {
+        if (event.invocation.id !== id) return;
+        if (event.invocation.status === 'executing') {
+          this.off('stateChange', handler);
+          resolve(true);
+        } else if (TERMINAL_STATUSES.has(event.invocation.status)) {
+          this.off('stateChange', handler);
+          resolve(false);
+        }
+      };
+      this.on('stateChange', handler);
+    });
   }
 }

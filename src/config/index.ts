@@ -8,6 +8,7 @@
  *   ocr.yaml      - OCR 配置（可选）
  *   platform.yaml - 平台配置
  *   storage.yaml  - 存储配置
+ *   tools.yaml    - 工具执行配置
  *   system.yaml   - 系统配置
  *   memory.yaml   - 记忆配置（可选）
  *   mcp.yaml      - MCP 配置（可选）
@@ -22,6 +23,7 @@ import { parseLLMConfig } from './llm';
 import { parseOCRConfig } from './ocr';
 import { parsePlatformConfig } from './platform';
 import { parseStorageConfig } from './storage';
+import { parseToolsConfig } from './tools';
 import { parseSystemConfig } from './system';
 import { parseMemoryConfig } from './memory';
 import { parseMCPConfig } from './mcp';
@@ -36,6 +38,8 @@ export type {
   LLMRegistryConfig,
   PlatformConfig,
   StorageConfig,
+  ToolPolicyConfig,
+  ToolsConfig,
   SystemConfig,
   MemoryConfig,
   MCPConfig,
@@ -73,6 +77,7 @@ export function loadConfig(): AppConfig {
     ocr: parseOCRConfig(data.ocr),
     platform: parsePlatformConfig(data.platform),
     storage: parseStorageConfig(data.storage),
+    tools: parseToolsConfig(data.tools),
     system: parseSystemConfig(data.system),
     memory: parseMemoryConfig(data.memory),
     mcp: parseMCPConfig(data.mcp),

@@ -22,14 +22,27 @@ import {
 
 type SettingsSection = 'general' | 'mcp' | 'tools';
 type StatusKind = 'info' | 'success' | 'warning' | 'error';
+type ToolPolicyMode = 'disabled' | 'manual' | 'auto';
 
 type RowTarget =
   | { kind: 'modelProvider'; modelIndex: number }
   | { kind: 'modelField'; modelIndex: number; field: 'modelName' | 'modelId' | 'apiKey' | 'baseUrl' }
   | { kind: 'modelDefault'; modelIndex: number }
   | { kind: 'systemField'; field: 'systemPrompt' | 'maxToolRounds' | 'stream' }
+  | { kind: 'toolPolicy'; toolIndex: number }
   | { kind: 'mcpField'; serverIndex: number; field: 'name' | 'enabled' | 'transport' | 'command' | 'args' | 'cwd' | 'url' | 'authHeader' | 'timeout' }
   | { kind: 'action'; action: 'addModel' | 'addMcp' };
+
+function getToolPolicyMode(configured: boolean, autoApprove: boolean): ToolPolicyMode {
+  if (!configured) return 'disabled';
+  return autoApprove ? 'auto' : 'manual';
+}
+
+function formatToolPolicyMode(mode: ToolPolicyMode): string {
+  if (mode === 'auto') return '自动执行';
+  if (mode === 'manual') return '手动确认';
+  return '不允许';
+}
 
 interface SettingsRow {
   id: string;
@@ -121,6 +134,7 @@ function getEditableFingerprint(snapshot: ConsoleSettingsSnapshot | null): strin
     modelOriginalNames: snapshot.modelOriginalNames,
     defaultModelName: snapshot.defaultModelName,
     system: snapshot.system,
+    toolPolicies: snapshot.toolPolicies,
     mcpServers: snapshot.mcpServers,
     mcpOriginalNames: snapshot.mcpOriginalNames,
   });
@@ -276,17 +290,20 @@ function buildRows(snapshot: ConsoleSettingsSnapshot, termWidth: number): Settin
     id: 'section.tools',
     kind: 'section',
     section: 'tools',
-    label: `工具状态（${snapshot.tools.length}）`,
-    description: '当前挂载到模型上下文的工具集合。',
+    label: `工具执行策略（${snapshot.toolPolicies.length}）`,
+    description: '按工具名称配置执行策略。未配置的工具视为不允许执行。',
   });
 
-  const toolLines = wrapList(snapshot.tools, Math.max(20, termWidth - 10));
-  toolLines.forEach((line, index) => {
+  snapshot.toolPolicies.forEach((tool, index) => {
+    const mode = getToolPolicyMode(tool.configured, tool.autoApprove);
     rows.push({
-      id: `tools.${index}`,
-      kind: 'info',
+      id: `tool.${tool.name}`,
+      kind: 'field',
       section: 'tools',
-      label: line,
+      label: `Tool / ${tool.name}${tool.registered ? '' : '（当前未注册）'}`,
+      value: formatToolPolicyMode(mode),
+      target: { kind: 'toolPolicy', toolIndex: index },
+      description: '空格、回车或左右方向键切换：不允许 / 手动确认 / 自动执行。',
       indent: 2,
     });
   });
@@ -620,6 +637,19 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         if (!current) return;
         snapshot.mcpServers[target.serverIndex].transport = cycleValue(CONSOLE_MCP_TRANSPORT_OPTIONS, current, direction) as ConsoleMCPTransport;
       }
+
+      if (target.kind === 'toolPolicy') {
+        const tool = snapshot.toolPolicies[target.toolIndex];
+        if (!tool) return;
+
+        const modes: ToolPolicyMode[] = ['disabled', 'manual', 'auto'];
+        const current = getToolPolicyMode(tool.configured, tool.autoApprove);
+        const next = cycleValue(modes, current, direction);
+
+        tool.configured = next !== 'disabled';
+        tool.autoApprove = next === 'auto';
+        return;
+      }
     });
   }, [updateDraft]);
 
@@ -636,6 +666,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         snapshot.system.stream = !snapshot.system.stream;
         return;
       }
+
 
       if (target.kind === 'mcpField' && target.field === 'enabled') {
         const server = snapshot.mcpServers[target.serverIndex];
@@ -835,7 +866,11 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
     }
 
     if (selectedRow?.target && key.leftArrow) {
-      if (selectedRow.target.kind === 'modelProvider' || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'transport')) {
+      if (
+        selectedRow.target.kind === 'modelProvider'
+        || selectedRow.target.kind === 'toolPolicy'
+        || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'transport')
+      ) {
         applyCycle(selectedRow.target, -1);
       }
       setPendingLeaveConfirm(false);
@@ -843,7 +878,11 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
     }
 
     if (selectedRow?.target && key.rightArrow) {
-      if (selectedRow.target.kind === 'modelProvider' || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'transport')) {
+      if (
+        selectedRow.target.kind === 'modelProvider'
+        || selectedRow.target.kind === 'toolPolicy'
+        || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'transport')
+      ) {
         applyCycle(selectedRow.target, 1);
       }
       setPendingLeaveConfirm(false);
@@ -895,6 +934,10 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'enabled')
       ) {
         applyToggle(selectedRow.target);
+      } else if (
+        selectedRow.target.kind === 'toolPolicy'
+      ) {
+        applyCycle(selectedRow.target, 1);
       }
       return;
     }
@@ -918,7 +961,11 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         return;
       }
 
-      if (selectedRow.target.kind === 'modelProvider' || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'transport')) {
+      if (
+        selectedRow.target.kind === 'modelProvider'
+        || selectedRow.target.kind === 'toolPolicy'
+        || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'transport')
+      ) {
         applyCycle(selectedRow.target, 1);
         return;
       }

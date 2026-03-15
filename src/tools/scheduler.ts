@@ -17,6 +17,7 @@ import { ToolRegistry } from './registry';
 import { ToolStateManager } from './state';
 import { FunctionCallPart, FunctionResponsePart } from '../types';
 import { createLogger } from '../logger';
+import { ToolPolicyConfig } from '../config';
 
 const logger = createLogger('ToolScheduler');
 
@@ -95,16 +96,51 @@ export function buildExecutionPlan(
 // ============ 执行 ============
 
 /**
- * 执行单个工具调用，可选管理 ToolStateManager 状态转换。
+ * 执行单个工具调用。
+ *
+ * 当 autoApprove 为 false 时，先将状态切到 awaiting_approval 并阻塞，
+ * 等待外部代码（平台层）将状态转为 executing（批准）或 error（拒绝）。
  */
 async function executeSingle(
   call: FunctionCallPart,
   registry: ToolRegistry,
   toolState?: ToolStateManager,
   invocationId?: string,
+  toolPolicies: Record<string, ToolPolicyConfig> = {},
 ): Promise<FunctionResponsePart> {
+  const toolName = call.functionCall.name;
+  const policy = toolPolicies[toolName];
+
+  if (!policy) {
+    const errorMsg = `工具未被允许执行: ${toolName}。请先在 tools.yaml 中配置该工具。`;
+    if (toolState && invocationId) {
+      toolState.transition(invocationId, 'error', { error: errorMsg });
+    }
+    logger.warn(errorMsg);
+    return {
+      functionResponse: {
+        name: toolName,
+        response: { error: errorMsg },
+      },
+    };
+  }
+
   if (toolState && invocationId) {
-    toolState.transition(invocationId, 'executing');
+    if (!policy.autoApprove) {
+      // 需要用户批准
+      toolState.transition(invocationId, 'awaiting_approval');
+      const approved = await toolState.waitForApproval(invocationId);
+      if (!approved) {
+        return {
+          functionResponse: {
+            name: toolName,
+            response: { error: '用户已拒绝执行该工具' },
+          },
+        };
+      }
+    } else {
+      toolState.transition(invocationId, 'executing');
+    }
   }
   logger.info(`执行工具: ${call.functionCall.name}${invocationId ? ` (${invocationId})` : ''}`);
 
@@ -154,6 +190,7 @@ export async function executePlan(
   registry: ToolRegistry,
   toolState?: ToolStateManager,
   invocationIds?: string[],
+  toolPolicies: Record<string, ToolPolicyConfig> = {},
 ): Promise<FunctionResponsePart[]> {
   const responseParts: FunctionResponsePart[] = new Array(calls.length);
 
@@ -164,7 +201,7 @@ export async function executePlan(
 
       const results = await Promise.all(
         batch.indices.map(i =>
-          executeSingle(calls[i], registry, toolState, invocationIds?.[i])
+          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolPolicies)
         ),
       );
       for (let j = 0; j < batch.indices.length; j++) {
@@ -172,7 +209,7 @@ export async function executePlan(
       }
     } else {
       for (const i of batch.indices) {
-        responseParts[i] = await executeSingle(calls[i],registry, toolState, invocationIds?.[i]);
+        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolPolicies);
       }
     }
   }

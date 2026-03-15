@@ -1,0 +1,42 @@
+# 工具配置
+#
+# 按工具名称配置执行策略。
+# 未在此文件中配置的工具，默认不允许执行。
+#
+# autoApprove: true  -> 工具输出后直接执行
+# autoApprove: false -> 工具执行前需要手动确认
+
+# 只读工具：默认直接执行
+read_file:
+  autoApprove: true
+search_in_files:
+  autoApprove: true
+find_files:
+  autoApprove: true
+list_files:
+  autoApprove: true
+
+# 修改类工具：默认需要确认
+write_file:
+  autoApprove: false
+apply_diff:
+  autoApprove: false
+insert_code:
+  autoApprove: false
+delete_code:
+  autoApprove: false
+delete_file:
+  autoApprove: false
+create_directory:
+  autoApprove: false
+shell:
+  autoApprove: false
+sub_agent:
+  autoApprove: false
+
+# 如需启用其他工具，请按工具名补充配置。
+# 例如：
+# memory_search:
+#   autoApprove: true
+# mcp__my_server__my_tool:
+#   autoApprove: false

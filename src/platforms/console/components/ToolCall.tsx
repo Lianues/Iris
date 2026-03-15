@@ -64,6 +64,7 @@ export function ToolCall({ invocation, lineColor = 'green' }: ToolCallProps) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
   const isFinal = TERMINAL_STATUSES.has(status);
   const isExecuting = status === 'executing';
+  const isAwaitingApproval = status === 'awaiting_approval';
 
   const argsSummary = getArgsSummary(toolName, args);
   const Renderer = isFinal && result != null ? getToolRenderer(toolName) : null;
@@ -74,12 +75,13 @@ export function ToolCall({ invocation, lineColor = 'green' }: ToolCallProps) {
       <Box>
         <Text>
           <Text dimColor color={lineColor}>{"\u251C\u2500 "}</Text>
-          <Text bold={!isFinal} color={isFinal ? 'gray' : undefined}>{toolName}</Text>
+          <Text bold={!isFinal} color={isFinal ? 'gray' : (isAwaitingApproval ? 'yellow' : undefined)}>{toolName}</Text>
           {argsSummary.length > 0 && <Text dimColor> {argsSummary}</Text>}
           {status === 'success' && <Text dimColor> {'\u2713'}</Text>}
           {status === 'warning' && <Text color="yellow"> !</Text>}
           {status === 'error' && <Text color="red"> {'\u2717'}</Text>}
-          {!isFinal && !isExecuting && <Text dimColor> [{status}]</Text>}
+          {isAwaitingApproval && <Text color="yellow"> [待确认]</Text>}
+          {!isFinal && !isExecuting && !isAwaitingApproval && <Text dimColor> [{status}]</Text>}
           {duration && <Text dimColor> {duration}</Text>}
         </Text>
         {isExecuting && <Spinner />}

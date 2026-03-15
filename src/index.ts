@@ -147,6 +147,7 @@ async function main() {
   const backend = new Backend(router, storage, tools, toolState, prompt, {
     maxToolRounds: config.system.maxToolRounds,
     stream: config.system.stream,
+    toolsConfig: config.tools,
     autoRecall,
     subAgentGuidance,
     defaultMode,
@@ -157,6 +158,7 @@ async function main() {
   // 注册子代理工具（需要 backend 引用）
   tools.register(createSubAgentTool({
     getRouter: () => backend.getRouter(),
+    getToolPolicies: () => backend.getToolPolicies(),
     tools,
     subAgentTypes,
     maxDepth: config.system.maxAgentDepth,

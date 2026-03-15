@@ -5,6 +5,7 @@
 import { Backend } from '../../core/backend';
 import { DEFAULTS, parseLLMConfig } from '../../config/llm';
 import { parseSystemConfig } from '../../config/system';
+import { parseToolsConfig } from '../../config/tools';
 import { isMasked, readEditableConfig, updateEditableConfig } from '../../config/manage';
 import { applyRuntimeConfigReload } from '../../config/runtime';
 import { MCPManager, MCPServerInfo } from '../../mcp';
@@ -35,6 +36,13 @@ export interface ConsoleModelSettings {
   baseUrl: string;
 }
 
+export interface ConsoleToolPolicySettings {
+  name: string;
+  configured: boolean;
+  autoApprove: boolean;
+  registered: boolean;
+}
+
 export interface ConsoleMCPServerSettings {
   name: string;
   originalName?: string;
@@ -57,7 +65,7 @@ export interface ConsoleSettingsSnapshot {
     maxToolRounds: number;
     stream: boolean;
   };
-  tools: string[];
+  toolPolicies: ConsoleToolPolicySettings[];
   mcpServers: ConsoleMCPServerSettings[];
   mcpStatus: MCPServerInfo[];
   mcpOriginalNames: string[];
@@ -309,6 +317,10 @@ export class ConsoleSettingsController {
     const data = readEditableConfig(this.configDir);
     const llm = parseLLMConfig(data.llm);
     const system = parseSystemConfig(data.system);
+    const toolsConfig = parseToolsConfig(data.tools);
+    const registeredToolNames = this.backend.getToolNames();
+    const configuredToolNames = Object.keys(toolsConfig.permissions);
+    const allToolNames = Array.from(new Set([...registeredToolNames, ...configuredToolNames])).sort((a, b) => a.localeCompare(b, 'zh-CN'));
     const rawMcpServers = data.mcp?.servers && typeof data.mcp.servers === 'object'
       ? data.mcp.servers as Record<string, any>
       : {};
@@ -329,7 +341,12 @@ export class ConsoleSettingsController {
         maxToolRounds: system.maxToolRounds,
         stream: system.stream,
       },
-      tools: this.backend.getToolNames().sort((a, b) => a.localeCompare(b, 'zh-CN')),
+      toolPolicies: allToolNames.map(name => ({
+        name,
+        configured: Object.prototype.hasOwnProperty.call(toolsConfig.permissions, name),
+        autoApprove: toolsConfig.permissions[name]?.autoApprove === true,
+        registered: registeredToolNames.includes(name),
+      })),
       mcpServers: Object.entries(rawMcpServers).map(([name, cfg]) => ({
         name,
         originalName: name,
@@ -366,6 +383,13 @@ export class ConsoleSettingsController {
         maxToolRounds: draft.system.maxToolRounds,
         stream: draft.system.stream,
       },
+      tools: draft.toolPolicies.reduce((result: Record<string, { autoApprove: boolean }>, tool) => {
+        if (!tool.configured) {
+          return result;
+        }
+        result[tool.name] = { autoApprove: tool.autoApprove };
+        return result;
+      }, {}),
       mcp: buildMCPPayload(draft),
     };
 

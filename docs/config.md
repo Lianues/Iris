@@ -4,7 +4,7 @@
 
 Iris 通过 `data/configs/` 目录下的分文件 YAML 加载配置，并提供：
 
-- 配置解析（LLM / OCR / Platform / Storage / System / Memory / MCP / Modes）
+- 配置解析（LLM / OCR / Platform / Storage / Tools / System / Memory / MCP / Modes）
 - 原始配置目录的读写能力（供 Web 设置与热重载使用）
 - 敏感字段脱敏展示（如 API Key / token）
 
@@ -20,6 +20,7 @@ Iris 实际读取的是 `data/configs/`，不是单文件 `config.yaml`。
 | `ocr.yaml` | 否 | OCR 回退模型配置 |
 | `platform.yaml` | 是 | 平台配置（console / discord / telegram / web） |
 | `storage.yaml` | 是 | 存储配置 |
+| `tools.yaml` | 否 | 工具执行配置 |
 | `system.yaml` | 是 | 系统行为配置 |
 | `memory.yaml` | 否 | 记忆模块配置 |
 | `mcp.yaml` | 否 | MCP 服务器配置 |
@@ -77,6 +78,22 @@ platform:
 storage:
   type: json-file
   dir: ./data/sessions
+
+tools:
+  read_file:
+    autoApprove: true
+  search_in_files:
+    autoApprove: true
+  find_files:
+    autoApprove: true
+  list_files:
+    autoApprove: true
+  write_file:
+    autoApprove: false
+  apply_diff:
+    autoApprove: false
+  shell:
+    autoApprove: false
 
 system:
   systemPrompt: ""
@@ -188,6 +205,46 @@ models:
 ```
 
 `requestBody` 会深合并到 provider 编码后的最终请求体，适合透传渠道特有参数。
+
+---
+
+## 工具配置
+
+`tools.yaml` 用于控制工具执行策略。
+
+按工具名称配置。未在文件中配置的工具，默认不允许执行。
+
+```yaml
+read_file:
+  autoApprove: true
+
+write_file:
+  autoApprove: false
+```
+
+目前支持：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `<toolName>.autoApprove` | `boolean` | 当前工具是否自动批准执行。`true` 表示工具输出后立即执行；`false` 表示工具在执行前进入等待确认状态 |
+
+示例说明：
+
+- `read_file.autoApprove: true`：允许 `read_file`，并且直接执行
+- `write_file.autoApprove: false`：允许 `write_file`，但执行前需要确认
+- `shell` 未填写：`shell` 不允许执行
+
+当某个工具配置为 `autoApprove: false` 时：
+
+- Console TUI 会在工具运行到该步骤时显示确认提示
+- 按 `Y` 批准执行
+- 按 `N` 拒绝执行
+
+建议：
+
+- 只读工具可设为 `true`
+- 写入、删除、命令执行类工具建议设为 `false`
+- 不希望模型使用的工具，直接不要写入 `tools.yaml`
 
 ---
 

@@ -7,6 +7,7 @@ import { createLLMRouter } from '../llm/factory';
 import { OCRService } from '../ocr';
 import { parseLLMConfig } from './llm';
 import { parseOCRConfig } from './ocr';
+import { parseToolsConfig } from './tools';
 import { parseMCPConfig } from './mcp';
 import { DEFAULT_SYSTEM_PROMPT } from '../prompt/templates/default';
 import { createMCPManager, MCPManager } from '../mcp';
@@ -40,6 +41,7 @@ export async function applyRuntimeConfigReload(
 ): Promise<RuntimeConfigSummary> {
   const llmConfig = parseLLMConfig(mergedConfig.llm);
   const ocrConfig = parseOCRConfig(mergedConfig.ocr);
+  const toolsConfig = parseToolsConfig(mergedConfig.tools);
   const previousModelName = context.backend.getCurrentModelName();
   const newRouter = createLLMRouter(llmConfig, previousModelName);
   const currentModel = newRouter.getCurrentModelInfo();
@@ -48,6 +50,7 @@ export async function applyRuntimeConfigReload(
   context.backend.reloadConfig({
     stream: mergedConfig.system?.stream,
     maxToolRounds: mergedConfig.system?.maxToolRounds,
+    toolsConfig,
     systemPrompt: mergedConfig.system?.systemPrompt || DEFAULT_SYSTEM_PROMPT,
     currentLLMConfig: newRouter.getCurrentConfig(),
     ocrService: ocrConfig ? new OCRService(ocrConfig) : undefined,
