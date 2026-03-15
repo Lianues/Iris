@@ -317,6 +317,9 @@ export class Backend extends EventEmitter {
   /** 当前正在处理的 sessionId（用于工具事件转发） */
   private activeSessionId?: string;
 
+  /** 当前活动请求的 AbortController（用于 Ctrl+C 中断） */
+  private activeAbortController?: AbortController;
+
   constructor(
     router: LLMRouter,
     storage: StorageProvider,
@@ -354,17 +357,22 @@ export class Backend extends EventEmitter {
   /** 发送消息，触发完整的 LLM + 工具循环 */
   async chat(sessionId: string, text: string, images?: ImageInput[], documents?: DocumentInput[]): Promise<void> {
     const startTime = Date.now();
+    const abortController = new AbortController();
+    this.activeAbortController = abortController;
     try {
       const storedUserParts = await this.buildStoredUserParts(text, images, documents);
       const llmUserParts = this.preparePartsForLLM(storedUserParts);
-      await this.handleMessage(sessionId, storedUserParts, llmUserParts);
+      await this.handleMessage(sessionId, storedUserParts, llmUserParts, abortController.signal);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      logger.error(`处理消息失败 (session=${sessionId}):`, err);
-      this.emit('error', sessionId, errorMsg);
+      if (!abortController.signal.aborted) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        logger.error(`处理消息失败 (session=${sessionId}):`, err);
+        this.emit('error', sessionId, errorMsg);
+      }
       this.emit('done', sessionId, Date.now() - startTime);
     } finally {
       this.activeSessionId = undefined;
+      this.activeAbortController = undefined;
     }
   }
 
@@ -542,6 +550,14 @@ export class Backend extends EventEmitter {
     }
   }
 
+  /**
+   * 中断当前正在进行的 chat 调用。
+   * 会取消底层 HTTP 请求并使工具循环提前退出。
+   */
+  abortChat(): void {
+    this.activeAbortController?.abort();
+  }
+
   /** 获取流式设置 */
   isStreamEnabled(): boolean {
     return this.stream;
@@ -578,7 +594,7 @@ export class Backend extends EventEmitter {
 
   // ============ 核心流程 ============
 
-  private async handleMessage(sessionId: string, storedUserParts: Part[], llmUserParts: Part[]): Promise<void> {
+  private async handleMessage(sessionId: string, storedUserParts: Part[], llmUserParts: Part[], signal?: AbortSignal): Promise<void> {
     this.activeSessionId = sessionId;
     const startTime = Date.now();
 
@@ -627,12 +643,12 @@ export class Backend extends EventEmitter {
     }
 
     // 3. 构建 LLM 调用函数
-    const callLLM: LLMCaller = async (request, modelName) => {
+    const callLLM: LLMCaller = async (request, modelName, callSignal) => {
       let content: Content;
       if (this.stream) {
-        content = await this.callLLMStream(sessionId, request, modelName);
+        content = await this.callLLMStream(sessionId, request, modelName, callSignal);
       } else {
-        const response = await this.router.chat(request, modelName);
+        const response = await this.router.chat(request, modelName, callSignal);
         content = response.content;
         content.modelName = modelName || this.router.getCurrentModelName();
         if (response.usageMetadata) {
@@ -664,6 +680,7 @@ export class Backend extends EventEmitter {
     const result = await loop.run(history, callLLM, {
       extraParts,
       onMessageAppend: (content) => this.storage.addMessage(sessionId, content),
+      signal,
     });
 
     // 6.5. 工具循环若以“文本回退”结束（如 LLM 调用失败 / 超过最大轮次），
@@ -715,6 +732,7 @@ export class Backend extends EventEmitter {
     sessionId: string,
     request: LLMRequest,
     modelName?: string,
+    signal?: AbortSignal,
   ): Promise<Content> {
     const parts: Part[] = [];
     let usageMetadata: UsageMetadata | undefined;
@@ -725,7 +743,7 @@ export class Backend extends EventEmitter {
 
     this.emit('stream:start', sessionId);
 
-    const llmStream = this.router.chatStream(request, modelName);
+    const llmStream = this.router.chatStream(request, modelName, signal);
     for await (const chunk of llmStream) {
       const deltaParts: Part[] = [];
 

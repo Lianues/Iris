@@ -115,13 +115,13 @@ export class LLMRouter {
   }
 
   /** 非流式调用（按模型名称，可省略以使用当前模型） */
-  async chat(request: LLMRequest, modelName?: LLMModelName): Promise<LLMResponse> {
-    return this.resolve(modelName).chat(request);
+  async chat(request: LLMRequest, modelName?: LLMModelName, signal?: AbortSignal): Promise<LLMResponse> {
+    return this.resolve(modelName).chat(request, signal);
   }
 
   /** 流式调用（按模型名称，可省略以使用当前模型） */
-  async *chatStream(request: LLMRequest, modelName?: LLMModelName): AsyncGenerator<LLMStreamChunk> {
-    yield* this.resolve(modelName).chatStream(request);
+  async *chatStream(request: LLMRequest, modelName?: LLMModelName, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
+    yield* this.resolve(modelName).chatStream(request, signal);
   }
 
   /** 返回当前活动模型名称（用于日志和状态展示） */

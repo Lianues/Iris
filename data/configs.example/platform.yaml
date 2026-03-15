@@ -1,6 +1,9 @@
 # 平台配置
 
 # 类型: console | discord | telegram | web
+# 支持单平台或多平台同时启动：
+#   type: console            # 单平台
+#   type: [console, web]     # 多平台同时启动
 type: console
 
 discord:
@@ -16,5 +19,5 @@ web:
   host: 127.0.0.1
   # API 全局认证令牌（可选，未配置时不启用）
   # authToken: your-secret-token-here
-  #管理接口认证令牌（推荐）
+  # 管理接口认证令牌（推荐）
   # managementToken: your-management-token-here

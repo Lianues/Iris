@@ -1,10 +1,9 @@
 /**
- * 默认工具结果渲染器 - 极致紧凑版
- * 将 JSON 压平为一行，最多显示 100 字符。
+ * 默认工具结果渲染器
+ * 将 JSON 压平为一行，最多显示 80 字符。
  */
 
 import React from 'react';
-import { Text } from 'ink';
 
 export interface ToolRendererProps {
   toolName: string;
@@ -19,5 +18,5 @@ export function DefaultRenderer({ result }: ToolRendererProps) {
 
   const truncated = text.length > 80 ? text.slice(0, 80) + '...' : text;
 
-  return <Text dimColor italic> ↳ {truncated}</Text>;
+  return <text fg="#888"><em> \u21B3 {truncated}</em></text>;
 }

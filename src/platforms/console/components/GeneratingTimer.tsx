@@ -1,12 +1,10 @@
 /**
- * 生成计时器 - 独立组件，自管理 state
- *
- * 将计时逻辑封装在此组件内部，避免每 100ms 触发 App 根组件重渲染。
+ * 生成计时器
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Text } from 'ink';
 import { Spinner } from './Spinner';
+import { C } from '../theme';
 
 interface GeneratingTimerProps {
   isGenerating: boolean;
@@ -39,9 +37,9 @@ export function GeneratingTimer({ isGenerating }: GeneratingTimerProps) {
   if (!isGenerating) return null;
 
   return (
-    <Text>
+    <text>
       <Spinner />
-      <Text dimColor italic> generating... ({time}s)</Text>
-    </Text>
+      <span fg={C.dim}><em>{` generating... (${time}s)`}</em></span>
+    </text>
   );
 }

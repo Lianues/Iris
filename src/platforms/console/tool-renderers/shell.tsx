@@ -1,9 +1,8 @@
 /**
- * shell 工具渲染器 - 极致紧凑版
+ * shell 工具渲染器
  */
 
 import React from 'react';
-import { Text } from 'ink';
 import { ToolRendererProps } from './default.js';
 
 interface ShellResult {
@@ -26,8 +25,8 @@ export function ShellRenderer({ result }: ToolRendererProps) {
   summary += `, out: ${stdoutLen}b, err: ${stderrLen}b`;
 
   return (
-    <Text color={isError ? 'red' : 'gray'} dimColor={!isError} italic>
-      {' ↳ '}{summary}
-    </Text>
+    <text fg={isError ? '#ff0000' : '#888'}>
+      <em>{' \u21B3 '}{summary}</em>
+    </text>
   );
 }

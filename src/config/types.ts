@@ -34,7 +34,8 @@ export interface LLMRegistryConfig {
 }
 
 export interface PlatformConfig {
-  type: 'console' | 'discord' | 'telegram' | 'web';
+  /** 启动的平台类型列表（兼容单字符串和数组写法） */
+  types: Array<'console' | 'discord' | 'telegram' | 'web'>;
   discord: { token: string };
   telegram: { token: string };
   web: {

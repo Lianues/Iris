@@ -165,54 +165,61 @@ async function main() {
   }));
 
   // ---- 6. 创建平台适配器（按需动态导入，减少不必要的原生依赖加载） ----
-  let platform: PlatformAdapter;
+  const platforms: PlatformAdapter[] = [];
   let webPlatformRef: WebPlatformType | undefined;
-  switch (config.platform.type) {
-    case 'discord': {
-      const { DiscordPlatform } = await import('./platforms/discord');
-      platform = new DiscordPlatform(backend, { token: config.platform.discord.token });
-      break;
-    }
-    case 'telegram': {
-      const { TelegramPlatform } = await import('./platforms/telegram');
-      platform = new TelegramPlatform(backend, { token: config.platform.telegram.token });
-      break;
-    }
-    case 'web': {
-      const { WebPlatform } = await import('./platforms/web');
-      const webPlatform = new WebPlatform(backend, {
-        port: config.platform.web.port,
-        host: config.platform.web.host,
-        authToken: config.platform.web.authToken,
-        managementToken: config.platform.web.managementToken,
-        configPath: configDir,
-        provider: currentModel.provider,
-        modelId: currentModel.modelId,
-        streamEnabled: config.system.stream,
-      });
-      if (mcpManager) webPlatform.setMCPManager(mcpManager);
-      webPlatformRef = webPlatform;
-      platform = webPlatform;
-      break;
-    }
-    case 'console':
-    default: {
-      const { ConsolePlatform } = await import('./platforms/console');
-      platform = new ConsolePlatform(backend, {
-        modeName: defaultMode,
-        modelName: currentModel.modelName,
-        modelId: currentModel.modelId,
-        contextWindow: currentModel.contextWindow,
-        configDir,
-        getMCPManager: () => mcpManager,
-        setMCPManager: (manager?: MCPManager) => { mcpManager = manager; },
-      });
-      break;
+
+  for (const platformType of config.platform.types) {
+    switch (platformType) {
+      case 'discord': {
+        const { DiscordPlatform } = await import('./platforms/discord');
+        platforms.push(new DiscordPlatform(backend, { token: config.platform.discord.token }));
+        break;
+      }
+      case 'telegram': {
+        const { TelegramPlatform } = await import('./platforms/telegram');
+        platforms.push(new TelegramPlatform(backend, { token: config.platform.telegram.token }));
+        break;
+      }
+      case 'web': {
+        const { WebPlatform } = await import('./platforms/web');
+        const webPlatform = new WebPlatform(backend, {
+          port: config.platform.web.port,
+          host: config.platform.web.host,
+          authToken: config.platform.web.authToken,
+          managementToken: config.platform.web.managementToken,
+          configPath: configDir,
+          provider: currentModel.provider,
+          modelId: currentModel.modelId,
+          streamEnabled: config.system.stream,
+        });
+        if (mcpManager) webPlatform.setMCPManager(mcpManager);
+        webPlatformRef = webPlatform;
+        platforms.push(webPlatform);
+        break;
+      }
+      case 'console': {
+        const { ConsolePlatform } = await import('./platforms/console');
+        platforms.push(new ConsolePlatform(backend, {
+          modeName: defaultMode,
+          modelName: currentModel.modelName,
+          modelId: currentModel.modelId,
+          contextWindow: currentModel.contextWindow,
+          configDir,
+          getMCPManager: () => mcpManager,
+          setMCPManager: (manager?: MCPManager) => { mcpManager = manager; },
+        }));
+        break;
+      }
     }
   }
 
-  // ---- 7. 启动平台 ----
-  await platform.start();
+  if (platforms.length === 0) {
+    console.error('未配置任何有效平台，请检查 platform.yaml 的 type 字段。');
+    process.exit(1);
+  }
+
+  // ---- 7. 启动所有平台 ----
+  await Promise.all(platforms.map(p => p.start()));
 
   // ---- 退出清理 ----
   let cleaning = false;
@@ -222,7 +229,7 @@ async function main() {
     try {
       const activeMcp = webPlatformRef ? webPlatformRef.getMCPManager() : mcpManager;
       if (activeMcp) await activeMcp.disconnectAll();
-      await platform.stop();
+      await Promise.all(platforms.map(p => p.stop()));
     } catch (err) {
       console.error('清理时出错:', err);
     }

@@ -35,6 +35,7 @@ export async function sendRequest(
   body: unknown,
   stream: boolean,
   timeout?: number,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const url = stream ? (endpoint.streamUrl ?? endpoint.url) : endpoint.url;
   const effectiveTimeout = timeout ?? (stream ? DEFAULT_STREAM_TIMEOUT : DEFAULT_TIMEOUT);
@@ -49,10 +50,16 @@ export async function sendRequest(
     logRequest({ url, method: 'POST', headers, body }).catch(() => {});
   }
 
+  // 合并外部 signal 和超时 signal
+  const timeoutSignal = AbortSignal.timeout(effectiveTimeout);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+
   return fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(effectiveTimeout),
+    signal: combinedSignal,
   });
 }

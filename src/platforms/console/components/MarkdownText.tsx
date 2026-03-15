@@ -1,17 +1,18 @@
 /**
- * Markdown 渲染组件
+ * Markdown 渲染组件 (OpenTUI React)
  *
  * 使用 marked.lexer() 将 Markdown 解析为 token 树，
- * 再将各 token 映射为 Ink React 组件。
+ * 再将各 token 映射为 OpenTUI React 组件。
  *
  * 块级：标题、代码块、引用、有序/无序列表、分隔线、表格、段落
  * 行内：粗体、斜体、行内代码、删除线、链接
  */
 
 import React, { useMemo } from 'react';
-import { Box, Text, useStdout } from 'ink';
+import { useTerminalDimensions } from '@opentui/react';
 import { marked } from 'marked';
 import { highlight } from 'cli-highlight';
+import { C } from '../theme';
 
 namespace Tokens {
   export interface Base {
@@ -152,12 +153,8 @@ namespace Tokens {
 
 type Token = Tokens.Token;
 
-// ── 工具函数 ────────────────────────────────────────────
+// ── 工具函数 ──────────────────────────────────────────────────
 
-/**
- * 计算字符串在终端中的显示宽度。
- * CJK 及全角字符占 2 列，其余占 1 列。
- */
 function displayWidth(str: string): number {
   let w = 0;
   for (const ch of str) {
@@ -180,7 +177,6 @@ function displayWidth(str: string): number {
   return w;
 }
 
-/** marked lexer 在某些 token（如 codespan）中会转义 HTML 实体，此处反转义 */
 function unescape(text: string): string {
   return text
     .replace(/&amp;/g, '&')
@@ -190,7 +186,7 @@ function unescape(text: string): string {
     .replace(/&#39;/g, "'");
 }
 
-// ── 行内 token 渲染 ────────────────────────────────────
+// ── 行内 token 渲染 ──────────────────────────────────────────
 
 function renderInline(tokens: Token[], kp = ''): React.ReactNode[] {
   const out: React.ReactNode[] = [];
@@ -202,39 +198,38 @@ function renderInline(tokens: Token[], kp = ''): React.ReactNode[] {
     switch (t.type) {
       case 'text': {
         const tt = t as Tokens.Text;
-        // Text token 可能有嵌套 tokens（如段落内的混合格式）
         if (tt.tokens && tt.tokens.length > 0) {
-          out.push(<Text key={k}>{renderInline(tt.tokens, `${k}.`)}</Text>);
+          out.push(<span key={k}>{renderInline(tt.tokens, `${k}.`)}</span>);
         } else {
-          out.push(<Text key={k}>{unescape(tt.text)}</Text>);
+          out.push(<span key={k}>{unescape(tt.text)}</span>);
         }
         break;
       }
       case 'strong': {
         const tt = t as Tokens.Strong;
         out.push(
-          <Text key={k} bold color="white">{renderInline(tt.tokens, `${k}.`)}</Text>,
+          <strong key={k}><span fg={C.text}>{renderInline(tt.tokens, `${k}.`)}</span></strong>,
         );
         break;
       }
       case 'em': {
         const tt = t as Tokens.Em;
         out.push(
-          <Text key={k} italic>{renderInline(tt.tokens, `${k}.`)}</Text>,
+          <em key={k}>{renderInline(tt.tokens, `${k}.`)}</em>,
         );
         break;
       }
       case 'codespan': {
         const tt = t as Tokens.Codespan;
         out.push(
-          <Text key={k} backgroundColor="gray" color="white">{` ${unescape(tt.text)} `}</Text>,
+          <span key={k} bg={C.dim} fg={C.text}>{` ${unescape(tt.text)} `}</span>,
         );
         break;
       }
       case 'del': {
         const tt = t as Tokens.Del;
         out.push(
-          <Text key={k} strikethrough dimColor>{renderInline(tt.tokens, `${k}.`)}</Text>,
+          <span key={k} fg={C.dim}>~~{renderInline(tt.tokens, `${k}.`)}~~</span>,
         );
         break;
       }
@@ -244,30 +239,29 @@ function renderInline(tokens: Token[], kp = ''): React.ReactNode[] {
           ? renderInline(tt.tokens, `${k}.`)
           : unescape(tt.text ?? tt.href);
         out.push(
-          <Text key={k}>
-            <Text color="cyan" underline>{label}</Text>
-            {tt.href && <Text dimColor>{` (${tt.href})`}</Text>}
-          </Text>,
+          <span key={k}>
+            <u><span fg={C.primaryLight}>{label}</span></u>
+            {tt.href ? <span fg={C.dim}>{` (${tt.href})`}</span> : null}
+          </span>,
         );
         break;
       }
       case 'image': {
         const tt = t as Tokens.Image;
-        out.push(<Text key={k} dimColor>[image: {unescape(tt.text || tt.href)}]</Text>);
+        out.push(<span key={k} fg={C.dim}>[image: {unescape(tt.text || tt.href)}]</span>);
         break;
       }
       case 'br':
-        out.push(<Text key={k}>{'\n'}</Text>);
+        out.push(<span key={k}>{'\n'}</span>);
         break;
       case 'escape':
-        out.push(<Text key={k}>{(t as Tokens.Escape).text}</Text>);
+        out.push(<span key={k}>{(t as Tokens.Escape).text}</span>);
         break;
       default: {
-        // 未知行内 token：尝试递归 tokens 或渲染 text
         if (Array.isArray(t.tokens)) {
-          out.push(<Text key={k}>{renderInline(t.tokens, `${k}.`)}</Text>);
+          out.push(<span key={k}>{renderInline(t.tokens, `${k}.`)}</span>);
         } else if (typeof t.text === 'string') {
-          out.push(<Text key={k}>{unescape(t.text)}</Text>);
+          out.push(<span key={k}>{unescape(t.text)}</span>);
         }
         break;
       }
@@ -277,21 +271,8 @@ function renderInline(tokens: Token[], kp = ''): React.ReactNode[] {
   return out;
 }
 
-// ── 块级 token 渲染 ────────────────────────────────────
+// ── 块级 token 渲染 ──────────────────────────────────────────
 
-const HEADING_COLORS: Record<number, string> = {
-  1: 'yellow',
-  2: 'cyan',
-  3: 'green',
-  4: 'white',
-  5: 'white',
-  6: 'white',
-};
-
-/**
- * 渲染单个块级 token。
- * @param cursor  可选的流式光标节点，追加在最后一个 token 的末尾。
- */
 function renderBlock(
   token: Token,
   key: string,
@@ -302,31 +283,29 @@ function renderBlock(
     // ── 标题 ──
     case 'heading': {
       const t = token as Tokens.Heading;
-      const color = HEADING_COLORS[t.depth] ?? 'white';
+      const color = C.heading[t.depth] ?? C.text;
 
       if (t.depth <= 2) {
-        // H1: ═══ 双线  H2: ─── 单线
-        const lineChar = t.depth === 1 ? '═' : '─';
+        const lineChar = t.depth === 1 ? '\u2550' : '\u2500';
         const lineWidth = Math.max(displayWidth(unescape(t.text)), 4);
         return (
-          <Box key={key} flexDirection="column">
-            <Text bold color={color} wrap="wrap">
-              {renderInline(t.tokens, `${key}.`)}
+          <box key={key} flexDirection="column">
+            <text fg={color}>
+              <strong>{renderInline(t.tokens, `${key}.`)}</strong>
               {cursor}
-            </Text>
-            <Text dimColor color={color}>{lineChar.repeat(lineWidth)}</Text>
-          </Box>
+            </text>
+            <text fg={color}>{lineChar.repeat(lineWidth)}</text>
+          </box>
         );
       }
 
-      // H3+ 保持 # 前缀
       return (
-        <Box key={key}>
-          <Text bold color={color} wrap="wrap">
-            {'#'.repeat(t.depth)} {renderInline(t.tokens, `${key}.`)}
+        <box key={key}>
+          <text fg={color}>
+            <strong>{'#'.repeat(t.depth)} {renderInline(t.tokens, `${key}.`)}</strong>
             {cursor}
-          </Text>
-        </Box>
+          </text>
+        </box>
       );
     }
 
@@ -334,49 +313,48 @@ function renderBlock(
     case 'paragraph': {
       const t = token as Tokens.Paragraph;
       return (
-        <Box key={key}>
-          <Text wrap="wrap">
+        <box key={key}>
+          <text>
             {renderInline(t.tokens, `${key}.`)}
             {cursor}
-          </Text>
-        </Box>
+          </text>
+        </box>
       );
     }
 
     // ── 代码块 ──
     case 'code': {
       const t = token as Tokens.Code;
-      
-      // 使用 cli-highlight 进行高亮渲染，如果失败则回退到原生文本
+
+      // 使用 cli-highlight 进行高亮渲染
       let highlighted = t.text;
       try {
         highlighted = highlight(t.text, { language: t.lang || 'plaintext', ignoreIllegals: true });
       } catch (e) {
         // fallback
       }
-      
+
       const lines = highlighted.split('\n');
-      // 去除尾部空行
       while (lines.length > 0 && lines[lines.length - 1].replace(/\x1b\[[0-9;]*m/g, '').trim() === '') {
         lines.pop();
       }
       return (
-        <Box key={key} flexDirection="column">
-          <Text>
-            <Text dimColor>{'╭─ '}</Text>
-            <Text bold color="gray">{t.lang || 'code'}</Text>
-          </Text>
+        <box key={key} flexDirection="column">
+          <text>
+            <span fg={C.dim}>{'\u256D\u2500 '}</span>
+            <span fg={C.dim}><strong>{t.lang || 'code'}</strong></span>
+          </text>
           {lines.map((line, li) => (
-            <Text key={li}>
-              <Text dimColor>{'│  '}</Text>
-              <Text>{line}</Text> {/* 注意：这里 line 包含了 ANSI 转义序列，Ink 的 Text 会将其原样透传给终端，终端会自动解析色彩 */}
-            </Text>
+            <text key={li}>
+              <span fg={C.dim}>{'\u2502  '}</span>
+              {line}
+            </text>
           ))}
-          <Text>
-            <Text dimColor>{'╰─'}</Text>
+          <text>
+            <span fg={C.dim}>{'\u2570\u2500'}</span>
             {cursor}
-          </Text>
-        </Box>
+          </text>
+        </box>
       );
     }
 
@@ -385,31 +363,32 @@ function renderBlock(
       const t = token as Tokens.Blockquote;
       const inner = t.tokens || [];
       return (
-        <Box key={key} flexDirection="column">
+        <box key={key} flexDirection="column">
           {inner.map((bt, bi) => {
             const isLast = bi === inner.length - 1;
             if (bt.type === 'paragraph') {
               return (
-                <Box key={bi}>
-                  <Text color="gray">{'▌ '}</Text>
-                  <Text dimColor italic wrap="wrap">
-                    {renderInline((bt as Tokens.Paragraph).tokens, `${key}.${bi}.`)}
-                    {isLast && cursor}
-                  </Text>
-                </Box>
+                <box key={bi}>
+                  <text>
+                    <span fg={C.dim}>{'\u258C '}</span>
+                    <em><span fg={C.dim}>
+                      {renderInline((bt as Tokens.Paragraph).tokens, `${key}.${bi}.`)}
+                      {isLast && cursor}
+                    </span></em>
+                  </text>
+                </box>
               );
             }
-            // 嵌套块级元素
             return (
-              <Box key={bi} flexDirection="row">
-                <Text color="gray">{'▌ '}</Text>
-                <Box flexDirection="column">
+              <box key={bi} flexDirection="row">
+                <text fg={C.dim}>{'\u258C '}</text>
+                <box flexDirection="column">
                   {renderBlock(bt, `${key}.${bi}`, termWidth, isLast ? cursor : undefined)}
-                </Box>
-              </Box>
+                </box>
+              </box>
             );
           })}
-        </Box>
+        </box>
       );
     }
 
@@ -417,23 +396,22 @@ function renderBlock(
     case 'list': {
       const t = token as Tokens.List;
       return (
-        <Box key={key} flexDirection="column">
+        <box key={key} flexDirection="column">
           {t.items.map((item, ii) => {
             const isLastItem = ii === t.items.length - 1;
-            // 标记
             let marker: string;
             if (item.task) {
-              marker = item.checked ? '☑ ' : '☐ ';
+              marker = item.checked ? '\u2611 ' : '\u2610 ';
             } else if (t.ordered) {
               marker = `${(t.start ?? 1) + ii}. `;
             } else {
-              marker = '• ';
+              marker = '\u2022 ';
             }
 
             return (
-              <Box key={ii}>
-                <Text>{'  '}{marker}</Text>
-                <Box flexDirection="column" flexGrow={1}>
+              <box key={ii}>
+                <text>{'  '}{marker}</text>
+                <box flexDirection="column" flexGrow={1}>
                   {item.tokens.map((it, iti) => {
                     const isLastToken = iti === item.tokens.length - 1;
                     const itemCursor = isLastItem && isLastToken ? cursor : undefined;
@@ -442,37 +420,36 @@ function renderBlock(
                       const txt = it as Tokens.Text;
                       if (txt.tokens && txt.tokens.length > 0) {
                         return (
-                          <Text key={iti} wrap="wrap">
+                          <text key={iti}>
                             {renderInline(txt.tokens, `${key}.${ii}.${iti}.`)}
                             {itemCursor}
-                          </Text>
+                          </text>
                         );
                       }
                       return (
-                        <Text key={iti} wrap="wrap">
+                        <text key={iti}>
                           {unescape(txt.text)}
                           {itemCursor}
-                        </Text>
+                        </text>
                       );
                     }
-                    // 嵌套列表等块级元素
                     return renderBlock(it, `${key}.${ii}.${iti}`, termWidth, itemCursor);
                   })}
-                </Box>
-              </Box>
+                </box>
+              </box>
             );
           })}
-        </Box>
+        </box>
       );
     }
 
     // ── 分隔线 ──
     case 'hr':
       return (
-        <Box key={key}>
-          <Text dimColor>{'─'.repeat(Math.max(3, termWidth - 10))}</Text>
+        <box key={key}>
+          <text fg={C.dim}>{'\u2500'.repeat(Math.max(3, termWidth - 10))}</text>
           {cursor}
-        </Box>
+        </box>
       );
 
     // ── 表格 ──
@@ -480,7 +457,6 @@ function renderBlock(
       const t = token as Tokens.Table;
       const colCount = t.header.length;
 
-      // 计算每列最大显示宽度
       const colWidths: number[] = t.header.map(h => displayWidth(unescape(h.text)));
       for (const row of t.rows) {
         for (let ci = 0; ci < colCount; ci++) {
@@ -490,49 +466,42 @@ function renderBlock(
         }
       }
 
-      /** 渲染单元格：居中对齐，两侧补空格 */
       const renderCell = (cell: Tokens.TableCell, ci: number, kp: string, bold?: boolean): React.ReactNode => {
         const textW = displayWidth(unescape(cell.text));
         const total = Math.max(0, colWidths[ci] - textW);
         const padL = Math.floor(total / 2);
         const padR = total - padL;
         return (
-          <Text key={ci}>
-            <Text dimColor>{'│'}</Text>
+          <span key={ci}>
+            <span fg={C.dim}>{'\u2502'}</span>
             {' '.repeat(padL + 1)}
-            <Text bold={bold}>{renderInline(cell.tokens, kp)}</Text>
+            {bold ? <strong>{renderInline(cell.tokens, kp)}</strong> : renderInline(cell.tokens, kp)}
             {' '.repeat(padR + 1)}
-          </Text>
+          </span>
         );
       };
 
-      // 分隔行构造
-      const hrLine = colWidths.map(w => '─'.repeat(w + 2)).join('┼');
-      const topLine = colWidths.map(w => '─'.repeat(w + 2)).join('┬');
-      const botLine = colWidths.map(w => '─'.repeat(w + 2)).join('┴');
+      const hrLine = colWidths.map(w => '\u2500'.repeat(w + 2)).join('\u253C');
+      const topLine = colWidths.map(w => '\u2500'.repeat(w + 2)).join('\u252C');
+      const botLine = colWidths.map(w => '\u2500'.repeat(w + 2)).join('\u2534');
 
       return (
-        <Box key={key} flexDirection="column">
-          {/* 顶部边框 ┌──┬──┐ */}
-          <Text dimColor wrap="truncate-end">{'┌'}{topLine}{'┐'}</Text>
-          {/* 表头 │ xx │ yy │ */}
-          <Text wrap="truncate-end">
+        <box key={key} flexDirection="column">
+          <text fg={C.dim}>{'\u250C'}{topLine}{'\u2510'}</text>
+          <text>
             {t.header.map((cell, ci) => renderCell(cell, ci, `${key}.h${ci}.`, true))}
-            <Text dimColor>{'│'}</Text>
-          </Text>
-          {/* 表头分隔 ├──┼──┤ */}
-          <Text dimColor wrap="truncate-end">{'├'}{hrLine}{'┤'}</Text>
-          {/* 数据行 */}
+            <span fg={C.dim}>{'\u2502'}</span>
+          </text>
+          <text fg={C.dim}>{'\u251C'}{hrLine}{'\u2524'}</text>
           {t.rows.map((row, ri) => (
-            <Text key={ri} wrap="truncate-end">
+            <text key={ri}>
               {row.map((cell, ci) => renderCell(cell, ci, `${key}.r${ri}.c${ci}.`))}
-              <Text dimColor>{'│'}</Text>
-            </Text>
+              <span fg={C.dim}>{'\u2502'}</span>
+            </text>
           ))}
-          {/* 底部边框 └──┴──┘ */}
-          <Text dimColor wrap="truncate-end">{'└'}{botLine}{'┘'}</Text>
+          <text fg={C.dim}>{'\u2514'}{botLine}{'\u2518'}</text>
           {cursor}
-        </Box>
+        </box>
       );
     }
 
@@ -540,53 +509,49 @@ function renderBlock(
     case 'html': {
       const t = token as Tokens.HTML;
       const text = t.text.trim();
-      if (!text) return cursor ? <Text key={key}>{cursor}</Text> : null;
-      return <Text key={key} dimColor>{text}{cursor}</Text>;
+      if (!text) return cursor ? <text key={key}>{cursor}</text> : null;
+      return <text key={key} fg={C.dim}>{text}{cursor}</text>;
     }
 
     // ── 空行 ──
     case 'space':
-      return cursor ? <Text key={key}>{cursor}</Text> : null;
+      return cursor ? <text key={key}>{cursor}</text> : null;
 
     // ── 未知类型 ──
     default: {
       if (Array.isArray(token.tokens)) {
         return (
-          <Box key={key}>
-            <Text wrap="wrap">
+          <box key={key}>
+            <text>
               {renderInline(token.tokens, `${key}.`)}
               {cursor}
-            </Text>
-          </Box>
+            </text>
+          </box>
         );
       }
       if (typeof token.text === 'string') {
         return (
-          <Text key={key}>
+          <text key={key}>
             {unescape(token.text)}
             {cursor}
-          </Text>
+          </text>
         );
       }
-      return cursor ? <Text key={key}>{cursor}</Text> : null;
+      return cursor ? <text key={key}>{cursor}</text> : null;
     }
   }
 }
 
-// ── 主组件 ──────────────────────────────────────────────
+// ── 主组件 ────────────────────────────────────────────────
 
 interface MarkdownTextProps {
-  /** Markdown 原始文本 */
   text: string;
-  /** 是否在末尾显示流式光标 */
   showCursor?: boolean;
 }
 
 export function MarkdownText({ text, showCursor }: MarkdownTextProps) {
-  const { stdout } = useStdout();
-  const termWidth = stdout?.columns ?? 80;
+  const { width: termWidth } = useTerminalDimensions();
 
-  // 解析 token 并缓存
   const tokens = useMemo<Token[] | null>(() => {
     if (!text) return null;
     try {
@@ -597,15 +562,13 @@ export function MarkdownText({ text, showCursor }: MarkdownTextProps) {
   }, [text]);
 
   const cursorNode = showCursor
-    ? <Text backgroundColor="green">{' '}</Text>
+    ? <span bg={C.accent}>{' '}</span>
     : undefined;
 
-  // 空文本
   if (!text || !tokens || tokens.length === 0) {
     return cursorNode ?? null;
   }
 
-  // 找到最后一个非 space token 的下标
   let lastIdx = -1;
   for (let i = tokens.length - 1; i >= 0; i--) {
     if (tokens[i].type !== 'space') {
@@ -636,5 +599,5 @@ export function MarkdownText({ text, showCursor }: MarkdownTextProps) {
     return cursorNode ?? null;
   }
 
-  return <Box flexDirection="column">{nodes}</Box>;
+  return <box flexDirection="column">{nodes}</box>;
 }

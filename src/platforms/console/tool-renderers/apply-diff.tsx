@@ -1,9 +1,8 @@
 /**
- * apply_diff 工具渲染器 - 极致紧凑版
+ * apply_diff 工具渲染器
  */
 
 import React from 'react';
-import { Text } from 'ink';
 import { ToolRendererProps } from './default.js';
 
 interface ApplyDiffResult {
@@ -18,8 +17,8 @@ export function ApplyDiffRenderer({ result }: ToolRendererProps) {
   const isError = (r.failed ?? 0) > 0;
 
   return (
-    <Text color={isError ? 'yellow' : 'gray'} dimColor={!isError} italic>
-      {' ↳ '} {r.applied}/{r.totalHunks} hunks applied{isError ? `, ${r.failed} failed` : ''}
-    </Text>
+    <text fg={isError ? '#ffff00' : '#888'}>
+      <em>{' \u21B3 '} {r.applied}/{r.totalHunks} hunks applied{isError ? `, ${r.failed} failed` : ''}</em>
+    </text>
   );
 }

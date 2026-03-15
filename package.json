@@ -2,38 +2,31 @@
   "name": "Iris",
   "version": "1.0.0",
   "description": "模块化、可解耦的 AI 聊天框架，支持多平台、多 LLM、工具调用",
-  "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "npm run typecheck:ui && npm run build:ui && tsc -p tsconfig.build.json",
+    "build": "bun run typecheck:ui && bun run build:ui && tsc -p tsconfig.build.json",
     "build:ui": "cd src/platforms/web/web-ui && npm run build",
     "typecheck:ui": "cd src/platforms/web/web-ui && npm run typecheck",
     "lint:ui": "cd src/platforms/web/web-ui && npm run lint",
     "check:ui": "cd src/platforms/web/web-ui && npm run check",
     "dev:ui": "cd src/platforms/web/web-ui && npm run dev",
-    "start": "node dist/index.js",
-    "dev": "tsx --experimental-specifier-resolution=node src/index.ts",
-    "setup": "npm install && cd src/platforms/web/web-ui && npm install"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "start": "bun run src/index.ts",
+    "dev": "bun run src/index.ts",
+    "setup": "bun install && cd src/platforms/web/web-ui && npm install"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@opentui/core": "latest",
+    "@opentui/react": "latest",
     "better-sqlite3": "^12.6.2",
     "cli-highlight": "^2.1.11",
     "discord.js": "^14.25.1",
     "grammy": "^1.41.1",
-    "ink": "^5.0.1",
-    "ink-divider": "^4.0.0",
-    "ink-gradient": "^3.0.0",
-    "ink-spinner": "^5.0.0",
-    "ink-text-input": "^6.0.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.11.0",
     "marked": "^17.0.4",
     "pdf-parse": "^2.4.5",
-    "react": "^18.2.0",
+    "react": ">=19.0.0",
     "sharp": "^0.34.5",
     "xlsx": "^0.18.5",
     "yaml": "^2.8.2",
@@ -45,8 +38,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.19.15",
-    "@types/react": "^18.3.28",
-    "tsx": "^4.19.0",
+    "@types/react": ">=19.0.0",
     "typescript": "^5.7.0"
   }
 }

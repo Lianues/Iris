@@ -1,9 +1,8 @@
 /**
- * search_in_files 工具渲染器 - 极致紧凑版
+ * search_in_files 工具渲染器
  */
 
 import React from 'react';
-import { Text } from 'ink';
 import { ToolRendererProps } from './default.js';
 
 interface SearchInFilesResult {
@@ -21,18 +20,10 @@ export function SearchInFilesRenderer({ result }: ToolRendererProps) {
     const total = r.totalReplacements ?? 0;
     const files = r.processedFiles ?? 0;
     const suffix = r.truncated ? ' (truncated)' : '';
-    return (
-      <Text dimColor italic>
-        {' ↳ '} {total} replacements in {files} files{suffix}
-      </Text>
-    );
+    return <text fg="#888"><em>{' \u21B3 '} {total} replacements in {files} files{suffix}</em></text>;
   }
 
   const count = r.count ?? 0;
   const suffix = r.truncated ? ' (truncated)' : '';
-  return (
-    <Text dimColor italic>
-      {' ↳ '} {count} matches found{suffix}
-    </Text>
-  );
+  return <text fg="#888"><em>{' \u21B3 '} {count} matches found{suffix}</em></text>;
 }

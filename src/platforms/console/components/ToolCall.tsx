@@ -3,10 +3,10 @@
  */
 
 import React from 'react';
-import { Box, Text } from 'ink';
 import { Spinner } from './Spinner';
 import { ToolInvocation, ToolStatus } from '../../../types';
 import { getToolRenderer } from '../tool-renderers';
+import { C } from '../theme';
 
 interface ToolCallProps {
   invocation: ToolInvocation;
@@ -29,17 +29,10 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
           return String((entry as Record<string, unknown>).path ?? '').trim();
         })
         .filter(Boolean);
-
-      if (filePaths.length > 1) {
-        return `${filePaths[0]} +${filePaths.length - 1}`;
-      }
-      if (filePaths.length === 1) {
-        return filePaths[0];
-      }
-
+      if (filePaths.length > 1) return `${filePaths[0]} +${filePaths.length - 1}`;
+      if (filePaths.length === 1) return filePaths[0];
       const singleFilePath = args.file && typeof args.file === 'object'
-        ? String((args.file as Record<string, unknown>).path ?? '').trim()
-        : '';
+        ? String((args.file as Record<string, unknown>).path ?? '').trim() : '';
       return singleFilePath || String(args.path || '');
     }
     case 'apply_diff':
@@ -60,7 +53,7 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
   }
 }
 
-export function ToolCall({ invocation, lineColor = 'green' }: ToolCallProps) {
+export function ToolCall({ invocation, lineColor = C.dim }: ToolCallProps) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
   const isFinal = TERMINAL_STATUSES.has(status);
   const isExecuting = status === 'executing';
@@ -70,34 +63,40 @@ export function ToolCall({ invocation, lineColor = 'green' }: ToolCallProps) {
   const Renderer = isFinal && result != null ? getToolRenderer(toolName) : null;
   const duration = isFinal ? ((updatedAt - createdAt) / 1000).toFixed(1) + 's' : '';
 
+  const nameColor = isFinal ? C.dim : (isAwaitingApproval ? C.warn : C.text);
+
   return (
-    <Box flexDirection="column">
-      <Box>
-        <Text>
-          <Text dimColor color={lineColor}>{"\u251C\u2500 "}</Text>
-          <Text bold={!isFinal} color={isFinal ? 'gray' : (isAwaitingApproval ? 'yellow' : undefined)}>{toolName}</Text>
-          {argsSummary.length > 0 && <Text dimColor> {argsSummary}</Text>}
-          {status === 'success' && <Text dimColor> {'\u2713'}</Text>}
-          {status === 'warning' && <Text color="yellow"> !</Text>}
-          {status === 'error' && <Text color="red"> {'\u2717'}</Text>}
-          {isAwaitingApproval && <Text color="yellow"> [待确认]</Text>}
-          {!isFinal && !isExecuting && !isAwaitingApproval && <Text dimColor> [{status}]</Text>}
-          {duration && <Text dimColor> {duration}</Text>}
-        </Text>
-        {isExecuting && <Spinner />}
-      </Box>
+    <box flexDirection="column">
+      <box>
+        <text>
+          <span fg={lineColor}>{'\u251C\u2500 '}</span>
+          {isFinal ? (
+            <span fg={nameColor}>{toolName}</span>
+          ) : (
+            <strong><span fg={nameColor}>{toolName}</span></strong>
+          )}
+          {argsSummary.length > 0 && <span fg={C.dim}> {argsSummary}</span>}
+          {status === 'success' ? <span fg={C.accent}> {'\u2713'}</span> : null}
+          {status === 'warning' ? <span fg={C.warn}> !</span> : null}
+          {status === 'error' ? <span fg={C.error}> {'\u2717'}</span> : null}
+          {isAwaitingApproval ? <span fg={C.warn}> [待确认]</span> : null}
+          {!isFinal && !isExecuting && !isAwaitingApproval ? <span fg={C.dim}> [{status}]</span> : null}
+          {duration ? <span fg={C.dim}> {duration}</span> : null}
+        </text>
+        {isExecuting && <text><Spinner /></text>}
+      </box>
       {status === 'error' && error && (
-        <Text>
-          <Text dimColor color={lineColor}>{"\u2502  "}</Text>
-          <Text color="red" italic>{'\u21B3'} {error}</Text>
-        </Text>
+        <text>
+          <span fg={lineColor}>{'\u2502  '}</span>
+          <span fg={C.error}><em>{'\u21B3'} {error}</em></span>
+        </text>
       )}
       {Renderer && result != null && (
-        <Box>
-          <Text dimColor color={lineColor}>{"\u2502  "}</Text>
-          <Renderer toolName={toolName} args={args} result={result} />
-        </Box>
+        <box>
+          <text fg={lineColor}>{'\u2502  '}</text>
+          {Renderer({ toolName, args, result }) as React.ReactNode}
+        </box>
       )}
-    </Box>
+    </box>
   );
 }

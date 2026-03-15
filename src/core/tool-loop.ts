@@ -27,7 +27,7 @@ import {
 const logger = createLogger('ToolLoop');
 
 /** LLM 调用函数签名 —— 调用方注入具体实现 */
-export type LLMCaller = (request: LLMRequest, modelName?: string) => Promise<Content>;
+export type LLMCaller = (request: LLMRequest, modelName?: string, signal?: AbortSignal) => Promise<Content>;
 
 /** ToolLoop 配置（可变引用，支持热重载） */
 export interface ToolLoopConfig {
@@ -52,6 +52,8 @@ export interface ToolLoopRunOptions {
   onMessageAppend?: (content: Content) => Promise<void>;
   /** 固定使用的模型名称；不填时由调用方自行决定默认模型 */
   modelName?: string;
+  /** 中断信号；触发后当前轮次的 LLM 调用和工具执行会被取消 */
+  signal?: AbortSignal;
 }
 
 export class ToolLoop {
@@ -77,6 +79,11 @@ export class ToolLoop {
     let rounds = 0;
 
     while (rounds < this.config.maxRounds) {
+      // 检查中断信号
+      if (options?.signal?.aborted) {
+        return { text: '已中断。', history };
+      }
+
       rounds++;
 
       // 组装请求
@@ -88,8 +95,11 @@ export class ToolLoop {
       // 调用 LLM（具体方式由 callLLM 决定）
       let modelContent: Content;
       try {
-        modelContent = await callLLM(request, options?.modelName);
+        modelContent = await callLLM(request, options?.modelName, options?.signal);
       } catch (err: unknown) {
+        if (options?.signal?.aborted) {
+          return { text: '已中断。', history };
+        }
         // LLM 调用失败时不中断整个对话，返回错误信息让上层可以保存已有历史
         const errorMsg = err instanceof Error ? err.message : String(err);
         logger.error(`LLM 调用失败 (round=${rounds}): ${errorMsg}`);

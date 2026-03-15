@@ -61,16 +61,16 @@ export class LLMProvider {
   }
 
   /** 非流式调用 */
-  async chat(request: LLMRequest): Promise<LLMResponse> {
+  async chat(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
     const body = mergeRequestBody(this.format.encodeRequest(request, false), this.requestBodyOverrides);
-    const res = await sendRequest(this.endpoint, body, false);
+    const res = await sendRequest(this.endpoint, body, false, undefined, signal);
     return processResponse(res, this.format);
   }
 
   /** 流式调用 */
-  async *chatStream(request: LLMRequest): AsyncGenerator<LLMStreamChunk> {
+  async *chatStream(request: LLMRequest, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
     const body = mergeRequestBody(this.format.encodeRequest(request, true), this.requestBodyOverrides);
-    const res = await sendRequest(this.endpoint, body, true);
+    const res = await sendRequest(this.endpoint, body, true, undefined, signal);
     yield* processStreamResponse(res, this.format);
   }
 

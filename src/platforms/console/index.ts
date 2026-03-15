@@ -1,12 +1,12 @@
 /**
- * Console 平台适配器 (Ink 5+ / React 18)
+ * Console 平台适配器 (OpenTUI React)
  *
- * 通过 Backend 事件驱动 TUI 界面。
+ * 通过 Backend 事件驱动全屏 TUI 界面。
  */
 
 import React from 'react';
-import { render, Instance } from 'ink';
-import ansiEscapes from 'ansi-escapes';
+import { createCliRenderer, type CliRenderer } from '@opentui/core';
+import { createRoot } from '@opentui/react';
 import { PlatformAdapter } from '../base';
 import { Backend } from '../../core/backend';
 import { SessionMeta } from '../../storage/base';
@@ -99,10 +99,8 @@ export class ConsolePlatform extends PlatformAdapter {
   private contextWindow?: number;
   private backend: Backend;
   private settingsController: ConsoleSettingsController;
-  private inkInstance?: Instance;
+  private renderer?: CliRenderer;
   private appHandle?: AppHandle;
-
-
 
   /** 当前响应周期内的工具调用 ID 集合 */
   private currentToolIds = new Set<string>();
@@ -183,13 +181,19 @@ export class ConsolePlatform extends PlatformAdapter {
       }
     });
 
-    // 渲染 TUI
-    return new Promise<void>((resolve) => {
-      // 启动时先清屏（仅当前视口），避免上一次运行残留内容影响布局。
+    // 创建 OpenTUI 渲染器（全屏交替缓冲区）
+    return new Promise<void>(async (resolve, reject) => {
       try {
-        process.stdout.write(ansiEscapes.clearViewport);
-      } catch {
-        // 忽略清屏失败
+        this.renderer = await createCliRenderer({
+          exitOnCtrlC: false, // 由应用自行处理 Ctrl+C
+        });
+      } catch (err: unknown) {
+        if (err instanceof Error && err.message?.includes('Raw mode')) {
+          console.error('[ConsolePlatform] Fatal: 当前终端不支持 Raw mode。');
+          process.exit(1);
+        }
+        reject(err);
+        return;
       }
 
       const element = React.createElement(App, {
@@ -200,6 +204,9 @@ export class ConsolePlatform extends PlatformAdapter {
         onSubmit: (text: string) => this.handleInput(text),
         onToolApproval: (toolId: string, approved: boolean) => {
           this.backend.approveTool(toolId, approved);
+        },
+        onAbort: () => {
+          this.backend.abortChat();
         },
         onNewSession: () => this.handleNewSession(),
         onLoadSession: (id: string) => this.handleLoadSession(id),
@@ -215,22 +222,14 @@ export class ConsolePlatform extends PlatformAdapter {
         modelName: this.modelName,
         contextWindow: this.contextWindow,
       });
-      try {
-        this.inkInstance = render(element);
-      } catch (err: unknown) {
-        if (err instanceof Error && err.message?.includes('Raw mode is not supported')) {
-          console.error('[ConsolePlatform] Fatal: 当前终端不支持 Raw mode。');
-          process.exit(1);
-        } else {
-          throw err;
-        }
-      }
+
+      createRoot(this.renderer).render(element);
     });
   }
 
   override async stop(): Promise<void> {
-    this.inkInstance?.unmount();
-    process.exit(0);
+    // OpenTUI 的 destroy() 会清理交替屏幕、恢复光标等
+    this.renderer?.destroy();
   }
 
   // ============ 内部逻辑 ============

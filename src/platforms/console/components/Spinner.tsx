@@ -1,11 +1,14 @@
 /**
  * 加载指示器
+ *
+ * 返回 <span> 而非 <text>，以便可以嵌套在 <text> 内部使用。
+ * 单独使用时用 <text><Spinner /></text> 包裹。
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Text } from 'ink';
+import { C } from '../theme';
 
-const FRAMES = ['·  ', '·· ', '···', ' ··', '  ·'];
+const FRAMES = ['\u00b7  ', '\u00b7\u00b7 ', '\u00b7\u00b7\u00b7', ' \u00b7\u00b7', '  \u00b7'];
 const INTERVAL = 120;
 
 export function Spinner() {
@@ -24,5 +27,5 @@ export function Spinner() {
     };
   }, []);
 
-  return <Text color="cyan">{FRAMES[frame]}</Text>;
+  return <span fg={C.accent}>{FRAMES[frame]}</span>;
 }
