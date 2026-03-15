@@ -1,0 +1,73 @@
+# ==========================================
+#  Iris Onboard 自动构建 & 发布
+#
+#  触发条件：
+#  1. push 以 v* 开头的 tag（如 v1.0.0）→ 自动创建 Release 并上传二进制
+#  2. 手动触发 workflow_dispatch
+#
+#  产物：
+#  - iris-onboard-linux-x64
+#  - iris-onboard-linux-arm64
+# ==========================================
+
+name: Build & Release Onboard
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build onboard binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: onboard
+        run: bun install --frozen-lockfile
+
+      - name: Build binaries
+        working-directory: onboard
+        run: bun run build
+
+      - name: List outputs
+        run: ls -lh onboard/dist/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboard-binaries
+          path: onboard/dist/iris-onboard-*
+          retention-days: 30
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: onboard-binaries
+          path: dist/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/iris-onboard-*
