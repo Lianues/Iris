@@ -69,6 +69,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { ICONS } from '../constants/icons'
 import { copyTextToClipboard } from '../utils/clipboard'
+import { useCopyFeedback } from '../composables/useCopyFeedback'
+import { getRoleLabel } from '../utils/role'
 import type { MessageMeta } from '../api/types'
 
 type RenderRichText = (text: string) => string
@@ -123,7 +125,7 @@ const emit = defineEmits<{
 }>()
 
 const canDeleteMessage = computed(() => !props.streaming && typeof props.messageIndex === 'number' && props.messageIndex >= 0)
-const roleLabel = computed(() => (props.role === 'user' ? '你' : 'Iris'))
+const roleLabel = computed(() => getRoleLabel(props.role))
 const roleIcon = computed(() => (props.role === 'user' ? ICONS.common.send : ICONS.common.sparkle))
 
 const metaSegments = computed<string[]>(() => {
@@ -166,39 +168,12 @@ const deleteButtonTitle = computed(() => {
 const messageEl = ref<HTMLDivElement | null>(null)
 const renderAsPlainText = computed(() => props.role === 'user' || !!props.streaming)
 
-const messageCopyText = ref('复制')
-const messageCopyState = ref<'idle' | 'success' | 'error'>('idle')
+const { copyText: messageCopyText, copyStateClass: messageCopyStateClass, copy: copyMessageAction } = useCopyFeedback()
 const codeCopyTimers = new Set<number>()
 const renderedText = ref(renderPlainTextSync(props.text))
-let messageCopyTimer: number | null = null
 
-const messageCopyStateClass = computed(() => {
-  if (messageCopyState.value === 'success') return 'copied'
-  if (messageCopyState.value === 'error') return 'error'
-  return ''
-})
-
-function scheduleMessageCopyReset() {
-  if (messageCopyTimer !== null) {
-    window.clearTimeout(messageCopyTimer)
-  }
-  messageCopyTimer = window.setTimeout(() => {
-    messageCopyText.value = '复制'
-    messageCopyState.value = 'idle'
-    messageCopyTimer = null
-  }, 1800)
-}
-
-async function copyMessage() {
-  try {
-    await copyTextToClipboard(props.text)
-    messageCopyText.value = '已复制'
-    messageCopyState.value = 'success'
-  } catch {
-    messageCopyText.value = '复制失败'
-    messageCopyState.value = 'error'
-  }
-  scheduleMessageCopyReset()
+function copyMessage() {
+  void copyMessageAction(props.text)
 }
 
 function resetCodeCopyButton(button: HTMLButtonElement) {
@@ -324,9 +299,6 @@ watch(() => [props.role, props.text, props.streaming], () => {
 
 onBeforeUnmount(() => {
   disposed = true
-  if (messageCopyTimer !== null) {
-    window.clearTimeout(messageCopyTimer)
-  }
 
   for (const timer of codeCopyTimers) {
     window.clearTimeout(timer)

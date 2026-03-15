@@ -29,10 +29,6 @@ function loadQuickPromptsEnabled(): boolean {
   }
 }
 
-function cloneFallbackQuickPrompts(): ChatSuggestion[] {
-  return fallbackQuickPrompts.map((prompt) => ({ ...prompt }))
-}
-
 function cloneQuickPrompts(prompts: ChatSuggestion[]): ChatSuggestion[] {
   return prompts.map((prompt) => ({ ...prompt }))
 }
@@ -71,7 +67,7 @@ function normalizeQuickPrompts(prompts: ChatSuggestion[] | undefined): ChatSugge
   const result: ChatSuggestion[] = []
   const seen = new Set<string>()
 
-  for (const prompt of [...(prompts ?? []), ...cloneFallbackQuickPrompts()]) {
+  for (const prompt of [...(prompts ?? []), ...cloneQuickPrompts(fallbackQuickPrompts)]) {
     const textValue = typeof prompt?.text === 'string' ? prompt.text.replace(/\s+/g, ' ').trim() : ''
     const labelSource = typeof prompt?.label === 'string' && prompt.label.trim() ? prompt.label : textValue
     const labelValue = normalizeQuickPromptLabel(labelSource, textValue)
@@ -95,7 +91,7 @@ function persistQuickPromptsEnabled(value: boolean) {
 export function useChatQuickPrompts(options: UseChatQuickPromptsOptions) {
   const quickPromptsLoading = ref(false)
   const quickPromptsEnabled = ref(loadQuickPromptsEnabled())
-  const quickPrompts = ref<ChatSuggestion[]>(cloneFallbackQuickPrompts())
+  const quickPrompts = ref<ChatSuggestion[]>(cloneQuickPrompts(fallbackQuickPrompts))
 
   const quickPromptCache = new Map<string, ChatSuggestion[]>()
   let quickPromptLoadVersion = 0
@@ -114,7 +110,7 @@ export function useChatQuickPrompts(options: UseChatQuickPromptsOptions) {
   function restoreQuickPromptsFromCache(): boolean {
     const cached = quickPromptCache.get(getQuickPromptCacheKey())
     if (!cached || cached.length === 0) {
-      quickPrompts.value = cloneFallbackQuickPrompts()
+      quickPrompts.value = cloneQuickPrompts(fallbackQuickPrompts)
       return false
     }
 

@@ -47,10 +47,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { ICONS } from '../constants/icons'
-import { copyTextToClipboard } from '../utils/clipboard'
+import { useCopyFeedback } from '../composables/useCopyFeedback'
 
 const props = defineProps<{
   type: 'call' | 'response'
@@ -60,9 +60,7 @@ const props = defineProps<{
 }>()
 
 const open = ref(false)
-const copyText = ref('复制内容')
-const copyState = ref<'idle' | 'success' | 'error'>('idle')
-let copyTimer: number | null = null
+const { copyText, copyStateClass, copy } = useCopyFeedback('复制内容')
 
 const compactIconName = computed(() => (props.type === 'call' ? ICONS.tool.call : ICONS.tool.response))
 
@@ -89,11 +87,6 @@ function summarizeToolData(value: unknown): string {
 
 const formatted = computed(() => formatToolData(props.data))
 const summary = computed(() => summarizeToolData(props.data))
-const copyStateClass = computed(() => {
-  if (copyState.value === 'success') return 'copied'
-  if (copyState.value === 'error') return 'error'
-  return ''
-})
 
 const formattedLines = computed(() => {
   const lines = formatted.value.replace(/\r\n?/g, '\n').split('\n')
@@ -107,32 +100,7 @@ const formattedLines = computed(() => {
   }))
 })
 
-function scheduleCopyReset() {
-  if (copyTimer !== null) {
-    window.clearTimeout(copyTimer)
-  }
-  copyTimer = window.setTimeout(() => {
-    copyText.value = '复制内容'
-    copyState.value = 'idle'
-    copyTimer = null
-  }, 1800)
-}
-
 async function copyToolData() {
-  try {
-    await copyTextToClipboard(formatted.value)
-    copyText.value = '已复制'
-    copyState.value = 'success'
-  } catch {
-    copyText.value = '复制失败'
-    copyState.value = 'error'
-  }
-  scheduleCopyReset()
+  await copy(formatted.value)
 }
-
-onBeforeUnmount(() => {
-  if (copyTimer !== null) {
-    window.clearTimeout(copyTimer)
-  }
-})
 </script>

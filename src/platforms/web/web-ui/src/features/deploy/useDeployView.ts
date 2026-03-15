@@ -18,7 +18,7 @@ import type {
 } from '../../api/types'
 import { loadManagementToken, subscribeManagementTokenChange } from '../../utils/managementToken'
 import { loadAuthToken, subscribeAuthTokenChange } from '../../utils/authToken'
-import { copyTextToClipboard } from '../../utils/clipboard'
+import { useCopyFeedback } from '../../composables/useCopyFeedback'
 
 function createDefaultDetectState(): DetectResponse {
   return {
@@ -47,7 +47,7 @@ export function useDeployView() {
 
   const activeTab = ref<'nginx' | 'service'>('nginx')
   const portInput = ref(String(form.port))
-  const copyText = ref('复制')
+  const deployCopy = useCopyFeedback('复制', 2000)
 
   // 环境检测
   const detectLoaded = ref(false)
@@ -256,17 +256,6 @@ export function useDeployView() {
   let deployStateRequestId = 0
   let accessRequirementsRequestId = 0
   let previewTimer: ReturnType<typeof setTimeout> | null = null
-  let copyResetTimer: ReturnType<typeof setTimeout> | null = null
-
-  function scheduleCopyReset() {
-    if (copyResetTimer) {
-      clearTimeout(copyResetTimer)
-    }
-    copyResetTimer = setTimeout(() => {
-      copyText.value = '复制'
-      copyResetTimer = null
-    }, 2000)
-  }
 
   async function refreshPreview() {
     const requestId = ++previewRequestId
@@ -321,7 +310,6 @@ export function useDeployView() {
     if (previewTimer) clearTimeout(previewTimer)
     unsubscribeManagementToken?.()
     unsubscribeAuthToken?.()
-    if (copyResetTimer) clearTimeout(copyResetTimer)
   })
 
   onMounted(async () => {
@@ -521,14 +509,7 @@ export function useDeployView() {
   }
 
   async function handleCopy() {
-    try {
-      await copyTextToClipboard(currentPreviewContent.value)
-      copyText.value = '已复制'
-      scheduleCopyReset()
-    } catch {
-      copyText.value = '复制失败'
-      scheduleCopyReset()
-    }
+    await deployCopy.copy(currentPreviewContent.value)
   }
 
   function handleDownload() {
@@ -556,7 +537,7 @@ export function useDeployView() {
     runtimeHint,
     previewDomain,
     preview,
-    copyText,
+    copyText: deployCopy.copyText,
     currentPreviewContent,
     handleCopy,
     handleDownload,

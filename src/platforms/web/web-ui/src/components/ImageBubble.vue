@@ -12,6 +12,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount } from 'vue'
+import { getRoleLabel } from '../utils/role'
 
 const props = defineProps<{
   role: 'user' | 'model'
@@ -21,7 +22,7 @@ const props = defineProps<{
   revokePreviewOnUnmount?: boolean
 }>()
 
-const roleLabel = computed(() => (props.role === 'user' ? '你' : 'Iris'))
+const roleLabel = computed(() => getRoleLabel(props.role))
 const imageSrc = computed(() => {
   if (props.previewUrl?.trim()) return props.previewUrl
   return `data:${props.mimeType};base64,${props.data ?? ''}`

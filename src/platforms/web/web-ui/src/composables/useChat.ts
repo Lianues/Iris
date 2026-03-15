@@ -9,6 +9,7 @@ import { computed, ref, watch } from 'vue'
 import { useSessions } from './useSessions'
 import * as api from '../api/client'
 import type { ChatDocumentAttachment, ChatImageAttachment, Message, MessagePart } from '../api/types'
+import { hasToolParts } from '../utils/message'
 
 /** 当前会话的消息列表 */
 const messages = ref<Message[]>([])
@@ -251,10 +252,6 @@ export function useChat() {
       ))
   }
 
-  function messageHasToolParts(message: Message): boolean {
-    return message.parts.some((part) => part.type === 'function_call' || part.type === 'function_response')
-  }
-
   function commitStructuredAssistantMessage(message: Message) {
     consumeStreamingText()
     if (!isCurrentViewBoundToActiveRequest()) return
@@ -400,7 +397,7 @@ export function useChat() {
       onAssistantContent(message) {
         if (isStale()) return
         receivedFinalAssistantPayload = true
-        requestNeedsHistoryRefresh = requestNeedsHistoryRefresh || messageHasToolParts(message)
+        requestNeedsHistoryRefresh = requestNeedsHistoryRefresh || hasToolParts(message)
         commitStructuredAssistantMessage(message)
       },
       onStreamEnd() {

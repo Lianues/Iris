@@ -244,6 +244,7 @@ import DocumentBubble from './DocumentBubble.vue'
 import ToolBlock from './ToolBlock.vue'
 import AppIcon from './AppIcon.vue'
 import { ICONS } from '../constants/icons'
+import { hasToolParts } from '../utils/message'
 
 interface ToolGroupEntry {
   message: Message
@@ -334,10 +335,6 @@ function toggleThought(key: string) {
 function formatThoughtDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(1)}s`
-}
-
-function hasToolParts(msg: Message): boolean {
-  return msg.parts.some((part) => part.type === 'function_call' || part.type === 'function_response')
 }
 
 function isRetryableUserMessage(message: Message | undefined): boolean {
