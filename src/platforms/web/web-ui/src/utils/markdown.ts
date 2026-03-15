@@ -198,6 +198,12 @@ const LATEX_STRONG_PATTERN = /\\documentclass|\\usepackage|\\begin\{document\}|\
 const LATEX_MATH_COMMAND_PATTERN = /\\(?:nabla|frac|mathbf|mathbb|mathrm|epsilon|varepsilon|mu|rho|Phi|phi|oint|cdot|times|partial|text|sum|prod|int|sqrt|left|right|begin|end|alpha|beta|gamma|delta|lambda|omega)\b/
 const LATEX_TABULAR_ENV_PATTERN = /\\begin\{tabular\*?\}/
 const LATEX_BOOKTABS_RULE_PATTERN = /\\(?:toprule|midrule|bottomrule|cmidrule)\b/
+const AMBIGUOUS_STRONG_SEGMENT_PATTERN = /\*\*([^\r\n]+?)\*\*/g
+const AMBIGUOUS_EMPHASIS_SEGMENT_PATTERN = /\*([^\r\n*]+?)\*/g
+const HTML_INLINE_FALLBACK_BLOCKED_CONTENT_PATTERN = /[`<>\[\]_]/
+const EMPHASIS_BOUNDARY_PUNCTUATION_PATTERN = /[\p{P}\p{S}]/u
+const ASCII_WORD_CHARACTER_PATTERN = /[A-Za-z0-9]/
+const NON_ASCII_CHARACTER_PATTERN = /[^\u0000-\u007F]/
 
 interface LatexFormula {
   formula: string
@@ -275,6 +281,85 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+function hasEmphasisBoundaryPunctuation(text: string): boolean {
+  if (!text) return false
+  const chars = Array.from(text)
+  const first = chars[0] ?? ''
+  const last = chars[chars.length - 1] ?? ''
+  return EMPHASIS_BOUNDARY_PUNCTUATION_PATTERN.test(first) || EMPHASIS_BOUNDARY_PUNCTUATION_PATTERN.test(last)
+}
+
+function hasNonAsciiCharacters(text: string): boolean {
+  return NON_ASCII_CHARACTER_PATTERN.test(text)
+}
+
+function isAsciiWordCharacter(char: string): boolean {
+  return !!char && ASCII_WORD_CHARACTER_PATTERN.test(char)
+}
+
+function getAdjacentCharacters(source: string, startIndex: number, endIndex: number): { previous: string; next: string } {
+  const previous = Array.from(source.slice(0, startIndex)).pop() ?? ''
+  const next = Array.from(source.slice(endIndex))[0] ?? ''
+  return { previous, next }
+}
+
+function shouldUseHtmlStrongFallback(content: string): boolean {
+  if (!content || content.trim() !== content) return false
+  if (HTML_INLINE_FALLBACK_BLOCKED_CONTENT_PATTERN.test(content)) return false
+  if (content.includes('**')) return false
+  return hasEmphasisBoundaryPunctuation(content)
+}
+
+function shouldUseHtmlEmphasisFallback(content: string, previous: string, next: string): boolean {
+  if (!content || content.trim() !== content) return false
+  if (HTML_INLINE_FALLBACK_BLOCKED_CONTENT_PATTERN.test(content)) return false
+  if (content.includes('*')) return false
+  if (!hasEmphasisBoundaryPunctuation(content)) return false
+  if (!hasNonAsciiCharacters(content)) return false
+  return !isAsciiWordCharacter(previous) && !isAsciiWordCharacter(next)
+}
+
+function normalizeAmbiguousStrongSyntax(text: string): string {
+  // CommonMark 对 emphasis delimiter 的左右夹逼规则较严格：
+  // 当 **...** 的首尾字符是括号/引号/符号，且内容两侧又紧邻中文时，
+  // markdown-it 可能把整段保留为纯文本，例如：
+  //   当前**工作区（项目根目录）**下
+  // 这里仅对“纯文本型”的粗体片段做兜底，转成显式 <strong>，
+  // 避免误伤包含链接、代码、下划线等更复杂的 Markdown 结构。
+  return text.replace(AMBIGUOUS_STRONG_SEGMENT_PATTERN, (match, content: string) => {
+    if (!shouldUseHtmlStrongFallback(content)) {
+      return match
+    }
+
+    return `<strong>${escapeHtml(content)}</strong>`
+  })
+}
+
+function normalizeAmbiguousEmphasisSyntax(text: string): string {
+  // 单星号更容易与乘法、通配符、标识符边界混淆，因此这里额外要求：
+  // 1. 内容首尾命中括号/引号/符号等边界标点；
+  // 2. 内容中至少包含非 ASCII 字符（主要覆盖中文/全角标点场景）；
+  // 3. 定界符两侧都不能紧邻 ASCII 单词字符，避免误伤 a*(b)*c 之类表达式。
+  return text.replace(AMBIGUOUS_EMPHASIS_SEGMENT_PATTERN, (match, content: string, offset: number, source: string) => {
+    const previous = source[offset - 1] ?? ''
+    const next = source[offset + match.length] ?? ''
+    if (previous === '*' || next === '*') {
+      return match
+    }
+
+    const adjacent = getAdjacentCharacters(source, offset, offset + match.length)
+    if (!shouldUseHtmlEmphasisFallback(content, adjacent.previous, adjacent.next)) {
+      return match
+    }
+
+    return `<em>${escapeHtml(content)}</em>`
+  })
+}
+
+function normalizeAmbiguousInlineEmphasisSyntax(text: string): string {
+  return normalizeAmbiguousEmphasisSyntax(normalizeAmbiguousStrongSyntax(text))
 }
 
 function normalizeLanguageLabel(lang?: string | null): string {
@@ -1470,7 +1555,8 @@ function decorateAnchorsAndImages(html: string): string {
 function compileInlineRichText(text: string): string {
   const protectedCode = protectCodeSegments(text)
   const extractedLatex = extractLatexFormulas(protectedCode.text)
-  const markdownSource = restoreProtectedSegments(extractedLatex.text, protectedCode.segments)
+  const normalizedEmphasisText = normalizeAmbiguousInlineEmphasisSyntax(extractedLatex.text)
+  const markdownSource = restoreProtectedSegments(normalizedEmphasisText, protectedCode.segments)
   const env: MarkdownRenderEnv = { deferredHtmlSegments: [] }
 
   let html = md.renderInline(markdownSource, env)
@@ -1500,7 +1586,8 @@ function compileRichText(text: string): string {
   const normalizedText = shouldNormalizeLatexDocument(text) ? normalizeLatexDocumentText(text) : text
   const protectedCode = protectCodeSegments(normalizedText)
   const extractedLatex = extractLatexFormulas(protectedCode.text)
-  const markdownSource = restoreProtectedSegments(extractedLatex.text, protectedCode.segments)
+  const normalizedEmphasisText = normalizeAmbiguousInlineEmphasisSyntax(extractedLatex.text)
+  const markdownSource = restoreProtectedSegments(normalizedEmphasisText, protectedCode.segments)
   const env: MarkdownRenderEnv = { deferredHtmlSegments: [] }
 
   let html = md.render(markdownSource, env)
