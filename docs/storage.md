@@ -21,14 +21,32 @@ abstract class StorageProvider {
   abstract getHistory(sessionId: string): Promise<Content[]>;
   abstract addMessage(sessionId: string, content: Content): Promise<void>;
   abstract clearHistory(sessionId: string): Promise<void>;
-  abstract listSessions(): Promise<string[]>;
+  abstract updateLastMessage(sessionId: string, updater: (content: Content) => Content): Promise<void>;
   abstract truncateHistory(sessionId: string, keepCount: number): Promise<void>;
+  abstract listSessions(): Promise<string[]>;
+
+  // 会话元数据
+  abstract getMeta(sessionId: string): Promise<SessionMeta | null>;
+  abstract saveMeta(meta: SessionMeta): Promise<void>;
+  abstract listSessionMetas(): Promise<SessionMeta[]>;
 
   get name(): string;   // 提供商名称
 
-  // 统一 Content 字段顺序：role → parts → usageMetadata → 其余
-  // 保留 Gemini API 可能附加的未知字段
+  // 统一 Content 字段顺序：role → parts → usageMetadata → durationMs → streamOutputDurationMs → modelName → 其余
+  // 保留可能附加的未知字段
   protected normalize(content: Content): Content;
+}
+```
+
+### SessionMeta
+
+```typescript
+interface SessionMeta {
+  id: string;
+  title: string;       // 默认取用户首条消息前 100 字
+  cwd: string;         // 对话所在的工作目录
+  createdAt: string;   // ISO 8601
+  updatedAt: string;   // ISO 8601
 }
 ```
 

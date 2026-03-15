@@ -18,6 +18,8 @@ src/
 ├── tools/          工具注册层
 ├── prompt/         提示词组装层
 ├── modes/          模式系统
+├── media/          媒体处理（图片缩放、文档提取、Office 转 PDF）
+├── ocr/            OCR 服务（非 vision 模型的图片回退）
 ├── logger/         日志模块
 └── config/         配置加载
 ```
@@ -28,12 +30,14 @@ src/
 用户输入
   │
   ▼
-[Platform]  ── backend.chat(sessionId, text)
+[Platform]  ── backend.chat(sessionId, text, images?, documents?)
   │
   ▼
 [Backend]
   │
   ├─▶ [Storage]    ── 存储消息，读取历史
+  ├─▶ [Media]      ── 图片缩放、文档提取、Office 转 PDF
+  ├─▶ [OCR]        ── 非 vision 模型的图片文字提取（可选）
   ├─▶ [Memory]     ── 搜索相关记忆，注入系统提示词（可选）
   ├─▶ [Prompt]     ── 组装 LLMRequest
   ├─▶ [LLM]        ── 发送请求，获取回复
@@ -107,6 +111,7 @@ npm run dev      # 开发模式
 | [storage.md](./storage.md) | 聊天记录存储层 |
 | [memory.md](./memory.md) | 长期记忆系统 |
 | [tools.md](./tools.md) | 工具注册层 |
+| [media.md](./media.md) | 媒体处理层（图片缩放、文档提取） |
 | [prompt.md](./prompt.md) | 提示词组装层 |
 | [logger.md](./logger.md) | 日志模块 |
 | [config.md](./config.md) | 配置模块 |

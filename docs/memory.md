@@ -71,7 +71,7 @@ CREATE VIRTUAL TABLE memories_fts USING fts5(content, content=memories, content_
 用户发送消息
   │
   ▼
-Orchestrator.handleMessage()
+Backend.handleMessage()
   │
   ├─→ memory.buildContext(userText)   ← 搜索相关记忆
   │     返回格式化文本（或 undefined）

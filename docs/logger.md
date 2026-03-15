@@ -8,7 +8,8 @@
 
 ```
 src/logger/
-└── index.ts    Logger 类 + createLogger 工厂函数
+├── index.ts            Logger 类 + createLogger 工厂函数
+└── request-logger.ts   LLM 请求日志记录（logRequests 启用时写入文件）
 ```
 
 ## 用法

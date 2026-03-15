@@ -98,7 +98,7 @@ web:
 
 ```bash
 # 复制服务文件
-sudo cp deploy/iris.service /etc/systemd/system/
+sudo cp deploy/linux/iris.service /etc/systemd/system/
 
 # 如果部署路径不是 /opt/iris，编辑服务文件修改 WorkingDirectory
 sudo nano /etc/systemd/system/iris.service
@@ -129,7 +129,7 @@ curl http://127.0.0.1:8192/api/status
 sudo apt install -y nginx
 
 # 复制配置文件
-sudo cp deploy/nginx.conf /etc/nginx/sites-available/iris
+sudo cp deploy/linux/nginx.conf /etc/nginx/sites-available/iris
 
 # 编辑配置：将 chat.example.com 替换为你的域名
 sudo nano /etc/nginx/sites-available/iris

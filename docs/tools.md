@@ -9,14 +9,26 @@
 ```
 src/tools/
 ├── registry.ts          ToolRegistry 工具注册中心
+├── state.ts             ToolStateManager 工具状态跟踪
+├── scheduler.ts         工具调度（并行/串行）
 ├── utils.ts             公共工具函数（路径安全校验等）
-└── builtin/
-    ├── (已移除)         示例工具
-    ├── read-file.ts     读取文件内容（带行号）
-    ├── search-in-files.ts在文件中搜索/替换（支持正则）
-    ├── apply-diff.ts    应用 unified diff 补丁
+└── internal/
+    ├── read_file.ts     读取文件内容（带行号）
+    ├── write_file.ts    写入文件内容
+    ├── search_in_files.ts 在文件中搜索/替换（支持正则）
+    ├── find_files.ts    基于 glob 模式查找文件
+    ├── list_files.ts    列出目录中的文件
+    ├── apply_diff/      应用 unified diff 补丁
+    │   ├── index.ts
+    │   └── unified_diff.ts
+    ├── insert_code.ts   在指定位置插入代码
+    ├── delete_code.ts   删除指定行范围的代码
+    ├── create_directory.ts 创建目录
+    ├── delete_file.ts   删除文件
     ├── shell.ts         执行 Shell 命令
-    └── agent.ts         子 Agent 委派工具
+    └── sub-agent/
+        ├── index.ts     子 Agent 委派工具（工厂函数）
+        └── types.ts     SubAgentTypeRegistry / SubAgentTypeConfig
 ```
 
 ## ToolRegistry 接口
@@ -31,6 +43,10 @@ class ToolRegistry {
   getDeclarations(): FunctionDeclaration[];   // 获取所有声明（供 LLM）
   listTools(): string[];
   size: number;
+
+  // 子集/过滤
+  createSubset(names: string[]): ToolRegistry;     // 仅包含指定工具的子注册表
+  createFiltered(excludeNames: string[]): ToolRegistry; // 排除指定工具的子注册表
 }
 ```
 
@@ -59,11 +75,16 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
 | 工具名 | 文件 | 功能 |
 |--------|------|------|
-| （已移除） | `example.ts` | 示例工具已移除 |
-| `read_file` | `read-file.ts` | 读取文本文件，返回带行号内容，支持指定行范围 |
-| `search_in_files` | `search-in-files.ts` | 在目录或文件中搜索/替换内容，支持正则表达式 |
-| `find_files` | `find-files.ts` | 基于 glob 模式查找文件 |
-| `apply_diff` | `apply-diff.ts` | 应用 unified diff 补丁，支持多 hunk |
+| `read_file` | `read_file.ts` | 读取文本文件，返回带行号内容，支持指定行范围 |
+| `write_file` | `write_file.ts` | 写入文件内容 |
+| `search_in_files` | `search_in_files.ts` | 在目录或文件中搜索/替换内容，支持正则表达式 |
+| `find_files` | `find_files.ts` | 基于 glob 模式查找文件 |
+| `list_files` | `list_files.ts` | 列出目录中的文件 |
+| `apply_diff` | `apply_diff/index.ts` | 应用 unified diff 补丁，支持多 hunk |
+| `insert_code` | `insert_code.ts` | 在指定位置插入代码 |
+| `delete_code` | `delete_code.ts` | 删除指定行范围的代码 |
+| `create_directory` | `create_directory.ts` | 创建目录 |
+| `delete_file` | `delete_file.ts` | 删除文件 |
 | `shell` | `shell.ts` | 执行 Shell 命令，支持超时和工作目录 |
 | `memory_search` | 由 `memory/tools.ts` 动态创建 | 搜索长期记忆 |
 | `memory_add` | 同上 | 保存记忆 |
@@ -113,12 +134,12 @@ function resolveProjectPath(inputPath: string): string;
 
 ## 新增工具步骤
 
-1. 创建 `src/tools/builtin/工具名.ts`
+1. 创建 `src/tools/internal/工具名.ts`
 2. 导出 `ToolDefinition` 对象
 3. 在 `src/index.ts` 中 import 并调用 `tools.register()` 或 `tools.registerAll()`
 
 ## 注意事项
 
 - `handler` 必须是 async 函数
-- `handler` 抛出的错误会被 Orchestrator 捕获，转为错误消息回传给 LLM
+- `handler` 抛出的错误会被 ToolLoop 捕获，转为错误消息回传给 LLM
 - 工具的返回值会被包装为 `{ result: 返回值 }` 放入 functionResponse.response

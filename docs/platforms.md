@@ -64,16 +64,17 @@ class XxxPlatform extends PlatformAdapter {
 }
 ```
 
-如果平台支持图片输入，则调用会扩展为：
+如果平台支持图片和文档输入，则调用会扩展为：
 
 ```ts
-await this.backend.chat(sessionId, text, images)
+await this.backend.chat(sessionId, text, images, documents)
 ```
 
 其中：
 
 ```ts
 images: Array<{ mimeType: string; data: string }>
+documents: Array<{ fileName: string; mimeType: string; data: string }>
 ```
 
 ---
@@ -132,32 +133,57 @@ images: Array<{ mimeType: string; data: string }>
 
 #### Web 前端上传约束
 
-- 最多 5 张图片
-- 单张不超过 5MB
-- 请求体总上限约 40MB（考虑 base64 编码膨胀）
+- 最多 4 张图片，单张不超过 4MB
+- 最多 3 个文档（PDF / DOCX / PPTX / XLSX 等），单个不超过 10MB
+- 附件总上限 20MB
+- 同时支持 `application/json` 和 `multipart/form-data` 两种请求格式
 
 #### Web 平台事件映射
 
 | Backend 事件 | SSE 数据 |
 |---|---|
 | `response` | `{ type: 'message', text }` |
+| `stream:start` | `{ type: 'stream_start' }` |
 | `stream:chunk` | `{ type: 'delta', text }` |
 | `stream:end` | `{ type: 'stream_end' }` |
+| `error` | `{ type: 'error', message }` |
+| `assistant:content` | `{ type: 'assistant_content', message }` |
+| `done` | `{ type: 'done_meta', durationMs }` |
+| （chat handler） | `{ type: 'done' }` — 整个请求处理完毕 |
 
 #### Web API 端点
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/chat` | 发送消息（SSE 响应） |
+| POST | `/api/chat` | 发送消息（SSE 响应），支持 JSON 和 multipart/form-data |
+| GET | `/api/chat/suggestions` | 获取聊天快捷建议 |
 | GET | `/api/sessions` | 列出会话 |
 | GET | `/api/sessions/:id/messages` | 获取会话消息 |
 | DELETE | `/api/sessions/:id` | 删除会话 |
 | DELETE | `/api/sessions/:id/messages?keepCount=N` | 截断历史 |
-| GET | `/api/config` | 获取配置（敏感字段脱敏） |
-| PUT | `/api/config` | 更新配置（触发热重载） |
+| GET | `/api/config` | 获取配置（敏感字段脱敏）🔒 管理令牌 |
+| PUT | `/api/config` | 更新配置（触发热重载）🔒 管理令牌 |
+| POST | `/api/config/models` | 列出可用模型 🔒 管理令牌 |
 | GET | `/api/status` | 服务器状态 |
+| GET | `/api/deploy/state` | 获取部署状态 🔒 管理令牌 |
+| GET | `/api/deploy/detect` | 检测部署环境 🔒 管理令牌 |
+| POST | `/api/deploy/preview` | 预览部署配置 🔒 管理令牌 |
+| POST | `/api/deploy/nginx` | 部署 Nginx 配置 🔒 管理令牌 |
+| POST | `/api/deploy/service` | 部署 systemd 服务 🔒 管理令牌 |
+| POST | `/api/deploy/sync-cloudflare` | 同步 Cloudflare SSL 设置 🔒 管理令牌 |
+| GET | `/api/cloudflare/status` | Cloudflare 连接状态 🔒 管理令牌 |
+| POST | `/api/cloudflare/setup` | 配置 Cloudflare 连接 🔒 管理令牌 |
+| GET | `/api/cloudflare/dns` | 列出 DNS 记录 🔒 管理令牌 |
+| POST | `/api/cloudflare/dns` | 添加 DNS 记录 🔒 管理令牌 |
+| DELETE | `/api/cloudflare/dns/:id` | 删除 DNS 记录 🔒 管理令牌 |
+| GET | `/api/cloudflare/ssl` | 获取 SSL 模式 🔒 管理令牌 |
+| PUT | `/api/cloudflare/ssl` | 设置 SSL 模式 🔒 管理令牌 |
 
 #### `POST /api/chat` 请求体
+
+支持两种 Content-Type：
+
+**JSON 格式（`application/json`）：**
 
 ```json
 {
@@ -168,15 +194,31 @@ images: Array<{ mimeType: string; data: string }>
       "mimeType": "image/png",
       "data": "iVBORw0KGgoAAA..."
     }
+  ],
+  "documents": [
+    {
+      "fileName": "report.pdf",
+      "mimeType": "application/pdf",
+      "data": "JVBERi0xLjQ..."
+    }
   ]
 }
 ```
 
+**Multipart 格式（`multipart/form-data`）：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `message` | text | 消息文本 |
+| `sessionId` | text | 可选会话 ID |
+| `images` | file（可多个） | 图片文件 |
+| `documents` | file（可多个） | 文档文件 |
+
 说明：
 
-- `message` 可以为空，但 `message` 和 `images` 不能同时为空
-- `images[].data` 为 **不带前缀** 的 base64 字符串
-- 服务端也兼容 `data:image/png;base64,...` 形式的数据 URL
+- `message`、`images`、`documents` 不能同时为空
+- JSON 格式中 `images[].data` 为 **不带前缀** 的 base64 字符串，也兼容 `data:image/png;base64,...` 形式
+- 支持的文档类型：PDF、DOCX、PPTX、XLSX 等（详见 `media/document-extract.ts`）
 
 #### 会话历史返回的图片 part
 
@@ -208,7 +250,7 @@ images: Array<{ mimeType: string; data: string }>
 | `hasPending(sessionId)` | 检查是否已有进行中的 SSE 连接 |
 | `registerPending(sessionId, res)` | 注册 SSE 响应 |
 | `removePending(sessionId)` | 移除 SSE 响应 |
-| `dispatchMessage(sessionId, message, images?)` | 调用 `backend.chat()` |
+| `dispatchMessage(sessionId, message, images?, documents?)` | 调用 `backend.chat()` |
 | `setMCPManager(mgr)` | 注入 MCP 管理器 |
 | `getMCPManager()` | 获取 MCP 管理器 |
 
@@ -227,5 +269,5 @@ images: Array<{ mimeType: string; data: string }>
 3. 构造函数接收 `backend: Backend`
 4. 在 `start()` 中监听需要的 Backend 事件（`response` / `stream:*` / `tool:update` / `error`）
 5. 监听用户输入并调用 `backend.chat(sessionId, text)`
-6. 若平台要支持图片输入，则改为 `backend.chat(sessionId, text, images)`
+6. 若平台要支持图片和文档输入，则改为 `backend.chat(sessionId, text, images, documents)`
 7. 在 `src/index.ts` 中添加 import 和 switch case

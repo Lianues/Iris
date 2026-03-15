@@ -49,11 +49,13 @@ new Backend(
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `maxToolRounds` | `number` | `10` | 工具执行最大轮次 |
+| `maxToolRounds` | `number` | `200` | 工具执行最大轮次 |
 | `stream` | `boolean` | `false` | 是否启用流式输出 |
 | `autoRecall` | `boolean` | `true` | 是否自动召回记忆 |
-| `agentGuidance` | `string` | — | Agent 协调指导文本 |
+| `subAgentGuidance` | `string` | — | 子代理协调指导文本 |
 | `defaultMode` | `string` | — | 默认模式名称 |
+| `currentLLMConfig` | `LLMConfig` | — | 当前活动模型配置（用于 vision 能力判定） |
+| `ocrService` | `OCRService` | — | OCR 服务（当主模型不支持 vision 时回退使用） |
 
 ---
 
@@ -65,7 +67,7 @@ new Backend(
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
-| `chat` | `(sessionId: string, text: string) => Promise<void>` | 发送消息，触发完整的 LLM + 工具循环。结果通过事件推送。 |
+| `chat` | `(sessionId: string, text: string, images?: ImageInput[], documents?: DocumentInput[]) => Promise<void>` | 发送消息，触发完整的 LLM + 工具循环。结果通过事件推送。 |
 
 ### 会话管理
 
@@ -98,13 +100,18 @@ new Backend(
 | `getRouter` | `() => LLMRouter` | 获取 LLM 路由器引用 |
 | `getToolState` | `() => ToolStateManager` | 获取工具状态管理器 |
 | `isStreamEnabled` | `() => boolean` | 获取当前流式设置 |
+| `getCurrentModelName` | `() => string` | 获取当前活动模型名称 |
+| `getCurrentModelInfo` | `() => ModelInfo` | 获取当前活动模型信息 |
+| `listModels` | `() => ModelInfo[]` | 列出所有可用模型 |
+| `switchModel` | `(modelName: string) => ModelInfo` | 切换当前活动模型 |
+| `generateChatSuggestions` | `(sessionId?: string) => Promise<ChatSuggestion[]>` | 生成聊天快捷建议 |
 
 ### 热重载
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
 | `reloadLLM` | `(newRouter: LLMRouter) => void` | 替换 LLM 路由器 |
-| `reloadConfig` | `(opts) => void` | 更新 stream / maxToolRounds / systemPrompt |
+| `reloadConfig` | `(opts) => void` | 更新 stream / maxToolRounds / systemPrompt / currentLLMConfig / ocrService |
 
 ---
 
@@ -118,10 +125,14 @@ Backend 继承自 `EventEmitter`，平台层通过监听事件接收结果。
 |------|------|----------|
 | `response` | `(sessionId, text)` | 非流式模式下，LLM 最终回复完成 |
 | `stream:start` | `(sessionId)` | 流式段开始（一次 chat 可能有多段，因为工具循环中每次 LLM 调用都是一段） |
+| `stream:parts` | `(sessionId, parts: Part[])` | 流式结构化 part 增量（按顺序，含 thought / text / functionCall 等） |
 | `stream:chunk` | `(sessionId, chunk)` | 流式文本块到达 |
-| `stream:end` | `(sessionId)` | 流式段结束 |
+| `stream:end` | `(sessionId, usage?: UsageMetadata)` | 流式段结束 |
 | `tool:update` | `(sessionId, invocations[])` | 工具状态变更（创建、执行中、完成等） |
 | `error` | `(sessionId, errorMessage)` | 消息处理过程中出错 |
+| `usage` | `(sessionId, usage: UsageMetadata)` | 每轮 LLM 调用后的 Token 用量 |
+| `done` | `(sessionId, durationMs: number)` | 当前用户回合完成（统一耗时来源） |
+| `assistant:content` | `(sessionId, content: Content)` | 一轮模型输出完成后的完整结构化内容 |
 
 ### 事件时序示例
 
@@ -158,15 +169,18 @@ chat() 调用
 2. storage.getHistory() 加载历史
 3. 追加用户消息到历史
 4. 构建额外上下文：
+   - workspace mutation 控制（判断用户意图是否涉及写操作，按需过滤写入型工具）
    - 记忆自动召回（autoRecall=true 时）
-   - Agent 协调指导文本
+   - 子代理协调指导文本
    - 模式提示词覆盖
-5. 构建 LLM 调用函数（注入流式/非流式行为）
-6. 执行 ToolLoop.run()（可能多轮）
-7. 持久化新增消息到存储
-8. 更新会话元数据（新会话创建 meta，旧会话更新时间和工作目录）
-9. 非流式模式：emit('response', sessionId, text)
-10. 清除 activeSessionId
+5. 立即持久化用户消息（不等工具循环结束，防止中途中断丢失）
+6. 构建 LLM 调用函数（注入流式/非流式行为）
+7. 执行 ToolLoop.run()（可能多轮，通过 onMessageAppend 回调实时持久化）
+8. 将耗时写入最后一条 model 消息
+9. 更新会话元数据（新会话创建 meta，旧会话更新时间和工作目录）
+10. 非流式模式：emit('response', sessionId, text)
+11. emit('done', sessionId, durationMs)
+12. 清除 activeSessionId
 ```
 
 ### 流式调用
@@ -176,13 +190,15 @@ router.chatStream(request) → AsyncGenerator<LLMStreamChunk>
   │
   ├── emit('stream:start')
   ├── 遍历 chunk：
-  │   ├── textDelta → emit('stream:chunk') + 累积 fullText
-  │   ├── functionCalls → 收集
+  │   ├── partsDelta / textDelta / functionCalls → 合并累积
+  │   ├── emit('stream:parts', deltaParts)  ← 结构化增量
+  │   ├── textDelta → emit('stream:chunk')
   │   ├── usageMetadata → 收集
   │   └── thoughtSignature → 收集
-  ├── emit('stream:end')
+  ├── emit('stream:end', usageMetadata)
+  ├── emit('usage', usageMetadata)
   │
-  └── 组装完整 Content { role:'model', parts }
+  └── 组装完整 Content { role:'model', parts, modelName, usageMetadata, streamOutputDurationMs }
 ```
 
 ### 工具事件转发
@@ -245,16 +261,16 @@ interface SubAgentType {
 | 类型 | 固定模型 | 轮次 | 并行调度 | 工具过滤 | 用途 |
 |------|----------|------|----------|----------|------|
 | `general-purpose` | 跟随当前模型 | 200 | false | 排除 `sub_agent` | 多步骤通用任务 |
-| `explore` | 跟随当前模型 | 200 | false | 仅 `read_file`、`shell` | 只读探索 |
+| `explore` | 跟随当前模型 | 200 | false | 仅 `read_file`、`search_in_files`、`shell` | 只读探索 |
 | `recall` | 跟随当前模型 | 3 | false | 仅 `memory_search` | 记忆搜索 |
 
 `parallel` 的含义是：当前类型的 `sub_agent` 调用是否作为 parallel 工具参与调度。默认 `false`。不写就是 `false`，只有显式写 `true` 的类型，才会在同一轮里与相邻的 parallel 工具一起进入并行批次。
 
 `modelName` 是可选字段。填写后，该类型的子代理固定使用对应模型名称；不填时，跟随 Backend 当前活动模型。
 
-### agentGuidance
+### subAgentGuidance
 
-根据已注册的 Agent 类型生成指导文本，注入系统提示词，指导 LLM 使用 `sub_agent` 工具。指导文本会显示各类型是“可并行调度”还是“串行调度”。
+根据已注册的 Agent 类型生成指导文本，注入系统提示词，指导 LLM 使用 `sub_agent` 工具。指导文本会显示各类型是”可并行调度”还是”串行调度”。
 
 ### autoRecall
 
