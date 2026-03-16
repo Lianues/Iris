@@ -4,7 +4,7 @@
 
 import { ToolsConfig, ToolPolicyConfig } from './types';
 
-function parseAutoApprovePatterns(raw: unknown): string[] | undefined {
+function parsePatternList(raw: unknown): string[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const patterns = raw
     .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
@@ -26,10 +26,11 @@ function normalizeToolPolicy(raw: unknown): ToolPolicyConfig | undefined {
     autoApprove: record.autoApprove === true,
   };
 
-  const patterns = parseAutoApprovePatterns(record.autoApprovePatterns);
-  if (patterns) {
-    policy.autoApprovePatterns = patterns;
-  }
+  const allow = parsePatternList(record.allowPatterns);
+  if (allow) policy.allowPatterns = allow;
+
+  const deny = parsePatternList(record.denyPatterns);
+  if (deny) policy.denyPatterns = deny;
 
   return policy;
 }

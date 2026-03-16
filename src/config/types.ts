@@ -58,15 +58,21 @@ export interface ToolPolicyConfig {
   /** 工具执行前是否自动批准（无需用户确认），默认 false */
   autoApprove: boolean;
   /**
-   * Shell 工具专用：自动批准的命令模式列表。
-   * 当 shell.autoApprove 为 false 时，如果命令匹配此列表中的任一模式，则自动执行无需确认。
-   * 支持通配符：
-   *   - `*`  匹配任意字符（不含空格/路径分隔符时用于简单匹配）
-   *   - `**` 匹配任意内容（包括空格和任意字符）
-   *   - `?`  匹配单个字符
-   * 也支持 `prefix*` 前缀匹配和完整的正则表达式（以 `/` 包裹）。
+   * Shell 工具专用：命令模式匹配列表。
+   *
+   * 支持的模式语法（allowPatterns / denyPatterns 通用）：
+   *   - `*`   匹配任意字符序列
+   *   - `**`  同 `*`（语义等价，兼容习惯写法）
+   *   - `?`   匹配单个字符
+   *   - `/regex/flags`  以 `/` 包裹的字符串按正则表达式解析
+   *
+   * 判定优先级（从高到低）：
+   *   1. denyPatterns  — 匹配则 **必须手动确认**（即使 autoApprove: true）
+   *   2. allowPatterns — 匹配则 **自动执行**（即使 autoApprove: false）
+   *   3. autoApprove   — 以上都不匹配时的兜底策略
    */
-  autoApprovePatterns?: string[];
+  allowPatterns?: string[];
+  denyPatterns?: string[];
 }
 
 export interface ToolsConfig {

@@ -41,8 +41,10 @@ export interface ConsoleToolPolicySettings {
   configured: boolean;
   autoApprove: boolean;
   registered: boolean;
-  /** Shell 工具专用：自动批准的命令模式列表（透传保存） */
-  autoApprovePatterns?: string[];
+  /** Shell 工具专用：白名单模式（透传保存） */
+  allowPatterns?: string[];
+  /** Shell 工具专用：黑名单模式（透传保存） */
+  denyPatterns?: string[];
 }
 
 export interface ConsoleMCPServerSettings {
@@ -348,7 +350,8 @@ export class ConsoleSettingsController {
         configured: Object.prototype.hasOwnProperty.call(toolsConfig.permissions, name),
         autoApprove: toolsConfig.permissions[name]?.autoApprove === true,
         registered: registeredToolNames.includes(name),
-        autoApprovePatterns: toolsConfig.permissions[name]?.autoApprovePatterns,
+        allowPatterns: toolsConfig.permissions[name]?.allowPatterns,
+        denyPatterns: toolsConfig.permissions[name]?.denyPatterns,
       })),
       mcpServers: Object.entries(rawMcpServers).map(([name, cfg]) => ({
         name,
@@ -391,9 +394,8 @@ export class ConsoleSettingsController {
           return result;
         }
         const entry: Record<string, unknown> = { autoApprove: tool.autoApprove };
-        if (tool.autoApprovePatterns?.length) {
-          entry.autoApprovePatterns = tool.autoApprovePatterns;
-        }
+        if (tool.allowPatterns?.length) entry.allowPatterns = tool.allowPatterns;
+        if (tool.denyPatterns?.length) entry.denyPatterns = tool.denyPatterns;
         result[tool.name] = entry;
         return result;
       }, {}),

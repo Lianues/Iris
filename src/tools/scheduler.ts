@@ -24,13 +24,12 @@ const logger = createLogger('ToolScheduler');
 // ============ Shell 命令模式匹配 ============
 
 /**
- * 将 glob 模式转换为正则表达式。
+ * 将 glob / 正则模式转换为 RegExp。
  *
  * 支持的语法：
- *   - `**`  匹配任意内容（包括空格和任意字符）
- *   - `*`   匹配任意字符序列（不含换行）
- *   - `?`   匹配单个字符
- *   - 以 `/` 包裹的字符串视为用户自定义正则表达式
+ *   - `*` / `**`  匹配任意字符序列
+ *   - `?`         匹配单个字符
+ *   - `/regex/flags`  以 `/` 包裹的字符串按用户自定义正则解析
  */
 function patternToRegex(pattern: string): RegExp {
   // 用户直接写正则：/pattern/flags
@@ -44,14 +43,12 @@ function patternToRegex(pattern: string): RegExp {
   let i = 0;
   while (i < pattern.length) {
     const ch = pattern[i];
-    if (ch === '*' && pattern[i + 1] === '*') {
-      regex += '.*';     // ** → match everything
-      i += 2;
-    } else if (ch === '*') {
-      regex += '.*';     // * → match any chars
-      i++;
+    if (ch === '*') {
+      // * 和 ** 语义等价：匹配任意字符
+      regex += '.*';
+      i += (pattern[i + 1] === '*') ? 2 : 1;
     } else if (ch === '?') {
-      regex += '.';      // ? → single char
+      regex += '.';
       i++;
     } else {
       // escape regex special chars
@@ -64,44 +61,63 @@ function patternToRegex(pattern: string): RegExp {
 }
 
 /**
- * 检查 shell 命令是否匹配自动批准模式列表中的任一规则。
+ * 检查命令是否匹配模式列表中的任一规则。
  */
-function matchesShellAutoApprovePattern(command: string, patterns: string[]): boolean {
+function matchesAnyPattern(command: string, patterns: string[]): boolean {
   for (const pattern of patterns) {
     try {
-      if (patternToRegex(pattern).test(command)) {
-        return true;
-      }
+      if (patternToRegex(pattern).test(command)) return true;
     } catch {
-      // 无效模式，跳过
-      logger.warn(`无效的 shell 自动批准模式: ${pattern}`);
+      logger.warn(`无效的 shell 命令模式，已跳过: "${pattern}"`);
     }
   }
   return false;
 }
 
 /**
+ * 提取 shell 工具调用中的 command 字符串。
+ */
+function extractShellCommand(call: FunctionCallPart): string {
+  const args = call.functionCall.args as Record<string, unknown> | undefined;
+  return typeof args?.command === 'string' ? args.command : '';
+}
+
+/**
  * 判断工具调用是否应该自动批准。
  *
- * 对 shell 工具特殊处理：即使 autoApprove=false，如果命令匹配
- * autoApprovePatterns 中的模式，也视为自动批准。
+ * 对 shell 工具支持 allowPatterns / denyPatterns 细粒度控制：
+ *   优先级：denyPatterns > allowPatterns > autoApprove
+ *
+ *   1. 命令匹配 denyPatterns  → 必须手动确认（即使 autoApprove: true）
+ *   2. 命令匹配 allowPatterns → 自动执行（即使 autoApprove: false）
+ *   3. 都不匹配              → 回退到 autoApprove 布尔值
  */
 function shouldAutoApprove(
   call: FunctionCallPart,
   policy: ToolPolicyConfig,
 ): boolean {
-  // 已显式设为 autoApprove: true，直接放行
-  if (policy.autoApprove) return true;
+  const hasPatterns = policy.allowPatterns?.length || policy.denyPatterns?.length;
 
-  // 仅 shell 工具支持 autoApprovePatterns
-  if (call.functionCall.name !== 'shell') return false;
-  if (!policy.autoApprovePatterns?.length) return false;
+  // 非 shell 工具 或 未配置任何模式 → 直接用 autoApprove
+  if (call.functionCall.name !== 'shell' || !hasPatterns) {
+    return policy.autoApprove;
+  }
 
-  const args = call.functionCall.args as Record<string, unknown> | undefined;
-  const command = typeof args?.command === 'string' ? args.command : '';
-  if (!command) return false;
+  const command = extractShellCommand(call);
+  if (!command) return policy.autoApprove;
 
-  return matchesShellAutoApprovePattern(command, policy.autoApprovePatterns);
+  // 1. denyPatterns 最高优先
+  if (policy.denyPatterns?.length && matchesAnyPattern(command, policy.denyPatterns)) {
+    return false;
+  }
+
+  // 2. allowPatterns 次之
+  if (policy.allowPatterns?.length && matchesAnyPattern(command, policy.allowPatterns)) {
+    return true;
+  }
+
+  // 3. 兜底
+  return policy.autoApprove;
 }
 
 // ============ 类型 ============
