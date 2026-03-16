@@ -16,6 +16,7 @@ import { InputBar } from './components/InputBar';
 import { SettingsView } from './components/SettingsView';
 import { ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
 import { C } from './theme';
+import { createUndoRedoStack, performUndo, performRedo, clearRedo, UndoRedoStack } from './undo-redo';
 
 let _msgIdCounter = 0;
 function nextMsgId() {
@@ -99,6 +100,8 @@ interface SwitchModelResult { ok: boolean; message: string; modelId?: string; mo
 interface AppProps {
   onReady: (handle: AppHandle) => void;
   onSubmit: (text: string) => void;
+  onUndo: (newLength: number) => void;
+  onRedo: (restoredRole: string) => void;
   onToolApproval: (toolId: string, approved: boolean) => void;
   onAbort: () => void;
   onNewSession: () => void;
@@ -117,7 +120,7 @@ interface AppProps {
 }
 
 type ViewMode = 'chat' | 'session-list' | 'model-list' | 'settings';
-export function App({ onReady, onSubmit, onToolApproval, onAbort, onNewSession, onLoadSession, onListSessions, onRunCommand, onListModels, onSwitchModel, onLoadSettings, onSaveSettings, onExit, modeName, modelId, modelName, contextWindow }: AppProps) {
+export function App({ onReady, onSubmit, onUndo, onRedo, onToolApproval, onAbort, onNewSession, onLoadSession, onListSessions, onRunCommand, onListModels, onSwitchModel, onLoadSettings, onSaveSettings, onExit, modeName, modelId, modelName, contextWindow }: AppProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingParts, setStreamingParts] = useState<MessagePart[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -144,15 +147,20 @@ export function App({ onReady, onSubmit, onToolApproval, onAbort, onNewSession, 
   const uncommittedStreamPartsRef = useRef<MessagePart[]>([]);
   const lastUsageRef = useRef<UsageMetadata | null>(null);
 
+  // ============ Undo/Redo ============
+  const undoRedoRef = useRef<UndoRedoStack>(createUndoRedoStack());
+
   // ============ AppHandle ============
   useEffect(() => {
     const handle: AppHandle = {
       addMessage(role, content, meta?) {
+        clearRedo(undoRedoRef.current);
         const textPart: MessagePart = { type: 'text', text: content };
         if (role === 'assistant') { setMessages((prev) => appendAssistantParts(prev, [textPart], meta)); return; }
         setMessages((prev) => [...prev, { id: nextMsgId(), role, parts: [textPart], ...meta }]);
       },
       addStructuredMessage(role, parts, meta?) {
+        clearRedo(undoRedoRef.current);
         const normalizedParts = mergeMessageParts(parts);
         if (normalizedParts.length === 0) return;
         if (role === 'assistant') { setMessages((prev) => appendAssistantParts(prev, normalizedParts, meta)); return; }
@@ -255,6 +263,24 @@ export function App({ onReady, onSubmit, onToolApproval, onAbort, onNewSession, 
   const handleSubmit = useCallback((text: string) => {
     if (text === '/exit') { onExit(); return; }
     if (text === '/new') { setMessages([]); toolInvocationsRef.current = []; onNewSession(); return; }
+    if (text === '/undo') {
+      setMessages((prev) => {
+        const result = performUndo(prev, undoRedoRef.current);
+        if (!result) return prev;
+        onUndo(result.messages.length);
+        return result.messages;
+      });
+      return;
+    }
+    if (text === '/redo') {
+      setMessages((prev) => {
+        const result = performRedo(prev, undoRedoRef.current);
+        if (!result) return prev;
+        onRedo(result.restored.role);
+        return result.messages;
+      });
+      return;
+    }
     if (text === '/load') { onListSessions().then(metas => { setSessionList(metas); setSelectedIndex(0); setViewMode('session-list'); }); return; }
     if (text === '/settings' || text === '/mcp') { setSettingsInitialSection(text === '/mcp' ? 'mcp' : 'general'); setViewMode('settings'); return; }
     if (text.startsWith('/model')) {
@@ -285,8 +311,9 @@ export function App({ onReady, onSubmit, onToolApproval, onAbort, onNewSession, 
       }
       return;
     }
+    clearRedo(undoRedoRef.current);
     onSubmit(text);
-  }, [onSubmit, onNewSession, onListSessions, onRunCommand, onListModels, onSwitchModel, onExit]);
+  }, [onSubmit, onUndo, onRedo, onNewSession, onListSessions, onRunCommand, onListModels, onSwitchModel, onExit]);
 
   // ============ 键盘输入 ============
   useKeyboard((key) => {

@@ -108,6 +108,9 @@ export class ConsolePlatform extends PlatformAdapter {
   /** 当前是否正在流式输出周期中（stream:start → stream:end 之间） */
   private isStreamingCycle = false;
 
+  /** redo 用的 Content 栈（与前端 undoRedoRef 对应） */
+  private redoContentStack: Content[] = [];
+
   constructor(backend: Backend, options: ConsolePlatformOptions) {
     super();
     this.backend = backend;
@@ -212,6 +215,24 @@ export class ConsolePlatform extends PlatformAdapter {
           resolve();
         },
         onSubmit: (text: string) => this.handleInput(text),
+        onUndo: (newLength: number) => {
+          // 先从 storage 拿当前最后一条消息存入 redo 栈
+          this.backend.getHistory(this.sessionId).then((history) => {
+            if (history.length > newLength) {
+              this.redoContentStack.push(history[history.length - 1]);
+              if (this.redoContentStack.length > 200) {
+                this.redoContentStack.splice(0, this.redoContentStack.length - 200);
+              }
+            }
+            this.backend.truncateHistory(this.sessionId, newLength).catch(() => {});
+          });
+        },
+        onRedo: (_restoredRole: string) => {
+          const content = this.redoContentStack.pop();
+          if (content) {
+            this.backend.getStorage().addMessage(this.sessionId, content).catch(() => {});
+          }
+        },
         onToolApproval: (toolId: string, approved: boolean) => {
           this.backend.approveTool(toolId, approved);
         },
