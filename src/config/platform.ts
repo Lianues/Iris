@@ -10,7 +10,7 @@ import { PlatformConfig } from './types';
 
 type PlatformType = PlatformConfig['types'][number];
 
-const VALID_TYPES = new Set<string>(['console', 'discord', 'telegram', 'web']);
+const VALID_TYPES = new Set<string>(['console', 'discord', 'telegram', 'web', 'wxwork']);
 
 function parseTypes(raw: unknown): PlatformType[] {
   // 数组写法
