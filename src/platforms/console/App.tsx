@@ -447,7 +447,7 @@ export function App({ onReady, onSubmit, onToolApproval, onAbort, onNewSession, 
       )}
 
       {/* 消息区域 — 有消息时显示 */}
-      {hasMessages && <scrollbox flexGrow={1} stickyScroll>
+      {hasMessages && <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
         {displayMessages.map((msg) => (
           <box key={msg.id} flexDirection="column" paddingBottom={1}>
             <MessageItem msg={msg} modelName={currentModelName} />
