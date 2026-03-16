@@ -199,6 +199,8 @@ export function buildExecutionPlan(
  *
  * 当 autoApprove 为 false 时，先将状态切到 awaiting_approval 并阻塞，
  * 等待外部代码（平台层）将状态转为 executing（批准）或 error（拒绝）。
+ *
+ * 支持 AbortSignal：执行前检查，已 abort 时直接返回错误。
  */
 async function executeSingle(
   call: FunctionCallPart,
@@ -206,10 +208,27 @@ async function executeSingle(
   toolState?: ToolStateManager,
   invocationId?: string,
   toolPolicies: Record<string, ToolPolicyConfig> = {},
+  signal?: AbortSignal,
 ): Promise<FunctionResponsePart> {
   const toolName = call.functionCall.name;
-  const policy = toolPolicies[toolName];
 
+  // 执行前检查 abort
+  if (signal?.aborted) {
+    const abortMsg = 'Operation aborted';
+    if (toolState && invocationId) {
+      toolState.transition(invocationId, 'error', { error: abortMsg });
+    }
+    return {
+      functionResponse: {
+        name: toolName,
+        callId: call.functionCall.callId,
+        response: { error: abortMsg },
+      },
+    };
+  }
+
+  // 检查工具策略
+  const policy = toolPolicies[toolName];
   if (!policy) {
     const errorMsg = `工具未被允许执行: ${toolName}。请先在 tools.yaml 中配置该工具。`;
     if (toolState && invocationId) {
@@ -275,13 +294,15 @@ async function executeSingle(
 }
 
 /**
- *按执行计划执行所有工具调用。
+ * 按执行计划执行所有工具调用。
  *
  * ToolStateManager 和 invocationIds 均可选：
  *   - 提供时：维护工具状态生命周期（queued → executing → success/error）
  *   - 省略时：纯执行，无状态追踪（适用于子代理、CLI 等场景）
  *
  * 返回的 responseParts 保持与原始 calls 相同的顺序。
+ *
+ * 支持 AbortSignal：每批执行前检查，已 abort 时剩余工具直接返回错误。
  */
 export async function executePlan(
   calls: FunctionCallPart[],
@@ -290,17 +311,38 @@ export async function executePlan(
   toolState?: ToolStateManager,
   invocationIds?: string[],
   toolPolicies: Record<string, ToolPolicyConfig> = {},
+  signal?: AbortSignal,
 ): Promise<FunctionResponsePart[]> {
   const responseParts: FunctionResponsePart[] = new Array(calls.length);
 
   for (const batch of plan) {
+    // 每批执行前检查 abort
+    if (signal?.aborted) {
+      for (const i of batch.indices) {
+        if (!responseParts[i]) {
+          const abortMsg = 'Operation aborted';
+          if (toolState && invocationIds?.[i]) {
+            try { toolState.transition(invocationIds[i], 'error', { error: abortMsg }); } catch { /* 状态已经终态 */ }
+          }
+          responseParts[i] = {
+            functionResponse: {
+              name: calls[i].functionCall.name,
+              callId: calls[i].functionCall.callId,
+              response: { error: abortMsg },
+            },
+          };
+        }
+      }
+      continue;
+    }
+
     if (batch.parallel && batch.indices.length > 1) {
       const names = batch.indices.map(i => calls[i].functionCall.name).join(', ');
       logger.info(`并行执行 ${batch.indices.length} 个工具: [${names}]`);
 
       const results = await Promise.all(
         batch.indices.map(i =>
-          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolPolicies)
+          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolPolicies, signal)
         ),
       );
       for (let j = 0; j < batch.indices.length; j++) {
@@ -308,7 +350,7 @@ export async function executePlan(
       }
     } else {
       for (const i of batch.indices) {
-        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolPolicies);
+        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolPolicies, signal);
       }
     }
   }

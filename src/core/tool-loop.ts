@@ -6,6 +6,11 @@
  *
  * 调用方通过注入 LLMCaller 控制 LLM 的调用方式（普通/流式/mock）。
  *
+ * 支持 AbortSignal：
+ *   - 每轮循环前检查 signal.aborted
+ *   - 透传给 LLMCaller 和工具执行器
+ *   - abort 时清理历史，保证格式合法
+ *
  * 复用场景：
  *   - Orchestrator：包装 ToolLoop + 存储/平台/流式/记忆
  *   - Agent 工具：直接创建 ToolLoop（替代 AgentExecutor）
@@ -42,6 +47,8 @@ export interface ToolLoopResult {
   text: string;
   /** 完整对话历史（含本次所有新消息） */
   history: Content[];
+  /** 是否因 abort 而中止 */
+  aborted?: boolean;
 }
 
 /** 每轮执行的可选参数 */
@@ -52,7 +59,7 @@ export interface ToolLoopRunOptions {
   onMessageAppend?: (content: Content) => Promise<void>;
   /** 固定使用的模型名称；不填时由调用方自行决定默认模型 */
   modelName?: string;
-  /** 中断信号；触发后当前轮次的 LLM 调用和工具执行会被取消 */
+  /** 中止信号：触发后安全退出循环并清理历史 */
   signal?: AbortSignal;
 }
 
@@ -76,12 +83,15 @@ export class ToolLoop {
     callLLM: LLMCaller,
     options?: ToolLoopRunOptions,
   ): Promise<ToolLoopResult> {
+    const signal = options?.signal;
     let rounds = 0;
+    // 记录进入循环前的历史长度，用于 abort 时的清理基准
+    const historyBaseLength = history.length;
 
     while (rounds < this.config.maxRounds) {
-      // 检查中断信号
-      if (options?.signal?.aborted) {
-        return { text: '已中断。', history };
+      // 每轮开始前检查 abort
+      if (signal?.aborted) {
+        return this.buildAbortResult(history, historyBaseLength);
       }
 
       rounds++;
@@ -95,12 +105,13 @@ export class ToolLoop {
       // 调用 LLM（具体方式由 callLLM 决定）
       let modelContent: Content;
       try {
-        modelContent = await callLLM(request, options?.modelName, options?.signal);
+        modelContent = await callLLM(request, options?.modelName, signal);
       } catch (err: unknown) {
-        if (options?.signal?.aborted) {
-          return { text: '已中断。', history };
+        // abort 引起的错误：安全退出
+        if (signal?.aborted) {
+          return this.buildAbortResult(history, historyBaseLength);
         }
-        // LLM 调用失败时不中断整个对话，返回错误信息让上层可以保存已有历史
+        // 其他 LLM 调用失败：不中断整个对话，返回错误信息让上层可以保存已有历史
         const errorMsg = err instanceof Error ? err.message : String(err);
         logger.error(`LLM 调用失败 (round=${rounds}): ${errorMsg}`);
         return {
@@ -108,6 +119,13 @@ export class ToolLoop {
           history,
         };
       }
+
+      // abort 可能在 LLM 调用过程中触发，但 callLLM 没有抛异常（比如流式已读完部分数据）
+      if (signal?.aborted) {
+        // modelContent 已产生但我们被 abort 了，不追加到历史
+        return this.buildAbortResult(history, historyBaseLength);
+      }
+
       history.push(modelContent);
       await options?.onMessageAppend?.(modelContent);
 
@@ -119,7 +137,15 @@ export class ToolLoop {
       }
 
       // 执行工具（通过 scheduler 分批调度）
-      const responseParts = await this.executeTools(functionCalls);
+      const responseParts = await this.executeTools(functionCalls, signal);
+
+      // 工具执行后再次检查 abort
+      if (signal?.aborted) {
+        // 此时 modelContent（含 functionCall）已追加到历史，但 tool response 未追加。
+        // 需要回滚这条不完整的 model 消息。
+        return this.buildAbortResult(history, historyBaseLength);
+      }
+
       const toolResponseContent: Content = { role: 'user', parts: responseParts };
       history.push(toolResponseContent);
       await options?.onMessageAppend?.(toolResponseContent);
@@ -132,7 +158,87 @@ export class ToolLoop {
     };
   }
 
-  private async executeTools(calls: FunctionCallPart[]): Promise<FunctionResponsePart[]> {
+  /**
+   * 构建 abort 结果：清理历史中不完整的消息，保证格式合法。
+   *
+   * 清理策略：
+   *   1. 从历史末尾往前扫描，找到本轮新增的消息
+   *   2. 如果末尾是包含 functionCall 的 model 消息（工具调用中中止），丢弃它
+   *   3. 如果末尾是纯文本的 model 消息（输出中中止），保留它
+   *   4. 如果末尾是纯 thought 消息（思维链中中止），丢弃它
+   */
+  private buildAbortResult(history: Content[], historyBaseLength: number): ToolLoopResult {
+    logger.info('工具循环被中止，清理历史');
+
+    // 从末尾往前清理本轮新增的不完整消息
+    while (history.length > historyBaseLength) {
+      const last = history[history.length - 1];
+
+      if (last.role === 'model') {
+        const hasFunctionCall = last.parts.some(isFunctionCallPart);
+        if (hasFunctionCall) {
+          // model 消息包含 functionCall，但对应的 functionResponse 未追加 → 丢弃
+          history.pop();
+          continue;
+        }
+
+        const visibleText = extractText(last.parts);
+        const hasOnlyThought = last.parts.every(p =>
+          ('thought' in p && p.thought === true) || ('text' in p && !p.text)
+        );
+
+        if (hasOnlyThought || !visibleText) {
+          // 纯 thought 或空内容 → 丢弃
+          history.pop();
+          continue;
+        }
+
+        // 有可见文本（输出中中止）→ 保留，视为正常截断
+        break;
+      }
+
+      if (last.role === 'user') {
+        // 检查是否是 tool response（包含 functionResponse part）
+        const isToolResponse = last.parts.some(p => 'functionResponse' in p);
+        if (isToolResponse) {
+          // 孤立的 tool response，其对应的 model functionCall 可能已被清除
+          // 或者 abort 发生在工具执行后、下一轮 LLM 调用前
+          // 检查前一条是否是匹配的 model functionCall
+          if (history.length >= 2) {
+            const prev = history[history.length - 2];
+            if (prev.role === 'model' && prev.parts.some(isFunctionCallPart)) {
+              // model(functionCall) + user(functionResponse) 是完整对，保留
+              break;
+            }
+          }
+          // 孤立的 tool response → 丢弃
+          history.pop();
+          continue;
+        }
+        // 普通用户消息 → 保留
+        break;
+      }
+
+      // 其他角色（不应存在）→ 安全起见丢弃
+      history.pop();
+    }
+
+    const text = this.extractLastVisibleText(history);
+    return { text, history, aborted: true };
+  }
+
+  /** 从历史末尾提取最后一条 model 消息的可见文本 */
+  private extractLastVisibleText(history: Content[]): string {
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].role === 'model') {
+        const text = extractText(history[i].parts);
+        if (text) return text;
+      }
+    }
+    return '';
+  }
+
+  private async executeTools(calls: FunctionCallPart[], signal?: AbortSignal): Promise<FunctionResponsePart[]> {
     const plan = buildExecutionPlan(calls, this.tools);
 
     if (this.toolState) {
@@ -144,10 +250,10 @@ export class ToolLoop {
           'queued',
         ),
       );
-      return executePlan(calls, plan, this.tools, this.toolState, invocations.map(i => i.id), this.config.toolPolicies);
+      return executePlan(calls, plan, this.tools, this.toolState, invocations.map(i => i.id), this.config.toolPolicies, signal);
     }
 
     // 无状态管理：纯执行
-    return executePlan(calls, plan, this.tools, undefined, undefined, this.config.toolPolicies);
+    return executePlan(calls, plan, this.tools, undefined, undefined, this.config.toolPolicies, signal);
   }
 }
