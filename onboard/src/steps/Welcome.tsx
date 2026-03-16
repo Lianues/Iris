@@ -19,14 +19,14 @@ export function Welcome({ onNext }: WelcomeProps) {
   return (
     <box flexDirection="column" gap={1} padding={1}>
       <box flexDirection="column" borderStyle="rounded" padding={2} borderColor="#6c5ce7">
-        <text fg="#6c5ce7" decoration="bold">
-          {"  ╦╦═╗╦╔═╗"}
+        <text fg="#6c5ce7">
+          <b>{"  ╦╦═╗╦╔═╗"}</b>
         </text>
-        <text fg="#6c5ce7" decoration="bold">
-          {"  ║╠╦╝║╚═╗"}
+        <text fg="#6c5ce7">
+          <b>{"  ║╠╦╝║╚═╗"}</b>
         </text>
-        <text fg="#6c5ce7" decoration="bold">
-          {"  ╩╩╚═╩╚═╝"}
+        <text fg="#6c5ce7">
+          <b>{"  ╩╩╚═╩╚═╝"}</b>
         </text>
         <text> </text>
         <text fg="#a29bfe">模块化 AI 智能代理框架</text>

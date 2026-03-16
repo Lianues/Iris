@@ -38,8 +38,8 @@ export function ProviderSelect({ onSelect, onBack }: ProviderSelectProps) {
 
   return (
     <box flexDirection="column" gap={1} padding={1}>
-      <text fg="#6c5ce7" decoration="bold">
-        ① 选择 LLM 提供商
+      <text fg="#6c5ce7">
+        <b>① 选择 LLM 提供商</b>
       </text>
       <text fg="#636e72">使用 ↑↓ 选择，Enter 确认，Esc 返回</text>
 
@@ -52,8 +52,8 @@ export function ProviderSelect({ onSelect, onBack }: ProviderSelectProps) {
                 <span fg={isSelected ? "#00b894" : "#636e72"}>
                   {isSelected ? "❯ " : "  "}
                 </span>
-                <span fg={isSelected ? "#dfe6e9" : "#b2bec3"} decoration={isSelected ? "bold" : undefined}>
-                  {p.label}
+                <span fg={isSelected ? "#dfe6e9" : "#b2bec3"}>
+                  {isSelected ? <b>{p.label}</b> : p.label}
                 </span>
                 <span fg="#636e72">{`  ${p.desc}`}</span>
               </text>

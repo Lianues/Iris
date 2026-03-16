@@ -140,8 +140,8 @@ export function ModelConfig({ provider, apiKey, baseUrl, onSubmit, onBack }: Mod
 
   return (
     <box flexDirection="column" gap={1} padding={1}>
-      <text fg="#6c5ce7" decoration="bold">
-        ③ 模型配置
+      <text fg="#6c5ce7">
+        <b>③ 模型配置</b>
       </text>
       <text fg="#636e72">
         {`提供商: ${PROVIDER_LABELS[provider] || provider}`}
@@ -188,8 +188,8 @@ export function ModelConfig({ provider, apiKey, baseUrl, onSubmit, onBack }: Mod
                     <span fg={isSelected ? "#00b894" : "#636e72"}>
                       {isSelected ? "❯ " : "  "}
                     </span>
-                    <span fg={isSelected ? "#dfe6e9" : "#b2bec3"} decoration={isSelected ? "bold" : undefined}>
-                      {s.label}
+                    <span fg={isSelected ? "#dfe6e9" : "#b2bec3"}>
+                      {isSelected ? <b>{s.label}</b> : s.label}
                     </span>
                   </text>
                 </box>

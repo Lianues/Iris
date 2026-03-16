@@ -89,8 +89,8 @@ export function ApiKeyInput({ provider, onSubmit, onBack }: ApiKeyInputProps) {
 
   return (
     <box flexDirection="column" gap={1} padding={1}>
-      <text fg="#6c5ce7" decoration="bold">
-        ② 输入 API 凭证
+      <text fg="#6c5ce7">
+        <b>② 输入 API 凭证</b>
       </text>
       <text fg="#636e72">
         {`提供商: ${PROVIDER_LABELS[provider] || provider}`}

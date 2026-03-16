@@ -48,14 +48,14 @@ export function Summary({ config, onConfirm, onBack }: SummaryProps) {
 
   return (
     <box flexDirection="column" gap={1} padding={1}>
-      <text fg="#6c5ce7" decoration="bold">
-        ⑤ 确认配置
+      <text fg="#6c5ce7">
+        <b>⑤ 确认配置</b>
       </text>
 
       <box flexDirection="column" borderStyle="rounded" borderColor="#636e72" padding={1} gap={0}>
         <text>
           <span fg="#636e72">{"提供商:   "}</span>
-          <span fg="#dfe6e9" decoration="bold">{PROVIDER_LABELS[config.provider] || config.provider}</span>
+          <b><span fg="#dfe6e9">{PROVIDER_LABELS[config.provider] || config.provider}</span></b>
         </text>
         <text>
           <span fg="#636e72">{"API Key:  "}</span>
@@ -95,7 +95,7 @@ export function Summary({ config, onConfirm, onBack }: SummaryProps) {
         <text fg="#636e72">Enter / y 确认写入  |  Esc / n 返回修改</text>
       ) : (
         <box flexDirection="column" gap={1}>
-          <text fg="#00b894" decoration="bold">✅ 配置已写入！</text>
+          <text fg="#00b894"><b>✅ 配置已写入！</b></text>
           <box flexDirection="column" paddingLeft={2}>
             <text fg="#dfe6e9">启动方式：</text>
             <text>
