@@ -1,6 +1,7 @@
 export interface FenceRendererContext {
   source: string
   lang: string
+  highlightedLines: Set<number> | null
   renderCodeBlock: (code: string, lang?: string | null) => string
   escapeHtml: (text: string) => string
 }

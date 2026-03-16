@@ -2607,7 +2607,9 @@ select:focus-visible {
 .message-latex-shell,
 .message-markdown-shell,
 .message-svg-shell,
-.message-html-shell {
+.message-html-shell,
+.message-mermaid-shell,
+.message-diff-shell {
   margin: 1em 0;
   border-radius: 20px;
   border: 1px solid rgba(var(--tint-rgb), 0.08);
@@ -2619,7 +2621,9 @@ select:focus-visible {
 .message-latex-header,
 .message-markdown-header,
 .message-svg-header,
-.message-html-header {
+.message-html-header,
+.message-mermaid-header,
+.message-diff-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2647,7 +2651,9 @@ select:focus-visible {
 .message-latex-badge,
 .message-markdown-badge,
 .message-svg-badge,
-.message-html-badge {
+.message-html-badge,
+.message-mermaid-badge,
+.message-diff-badge {
   display: inline-flex;
   align-items: center;
   padding: 0.36em 0.72em;
@@ -2675,6 +2681,14 @@ select:focus-visible {
   border: 1px solid rgba(116, 215, 255, 0.22);
 }
 
+.message-mermaid-header {
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.message-diff-header {
+  background: rgba(148, 163, 184, 0.08);
+}
+
 .message-svg-badge {
   border-radius: 999px;
   background: rgba(82, 196, 120, 0.14);
@@ -2687,10 +2701,24 @@ select:focus-visible {
   border: 1px solid rgba(255, 168, 64, 0.22);
 }
 
+.message-mermaid-badge {
+  border-radius: 999px;
+  background: rgba(96, 165, 250, 0.14);
+  border: 1px solid rgba(96, 165, 250, 0.22);
+}
+
+.message-diff-badge {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
 .message-latex-meta,
 .message-markdown-meta,
 .message-svg-meta,
-.message-html-meta {
+.message-html-meta,
+.message-mermaid-meta,
+.message-diff-meta {
   color: var(--text-muted);
   font-size: 0.8rem;
 }
@@ -2698,14 +2726,18 @@ select:focus-visible {
 .message-latex-preview,
 .message-markdown-preview,
 .message-svg-preview,
-.message-html-preview {
+.message-html-preview,
+.message-mermaid-preview,
+.message-diff-preview {
   padding: 14px 14px 4px;
 }
 
 .message-latex-preview > *:last-child,
 .message-markdown-preview > *:last-child,
 .message-svg-preview > *:last-child,
-.message-html-preview > *:last-child {
+.message-html-preview > *:last-child,
+.message-mermaid-preview > *:last-child,
+.message-diff-preview > *:last-child {
   margin-bottom: 0;
 }
 
@@ -2728,14 +2760,18 @@ select:focus-visible {
 .message-latex-source,
 .message-markdown-source,
 .message-svg-source,
-.message-html-source {
+.message-html-source,
+.message-mermaid-source,
+.message-diff-source {
   border-top: 1px solid rgba(var(--tint-rgb), 0.08);
 }
 
 .message-latex-source > summary,
 .message-markdown-source > summary,
 .message-svg-source > summary,
-.message-html-source > summary {
+.message-html-source > summary,
+.message-mermaid-source > summary,
+.message-diff-source > summary {
   cursor: pointer;
   list-style: none;
   padding: 12px 14px;
@@ -2746,28 +2782,36 @@ select:focus-visible {
 .message-latex-source > summary::-webkit-details-marker,
 .message-markdown-source > summary::-webkit-details-marker,
 .message-svg-source > summary::-webkit-details-marker,
-.message-html-source > summary::-webkit-details-marker {
+.message-html-source > summary::-webkit-details-marker,
+.message-mermaid-source > summary::-webkit-details-marker,
+.message-diff-source > summary::-webkit-details-marker {
   display: none;
 }
 
 .message-latex-source[open] > summary,
 .message-markdown-source[open] > summary,
 .message-svg-source[open] > summary,
-.message-html-source[open] > summary {
+.message-html-source[open] > summary,
+.message-mermaid-source[open] > summary,
+.message-diff-source[open] > summary {
   color: var(--text-primary);
 }
 
 .message-latex-source .message-code-shell,
 .message-markdown-source .message-code-shell,
 .message-svg-source .message-code-shell,
-.message-html-source .message-code-shell {
+.message-html-source .message-code-shell,
+.message-mermaid-source .message-code-shell,
+.message-diff-source .message-code-shell {
   margin: 0 14px 14px;
 }
 
 .message-latex-empty,
 .message-markdown-empty,
 .message-svg-empty,
-.message-html-empty {
+.message-html-empty,
+.message-mermaid-empty,
+.message-diff-empty {
   color: var(--text-muted);
 }
 
@@ -2922,7 +2966,9 @@ select:focus-visible {
 :root[data-theme="light"] .message-latex-shell,
 :root[data-theme="light"] .message-markdown-shell,
 :root[data-theme="light"] .message-svg-shell,
-:root[data-theme="light"] .message-html-shell {
+:root[data-theme="light"] .message-html-shell,
+:root[data-theme="light"] .message-mermaid-shell,
+:root[data-theme="light"] .message-diff-shell {
   background: rgba(255, 255, 255, 0.62);
   border-color: rgba(15, 23, 42, 0.08);
 }
@@ -2987,6 +3033,34 @@ select:focus-visible {
 }
 
 :root[data-theme="light"] .message-html-source {
+  border-top-color: rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="light"] .message-mermaid-header {
+  background: rgba(59, 130, 246, 0.08);
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="light"] .message-mermaid-badge {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.18);
+}
+
+:root[data-theme="light"] .message-mermaid-source {
+  border-top-color: rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="light"] .message-diff-header {
+  background: rgba(100, 116, 139, 0.08);
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="light"] .message-diff-badge {
+  background: rgba(100, 116, 139, 0.12);
+  border-color: rgba(100, 116, 139, 0.18);
+}
+
+:root[data-theme="light"] .message-diff-source {
   border-top-color: rgba(15, 23, 42, 0.08);
 }
 
@@ -6309,4 +6383,145 @@ select:focus-visible {
   box-shadow:
     0 0 0 1px rgba(5, 150, 105, 0.45),
     0 0 0 4px rgba(5, 150, 105, 0.16);
+}
+
+/* ==========================================
+ *  Mermaid Preview
+ * ========================================== */
+.message-mermaid-preview {
+  padding: 14px;
+}
+
+.message-mermaid-preview svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+/* ==========================================
+ *  Diff Preview
+ * ========================================== */
+.message-diff-preview {
+  padding: 0;
+}
+
+.message-diff-preview pre {
+  margin: 0;
+  padding: 12px 14px;
+  background: transparent;
+  overflow-x: auto;
+}
+
+.message-diff-preview code {
+  display: block;
+  font-size: 0.85rem;
+  line-height: 1.7;
+  background: transparent;
+}
+
+.diff-line {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.diff-line-prefix {
+  user-select: none;
+  opacity: 0.6;
+}
+
+.diff-line-add {
+  background: rgba(74, 222, 128, 0.1);
+  color: #8ce8b4;
+}
+
+.diff-line-del {
+  background: rgba(248, 113, 113, 0.1);
+  color: #ff9f9f;
+}
+
+.diff-line-hunk {
+  color: var(--accent-cyan);
+  opacity: 0.8;
+}
+
+.diff-line-header {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.diff-line-ctx {
+  color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .diff-line-add {
+  background: rgba(22, 163, 74, 0.08);
+  color: #15803d;
+}
+
+:root[data-theme="light"] .diff-line-del {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+}
+
+:root[data-theme="light"] .diff-line-hunk {
+  color: #0369a1;
+}
+
+:root[data-theme="light"] .diff-line-header {
+  color: var(--text-tertiary);
+}
+
+/* ==========================================
+ *  Image Lightbox
+ * ========================================== */
+.message-rich img,
+.image-bubble-img {
+  cursor: zoom-in;
+}
+
+.iris-lightbox {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+}
+
+.iris-lightbox::backdrop {
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+}
+
+.iris-lightbox-img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+  cursor: zoom-out;
+}
+
+/* ==========================================
+ *  Code Line Highlights
+ * ========================================== */
+.message-code-line-highlighted {
+  background: rgba(139, 124, 255, 0.1);
+  border-left: 2px solid rgba(139, 124, 255, 0.5);
+  padding-left: 2px;
+  margin-left: -4px;
+}
+
+:root[data-theme="light"] .message-code-line-highlighted {
+  background: rgba(110, 94, 255, 0.08);
+  border-left-color: rgba(110, 94, 255, 0.4);
 }

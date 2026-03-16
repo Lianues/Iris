@@ -5,13 +5,14 @@
     </div>
 
     <div class="image-bubble" :class="`image-bubble-${role}`">
-      <img class="image-bubble-img" :src="imageSrc" :alt="altText" loading="lazy" />
+      <img class="image-bubble-img" :src="imageSrc" :alt="altText" loading="lazy" @click="openLightbox(imageSrc, altText)" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount } from 'vue'
+import { openLightbox } from '../composables/useLightbox'
 import { getRoleLabel } from '../utils/role'
 
 const props = defineProps<{

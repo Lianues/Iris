@@ -25,6 +25,10 @@ export default defineConfig({
             return 'vendor-highlight'
           }
 
+          if (normalizedId.includes('/node_modules/mermaid/')) {
+            return 'vendor-mermaid'
+          }
+
           if (normalizedId.includes('/node_modules/katex/')) {
             return 'vendor-katex'
           }

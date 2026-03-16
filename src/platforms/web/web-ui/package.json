@@ -16,6 +16,7 @@
     "highlight.js": "^11.11.1",
     "katex": "^0.16.38",
     "markdown-it": "^14.1.0",
+    "mermaid": "^11.13.0",
     "vue": "^3.5.0",
     "vue-router": "^4.5.0"
   },

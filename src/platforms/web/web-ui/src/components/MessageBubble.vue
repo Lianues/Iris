@@ -65,11 +65,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { ICONS } from '../constants/icons'
 import { copyTextToClipboard } from '../utils/clipboard'
 import { useCopyFeedback } from '../composables/useCopyFeedback'
+import { openLightbox } from '../composables/useLightbox'
+import { hydrateRenderedContent } from '../utils/renderers/registry'
 import { getRoleLabel } from '../utils/role'
 import type { MessageMeta } from '../api/types'
 
@@ -216,6 +218,12 @@ async function copyCodeBlock(codeText: string, button: HTMLButtonElement) {
 
 function handleRichContentClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null
+
+  if (target?.tagName === 'IMG') {
+    const img = target as HTMLImageElement
+    if (img.src) { openLightbox(img.src, img.alt); return }
+  }
+
   const button = target?.closest<HTMLButtonElement>('.message-code-copy')
   if (!button || !messageEl.value?.contains(button)) return
 
@@ -277,6 +285,8 @@ async function updateRenderedText() {
 
   if (renderRichText) {
     renderedText.value = renderRichText(props.text)
+    await nextTick()
+    void hydrateRenderedContent(messageEl.value)
     return
   }
 
@@ -286,6 +296,8 @@ async function updateRenderedText() {
     const renderer = await ensureMarkdownRendererLoaded()
     if (disposed || taskVersion !== renderTaskVersion) return
     renderedText.value = renderer(props.text)
+    await nextTick()
+    void hydrateRenderedContent(messageEl.value)
   } catch (error) {
     console.error('加载富文本渲染器失败:', error)
     if (disposed || taskVersion !== renderTaskVersion) return

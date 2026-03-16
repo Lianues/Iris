@@ -14,3 +14,17 @@ export function findFenceRenderer(lang: string, source: string): FenceRenderer |
   }
   return null
 }
+
+type PostRenderHydrator = (root: HTMLElement) => void | Promise<void>
+const hydrators: PostRenderHydrator[] = []
+
+export function registerPostRenderHydrator(fn: PostRenderHydrator): void {
+  hydrators.push(fn)
+}
+
+export async function hydrateRenderedContent(root: HTMLElement | null): Promise<void> {
+  if (!root || hydrators.length === 0) return
+  for (const hydrator of hydrators) {
+    await hydrator(root)
+  }
+}

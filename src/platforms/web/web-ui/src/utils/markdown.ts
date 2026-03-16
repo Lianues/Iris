@@ -36,6 +36,9 @@ import yamlLanguage from 'highlight.js/lib/languages/yaml'
 import { findFenceRenderer } from './renderers/registry'
 import './renderers/svg-renderer'
 import './renderers/html-renderer'
+import './renderers/diff-renderer'
+import './renderers/mermaid-renderer'
+import { parseLineHighlights } from './code-highlights'
 
 hljs.registerLanguage('bash', bashLanguage)
 hljs.registerLanguage('c', cLanguage)
@@ -137,6 +140,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
   cpp: 'C++',
   csharp: 'C#',
   css: 'CSS',
+  diff: 'Diff',
   go: 'Go',
   html: 'HTML',
   java: 'Java',
@@ -167,6 +171,7 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   'c#': 'csharp',
   plaintext: 'text',
   katex: 'latex',
+  patch: 'diff',
   py: 'python',
   rb: 'ruby',
   tex: 'latex',
@@ -1214,17 +1219,19 @@ function highlightCode(code: string, detectedLang: string): string {
   }
 }
 
-function renderNumberedCodeLines(code: string, detectedLang: string): string {
+function renderNumberedCodeLines(code: string, detectedLang: string, highlightedLines?: Set<number> | null): string {
   const normalizedCode = code.replace(/\r\n?/g, '\n')
   const lines = normalizedCode.split('\n')
   const totalLines = Math.max(1, lines.length)
   const gutterWidth = String(totalLines).length
 
   return (lines.length > 0 ? lines : ['']).map((line, index) => {
+    const lineNum = index + 1
     const lineHtml = line.length > 0 ? highlightCode(line, detectedLang) : '&#8203;'
+    const highlighted = highlightedLines?.has(lineNum) ? ' message-code-line-highlighted' : ''
     return [
-      '<span class="message-code-line">',
-      `<span class="message-code-line-number">${escapeHtml(String(index + 1).padStart(gutterWidth, ' '))}</span>`,
+      `<span class="message-code-line${highlighted}">`,
+      `<span class="message-code-line-number">${escapeHtml(String(lineNum).padStart(gutterWidth, ' '))}</span>`,
       `<span class="message-code-line-text">${lineHtml}</span>`,
       '</span>',
     ].join('')
@@ -1239,9 +1246,9 @@ function buildRenderedCodeClass(detectedLang: string): string {
   return classes.join(' ')
 }
 
-function renderCodeBlock(code: string, hintedLang?: string | null): string {
+function renderCodeBlock(code: string, hintedLang?: string | null, highlightedLines?: Set<number> | null): string {
   const detectedLang = detectCodeLanguage(code, hintedLang)
-  const numberedLines = renderNumberedCodeLines(code, detectedLang)
+  const numberedLines = renderNumberedCodeLines(code, detectedLang, highlightedLines)
   return `<pre><code class="${buildRenderedCodeClass(detectedLang)}">${numberedLines}</code></pre>`
 }
 
@@ -1276,7 +1283,9 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
 
 md.renderer.rules.fence = (tokens, idx, _options, env) => {
   const token = tokens[idx]
-  const hintedLang = normalizeLanguageLabel(token.info.trim().split(/\s+/)[0])
+  const infoString = token.info.trim()
+  const hintedLang = normalizeLanguageLabel(infoString.split(/\s+/)[0])
+  const highlightedLines = parseLineHighlights(infoString)
   if (hintedLang === 'markdown') {
     const targetEnv = env as MarkdownRenderEnv
     const segments = targetEnv.deferredHtmlSegments ?? []
@@ -1309,6 +1318,7 @@ md.renderer.rules.fence = (tokens, idx, _options, env) => {
     const result = fenceRenderer.buildPreviewBlock({
       source: token.content,
       lang: hintedLang,
+      highlightedLines,
       renderCodeBlock,
       escapeHtml,
     })
@@ -1317,7 +1327,7 @@ md.renderer.rules.fence = (tokens, idx, _options, env) => {
     return createDeferredHtmlPlaceholder(index)
   }
 
-  return renderCodeBlock(token.content, hintedLang)
+  return renderCodeBlock(token.content, hintedLang, highlightedLines)
 }
 
 md.renderer.rules.code_block = (tokens, idx) => {
