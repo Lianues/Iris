@@ -23,6 +23,9 @@ const logger = createLogger('WXWork');
 
 // ============ 常量 ============
 
+/** 流式发送节流间隔（毫秒）— 避免每个 token 都发一次导致队列堆积 */
+const STREAM_THROTTLE_MS = 300;
+
 /** 企微单条消息长度上限 */
 const MESSAGE_MAX_LENGTH = 4000;
 
@@ -172,8 +175,17 @@ export class WXWorkPlatform extends PlatformAdapter {
    * 流式回复状态。
    * 企微的 replyStream 每次发送的是累积后的完整文本（全量替换），不是增量。
    * 同一个 streamId 贯穿 thinking 占位和后续流式回复，确保最终 finish=true 能关闭 thinking。
+   *
+   * 包含节流控制：每 STREAM_THROTTLE_MS 最多发一次 replyStream，
+   * 避免每个 LLM token 都触发一次 WebSocket 发送导致队列堆积。
+   * SDK 的串行回执机制（发一条等 ack 再发下一条）会使高频发送严重延迟。
    */
-  private streamStates = new Map<string, { streamId: string; buffer: string }>();
+  private streamStates = new Map<string, {
+    streamId: string;
+    buffer: string;
+    dirty: boolean;
+    throttleTimer: ReturnType<typeof setTimeout> | null;
+  }>();
 
   constructor(backend: Backend, config: WXWorkConfig) {
     super();
@@ -196,6 +208,10 @@ export class WXWorkPlatform extends PlatformAdapter {
 
   async stop(): Promise<void> {
     this.wsClient.disconnect();
+    // 清理所有节流定时器
+    for (const state of this.streamStates.values()) {
+      if (state.throttleTimer) clearTimeout(state.throttleTimer);
+    }
     this.pendingFrames.clear();
     this.streamStates.clear();
     logger.info('平台已停止');
@@ -216,6 +232,8 @@ export class WXWorkPlatform extends PlatformAdapter {
         this.streamStates.set(sid, {
           streamId: generateReqId('stream'),
           buffer: '',
+          dirty: false,
+          throttleTimer: null,
         });
       }
     });
@@ -226,10 +244,21 @@ export class WXWorkPlatform extends PlatformAdapter {
       if (!frame || !state) return;
 
       state.buffer += chunk;
-      // 企微 replyStream 每次发送完整累积文本（全量替换，与官方插件一致）
-      this.wsClient.replyStream(frame, state.streamId, state.buffer, false).catch((err) => {
-        logger.error(`流式发送失败 (session=${sid}):`, err);
-      });
+      state.dirty = true;
+
+      // 节流：STREAM_THROTTLE_MS 内只发一次，避免队列堆积
+      if (!state.throttleTimer) {
+        state.throttleTimer = setTimeout(() => {
+          state.throttleTimer = null;
+          if (!state.dirty) return;
+          state.dirty = false;
+          const currentFrame = this.pendingFrames.get(sid);
+          if (!currentFrame) return;
+          this.wsClient.replyStream(currentFrame, state.streamId, state.buffer, false).catch((err) => {
+            logger.error(`流式发送失败 (session=${sid}):`, err);
+          });
+        }, STREAM_THROTTLE_MS);
+      }
     });
 
     // ---- 非流式回复 ----
@@ -240,6 +269,11 @@ export class WXWorkPlatform extends PlatformAdapter {
 
       const state = this.streamStates.get(sid);
       if (state) {
+        // 清理节流定时器
+        if (state.throttleTimer) {
+          clearTimeout(state.throttleTimer);
+          state.throttleTimer = null;
+        }
         // 有流式状态说明 thinking 流已启动，用 finish=true 关闭
         this.wsClient.replyStream(frame, state.streamId, text, true).catch((err) => {
           logger.error(`流式关闭失败 (session=${sid}):`, err);
@@ -264,6 +298,10 @@ export class WXWorkPlatform extends PlatformAdapter {
       const errorText = `❌ 错误: ${errorMsg}`;
 
       if (state) {
+        if (state.throttleTimer) {
+          clearTimeout(state.throttleTimer);
+          state.throttleTimer = null;
+        }
         this.wsClient.replyStream(frame, state.streamId, errorText, true).catch(() => {});
         this.streamStates.delete(sid);
       } else {
@@ -282,6 +320,10 @@ export class WXWorkPlatform extends PlatformAdapter {
       // 流式模式下，done 表示回合结束。
       // 如果流还没关闭（response 未触发 / 工具循环内无文本输出），用累积文本关闭。
       if (frame && state) {
+        if (state.throttleTimer) {
+          clearTimeout(state.throttleTimer);
+          state.throttleTimer = null;
+        }
         const finalText = state.buffer || '✅ 处理完成。';
         this.wsClient.replyStream(frame, state.streamId, finalText, true).catch((err) => {
           logger.error(`done 关闭流失败 (session=${sid}):`, err);
@@ -367,7 +409,7 @@ export class WXWorkPlatform extends PlatformAdapter {
     // 流式模式下先发 thinking 占位（与官方插件一致）
     if (this.backend.isStreamEnabled()) {
       const streamId = generateReqId('stream');
-      this.streamStates.set(sessionId, { streamId, buffer: '' });
+      this.streamStates.set(sessionId, { streamId, buffer: '', dirty: false, throttleTimer: null });
       try {
         await this.wsClient.replyStream(frame, streamId, THINKING_PLACEHOLDER, false);
       } catch (err) {
