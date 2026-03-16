@@ -447,8 +447,7 @@ function renderBlock(
     case 'hr':
       return (
         <box key={key}>
-          <text fg={C.dim}>{'\u2500'.repeat(Math.max(3, termWidth - 10))}</text>
-          {cursor}
+          <text fg={C.dim}>{'\u2500'.repeat(Math.max(3, termWidth - 10))}{cursor}</text>
         </box>
       );
 
@@ -500,7 +499,7 @@ function renderBlock(
             </text>
           ))}
           <text fg={C.dim}>{'\u2514'}{botLine}{'\u2518'}</text>
-          {cursor}
+          {cursor && <text>{cursor}</text>}
         </box>
       );
     }
@@ -566,7 +565,7 @@ export function MarkdownText({ text, showCursor }: MarkdownTextProps) {
     : undefined;
 
   if (!text || !tokens || tokens.length === 0) {
-    return cursorNode ?? null;
+    return showCursor ? <text><span bg={C.accent}>{' '}</span></text> : null;
   }
 
   let lastIdx = -1;
@@ -578,7 +577,7 @@ export function MarkdownText({ text, showCursor }: MarkdownTextProps) {
   }
 
   if (lastIdx < 0) {
-    return cursorNode ?? null;
+    return showCursor ? <text><span bg={C.accent}>{' '}</span></text> : null;
   }
 
   const nodes: React.ReactNode[] = [];
@@ -596,7 +595,7 @@ export function MarkdownText({ text, showCursor }: MarkdownTextProps) {
   }
 
   if (nodes.length === 0) {
-    return cursorNode ?? null;
+    return showCursor ? <text><span bg={C.accent}>{' '}</span></text> : null;
   }
 
   return <box flexDirection="column">{nodes}</box>;
