@@ -490,10 +490,54 @@ export class WXWorkPlatform extends PlatformAdapter {
         '📋 **可用指令**',
         '`/new` — 新建对话（清空上下文）',
         '`/clear` — 清空当前对话历史',
+        '`/session` — 列出历史会话',
+        '`/session 编号` — 切换到指定会话',
         '`/model` — 查看可用模型',
         '`/model 模型名` — 切换模型',
         '`/help` — 显示本帮助',
       ].join('\n'));
+      return true;
+    }
+
+    // /session — 列出历史会话 或 切换到指定会话
+    if (cmd === '/session' || cmd === '/sessions') {
+      const metas = await this.backend.listSessionMetas();
+      if (metas.length === 0) {
+        await reply('📭 暂无历史会话。');
+        return true;
+      }
+      // 只显示最近 20 条，避免消息过长
+      const display = metas.slice(0, 20);
+      const lines = display.map((m, i) => {
+        const date = m.updatedAt
+          ? new Date(m.updatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+          : '未知时间';
+        const current = m.id === this.activeSessions.get(ck) ? ' 👈' : '';
+        return `**${i + 1}.** ${m.title || '(无标题)'}  _${date}_${current}`;
+      });
+      const footer = metas.length > 20 ? `\n\n_(共 ${metas.length} 条，仅显示最近 20 条)_` : '';
+      await reply(`📋 **历史会话**\n\n${lines.join('\n')}${footer}\n\n发送 \`/session 编号\` 切换`);
+      return true;
+    }
+
+    if (cmd.startsWith('/session ') || cmd.startsWith('/sessions ')) {
+      const arg = text.replace(/^\/(sessions?)\s+/i, '').trim();
+      const index = parseInt(arg, 10);
+      if (isNaN(index) || index < 1) {
+        await reply('❌ 请输入有效的会话编号，例如 `/session 3`');
+        return true;
+      }
+      const metas = await this.backend.listSessionMetas();
+      if (index > metas.length) {
+        await reply(`❌ 编号 ${index} 超出范围（共 ${metas.length} 条会话）`);
+        return true;
+      }
+      const target = metas[index - 1];
+      this.activeSessions.set(ck, target.id);
+      const date = target.updatedAt
+        ? new Date(target.updatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+        : '';
+      await reply(`✅ 已切换到会话：**${target.title || '(无标题)'}**\n_${date}_`);
       return true;
     }
 
