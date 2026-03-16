@@ -503,13 +503,13 @@ export function App({ onReady, onSubmit, onUndo, onRedo, onClearRedoStack, onToo
         <box flexDirection="column" flexGrow={1} padding={1} alignItems="center" justifyContent="center">
           <box flexDirection="column" border={false} padding={2} alignItems="center">
             <text fg={C.primary}>
-              <strong>{'▀█▀ █▀█ ▀█▀ ▄▀▀'}</strong>
+              <strong>{'▀█▀ █▀█ ▀█▀ █▀▀'}</strong>
             </text>
             <text fg={C.primary}>
-              <strong>{' █  █▀▄  █  ▀▄▄'}</strong>
+              <strong>{' █  █▀▄  █  ▀▀█'}</strong>
             </text>
             <text fg={C.primary}>
-              <strong>{' ▀  ▀ ▀ ▀▀▀ ▄▄▀'}</strong>
+              <strong>{'▀▀▀ ▀ ▀ ▀▀▀ ▀▀▀'}</strong>
             </text>
             <text> </text>
             <text fg={C.dim}>模块化 AI 智能代理框架</text>
