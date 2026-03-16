@@ -1,6 +1,6 @@
 # 平台配置
 
-# 类型: console | discord | telegram | web
+# 类型: console | discord | telegram | web | wxwork
 # 支持单平台或多平台同时启动：
 #   type: console            # 单平台
 #   type: [console, web]     # 多平台同时启动
@@ -21,3 +21,10 @@ web:
   # authToken: your-secret-token-here
   # 管理接口认证令牌（推荐）
   # managementToken: your-management-token-here
+
+wxwork:
+  # 企业微信智能机器人 Bot ID 和 Secret
+  # 在企业微信管理后台 → 应用管理 → 智能机器人 中创建并获取
+  # 文档: https://developer.work.weixin.qq.com/document/path/101463
+  botId: your-bot-id
+  secret: your-bot-secret
