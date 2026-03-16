@@ -28,3 +28,5 @@ wxwork:
   # 文档: https://developer.work.weixin.qq.com/document/path/101463
   botId: your-bot-id
   secret: your-bot-secret
+  # 是否在流式回复中展示工具执行状态（默认 true）
+  # showToolStatus: false

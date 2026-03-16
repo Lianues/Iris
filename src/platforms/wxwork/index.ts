@@ -165,6 +165,9 @@ export class WXWorkPlatform extends PlatformAdapter {
   private wsClient: WSClient;
   private backend: Backend;
 
+  /** 是否在流式回复中展示工具执行状态 */
+  private showToolStatus: boolean;
+
   /**
    * 每个用户/群的当前 sessionId。
    * key = chatKey（私聊 `dm:{userId}`，群聊 `group:{chatId}`）
@@ -197,6 +200,7 @@ export class WXWorkPlatform extends PlatformAdapter {
   constructor(backend: Backend, config: WXWorkConfig) {
     super();
     this.backend = backend;
+    this.showToolStatus = config.showToolStatus !== false;
     // 构造参数与官方插件保持一致
     this.wsClient = new WSClient({
       botId: config.botId,
@@ -234,27 +238,32 @@ export class WXWorkPlatform extends PlatformAdapter {
       toolName: string;
       status: string;
       args: Record<string, unknown>;
+      createdAt: number;
     }>) => {
+      if (!this.showToolStatus) return;
+
       const frame = this.pendingFrames.get(sid);
       const state = this.streamStates.get(sid);
       if (!frame || !state) return;
 
-      // 构建工具状态摘要文本
+      // 按创建时间排序，保证显示顺序与实际调用顺序一致
       const statusIcons: Record<string, string> = {
         queued: '⏳',
         executing: '🔧',
         success: '✅',
         error: '❌',
         streaming: '📡',
+        awaiting_approval: '🔐',
+        awaiting_apply: '📋',
+        warning: '⚠️',
       };
-      const toolLines = invocations.map(inv => {
+      const sorted = [...invocations].sort((a, b) => a.createdAt - b.createdAt);
+      const toolLines = sorted.map((inv, i) => {
         const icon = statusIcons[inv.status] || '⏳';
-        return `${icon} \`${inv.toolName}\` ${inv.status}`;
+        return `${i + 1}. ${icon} \`${inv.toolName}\` ${inv.status}`;
       });
       const toolSummary = toolLines.join('\n');
 
-      // 用工具状态更新流式消息（不累积到 buffer，只是临时展示）
-      // 当后续有 stream:chunk 文本到来时，buffer 会覆盖这个临时内容
       const displayText = state.buffer
         ? `${state.buffer}\n\n---\n${toolSummary}`
         : toolSummary;

@@ -45,6 +45,7 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
     wxwork: {
       botId: raw.wxwork?.botId ?? '',
       secret: raw.wxwork?.secret ?? '',
+      showToolStatus: raw.wxwork?.showToolStatus !== false,
     },
   };
 }
