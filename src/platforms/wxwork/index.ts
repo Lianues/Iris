@@ -144,10 +144,14 @@ export class WXWorkPlatform extends PlatformAdapter {
     this.backend.on('stream:start', (sid: string) => {
       const frame = this.pendingFrames.get(sid);
       if (!frame) return;
-      this.streamStates.set(sid, {
-        streamId: generateReqId('stream'),
-        buffer: '',
-      });
+      // streamState 已在 handleIncomingMessage 中创建（thinking 占位时），
+      // 这里只需确认存在即可。若不存在（非流式切换等边界情况）则补建。
+      if (!this.streamStates.has(sid)) {
+        this.streamStates.set(sid, {
+          streamId: generateReqId('stream'),
+          buffer: '',
+        });
+      }
     });
 
     this.backend.on('stream:chunk', (sid: string, chunk: string) => {
