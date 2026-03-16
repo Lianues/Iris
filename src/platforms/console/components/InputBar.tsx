@@ -10,6 +10,7 @@ import { useKeyboard } from '@opentui/react';
 import { COMMANDS, type Command, getCommandInput, isExactCommandValue } from '../input-commands';
 import { useTextInput } from '../hooks/use-text-input';
 import { useCursorBlink } from '../hooks/use-cursor-blink';
+import { usePaste } from '../hooks/use-paste';
 import { InputDisplay } from './InputDisplay';
 import { C } from '../theme';
 
@@ -92,6 +93,15 @@ export function InputBar({ disabled, onSubmit }: InputBarProps) {
 
     // 委托给 useTextInput 处理其他按键
     inputActions.handleKey(key);
+  });
+
+  // 处理粘贴事件：将换行替换为空格后插入输入框，避免多行文本被拆成多条消息
+  usePaste((text) => {
+    if (disabled) return;
+    const cleaned = text.replace(/[\r\n]+/g, ' ').trim();
+    if (cleaned) {
+      inputActions.insert(cleaned);
+    }
   });
 
   const maxLen = filtered.length > 0

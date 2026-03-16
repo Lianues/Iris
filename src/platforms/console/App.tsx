@@ -140,7 +140,8 @@ export function App({ onReady, onSubmit, onToolApproval, onAbort, onNewSession, 
   const streamPartsRef = useRef<MessagePart[]>([]);
   const toolInvocationsRef = useRef<ToolInvocation[]>([]);
   const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingCommittedStreamPartsRef = useRef(0);
+  /** endStream 后暂存的流式 parts，等待 finalizeAssistantParts 消费或 setGenerating(false) 兜底提交 */
+  const uncommittedStreamPartsRef = useRef<MessagePart[]>([]);
   const lastUsageRef = useRef<UsageMetadata | null>(null);
 
   // ============ AppHandle ============
@@ -160,7 +161,7 @@ export function App({ onReady, onSubmit, onToolApproval, onAbort, onNewSession, 
       startStream() {
         if (toolInvocationsRef.current.length > 0) handle.commitTools();
         setIsStreaming(true);
-        pendingCommittedStreamPartsRef.current = 0;
+        uncommittedStreamPartsRef.current = [];
         streamPartsRef.current = [];
         setStreamingParts([]);
       },
@@ -176,28 +177,26 @@ export function App({ onReady, onSubmit, onToolApproval, onAbort, onNewSession, 
       endStream() {
         if (throttleTimerRef.current) { clearTimeout(throttleTimerRef.current); throttleTimerRef.current = null; }
         setIsStreaming(false);
-        const parts = [...streamPartsRef.current];
-        if (parts.length > 0) {
-          pendingCommittedStreamPartsRef.current = parts.length;
-          setMessages((prev) => appendAssistantParts(prev, parts));
-        } else { pendingCommittedStreamPartsRef.current = 0; }
+        // 不立即提交到 messages，暂存等待 finalizeAssistantParts 用最终内容提交
+        uncommittedStreamPartsRef.current = [...streamPartsRef.current];
         streamPartsRef.current = [];
-        setStreamingParts([]);
+        // 保持 streamingParts 可见，避免内容闪烁消失
+        setStreamingParts([...uncommittedStreamPartsRef.current]);
       },
       finalizeAssistantParts(parts, meta?) {
         const normalizedParts = mergeMessageParts(parts);
+        // 丢弃流式暂存，使用最终完整内容
+        uncommittedStreamPartsRef.current = [];
+        setStreamingParts([]);
         setMessages((prev) => {
           if (normalizedParts.length === 0) return prev;
           if (prev.length === 0) return [{ id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta }];
           const last = prev[prev.length - 1];
           if (last.role !== 'assistant') return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta }];
-          const replaceCount = pendingCommittedStreamPartsRef.current;
-          const baseParts = replaceCount > 0 ? last.parts.slice(0, Math.max(0, last.parts.length - replaceCount)) : last.parts;
           const copy = [...prev];
-          copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...baseParts, ...normalizedParts]), ...meta };
+          copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...last.parts, ...normalizedParts]), ...meta };
           return copy;
         });
-        pendingCommittedStreamPartsRef.current = 0;
       },
       setToolInvocations(invocations) {
         const copy = [...invocations];
@@ -213,8 +212,20 @@ export function App({ onReady, onSubmit, onToolApproval, onAbort, onNewSession, 
           return copyMessages;
         });
       },
-      setGenerating(generating) { setIsGenerating(generating); },
-      clearMessages() { setMessages([]); setStreamingParts([]); streamPartsRef.current = []; pendingCommittedStreamPartsRef.current = 0; },
+      setGenerating(generating) {
+        if (!generating) {
+          // 兜底：若 finalizeAssistantParts 未触发（如异常中断），将暂存的流式内容提交到 messages
+          const uncommitted = uncommittedStreamPartsRef.current;
+          if (uncommitted.length > 0) {
+            setMessages((prev) => appendAssistantParts(prev, uncommitted));
+            uncommittedStreamPartsRef.current = [];
+          }
+          setStreamingParts([]);
+          streamPartsRef.current = [];
+        }
+        setIsGenerating(generating);
+      },
+      clearMessages() { setMessages([]); setStreamingParts([]); streamPartsRef.current = []; uncommittedStreamPartsRef.current = []; },
       commitTools() { toolInvocationsRef.current = []; setPendingApprovals([]); },
       setUsage(usage) { setContextTokens(usage.totalTokenCount ?? 0); lastUsageRef.current = usage; },
       finalizeResponse(durationMs) {
