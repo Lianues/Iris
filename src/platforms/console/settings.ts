@@ -41,6 +41,8 @@ export interface ConsoleToolPolicySettings {
   configured: boolean;
   autoApprove: boolean;
   registered: boolean;
+  /** Shell 工具专用：自动批准的命令模式列表（透传保存） */
+  autoApprovePatterns?: string[];
 }
 
 export interface ConsoleMCPServerSettings {
@@ -346,6 +348,7 @@ export class ConsoleSettingsController {
         configured: Object.prototype.hasOwnProperty.call(toolsConfig.permissions, name),
         autoApprove: toolsConfig.permissions[name]?.autoApprove === true,
         registered: registeredToolNames.includes(name),
+        autoApprovePatterns: toolsConfig.permissions[name]?.autoApprovePatterns,
       })),
       mcpServers: Object.entries(rawMcpServers).map(([name, cfg]) => ({
         name,
@@ -383,11 +386,15 @@ export class ConsoleSettingsController {
         maxToolRounds: draft.system.maxToolRounds,
         stream: draft.system.stream,
       },
-      tools: draft.toolPolicies.reduce((result: Record<string, { autoApprove: boolean }>, tool) => {
+      tools: draft.toolPolicies.reduce((result: Record<string, Record<string, unknown>>, tool) => {
         if (!tool.configured) {
           return result;
         }
-        result[tool.name] = { autoApprove: tool.autoApprove };
+        const entry: Record<string, unknown> = { autoApprove: tool.autoApprove };
+        if (tool.autoApprovePatterns?.length) {
+          entry.autoApprovePatterns = tool.autoApprovePatterns;
+        }
+        result[tool.name] = entry;
         return result;
       }, {}),
       mcp: buildMCPPayload(draft),

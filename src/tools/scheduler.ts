@@ -21,6 +21,89 @@ import { ToolPolicyConfig } from '../config';
 
 const logger = createLogger('ToolScheduler');
 
+// ============ Shell 命令模式匹配 ============
+
+/**
+ * 将 glob 模式转换为正则表达式。
+ *
+ * 支持的语法：
+ *   - `**`  匹配任意内容（包括空格和任意字符）
+ *   - `*`   匹配任意字符序列（不含换行）
+ *   - `?`   匹配单个字符
+ *   - 以 `/` 包裹的字符串视为用户自定义正则表达式
+ */
+function patternToRegex(pattern: string): RegExp {
+  // 用户直接写正则：/pattern/flags
+  const regexLiteral = pattern.match(/^\/(.+)\/([gimsuy]*)$/);
+  if (regexLiteral) {
+    return new RegExp(regexLiteral[1], regexLiteral[2]);
+  }
+
+  // glob → regex
+  let regex = '';
+  let i = 0;
+  while (i < pattern.length) {
+    const ch = pattern[i];
+    if (ch === '*' && pattern[i + 1] === '*') {
+      regex += '.*';     // ** → match everything
+      i += 2;
+    } else if (ch === '*') {
+      regex += '.*';     // * → match any chars
+      i++;
+    } else if (ch === '?') {
+      regex += '.';      // ? → single char
+      i++;
+    } else {
+      // escape regex special chars
+      regex += ch.replace(/[\\^$.|+()[\]{}]/g, '\\' + '$' + '&');
+      i++;
+    }
+  }
+
+  return new RegExp(`^${regex}$`);
+}
+
+/**
+ * 检查 shell 命令是否匹配自动批准模式列表中的任一规则。
+ */
+function matchesShellAutoApprovePattern(command: string, patterns: string[]): boolean {
+  for (const pattern of patterns) {
+    try {
+      if (patternToRegex(pattern).test(command)) {
+        return true;
+      }
+    } catch {
+      // 无效模式，跳过
+      logger.warn(`无效的 shell 自动批准模式: ${pattern}`);
+    }
+  }
+  return false;
+}
+
+/**
+ * 判断工具调用是否应该自动批准。
+ *
+ * 对 shell 工具特殊处理：即使 autoApprove=false，如果命令匹配
+ * autoApprovePatterns 中的模式，也视为自动批准。
+ */
+function shouldAutoApprove(
+  call: FunctionCallPart,
+  policy: ToolPolicyConfig,
+): boolean {
+  // 已显式设为 autoApprove: true，直接放行
+  if (policy.autoApprove) return true;
+
+  // 仅 shell 工具支持 autoApprovePatterns
+  if (call.functionCall.name !== 'shell') return false;
+  if (!policy.autoApprovePatterns?.length) return false;
+
+  const args = call.functionCall.args as Record<string, unknown> | undefined;
+  const command = typeof args?.command === 'string' ? args.command : '';
+  if (!command) return false;
+
+  return matchesShellAutoApprovePattern(command, policy.autoApprovePatterns);
+}
+
 // ============ 类型 ============
 
 /** 一个执行批次 */
@@ -126,7 +209,7 @@ async function executeSingle(
   }
 
   if (toolState && invocationId) {
-    if (!policy.autoApprove) {
+    if (!shouldAutoApprove(call, policy)) {
       // 需要用户批准
       toolState.transition(invocationId, 'awaiting_approval');
       const approved = await toolState.waitForApproval(invocationId);

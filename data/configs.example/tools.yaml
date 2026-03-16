@@ -31,6 +31,50 @@ create_directory:
   autoApprove: false
 shell:
   autoApprove: false
+  # Shell 自动批准指令列表（autoApprove 为 false 时生效）
+  # 匹配此列表中任一模式的命令将自动执行，无需手动确认。
+  #
+  # 支持的模式语法：
+  #   - 精确匹配：  "git status"          仅匹配该完整命令
+  #   - 通配符 *：  "git log *"           匹配 git log 后跟任意参数
+  #   - 通配符 ?：  "ls -?"               匹配 ls 后跟单字母参数
+  #   - 前缀匹配：  "npm run *"           匹配所有 npm run 子命令
+  #   - 正则表达式："/^cat\s+\S+$/"       以 / 包裹的字符串按正则解析
+  #
+  # 用法：取消下方需要的行的注释即可启用。
+  autoApprovePatterns:
+    # ── 只读 / 查看类 ──
+    # - "ls *"                # 列出文件
+    # - "cat *"               # 查看文件内容
+    # - "head *"              # 查看文件开头
+    # - "tail *"              # 查看文件结尾
+    # - "wc *"                # 统计行数/字数
+    # - "which *"             # 查找命令路径
+    # - "echo *"              # 输出信息
+    # - "pwd"                 # 当前目录
+    # - "env"                 # 查看环境变量
+    #
+    # ── 搜索类 ──
+    # - "grep *"              # 搜索文本
+    # - "find *"              # 查找文件
+    # - "rg *"                # ripgrep 搜索
+    # - "fd *"                # fd 查找
+    #
+    # ── Git 只读操作 ──
+    # - "git status*"         # 状态查看
+    # - "git log *"           # 日志查看
+    # - "git diff*"           # 差异查看
+    # - "git branch*"         # 分支查看
+    # - "git show *"          # 查看提交
+    # - "git remote -v"       # 查看远程
+    #
+    # ── 包管理器（只读） ──
+    # - "npm list*"           # 查看依赖
+    # - "npm run *"           # 运行脚本
+    # - "bun run *"           # bun 运行脚本
+    #
+    # ── 自定义正则示例 ──
+    # - "/^(node|bun|npx|tsx)\\s+/"  # 允许执行 node/bun/npx/tsx 命令
 sub_agent:
   autoApprove: false
 

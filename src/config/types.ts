@@ -57,6 +57,16 @@ export interface StorageConfig {
 export interface ToolPolicyConfig {
   /** 工具执行前是否自动批准（无需用户确认），默认 false */
   autoApprove: boolean;
+  /**
+   * Shell 工具专用：自动批准的命令模式列表。
+   * 当 shell.autoApprove 为 false 时，如果命令匹配此列表中的任一模式，则自动执行无需确认。
+   * 支持通配符：
+   *   - `*`  匹配任意字符（不含空格/路径分隔符时用于简单匹配）
+   *   - `**` 匹配任意内容（包括空格和任意字符）
+   *   - `?`  匹配单个字符
+   * 也支持 `prefix*` 前缀匹配和完整的正则表达式（以 `/` 包裹）。
+   */
+  autoApprovePatterns?: string[];
 }
 
 export interface ToolsConfig {
