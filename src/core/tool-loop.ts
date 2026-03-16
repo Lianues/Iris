@@ -97,11 +97,9 @@ export class ToolLoop {
       rounds++;
 
       // 组装请求
-      // toolPolicies 非空时用作白名单过滤；为空时不过滤，所有已注册工具均可被 LLM 调用
-      const policyKeys = Object.keys(this.config.toolPolicies);
-      const declarations = policyKeys.length > 0
-        ? this.tools.getDeclarations().filter(d => policyKeys.includes(d.name))
-        : this.tools.getDeclarations();
+      // toolPolicies 仅控制执行策略（autoApprove/deny），不过滤工具声明。
+      // 所有已注册工具的声明均传给 LLM，未配置 policy 的工具执行时默认需审批。
+      const declarations = this.tools.getDeclarations();
       const request = this.prompt.assemble(
         history, declarations, undefined, options?.extraParts,
       );
