@@ -58,6 +58,36 @@ const DEFAULT_CHAT_SUGGESTIONS: ChatSuggestion[] = [
   { label: '校验结果', text: '请检查当前结论是否有遗漏，并给出我应该优先补充的内容。' },
 ];
 
+/**
+ * undo 的粒度。
+ *
+ * - last-visible-message：撤销最后一个“可见消息单元”。
+ *   - 若历史末尾是 assistant 回复，则会删除整段 assistant 回复（含中间 tool response）。
+ *   - 若历史末尾是普通 user 消息，则只删除该 user 消息。
+ * - last-turn：撤销最后一轮完整交互。
+ *   - 若历史末尾是 assistant 回复，则同时删除其前面的 user 消息。
+ *   - 若历史末尾是普通 user 消息，则退化为只删除该 user 消息。
+ */
+export type UndoScope = 'last-visible-message' | 'last-turn';
+
+export interface UndoOperationResult {
+  scope: UndoScope;
+  removed: Content[];
+  removedCount: number;
+  userText: string;
+  assistantText: string;
+}
+
+export interface RedoOperationResult {
+  restored: Content[];
+  restoredCount: number;
+  userText: string;
+  assistantText: string;
+}
+
+/** Backend 内部最多保留多少组 redo 历史。与 Console 旧实现保持一致。 */
+const MAX_REDO_HISTORY_GROUPS = 200;
+
 interface ThoughtTimingState {
   activeStartedAt?: number;
 }
@@ -284,6 +314,9 @@ export class Backend extends EventEmitter {
   /** 每个 sessionId 的 AbortController，用于中止正在进行的 chat */
   private activeAbortControllers = new Map<string, AbortController>();
 
+  /** 每个 session 的 redo 栈。每组元素都是一次 undo 移除的完整 Content 组。 */
+  private redoHistory = new Map<string, Content[][]>();
+
   constructor(
     router: LLMRouter,
     storage: StorageProvider,
@@ -366,6 +399,7 @@ export class Backend extends EventEmitter {
   /** 清空指定会话 */
   async clearSession(sessionId: string): Promise<void> {
     await this.storage.clearHistory(sessionId);
+    this.clearRedo(sessionId);
   }
 
   /** 获取指定会话的历史消息 */
@@ -416,10 +450,72 @@ export class Backend extends EventEmitter {
     await this.storage.truncateHistory(sessionId, keepCount);
   }
 
-  /** 添加消息到会话历史 */
-  async addMessage(sessionId: string, content: Content): Promise<void> {
+  /** 清空指定会话的 redo 栈。任何新的写入都应使 redo 失效。 */
+  clearRedo(sessionId: string): void {
+    this.redoHistory.delete(sessionId);
+  }
+
+  /**
+   * 统一 undo：由 Backend 决定本次应删除哪一组 Content，
+   * 并将其压入 redo 栈。平台层只消费返回结果并处理 UI。
+   */
+  async undo(sessionId: string, scope: UndoScope = 'last-turn'): Promise<UndoOperationResult | null> {
+    const history = await this.storage.getHistory(sessionId);
+    if (history.length === 0) return null;
+
+    const removeStart = this.resolveUndoStartIndex(history, scope);
+    if (removeStart < 0 || removeStart >= history.length) return null;
+
+    const removed = history.slice(removeStart);
+    if (removed.length === 0) return null;
+
+    await this.storage.truncateHistory(sessionId, removeStart);
+    this.pushRedoGroup(sessionId, removed);
+
+    const summary = this.summarizeHistoryGroup(removed);
+    return {
+      scope,
+      removed,
+      removedCount: removed.length,
+      userText: summary.userText,
+      assistantText: summary.assistantText,
+    };
+  }
+
+  /**
+   * 统一 redo：恢复最近一次 undo 删除的一组 Content。
+   * 恢复的是原始历史，而不是重新调用 LLM。
+   */
+  async redo(sessionId: string): Promise<RedoOperationResult | null> {
+    const stack = this.redoHistory.get(sessionId);
+    if (!stack || stack.length === 0) return null;
+
+    const restored = stack.pop()!;
+    for (const content of restored) {
+      await this.addMessage(sessionId, content, { clearRedo: false });
+    }
+
+    const summary = this.summarizeHistoryGroup(restored);
+    return {
+      restored,
+      restoredCount: restored.length,
+      userText: summary.userText,
+      assistantText: summary.assistantText,
+    };
+  }
+
+  /**
+   * 添加消息到会话历史。
+   * 默认会清空 redo 栈，因为任何新的写入都代表分叉，之前的 redo 应失效。
+   * redo 恢复自身会传 clearRedo=false，避免把自己的栈清掉。
+   */
+  async addMessage(sessionId: string, content: Content, options?: { clearRedo?: boolean }): Promise<void> {
+    if (options?.clearRedo !== false) {
+      this.clearRedo(sessionId);
+    }
     await this.storage.addMessage(sessionId, content);
   }
+
 
   /** 切换工作目录 */
   setCwd(dirPath: string): void {
@@ -667,13 +763,15 @@ export class Backend extends EventEmitter {
     if (mode?.tools) {
       loop = new ToolLoop(requestTools, this.prompt, this.toolLoopConfig, this.toolState);
     }
-    // 5. 立即持久化用户消息（不等工具循环结束，防止中途中断丢失）
+    // 5. 新用户消息会让 redo 失效：从这里开始就是新的分叉。
+    this.clearRedo(sessionId);
+    //    立即持久化用户消息（不等工具循环结束，防止中途中断丢失）
     await this.storage.addMessage(sessionId, { role: 'user', parts: storedUserParts });
     if (isNewSession) {
       await this.updateSessionMeta(sessionId, storedUserParts, true);
     }
 
-    // 6. 执行工具循环（新增消息通过回调实时持久化）
+    // 6. 执行工具循环（新增消息通过回调实时持久化；redo 已在步骤 5 清空，无需重复清）
     const result = await loop.run(history, callLLM, {
       extraParts,
       onMessageAppend: (content) => this.storage.addMessage(sessionId, content),
@@ -1178,5 +1276,77 @@ export class Backend extends EventEmitter {
         await this.storage.saveMeta(meta);
       }
     }
+  }
+
+  /** 判断一条 user 消息是否纯粹是工具响应。 */
+  private isToolResponseContent(content: Content): boolean {
+    return content.role === 'user'
+      && content.parts.length > 0
+      && content.parts.every(part => isFunctionResponsePart(part));
+  }
+
+  /** 获取历史末尾 assistant 回复段的起始位置；若末尾不是 assistant 回复则返回 null。 */
+  private getAssistantResponseStartIndex(history: Content[]): number | null {
+    let startIndex: number | null = null;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const entry = history[i];
+      if (entry.role === 'model' || this.isToolResponseContent(entry)) {
+        startIndex = i;
+        continue;
+      }
+      break;
+    }
+    return startIndex;
+  }
+
+  /** 解析本次 undo 应该从哪一条消息开始截断。 */
+  private resolveUndoStartIndex(history: Content[], scope: UndoScope): number {
+    const assistantStart = this.getAssistantResponseStartIndex(history);
+
+    if (scope === 'last-visible-message') {
+      // 末尾若是 assistant 回复，则删除整段 assistant 回复；否则删除末尾那条普通消息。
+      return assistantStart ?? (history.length - 1);
+    }
+
+    // last-turn：如果末尾是 assistant 回复，则连同其前面的 user 消息一起删；
+    // 如果末尾本身就是 user 消息，则只删这条 user。
+    if (assistantStart != null) {
+      const prevIndex = assistantStart - 1;
+      if (prevIndex >= 0) {
+        const previous = history[prevIndex];
+        if (previous.role === 'user' && !this.isToolResponseContent(previous)) {
+          return prevIndex;
+        }
+      }
+      return assistantStart;
+    }
+
+    return history.length - 1;
+  }
+
+  /** 将一组被撤销的历史压入 redo 栈，并限制最大长度。 */
+  private pushRedoGroup(sessionId: string, removed: Content[]): void {
+    const stack = this.redoHistory.get(sessionId) ?? [];
+    stack.push(removed.map(content => JSON.parse(JSON.stringify(content)) as Content));
+    if (stack.length > MAX_REDO_HISTORY_GROUPS) {
+      stack.splice(0, stack.length - MAX_REDO_HISTORY_GROUPS);
+    }
+    this.redoHistory.set(sessionId, stack);
+  }
+
+  /** 从一组历史中提取用户文本和 assistant 可见文本，供平台层做 UI。 */
+  private summarizeHistoryGroup(group: Content[]): { userText: string; assistantText: string } {
+    const userText = group
+      .find(content => content.role === 'user' && !this.isToolResponseContent(content))
+      ? extractText(group.find(content => content.role === 'user' && !this.isToolResponseContent(content))!.parts)
+      : '';
+
+    for (let i = group.length - 1; i >= 0; i--) {
+      if (group[i].role === 'model') {
+        return { userText, assistantText: extractText(group[i].parts) };
+      }
+    }
+
+    return { userText, assistantText: '' };
   }
 }

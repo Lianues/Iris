@@ -5,11 +5,12 @@ import { gracefulExit } from "../index.js"
 
 interface SummaryProps {
   config: OnboardConfig
+  skippedSteps: Record<"provider" | "apiKey" | "model" | "platform", boolean>
   onConfirm: () => void
   onBack: () => void
 }
 
-export function Summary({ config, onConfirm, onBack }: SummaryProps) {
+export function Summary({ config, skippedSteps, onConfirm, onBack }: SummaryProps) {
   const [confirmed, setConfirmed] = useState(false)
 
   useKeyboard((key) => {
@@ -31,9 +32,34 @@ export function Summary({ config, onConfirm, onBack }: SummaryProps) {
     ? config.apiKey.slice(0, 4) + "••••" + config.apiKey.slice(-4)
     : "••••••••"
 
+  const maskedTelegramToken = config.telegramToken.length > 8
+    ? config.telegramToken.slice(0, 4) + "••••" + config.telegramToken.slice(-4)
+    : config.telegramToken.length > 0 ? "••••••••" : ""
+
   const maskedSecret = config.wxworkSecret.length > 8
     ? config.wxworkSecret.slice(0, 4) + "••••" + config.wxworkSecret.slice(-4)
     : config.wxworkSecret.length > 0 ? "••••••••" : ""
+
+  const maskedLarkSecret = config.larkAppSecret.length > 8
+    ? config.larkAppSecret.slice(0, 4) + "••••" + config.larkAppSecret.slice(-4)
+    : config.larkAppSecret.length > 0 ? "••••••••" : ""
+
+  const hasSkippedSteps = Object.values(skippedSteps).some(Boolean)
+
+  const renderSkipSuffix = (skipped: boolean, message = "已跳过") => (
+    skipped ? <span fg="#fdcb6e">{`（${message}）`}</span> : null
+  )
+
+  const renderValue = (value: string | number, options?: { skipped?: boolean; emptyText?: string }) => {
+    const text = String(value).trim()
+    if (text.length > 0) {
+      return <span fg="#dfe6e9">{text}</span>
+    }
+    if (options?.skipped) {
+      return <span fg="#fdcb6e">{options.emptyText || "未填写"}</span>
+    }
+    return <span fg="#636e72">未填写</span>
+  }
 
   const platformDisplay = () => {
     switch (config.platform) {
@@ -41,6 +67,10 @@ export function Summary({ config, onConfirm, onBack }: SummaryProps) {
         return `Web (端口 ${config.webPort})`
       case "wxwork":
         return "企业微信 (WXWork)"
+      case "telegram":
+        return "Telegram Bot"
+      case "lark":
+        return "飞书 (Lark)"
       default:
         return "Console (TUI)"
     }
@@ -56,40 +86,76 @@ export function Summary({ config, onConfirm, onBack }: SummaryProps) {
         <text>
           <span fg="#636e72">{"提供商:   "}</span>
           <b><span fg="#dfe6e9">{PROVIDER_LABELS[config.provider] || config.provider}</span></b>
+          {renderSkipSuffix(skippedSteps.provider, "已跳过，沿用默认值")}
         </text>
         <text>
           <span fg="#636e72">{"API Key:  "}</span>
-          <span fg="#dfe6e9">{maskedKey}</span>
+          {config.apiKey.trim().length > 0 ? <span fg="#dfe6e9">{maskedKey}</span> : renderValue("", { skipped: skippedSteps.apiKey, emptyText: "已跳过，待手动填写" })}
         </text>
         <text>
           <span fg="#636e72">{"模型别名: "}</span>
-          <span fg="#dfe6e9">{config.modelName}</span>
+          {renderValue(config.modelName, { skipped: skippedSteps.model, emptyText: "已跳过，沿用默认值" })}
         </text>
         <text>
           <span fg="#636e72">{"模型 ID:  "}</span>
-          <span fg="#dfe6e9">{config.model}</span>
+          {renderValue(config.model, { skipped: skippedSteps.model, emptyText: "已跳过，沿用默认值" })}
         </text>
         <text>
           <span fg="#636e72">{"Base URL: "}</span>
-          <span fg="#dfe6e9">{config.baseUrl}</span>
+          {renderValue(config.baseUrl, { skipped: skippedSteps.apiKey, emptyText: "已跳过，沿用默认值" })}
         </text>
         <text>
           <span fg="#636e72">{"平台:     "}</span>
           <span fg="#dfe6e9">{platformDisplay()}</span>
+          {renderSkipSuffix(skippedSteps.platform, "已跳过，沿用默认值或暂存输入")}
         </text>
+        {config.platform === "web" && (
+          <text>
+            <span fg="#636e72">{"端口:     "}</span>
+            {renderValue(config.webPort)}
+          </text>
+        )}
         {config.platform === "wxwork" && (
           <box flexDirection="column">
             <text>
               <span fg="#636e72">{"Bot ID:   "}</span>
-              <span fg="#dfe6e9">{config.wxworkBotId}</span>
+              {renderValue(config.wxworkBotId, { skipped: skippedSteps.platform, emptyText: "已跳过，待手动填写" })}
             </text>
             <text>
               <span fg="#636e72">{"Secret:   "}</span>
-              <span fg="#dfe6e9">{maskedSecret}</span>
+              {config.wxworkSecret.trim().length > 0 ? <span fg="#dfe6e9">{maskedSecret}</span> : renderValue("", { skipped: skippedSteps.platform, emptyText: "已跳过，待手动填写" })}
+            </text>
+          </box>
+        )}
+        {config.platform === "telegram" && (
+          <box flexDirection="column">
+            <text>
+              <span fg="#636e72">{"Token:    "}</span>
+              {config.telegramToken.trim().length > 0 ? <span fg="#dfe6e9">{maskedTelegramToken}</span> : renderValue("", { skipped: skippedSteps.platform, emptyText: "已跳过，待手动填写" })}
+            </text>
+          </box>
+        )}
+        {config.platform === "lark" && (
+          <box flexDirection="column">
+            <text>
+              <span fg="#636e72">{"App ID:   "}</span>
+              {renderValue(config.larkAppId, { skipped: skippedSteps.platform, emptyText: "已跳过，待手动填写" })}
+            </text>
+            <text>
+              <span fg="#636e72">{"Secret:   "}</span>
+              {config.larkAppSecret.trim().length > 0 ? <span fg="#dfe6e9">{maskedLarkSecret}</span> : renderValue("", { skipped: skippedSteps.platform, emptyText: "已跳过，待手动填写" })}
             </text>
           </box>
         )}
       </box>
+
+      {hasSkippedSteps && !confirmed && (
+        <box flexDirection="column" borderStyle="rounded" borderColor="#fdcb6e" padding={1}>
+          <text fg="#fdcb6e"><b>提示</b></text>
+          <text fg="#dfe6e9">你跳过了部分环节。写入后，相关字段可能使用默认值，或暂时保持为空。</text>
+          <text fg="#636e72">若后续启动失败，可直接编辑 data/configs/*.yaml 补全。</text>
+        </box>
+      )}
 
       {!confirmed ? (
         <text fg="#636e72">Enter / y 确认写入  |  Esc / n 返回修改</text>

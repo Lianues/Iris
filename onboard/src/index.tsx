@@ -2,7 +2,8 @@
  * Iris Onboard — 交互式配置引导工具
  *
  * 用法：iris-onboard <iris-dir>
- *       iris-onboard              (默认 /opt/iris)
+ *       iris-onboard              (默认使用当前工作目录)
+ *       IRIS_DIR=/opt/iris iris-onboard  (通过环境变量指定)
  *
  * 使用 OpenTUI + React 构建 TUI 界面，
  * 通过 bun build --compile 编译成独立二进制。
@@ -34,8 +35,12 @@ export function gracefulExit(code = 0): void {
 }
 
 async function main() {
-  // 从命令行参数获取 Iris 安装目录
-  const irisDir = process.argv[2] || "/opt/iris"
+  // 从命令行参数获取 Iris 安装目录。
+  // 生产部署时由 install 脚本传入（如 iris-onboard /opt/iris）。
+  // 本地开发时若未传参，则使用当前工作目录，避免写入到不存在的 /opt/iris 中。
+  const irisDir = process.argv[2]
+    || (process.env.IRIS_DIR)
+    || process.cwd()
 
   const renderer = await createCliRenderer({
     exitOnCtrlC: true,

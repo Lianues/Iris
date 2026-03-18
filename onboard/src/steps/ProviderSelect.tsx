@@ -12,13 +12,17 @@ const PROVIDERS = [
 
 interface ProviderSelectProps {
   onSelect: (provider: string) => void
+  onSkip: () => void
   onBack: () => void
 }
 
-export function ProviderSelect({ onSelect, onBack }: ProviderSelectProps) {
+export function ProviderSelect({ onSelect, onSkip, onBack }: ProviderSelectProps) {
   const [selectedIndex, setSelectedIndex] = useState(0)
 
   useKeyboard((key) => {
+    if (key.name === "n" && key.ctrl) {
+      onSkip()
+    }
     if (key.name === "up" || key.name === "k") {
       setSelectedIndex((i) => Math.max(0, i - 1))
     }
@@ -41,7 +45,7 @@ export function ProviderSelect({ onSelect, onBack }: ProviderSelectProps) {
       <text fg="#6c5ce7">
         <b>① 选择 LLM 提供商</b>
       </text>
-      <text fg="#636e72">使用 ↑↓ 选择，Enter 确认，Esc 返回</text>
+      <text fg="#636e72">使用 ↑↓ 选择，Enter 确认，Ctrl+N 跳过此环节，Esc 返回</text>
 
       <box flexDirection="column" gap={0}>
         {PROVIDERS.map((p, i) => {

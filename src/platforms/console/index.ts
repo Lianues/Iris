@@ -10,7 +10,7 @@ import { createRoot } from '@opentui/react';
 import { PlatformAdapter } from '../base';
 import { Backend } from '../../core/backend';
 import { SessionMeta } from '../../storage/base';
-import { Content, Part, ToolInvocation, ToolStatus, UsageMetadata, isFunctionResponsePart } from '../../types';
+import { Content, Part, ToolInvocation, ToolStatus, UsageMetadata } from '../../types';
 import { setGlobalLogLevel, LogLevel } from '../../logger/index';
 import type { MCPManager } from '../../mcp';
 import { App, AppHandle, MessageMeta } from './App';
@@ -105,11 +105,8 @@ export class ConsolePlatform extends PlatformAdapter {
   /** 当前响应周期内的工具调用 ID 集合 */
   private currentToolIds = new Set<string>();
 
-  /** redo 用的 Content 组栈（每个元素是一次 undo 移除的一组 Content） */
-  private redoContentStack: Content[][] = [];
-
-  /** 串行化 undo/redo 持久化操作，防止并发写入 */
-  private historyMutationQueue: Promise<void> = Promise.resolve();
+  /** 串行化 undo/redo 持久化操作，防止并发写入。 */
+  private historyMutationQueue: Promise<unknown> = Promise.resolve();
 
   constructor(backend: Backend, options: ConsolePlatformOptions) {
     super();
@@ -131,11 +128,12 @@ export class ConsolePlatform extends PlatformAdapter {
    * 将一个异步操作排入持久化队列，保证串行执行。
    * 前一个操作失败不会阻塞后续操作。
    */
-  private enqueueHistoryMutation(task: () => Promise<void>): Promise<void> {
+  private enqueueHistoryMutation<T>(task: () => Promise<T>): Promise<T> {
     const next = this.historyMutationQueue.then(task, task);
-    this.historyMutationQueue = next;
+    this.historyMutationQueue = next.then(() => undefined, () => undefined);
     return next;
   }
+
 
   override async start(): Promise<void> {
     setGlobalLogLevel(LogLevel.SILENT);
@@ -220,52 +218,30 @@ export class ConsolePlatform extends PlatformAdapter {
           resolve();
         },
         onSubmit: (text: string) => this.handleInput(text),
-        onUndo: (removedRole: string) => {
-          // 串行化：排入持久化队列，保证多次 undo 不会并发写入
-          this.enqueueHistoryMutation(async () => {
-            const history = await this.backend.getHistory(this.sessionId);
-            if (history.length === 0) return;
-
-            let removeCount = 0;
-            if (removedRole === 'assistant') {
-              // assistant 消息在后端对应多条 Content（model + user/functionResponse 工具循环）
-              // 从末尾向前扫描，移除所有 role=model 和 role=user（仅含 functionResponse）的条目
-              for (let i = history.length - 1; i >= 0; i--) {
-                const entry = history[i];
-                if (entry.role === 'model') {
-                  removeCount++;
-                } else if (entry.role === 'user' && entry.parts.every(p => isFunctionResponsePart(p))) {
-                  removeCount++;
-                } else {
-                  break;
-                }
-              }
-              if (removeCount === 0) removeCount = 1; // fallback
-            } else {
-              removeCount = 1;
-            }
-
-            const removedGroup = history.slice(history.length - removeCount);
-            this.redoContentStack.push(removedGroup);
-            if (this.redoContentStack.length > 200) {
-              this.redoContentStack.splice(0, this.redoContentStack.length - 200);
-            }
-            await this.backend.truncateHistory(this.sessionId, history.length - removeCount);
-          }).catch(err => console.warn('[ConsolePlatform] onUndo 持久化失败:', err));
+        onUndo: async () => {
+          try {
+            const result = await this.enqueueHistoryMutation(async () => {
+              return await this.backend.undo(this.sessionId, 'last-visible-message');
+            });
+            return Boolean(result);
+          } catch (err) {
+            console.warn('[ConsolePlatform] onUndo 持久化失败:', err);
+            return false;
+          }
         },
-        onRedo: (_restoredRole: string) => {
-          // 串行化：排入持久化队列
-          this.enqueueHistoryMutation(async () => {
-            const group = this.redoContentStack.pop();
-            if (group) {
-              for (const content of group) {
-                await this.backend.addMessage(this.sessionId, content);
-              }
-            }
-          }).catch(err => console.warn('[ConsolePlatform] onRedo 持久化失败:', err));
+        onRedo: async () => {
+          try {
+            const result = await this.enqueueHistoryMutation(async () => {
+              return await this.backend.redo(this.sessionId);
+            });
+            return Boolean(result);
+          } catch (err) {
+            console.warn('[ConsolePlatform] onRedo 持久化失败:', err);
+            return false;
+          }
         },
         onClearRedoStack: () => {
-          this.redoContentStack.length = 0;
+          this.backend.clearRedo(this.sessionId);
         },
         onToolApproval: (toolId: string, approved: boolean) => {
           this.backend.approveTool(toolId, approved);

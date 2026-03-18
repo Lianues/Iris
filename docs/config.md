@@ -18,7 +18,7 @@ Iris 实际读取的是 `data/configs/`，不是单文件 `config.yaml`。
 |---|---|---|
 | `llm.yaml` | 是 | LLM 模型池配置 |
 | `ocr.yaml` | 否 | OCR 回退模型配置 |
-| `platform.yaml` | 是 | 平台配置（console / discord / telegram / web） |
+| `platform.yaml` | 是 | 平台配置（console / discord / telegram / web / wxwork / lark） |
 | `storage.yaml` | 是 | 存储配置 |
 | `tools.yaml` | 否 | 工具执行配置 |
 | `system.yaml` | 是 | 系统行为配置 |

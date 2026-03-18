@@ -1,6 +1,6 @@
 # 平台配置
 
-# 类型: console | discord | telegram | web | wxwork
+# 类型: console | discord | telegram | web | wxwork | lark
 # 支持单平台或多平台同时启动：
 #   type: console            # 单平台
 #   type: [console, web]     # 多平台同时启动
@@ -11,6 +11,10 @@ discord:
 
 telegram:
   token: your-telegram-bot-token
+  # 是否在流式回复中展示工具执行状态（默认 true）
+  # showToolStatus: false
+  # 群聊中是否要求 @机器人 后才响应（默认 true）
+  # groupMentionRequired: true
 
 web:
   port: 8192
@@ -30,3 +34,16 @@ wxwork:
   secret: your-bot-secret
   # 是否在流式回复中展示工具执行状态（默认 true）
   # showToolStatus: false
+
+lark:
+  # 飞书自建应用 App ID 和 App Secret
+  # 在飞书开放平台创建自建应用，开启「机器人」能力后获取
+  # 文档: https://open.feishu.cn/document/home/develop-a-bot-in-5-minutes
+  appId: your-app-id
+  appSecret: your-app-secret
+  # 是否在流式回复中展示工具执行状态（默认 true）
+  # showToolStatus: false
+  # 可选：Webhook 模式用的验证 token（WebSocket 模式不需要）
+  # verificationToken: your-verification-token
+  # 可选：Webhook 模式用的加密 key（WebSocket 模式不需要）
+  # encryptKey: your-encrypt-key

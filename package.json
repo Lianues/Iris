@@ -19,6 +19,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.59.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@wecom/aibot-node-sdk": "^1.0.2",
     "better-sqlite3": "^12.6.2",

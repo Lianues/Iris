@@ -177,7 +177,13 @@ async function main() {
       }
       case 'telegram': {
         const { TelegramPlatform } = await import('./platforms/telegram');
-        platforms.push(new TelegramPlatform(backend, { token: config.platform.telegram.token }));
+        platforms.push(new TelegramPlatform(backend, {
+          token: config.platform.telegram.token,
+          // 这里显式透传 Telegram 的平台策略。
+          // 目的：让平台层后续分阶段演进时，不需要再回头修改主入口的参数结构。
+          showToolStatus: config.platform.telegram.showToolStatus,
+          groupMentionRequired: config.platform.telegram.groupMentionRequired,
+        }));
         break;
       }
       case 'web': {
@@ -203,6 +209,15 @@ async function main() {
           botId: config.platform.wxwork.botId,
           secret: config.platform.wxwork.secret,
           showToolStatus: config.platform.wxwork.showToolStatus,
+        }));
+        break;
+      }
+      case 'lark': {
+        const { LarkPlatform } = await import('./platforms/lark');
+        platforms.push(new LarkPlatform(backend, {
+          appId: config.platform.lark.appId,
+          appSecret: config.platform.lark.appSecret,
+          showToolStatus: config.platform.lark.showToolStatus,
         }));
         break;
       }

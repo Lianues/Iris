@@ -13,12 +13,13 @@ interface ModelConfigProps {
   apiKey: string
   baseUrl: string
   onSubmit: (config: { model: string; modelName: string }) => void
+  onSkip: () => void
   onBack: () => void
 }
 
 type Field = "modelName" | "model"
 
-export function ModelConfig({ provider, apiKey, baseUrl, onSubmit, onBack }: ModelConfigProps) {
+export function ModelConfig({ provider, apiKey, baseUrl, onSubmit, onSkip, onBack }: ModelConfigProps) {
   const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.gemini
 
   const [modelState, modelActions] = useTextInput("")
@@ -105,6 +106,11 @@ export function ModelConfig({ provider, apiKey, baseUrl, onSubmit, onBack }: Mod
       if (finalModel) {
         onSubmit({ model: finalModel, modelName: finalName })
       }
+      return
+    }
+
+    if (key.name === "n" && key.ctrl) {
+      onSkip()
       return
     }
 
@@ -227,7 +233,7 @@ export function ModelConfig({ provider, apiKey, baseUrl, onSubmit, onBack }: Mod
         </box>
       </box>
 
-      <text fg="#636e72">↑↓ 选择模型  |  Enter 补全/确认  |  Tab 切换字段  |  Esc 返回</text>
+      <text fg="#636e72">↑↓ 选择模型  |  Enter 补全/确认  |  Tab 切换字段  |  Ctrl+N 跳过此环节  |  Esc 返回</text>
     </box>
   )
 }

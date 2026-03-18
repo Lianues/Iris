@@ -35,9 +35,18 @@ export interface LLMRegistryConfig {
 
 export interface PlatformConfig {
   /** 启动的平台类型列表（兼容单字符串和数组写法） */
-  types: Array<'console' | 'discord' | 'telegram' | 'web' | 'wxwork'>;
+  types: Array<'console' | 'discord' | 'telegram' | 'web' | 'wxwork' | 'lark'>;
   discord: { token: string };
-  telegram: { token: string };
+  telegram: {
+    token: string;
+    /**
+     * 是否在 Telegram 输出中展示工具状态。
+     * 目的：为后续与飞书对齐的流式 / 审批 / MCP 状态展示预留统一开关。
+     */
+    showToolStatus?: boolean;
+    /** 群聊中是否必须显式 @ 机器人后才响应，默认 true。 */
+    groupMentionRequired?: boolean;
+  };
   web: {
     port: number;
     host: string;
@@ -50,6 +59,21 @@ export interface PlatformConfig {
     botId: string;
     secret: string;
     /** 是否在流式回复中展示工具执行状态（默认 true） */
+    showToolStatus?: boolean;
+  };
+  lark: {
+    /**
+     * 飞书自建应用 App ID。
+     * 目的：后续 Phase 1 会用它初始化官方 SDK 的 API Client 和 WebSocket Client。
+     */
+    appId: string;
+    /** 飞书自建应用 App Secret，用于调用 OpenAPI 和建立长连接。 */
+    appSecret: string;
+    /** 可选：Webhook 模式验签 token；当前预留字段，便于后续扩展。 */
+    verificationToken?: string;
+    /** 可选：Webhook 模式消息解密 key；当前预留字段，便于后续扩展。 */
+    encryptKey?: string;
+    /** 是否在流式回复中展示工具执行状态（默认 true）。 */
     showToolStatus?: boolean;
   };
 }

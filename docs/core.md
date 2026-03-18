@@ -79,6 +79,14 @@ new Backend(
 | `listSessionMetas` | `() => Promise<SessionMeta[]>` | 列出所有会话元数据（按更新时间降序） |
 | `listSessions` | `() => Promise<string[]>` | 列出所有会话 ID |
 | `truncateHistory` | `(sessionId: string, keepCount: number) => Promise<void>` | 截断历史，只保留前 N 条 |
+| `undo` | `(sessionId: string, scope?: 'last-turn' \| 'last-visible-message') => Promise<UndoOperationResult \| null>` | 撤销最后一轮对话或最后一条可见消息，结果存入 per-session 的 redo 栈 |
+| `redo` | `(sessionId: string) => Promise<RedoOperationResult \| null>` | 从 redo 栈恢复上一轮撤销的精确消息组 |
+| `clearRedo` | `(sessionId: string) => void` | 清空指定会话的 redo 栈 |
+
+> **注意**：
+> 1. `undo()` 和 `redo()` 的执行会完全在 Backend 内操作会话历史，平台层只需要消费返回的 `userText` 和 `assistantText` 做 UI 上的标记或重发。
+> 2. `redo()` 是精确恢复（直接写回上次撤销的历史 Content 组），不会再重新触发大模型推理。
+> 3. `chat()` 只要有新的用户消息写入，Backend 就会自动调用 `clearRedo()` 以废除过期的 redo 记录，保证分叉逻辑正确。
 
 ### 工作目录
 

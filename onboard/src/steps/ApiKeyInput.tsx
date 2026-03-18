@@ -10,12 +10,13 @@ import { gracefulExit } from "../index.js"
 interface ApiKeyInputProps {
   provider: string
   onSubmit: (apiKey: string, baseUrl: string) => void
+  onSkip: () => void
   onBack: () => void
 }
 
 type Field = "apiKey" | "baseUrl"
 
-export function ApiKeyInput({ provider, onSubmit, onBack }: ApiKeyInputProps) {
+export function ApiKeyInput({ provider, onSubmit, onSkip, onBack }: ApiKeyInputProps) {
   const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.gemini
   const [apiKeyState, apiKeyActions] = useTextInput("")
   const [baseUrlState, baseUrlActions] = useTextInput(defaults.baseUrl)
@@ -49,6 +50,11 @@ export function ApiKeyInput({ provider, onSubmit, onBack }: ApiKeyInputProps) {
       if (apiKeyState.value.trim().length > 0 && baseUrlState.value.trim().length > 0) {
         onSubmit(apiKeyState.value.trim(), baseUrlState.value.trim())
       }
+      return
+    }
+
+    if (key.name === "n" && key.ctrl) {
+      onSkip()
       return
     }
 
@@ -126,7 +132,7 @@ export function ApiKeyInput({ provider, onSubmit, onBack }: ApiKeyInputProps) {
         })}
       </box>
 
-      <text fg="#636e72">↑↓ 切换字段  |  Ctrl+H 显示/隐藏 Key  |  Enter 确认  |  Esc 返回</text>
+      <text fg="#636e72">↑↓ 切换字段  |  Ctrl+H 显示/隐藏 Key  |  Enter 确认  |  Ctrl+N 跳过此环节  |  Esc 返回</text>
     </box>
   )
 }

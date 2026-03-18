@@ -25,6 +25,7 @@ Backend 不知道具体平台存在。
 src/platforms/
 ├── base.ts              # PlatformAdapter 抽象基类
 ├── console/             # 控制台 TUI（OpenTUI / React）
+├── lark/                # 飞书机器人（WebSocket 长连接）
 ├── wxwork/              # 企业微信智能机器人
 ├── discord/             # Discord Bot
 ├── telegram/            # Telegram Bot
@@ -92,8 +93,9 @@ documents: Array<{ fileName: string; mimeType: string; data: string }>
 | sessionId | 启动时生成时间戳 ID，如 `20250715_143052_a7x2` |
 | 流式支持 | 支持 |
 | 工具状态 | 通过 `tool:update` 事件实时显示 |
-| 指令 | `/new`、`/load`、`/sh <命令>`、`/exit` 等 |
+| 指令 | `/new`、`/load`、`/sh <命令>`、`/undo`、`/redo`、`/exit` 等 |
 | 图片输入 | 当前未实现终端内图片上传 |
+| 撤销/重做 | 调用 Backend `undo('last-visible-message')` 与 `redo()` |
 
 ### WXWork（企业微信）
 
@@ -138,15 +140,61 @@ documents: Array<{ fileName: string; mimeType: string; data: string }>
 
 ### Telegram
 
-基于 grammY 官方 SDK。
+基于 grammY 官方 SDK，支持流式输出、多媒体输入、并发控制。
 
 | 项目 | 说明 |
 |------|------|
-| 构造参数 | `(backend, { token })` |
-| sessionId | `telegram-{chatId}` |
-| 流式支持 | 不支持，仅监听 `response` |
-| 消息限制 | 自动分段，每段最多 4096 字符 |
-| 图片输入 | 当前未接入 |
+| 构造参数 | `(backend, { token, showToolStatus?, groupMentionRequired? })` |
+| sessionId | 私聊：`telegram-dm-{chatId}`；群聊：`telegram-group-{chatId}`；话题：`telegram-group-{chatId}-thread-{threadId}` |
+| 流式支持 | 支持，通过 `sendMessage` + `editMessageText` 实现实时流式编辑，1500ms 节流 |
+| 工具状态 | 通过 `tool:update` 事件实时展示工具执行进度 |
+| 并发控制 | 每个 chatKey 同一时间只处理一条消息（busy 锁） |
+| 消息缓冲 | AI 输出期间用户新消息暂存到缓冲区，完成后自动合并发送 |
+| 工具审批 | 自动批准所有工具调用 |
+| 图片输入 | 支持图片/文件/语音消息解析并传入 Backend |
+| 消息去重 | 跳过重复 update，丢弃 30s 前的过期消息 |
+| 撤销重做 | 接入 Backend undo('last-turn') 与 redo()，精准恢复，无孤立 functionCall 风险 |
+
+#### Telegram Slash 指令
+
+| 指令 | 说明 |
+|------|------|
+| `/new` | 新建对话（清空上下文） |
+| `/clear` | 清空当前对话历史 |
+| `/model` | 查看或切换模型 |
+| `/session` | 查看或切换历史会话 |
+| `/stop` | 中止当前 AI 回复 |
+| `/flush` | 中止当前回复并立即处理缓冲消息 |
+| `/undo` | 撤销上一轮对话 |
+| `/redo` | 恢复撤销的对话 |
+| `/help` | 显示帮助 |
+
+### Lark（飞书）
+
+基于飞书官方 `@larksuiteoapi/node-sdk`，使用 WebSocket 长连接模式。流式输出通过卡片消息 + `im.message.patch` 实现（非 CardKit 2.0，技术选型详见 `card-builder.ts` 文件头注释）。
+
+| 项目 | 说明 |
+|------|------|
+| 构造参数 | `(backend, { appId, appSecret, showToolStatus?, verificationToken?, encryptKey? })` |
+| sessionId | 私聊：`lark-dm-{userOpenId}`；群聊：`lark-group-{chatId}`；话题：`lark-group-{chatId}-thread-{threadId}` |
+| 流式支持 | 支持，通过 sendCard + patchCard 实现卡片实时更新，1000ms 节流 |
+| 工具状态 | 通过 `tool:update` 事件实时展示工具执行进度 |
+| 并发控制 | 每个 chatKey 同一时间只处理一条消息（busy 锁） |
+| 消息缓冲 | AI 输出期到缓冲区，完成后自动合并发送 |
+| 工具审批 | 自动批准所有工具调用（飞书支持卡片按钮回调，Phase 4 可升级为交互审批） |
+| 图片输入 | 支持图片/文件/音频消息解析并传入 Backend |
+| 消息去重 | 跳过重复消息，丢弃 30s 前的过期消息 |
+| 撤销/重做 | 接入 Backend `undo('last-turn')` 与 `redo()`，精准恢复，无孤立 functionCall 风险 |
+
+#### 飞书 Slash 指令
+
+与 Telegram 一致（`/new` `/clear` `/model` `/session` `/stop` `/flush` `/undo` `/redo` `/help`）。
+
+#### 配置
+
+在 `data/configs/platform.yaml` 中设置 `type: lark`（或加入多平台数组），并填写 `lark.appId` 和 `lark.appSecret`。
+
+在飞书开放平台创建自建应用，开启「机器人」能力，配置事件订阅（WebSocket 模式不需要公网 IP）。
 
 ### Web
 

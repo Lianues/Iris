@@ -1,10 +1,10 @@
 # Iris
 
-一个面向多平台的智能代理程序。支持 Console、Web、Discord、Telegram、企业微信等平台，支持工具调用、会话存储、图片输入、OCR 回退、MCP 和记忆能力。
+一个面向多平台的智能代理程序。支持 Console、Web、Discord、Telegram、企业微信、飞书等平台，支持工具调用、会话存储、图片输入、OCR 回退、MCP 和记忆能力。
 
 ## 特性
 
-- 多平台：Console / Web / Discord / Telegram / 企业微信（WXWork）
+- 多平台：Console / Web / Discord / Telegram / 企业微信（WXWork）/ 飞书（Lark）
 - 多模型提供商：Gemini / OpenAI 兼容 / OpenAI Responses / Claude
 - 模型池：通过 `llm.models.<modelName>` 管理多个模型，运行时可切换
 - 工具系统：内置文件、命令、计划、搜索、记忆、子代理等工具
@@ -106,7 +106,7 @@ iris onboard
 2. **选择 LLM 提供商** — Gemini / OpenAI / Claude
 3. **输入 API Key** — 带遮罩的密码输入
 4. **模型配置** — 模型别名、模型 ID、Base URL（提供默认值）
-5. **选择平台** — Console / Web / 企业微信
+5. **选择平台** — Console / Web / Telegram / 企业微信 / 飞书
 6. **确认写入** — 预览配置并写入 `data/configs/*.yaml`
 
 ## 配置文件
@@ -157,6 +157,11 @@ discord:
 
 telegram:
   token: your-telegram-bot-token
+
+lark:
+  appId: your-app-id
+  appSecret: your-app-secret
+  # showToolStatus: false
 ```
 
 ### `data/configs/mcp.yaml`（可选）
@@ -222,6 +227,38 @@ model: gpt-4o-mini
 | `/session <n>` | 切换到第 n 个会话 |
 | `/stop` | 中止当前 AI 回复 |
 | `/flush` | 中止当前回复并立即处理缓冲消息 |
+| `/help` | 显示帮助 |
+
+### 飞书
+
+| 命令 | 说明 |
+|------|------|
+| `/new` | 新建对话（清空上下文） |
+| `/clear` | 清空当前对话历史 |
+| `/model` | 查看可用模型 |
+| `/model <name>` | 切换模型 |
+| `/session` | 查看历史会话 |
+| `/session <n>` | 切换到第 n 个会话 |
+| `/stop` | 中止当前 AI 回复 |
+| `/flush` | 中止当前回复并立即处理缓冲消息 |
+| `/undo` | 撤销上一轮对话 |
+| `/redo` | 恢复撤销的对话 |
+| `/help` | 显示帮助 |
+
+### Telegram
+
+| 命令 | 说明 |
+|------|------|
+| `/new` | 新建对话（清空上下文） |
+| `/clear` | 清空当前对话历史 |
+| `/model` | 查看可用模型 |
+| `/model <name>` | 切换模型 |
+| `/session` | 查看历史会话 |
+| `/session <n>` | 切换到第 n 个会话 |
+| `/stop` | 中止当前 AI 回复 |
+| `/flush` | 中止当前回复并立即处理缓冲消息 |
+| `/undo` | 撤销上一轮对话 |
+| `/redo` | 恢复撤销的对话 |
 | `/help` | 显示帮助 |
 
 ## 文档

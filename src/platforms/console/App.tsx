@@ -104,8 +104,8 @@ interface SwitchModelResult { ok: boolean; message: string; modelId?: string; mo
 interface AppProps {
   onReady: (handle: AppHandle) => void;
   onSubmit: (text: string) => void;
-  onUndo: (removedRole: string) => void;
-  onRedo: (restoredRole: string) => void;
+  onUndo: () => Promise<boolean>;
+  onRedo: () => Promise<boolean>;
   onClearRedoStack: () => void;
   onToolApproval: (toolId: string, approved: boolean) => void;
   onToolApply: (toolId: string, applied: boolean) => void;
@@ -324,25 +324,25 @@ export function App({ onReady, onSubmit, onUndo, onRedo, onClearRedoStack, onToo
     if (text === '/exit') { onExit(); return; }
     if (text === '/new') { clearRedo(undoRedoRef.current); onClearRedoStack(); setMessages([]); toolInvocationsRef.current = []; onNewSession(); return; }
     if (text === '/undo') {
-      let removedRole: string | null = null;
-      setMessages((prev) => {
-        const result = performUndo(prev, undoRedoRef.current);
-        if (!result) return prev;
-        removedRole = result.removed.role;
-        return result.messages;
-      });
-      if (removedRole) onUndo(removedRole);
+      void onUndo().then((ok) => {
+        if (!ok) return;
+        setMessages((prev) => {
+          const result = performUndo(prev, undoRedoRef.current);
+          if (!result) return prev;
+          return result.messages;
+        });
+      }).catch(() => {});
       return;
     }
     if (text === '/redo') {
-      let restoredRole: string | null = null;
-      setMessages((prev) => {
-        const result = performRedo(prev, undoRedoRef.current);
-        if (!result) return prev;
-        restoredRole = result.restored.role;
-        return result.messages;
-      });
-      if (restoredRole) onRedo(restoredRole);
+      void onRedo().then((ok) => {
+        if (!ok) return;
+        setMessages((prev) => {
+          const result = performRedo(prev, undoRedoRef.current);
+          if (!result) return prev;
+          return result.messages;
+        });
+      }).catch(() => {});
       return;
     }
     if (text === '/load') { onListSessions().then(metas => { setSessionList(metas); setSelectedIndex(0); setViewMode('session-list'); }); return; }
