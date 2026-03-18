@@ -1,10 +1,11 @@
 /**
  * 配置模块统一入口
  *
- * 从 data/configs/ 目录加载分文件配置。
+ * 从 ~/.iris/configs/ 目录加载分文件配置。
+ * 向后兼容 data/configs/（旧项目布局）。
  *
- * data/configs/ 目录结构：
- *   llm.yaml      - LLM 配置
+ * 配置文件：
+ *   llm.yaml        - LLM 配置
  *   ocr.yaml      - OCR 配置（可选）
  *   platform.yaml - 平台配置
  *   storage.yaml  - 存储配置
@@ -18,6 +19,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { configDir as globalConfigDir, projectRoot } from '../paths';
 import { AppConfig } from './types';
 import { parseLLMConfig } from './llm';
 import { parseOCRConfig } from './ocr';
@@ -49,21 +51,36 @@ export type {
 } from './types';
 export type { OCRConfig } from './ocr';
 
-/** 配置目录 */
-const CONFIGS_DIR = 'data/configs';
-
 /**
- * 返回配置目录的绝对路径。
+ * 返回配置目录的绝对路径。查找顺序：
+ *   1. ~/.iris/configs/（或 IRIS_DATA_DIR/configs/）
+ *   2. ./data/configs/（向后兼容旧项目布局）
+ *   3. 自动从项目的 data/configs.example/ 初始化到全局目录
  */
 export function findConfigFile(): string {
-  const configsDir = path.resolve(process.cwd(), CONFIGS_DIR);
-  if (fs.existsSync(configsDir) && fs.statSync(configsDir).isDirectory()) {
-    return configsDir;
+  // 1. 全局数据目录（首选）
+  if (fs.existsSync(globalConfigDir) && fs.statSync(globalConfigDir).isDirectory()) {
+    return globalConfigDir;
+  }
+
+  // 2. 向后兼容：项目目录下的 data/configs/
+  const legacyDir = path.resolve(process.cwd(), 'data/configs');
+  if (fs.existsSync(legacyDir) && fs.statSync(legacyDir).isDirectory()) {
+    return legacyDir;
+  }
+
+  // 3. 首次运行：从项目模板自动初始化
+  const exampleDir = path.join(projectRoot, 'data/configs.example');
+  if (fs.existsSync(exampleDir) && fs.statSync(exampleDir).isDirectory()) {
+    fs.cpSync(exampleDir, globalConfigDir, { recursive: true });
+    console.log(`[Iris] 已初始化配置目录: ${globalConfigDir}`);
+    console.log('[Iris] 请编辑配置文件（至少填写 LLM API Key）后重新启动。');
+    return globalConfigDir;
   }
 
   throw new Error(
-    `未找到配置目录 ${CONFIGS_DIR}/。`
-    + '请复制 data/configs.example/ 为 data/configs/ 并填入实际值。',
+    `未找到配置目录。请将配置文件放置到 ${globalConfigDir}/ 目录。\n`
+    + '可从项目的 data/configs.example/ 复制模板。',
   );
 }
 

@@ -3,11 +3,12 @@
  */
 
 import { StorageConfig } from './types';
+import { sessionsDir, sessionDbPath } from '../paths';
 
 export function parseStorageConfig(raw: any = {}): StorageConfig {
   return {
     type: (raw.type ?? 'json-file') as StorageConfig['type'],
-    dir: raw.dir ?? './data/sessions',
-    dbPath: raw.dbPath,
+    dir: raw.dir ?? sessionsDir,
+    dbPath: raw.dbPath ?? sessionDbPath,
   };
 }

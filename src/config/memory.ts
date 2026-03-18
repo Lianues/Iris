@@ -3,11 +3,12 @@
  */
 
 import { MemoryConfig } from './types';
+import { memoryDbPath } from '../paths';
 
 export function parseMemoryConfig(raw: any): MemoryConfig {
   if (!raw) return { enabled: false };
   return {
     enabled: raw.enabled ?? false,
-    dbPath: raw.dbPath,
+    dbPath: raw.dbPath ?? memoryDbPath,
   };
 }

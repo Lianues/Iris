@@ -3,5 +3,5 @@
 # 是否启用记忆
 enabled: false
 
-# 数据库路径
-# dbPath: ./data/memory.db
+# 数据库路径（默认 ~/.iris/memory.db）
+# dbPath: ~/.iris/memory.db

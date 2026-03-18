@@ -12,20 +12,22 @@ import Database from 'better-sqlite3';
 import { MemoryProvider } from '../base';
 import { MemoryEntry } from '../types';
 import { createLogger } from '../../logger';
+import { memoryDbPath } from '../../paths';
 
 const logger = createLogger('Memory');
 
 export class SqliteMemory extends MemoryProvider {
   private db: Database.Database;
 
-  constructor(dbPath: string = './data/memory.db') {
+  constructor(dbPath: string = memoryDbPath) {
     super();
 
     // 确保父目录存在
-    const dir = path.dirname(dbPath);
+    const resolved = path.resolve(dbPath);
+    const dir = path.dirname(resolved);
     fs.mkdirSync(dir, { recursive: true });
 
-    this.db = new Database(dbPath);
+    this.db = new Database(resolved);
 
     // 开启 WAL 模式
     this.db.pragma('journal_mode = WAL');

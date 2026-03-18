@@ -10,17 +10,19 @@ import * as path from 'path';
 import Database from 'better-sqlite3';
 import { StorageProvider, SessionMeta } from '../base';
 import { Content } from '../../types';
+import { sessionDbPath } from '../../paths';
 
 export class SqliteStorage extends StorageProvider {
   private db: Database.Database;
 
-  constructor(dbPath: string = './data/iris.db') {
+  constructor(dbPath: string = sessionDbPath) {
     super();
 
-    const dir = path.dirname(dbPath);
+    const resolved = path.resolve(dbPath);
+    const dir = path.dirname(resolved);
    fs.mkdirSync(dir, { recursive: true });
 
-    this.db = new Database(dbPath);
+    this.db = new Database(resolved);
     this.db.pragma('journal_mode = WAL');
 
     this.db.exec(`

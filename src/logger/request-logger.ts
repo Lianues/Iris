@@ -1,14 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
-
-const LOG_DIR = path.resolve(process.cwd(), 'logs');
+import { logsDir } from '../paths';
 
 /**
  * 确保日志目录存在
  */
 function ensureLogDir() {
-  if (!fs.existsSync(LOG_DIR)) {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
+  if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
   }
 }
 
@@ -27,7 +26,7 @@ export async function logRequest(details: {
     const now = new Date();
     const timestamp = now.toISOString().replace(/[:.]/g, '-');
     const filename = `request_${timestamp}.json`;
-    const filePath = path.join(LOG_DIR, filename);
+    const filePath = path.join(logsDir, filename);
 
     const content = JSON.stringify(details, null, 2);
     fs.writeFileSync(filePath, content, 'utf-8');

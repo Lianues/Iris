@@ -12,15 +12,16 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { StorageProvider, SessionMeta } from '../base';
 import { Content } from '../../types';
+import { sessionsDir } from '../../paths';
 
 export class JsonFileStorage extends StorageProvider {
   private dir: string;
   /** per-session 写锁，防止并发 read-modify-write竞争 */
   private locks = new Map<string, Promise<void>>();
 
-  constructor(dir: string = './data/sessions') {
+  constructor(dir: string = sessionsDir) {
     super();
-    this.dir = dir;
+    this.dir = path.resolve(dir);
   }
 
   // ============ 对话历史 ============

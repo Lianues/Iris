@@ -107,7 +107,7 @@ export interface SystemConfig {
 export interface MemoryConfig {
   /** 是否启用记忆，默认 false */
   enabled: boolean;
-  /** 数据库路径，默认 ./data/memory.db */
+  /** 数据库路径，默认 ~/.iris/memory.db */
   dbPath?: string;
 }
 
