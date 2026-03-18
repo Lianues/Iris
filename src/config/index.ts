@@ -2,7 +2,6 @@
  * 配置模块统一入口
  *
  * 从 ~/.iris/configs/ 目录加载分文件配置。
- * 向后兼容 data/configs/（旧项目布局）。
  *
  * 配置文件：
  *   llm.yaml        - LLM 配置
@@ -54,22 +53,15 @@ export type { OCRConfig } from './ocr';
 /**
  * 返回配置目录的绝对路径。查找顺序：
  *   1. ~/.iris/configs/（或 IRIS_DATA_DIR/configs/）
- *   2. ./data/configs/（向后兼容旧项目布局）
- *   3. 自动从项目的 data/configs.example/ 初始化到全局目录
+ *   2. 自动从项目的 data/configs.example/ 初始化到全局目录
  */
 export function findConfigFile(): string {
-  // 1. 全局数据目录（首选）
+  // 1. 全局数据目录
   if (fs.existsSync(globalConfigDir) && fs.statSync(globalConfigDir).isDirectory()) {
     return globalConfigDir;
   }
 
-  // 2. 向后兼容：项目目录下的 data/configs/
-  const legacyDir = path.resolve(process.cwd(), 'data/configs');
-  if (fs.existsSync(legacyDir) && fs.statSync(legacyDir).isDirectory()) {
-    return legacyDir;
-  }
-
-  // 3. 首次运行：从项目模板自动初始化
+  // 2. 首次运行：从项目模板自动初始化
   const exampleDir = path.join(projectRoot, 'data/configs.example');
   if (fs.existsSync(exampleDir) && fs.statSync(exampleDir).isDirectory()) {
     fs.cpSync(exampleDir, globalConfigDir, { recursive: true });
