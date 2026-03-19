@@ -14,6 +14,34 @@ src/core/
 └── tool-loop.ts     ToolLoop 工具循环（纯计算，无 I/O）
 ```
 
+相关入口文件：
+
+```
+src/
+├── bootstrap.ts     核心初始化（创建 Backend 及所有依赖模块）
+├── index.ts         平台模式入口（bootstrap → 创建平台 → 启动）
+└── cli.ts           CLI 模式入口（bootstrap → backend.chat() → 输出 → 退出）
+```
+
+## bootstrap()
+
+`src/bootstrap.ts` 提供 `bootstrap()` 函数，封装从配置加载到 Backend 创建的全部初始化逻辑。
+
+```typescript
+interface BootstrapResult {
+  backend: Backend;
+  config: AppConfig;
+  configDir: string;
+  router: LLMRouter;
+  tools: ToolRegistry;
+  mcpManager: MCPManager | undefined;
+  setMCPManager: (manager?: MCPManager) => void;
+  getMCPManager: () => MCPManager | undefined;
+}
+```
+
+`index.ts` 和 `cli.ts` 都调用 `bootstrap()` 获取 Backend 实例，再各自执行不同的后续逻辑。
+
 ## 架构位置
 
 ```

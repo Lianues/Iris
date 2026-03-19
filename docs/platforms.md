@@ -23,6 +23,7 @@ Backend 不知道具体平台存在。
 
 ```text
 src/platforms/
+├── (cli.ts)             # CLI headless 模式（非平台适配器，直接调用 Backend）
 ├── base.ts              # PlatformAdapter 抽象基类
 ├── console/             # 控制台 TUI（OpenTUI / React）
 ├── lark/                # 飞书机器人（WebSocket 长连接）
@@ -331,6 +332,72 @@ documents: Array<{ fileName: string; mimeType: string; data: string }>
 | `dispatchMessage(sessionId, message, images?, documents?)` | 调用 `backend.chat()` |
 | `setMCPManager(mgr)` | 注入 MCP 管理器 |
 | `getMCPManager()` | 获取 MCP 管理器 |
+
+---
+
+## CLI 模式（headless）
+
+CLI 模式不是一个平台适配器，而是直接调用 Backend 核心层的 headless 入口。外部传入 prompt，Iris 执行完整的 Agent 循环（LLM + 工具调用），输出结果后退出。
+
+### 用法
+
+```bash
+# 基本用法
+iris -p "分析这个项目的架构"
+npm run cli -- -p "分析这个项目"
+
+# 位置参数
+iris "帮我找出所有 TODO"
+
+# 管道传入
+echo "列出所有导出函数" | iris
+
+# 多轮对话（复用 session）
+iris -p "分析代码" -s my-task
+iris -p "继续优化" -s my-task
+
+# JSON 输出（供程序解析）
+iris -p "列出文件" --output json
+
+# 流式 + 工具过程
+iris -p "重构代码" --stream --print-tools
+```
+
+### 参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-p, --prompt <text>` | 提示词（也可作为位置参数或 stdin） | 必填 |
+| `-s, --session <id>` | 会话 ID，支持多轮对话 | 自动生成 `cli_YYYYMMDD_HHMMSS_xxxx` |
+| `--model <name>` | 覆盖默认模型 | 配置文件中的值 |
+| `--cwd <dir>` | 工具执行的工作目录 | `process.cwd()` |
+| `--stream` / `--no-stream` | 流式输出控制 | 取配置文件 |
+| `--output <format>` | 输出格式：`text`（默认）/ `json` | `text` |
+| `--print-tools` | 工具调用过程输出到 stderr | `false` |
+| `-h, --help` | 显示帮助 | |
+| `-v, --version` | 显示版本 | |
+
+### 设计要点
+
+| 特性 | 说明 |
+|------|------|
+| 会话隔离 | 每次调用独立 sessionId，天然支持多进程并行 |
+| 自动审批 | 强制 `autoApproveAll: true`，headless 模式不卡审批 |
+| 事件驱动 | 监听 Backend 的 `response` / `stream:chunk` / `tool:update` / `done` / `error` 事件 |
+| 退出码 | 成功返回 0，有错误返回 1 |
+| 工具输出分离 | `--print-tools` 的输出走 stderr，不污染 stdout 的正文输出 |
+
+### JSON 输出格式
+
+```json
+{
+  "sessionId": "cli_20260318_143052_a7x2",
+  "response": "AI 的回复文本...",
+  "toolCalls": [{ "name": "read_file", "args": { "path": "src/index.ts" } }],
+  "model": "gemini-2.5-flash",
+  "durationMs": 3200
+}
+```
 
 ---
 

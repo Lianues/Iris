@@ -44,6 +44,8 @@ bun run dev            # 启动（直接使用 Bun 运行时）
 |------|------|
 | `npm run dev` | 开发启动；默认走 Node.js，遇到 console 平台时自动切到 Bun |
 | `bun run dev` | 开发启动；直接走 Bun 运行时 |
+| `npm run cli -- -p "prompt"` | CLI 模式；传入 prompt 执行后退出（Node.js + tsx） |
+| `bun src/cli.ts -p "prompt"` | CLI 模式；Bun 运行时 |
 | `npm run build` | TypeScript 编译（排除 console 目录） |
 | `bun run build:compile` | 编译为独立二进制（见下文） |
 | `npm run build:ui` | 构建 Web UI 前端 |

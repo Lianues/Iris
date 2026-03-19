@@ -13,6 +13,8 @@
     "dev:ui": "cd src/platforms/web/web-ui && npm run dev",
     "start": "tsx script/run.ts",
     "dev": "tsx script/run.ts",
+    "cli": "tsx src/cli.ts",
+    "cli:bun": "bun src/cli.ts",
     "start:bun": "bun script/run.ts",
     "dev:bun": "bun script/run.ts",
     "setup": "npm install --legacy-peer-deps && cd src/platforms/web/web-ui && npm install",

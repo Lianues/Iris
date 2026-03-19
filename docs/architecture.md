@@ -8,6 +8,8 @@
 
 ```
 src/
+├── cli.ts          CLI 入口（headless 模式，外部传 prompt 执行）
+├── bootstrap.ts    核心初始化（创建 Backend 及所有依赖，供 index.ts 和 cli.ts 共享）
 ├── types/          公共类型定义
 ├── core/           Backend 核心服务 + ToolLoop 工具循环
 ├── platforms/      用户交互层：接收输入、展示输出
@@ -27,10 +29,13 @@ src/
 ## 数据流向
 
 ```
-用户输入
+用户输入（两种入口）
+  │                              │
+  ▼                              ▼
+[Platform]                     [CLI]
+  │                              │
+  └──── backend.chat(sid, text) ──┘
   │
-  ▼
-[Platform]  ── backend.chat(sessionId, text, images?, documents?)
   │
   ▼
 [Backend]
@@ -51,7 +56,19 @@ src/
 [Platform]  ── 将回复展示给用户
 ```
 
-## 核心交互模式
+## 入口文件
+
+| 文件 | 作用 | 启动方式 |
+|------|------|----------|
+| `src/bootstrap.ts` | 核心初始化：创建 LLM、存储、工具、MCP、Backend 等全部模块 | 不直接运行，被下面两个入口调用 |
+| `src/index.ts` | 平台模式：`bootstrap()` → 创建平台适配器 → 启动长驻服务 | `npm run dev` / `bun run dev` |
+| `src/cli.ts` | CLI 模式：`bootstrap()` → `backend.chat()` → 输出 → 退出 | `npm run cli -- -p "prompt"` |
+
+`bootstrap()` 返回 `{ backend, config, router, tools, mcpManager, ... }`，两种入口共享同一套初始化逻辑。
+
+---
+
+## 核心交互模式（平台模式）
 
 平台层与 Backend 的交互基于两个机制：
 
@@ -98,6 +115,9 @@ npm run setup    # 安装依赖
 cp -r data/configs.example data/configs
 # 编辑 data/configs/llm.yaml 填入 API Key
 npm run dev      # 开发模式
+
+# CLI 模式（外部调用）
+npm run cli -- -p "分析这个项目"
 ```
 
 ## 文档索引
