@@ -166,8 +166,6 @@ export interface ComputerUseConfig {
   screenWidth?: number;
   /** 屏幕/浏览器视口高度（像素），推荐 900 */
   screenHeight?: number;
-  /** 排除的预定义函数名列表 */
-  excludedFunctions?: string[];
   /** 操作后等待 UI 更新的延迟（毫秒），默认由环境实现自行控制 */
   postActionDelay?: number;
   /** 截图格式，默认 'png' */
@@ -189,11 +187,49 @@ export interface ComputerUseConfig {
    */
   targetWindow?: string;
   /**
+   * screen 环境：是否启用后台操作模式（仅窗口模式下有效）。
+   * 启用后通过 PostMessage + PrintWindow 在后台操作窗口，不需要窗口在前台。
+   * 对原生 Win32 应用（记事本、资源管理器等）兼容性较好，
+   * 对 DirectX / GPU 加速窗口（浏览器、游戏等）可能截到黑屏或不响应操作。
+   * 默认 false。
+   */
+  backgroundMode?: boolean;
+  /**
    * 发送给 LLM 时保留截图的最近轮次数。
    * 超出此数量的旧轮次中，Computer Use 工具结果的截图会被剥离以节省 token。
    * 默认 3，与 Gemini 官方示例一致。设为 0 表示不保留任何截图，设为 Infinity 表示全部保留。
    */
   maxRecentScreenshots?: number;
+  /**
+   * 各环境下的工具策略。
+   * 未配置时使用内置默认策略。配置后覆盖对应环境的默认策略。
+   *
+   * 三个层级（按当前运行环境自动选择一个）：
+   *   - browser：Playwright 浏览器环境
+   *   - screen：桌面全屏 / 窗口前台模式
+   *   - background：桌面窗口后台模式（screen + backgroundMode）
+   */
+  environmentTools?: {
+    browser?: CUToolPolicy;
+    screen?: CUToolPolicy;
+    background?: CUToolPolicy;
+  };
+}
+
+/**
+ * Computer Use 单环境工具策略。
+ * exclude 和 include 互斥，同时配置时 include 优先。
+ */
+export interface CUToolPolicy {
+  /**
+   * 工具白名单：仅启用列出的工具。
+   * 优先于 exclude。
+   */
+  include?: string[];
+  /**
+   * 工具黑名单：排除列出的工具，其余全部启用。
+   */
+  exclude?: string[];
 }
 
 export interface AppConfig {

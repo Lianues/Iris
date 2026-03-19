@@ -2,12 +2,13 @@
  * Computer Use 工具定义
  *
  * 将 Computer 接口包装为 LLM 可调用的 ToolDefinition。
- * 每个 Gemini 预定义函数对应一个工具，走普通 function calling 路径。
+ * 适用于 browser 和 screen 两种执行环境，走普通 function calling 路径。
  *
  * 坐标约定：LLM 输出 0-999 归一化坐标，handler 内部完成反归一化。
  */
 
 import { ToolDefinition } from '../types';
+import type { CUToolPolicy } from '../config/types';
 import type { Computer, EnvState } from './types';
 import { denormalizeX, denormalizeY } from './coordinator';
 
@@ -30,61 +31,108 @@ function toResult(state: EnvState): unknown {
   };
 }
 
-/** Computer Use 预定义函数名集合（与 Gemini 官方一致） */
+/** Computer Use 预定义函数名集合 */
 export const COMPUTER_USE_FUNCTION_NAMES = new Set([
-  'open_web_browser', 'click_at', 'hover_at', 'type_text_at',
+  'get_screenshot', 'click_at', 'hover_at', 'type_text_at',
   'scroll_document', 'scroll_at', 'key_combination', 'navigate',
   'go_back', 'go_forward', 'search', 'wait_5_seconds', 'drag_and_drop',
 ]);
 
 /**
- * 创建全部 Computer Use 工具定义。
+ * 各环境的内置默认工具策略。
+ * 用户未配置 environmentTools 时使用这些默认值。
+ */
+export const DEFAULT_ENVIRONMENT_TOOLS: Record<string, CUToolPolicy> = {
+  /** browser 环境：全部启用 */
+  browser: {},
+
+  /** screen 环境：排除浏览器导航相关工具 */
+  screen: {
+    exclude: ['go_back', 'go_forward', 'search'],
+  },
+
+  /** background 环境（screen + backgroundMode）：排除导航 + 拖拽 */
+  background: {
+    exclude: ['go_back', 'go_forward', 'search', 'drag_and_drop'],
+  },
+};
+
+/**
+ * 根据环境确定策略键名。
+ */
+export function resolveEnvironmentKey(
+  environment: 'browser' | 'screen',
+  backgroundMode?: boolean,
+): string {
+  if (environment === 'screen' && backgroundMode) return 'background';
+  return environment;
+}
+
+/**
+ * 根据工具策略过滤工具列表。
+ * include 优先于 exclude；都不配置则全部保留。
+ */
+function applyToolPolicy(tools: ToolDefinition[], policy: CUToolPolicy): ToolDefinition[] {
+  if (policy.include) {
+    const allowed = new Set(policy.include);
+    return tools.filter(t => allowed.has(t.declaration.name));
+  }
+  if (policy.exclude) {
+    const blocked = new Set(policy.exclude);
+    return tools.filter(t => !blocked.has(t.declaration.name));
+  }
+  return tools;
+}
+
+/**
+ * 创建 Computer Use 工具定义，根据环境策略过滤。
  *
  * @param computer 执行环境实例
- * @param excludedFunctions 需要排除的函数名
+ * @param envKey 环境键名（browser / screen / background）
+ * @param userPolicy 用户配置的工具策略（覆盖内置默认）
  */
 export function createComputerUseTools(
   computer: Computer,
-  excludedFunctions?: string[],
+  envKey: string,
+  userPolicy?: CUToolPolicy,
 ): ToolDefinition[] {
-  const excluded = new Set(excludedFunctions ?? []);
   /** 每次调用实时获取屏幕/窗口尺寸，适应窗口大小变化 */
   const sz = () => computer.screenSize();
 
   const all: ToolDefinition[] = [
-    // ---- 浏览器导航 ----
+    // ---- 截图与导航 ----
     {
       declaration: {
-        name: 'open_web_browser',
-        description: '打开浏览器并返回当前屏幕截图。',
+        name: 'get_screenshot',
+        description: '获取当前屏幕截图。用于查看当前屏幕内容、确认操作结果、或在开始操作前了解当前界面状态。',
       },
       handler: async () => toResult(await computer.openWebBrowser()),
     },
     {
       declaration: {
         name: 'go_back',
-        description: '浏览器后退到上一页。',
+        description: '后退到上一页。在浏览器中触发后退导航，在桌面环境中发送 Alt+Left。',
       },
       handler: async () => toResult(await computer.goBack()),
     },
     {
       declaration: {
         name: 'go_forward',
-        description: '浏览器前进到下一页。',
+        description: '前进到下一页。在浏览器中触发前进导航，在桌面环境中发送 Alt+Right。',
       },
       handler: async () => toResult(await computer.goForward()),
     },
     {
       declaration: {
         name: 'search',
-        description: '导航到搜索引擎首页。在需要从新的搜索开始时使用。',
+        description: '打开搜索引擎首页。在需要从新的搜索开始时使用。',
       },
       handler: async () => toResult(await computer.search()),
     },
     {
       declaration: {
         name: 'navigate',
-        description: '导航到指定 URL。',
+        description: '在浏览器中打开指定 URL。桌面环境下会调用系统默认浏览器。',
         parameters: {
           type: 'object',
           properties: {
@@ -98,7 +146,7 @@ export function createComputerUseTools(
     {
       declaration: {
         name: 'wait_5_seconds',
-        description: '等待 5 秒，让页面完成加载或动画。',
+        description: '等待 5 秒。用于等待内容加载、动画播放或界面更新完成。',
       },
       handler: async () => toResult(await computer.wait5Seconds()),
     },
@@ -128,7 +176,7 @@ export function createComputerUseTools(
     {
       declaration: {
         name: 'hover_at',
-        description: '将鼠标悬停在指定位置。可用于展开悬停子菜单。x 和 y 为 0-999 的归一化坐标。',
+        description: '将鼠标悬停在指定位置。可用于触发悬停菜单或提示信息。x 和 y 为 0-999 的归一化坐标。',
         parameters: {
           type: 'object',
           properties: {
@@ -151,7 +199,7 @@ export function createComputerUseTools(
         name: 'drag_and_drop',
         description: '将元素从起始坐标拖放到目标坐标。所有坐标为 0-999 的归一化值。',
         parameters: {
-          type: 'object',
+        type: 'object',
           properties: {
             x: { type: 'number', description: '起始 X 坐标 (0-999)' },
             y: { type: 'number', description: '起始 Y 坐标 (0-999)' },
@@ -226,7 +274,7 @@ export function createComputerUseTools(
     {
       declaration: {
         name: 'scroll_document',
-        description: '滚动整个页面。direction 可选 "up"、"down"、"left"、"right"。',
+        description: '滚动当前窗口内容。direction 可选 "up"、"down"、"left"、"right"。',
         parameters: {
           type: 'object',
           properties: {
@@ -244,7 +292,7 @@ export function createComputerUseTools(
         name: 'scroll_at',
         description: [
           '在指定位置按方向滚动指定幅度。',
-          '坐标和幅度均为 0-999 的归一化值。默认幅度 800。',
+          '坐标和幅度均为0-999 的归一化值。默认幅度 800。',
         ].join(''),
         parameters: {
           type: 'object',
@@ -275,5 +323,7 @@ export function createComputerUseTools(
     },
   ];
 
-  return all.filter(t => !excluded.has(t.declaration.name));
+  // 用户策略覆盖内置默认；未配置则使用内置默认
+  const policy = userPolicy ?? DEFAULT_ENVIRONMENT_TOOLS[envKey] ?? {};
+  return applyToolPolicy(all, policy);
 }

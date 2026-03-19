@@ -1,6 +1,6 @@
 # Iris
 
-一个面向多平台的智能代理程序。支持 Console、Web、Discord、Telegram、企业微信、飞书等平台，支持工具调用、会话存储、图片输入、OCR 回退、MCP 和记忆能力。
+一个面向多平台的智能代理程序。支持 Console、Web、Discord、Telegram、企业微信、飞书等平台，支持工具调用、会话存储、图片输入、OCR 回退、Computer Use、MCP 和记忆能力。
 
 ## 特性
 

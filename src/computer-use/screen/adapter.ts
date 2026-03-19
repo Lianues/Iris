@@ -60,4 +60,19 @@ export interface ScreenAdapter {
    * 不调用此方法则为全屏模式。
    */
   bindWindow?(windowTitle: string): Promise<void>;
+
+  /**
+   * 启用后台操作模式（仅窗口模式下有效）。
+   *
+   * 后台模式下：
+   *   - 截图通过 PrintWindow 请求窗口自绘，不需要窗口在前台
+   *   - 鼠标和键盘通过 PostMessage 直接向窗口句柄发消息
+   *   - 不调用 SetForegroundWindow / ShowWindow
+   *
+   * 限制：
+   *   - 对 DirectX / OpenGL / GPU 加速窗口可能截到黑屏
+   *   - 部分应用不响应 PostMessage 的输入消息
+   *   - 拖拽操作可能不工作
+   */
+  setBackgroundMode?(enabled: boolean): void;
 }

@@ -23,10 +23,54 @@ environment: browser
 screenWidth: 1440
 screenHeight: 900
 
-# 排除的预定义函数（不注册为工具的操作）
-# 取消注释可禁用特定操作
-# excludedFunctions:
-#   - drag_and_drop
+# ─── 工具策略 ───
+#
+# 按环境配置要启用或排除的工具。
+# 三个环境层级，运行时自动选择匹配的一个：
+#   browser     — Playwright 浏览器环境
+#   screen      — 桌面全屏 / 窗口前台模式
+#   background  — 桌面窗口后台模式（screen + backgroundMode: true）
+#
+# 每个环境支持两种策略（互斥，include 优先）：
+#   include: [工具名]  — 白名单，仅启用列出的工具
+#   exclude: [工具名]  — 黑名单，排除列出的工具，其余全部启用
+#
+# 不配置 environmentTools 时使用内置默认策略：
+#   browser:    全部启用
+#   screen:     排除 go_back, go_forward, search
+#   background: 排除 go_back, go_forward, search, drag_and_drop
+#
+# 配置后覆盖对应环境的默认策略。未配置的环境仍使用默认值。
+#
+# 全部 13 个工具：
+#   get_screenshot, click_at, hover_at, type_text_at,
+#   scroll_document, scroll_at, key_combination, navigate,
+#   go_back, go_forward, search, wait_5_seconds, drag_and_drop
+#
+# ── 示例 ──
+#
+# environmentTools:
+#   # 浏览器环境：排除拖拽
+#   browser:
+#     exclude:
+#       - drag_and_drop
+#
+#   # 桌面环境：只保留基础操作
+#   screen:
+#     exclude:
+#       - go_back
+#       - go_forward
+#       - search
+#
+#   # 后台模式：白名单，只允许点击、输入、截图
+#   background:
+#     include:
+#       - get_screenshot
+#       - click_at
+#       - type_text_at
+#       - scroll_document
+#       - key_combination
+#       - wait_5_seconds
 
 # ─── screen 环境专用 ───
 
@@ -50,6 +94,23 @@ screenHeight: 900
 #
 # 注意：全屏模式下 AI 的操作范围不受限制，请谨慎使用。
 # 建议将 key_combination 等高风险工具设为 autoApprove: false（在 tools.yaml 中配置）。
+
+# 后台操作模式（仅窗口模式下有效）。
+# 启用后不需要目标窗口在前台，AI 可以在后台操作窗口。
+#
+# 实现方式：
+#   截图 → PrintWindow（请求窗口自绘）
+#   鼠标 → PostMessage(WM_LBUTTONDOWN/UP)
+#   键盘 → PostMessage(WM_KEYDOWN/UP) / WM_CHAR
+#
+# 兼容性：
+#   ✓ 原生 Win32 应用（记事本、资源管理器、计算器等）
+#   △ WPF / WinForms 应用（大部分可用）
+#   ✗ GPU 加速窗口（Chrome、Electron 应用、游戏等）可能截到黑屏或不响应操作
+#   ✗ 拖拽操作可能不工作
+#
+# 默认 false（前台模式）。
+# backgroundMode: true
 
 # ─── 浏览器环境专用 ───
 

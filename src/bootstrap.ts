@@ -102,15 +102,17 @@ export async function bootstrap(): Promise<BootstrapResult> {
   // ---- 3.2 注册 Computer Use 工具 ----
   if (config.computerUse?.enabled) {
     try {
-      const { BrowserEnvironment, ScreenEnvironment, createComputerUseTools } = await import('./computer-use');
+      const { BrowserEnvironment, ScreenEnvironment, createComputerUseTools, resolveEnvironmentKey } = await import('./computer-use');
       const env = config.computerUse.environment ?? 'browser';
       let computerEnv: import('./computer-use').Computer;
+      const envKey = resolveEnvironmentKey(env, config.computerUse.backgroundMode);
 
       if (env === 'screen') {
         computerEnv = new ScreenEnvironment({
           initialUrl: config.computerUse.initialUrl,
           searchEngineUrl: config.computerUse.searchEngineUrl,
           targetWindow: config.computerUse.targetWindow,
+          backgroundMode: config.computerUse.backgroundMode,
         });
       } else {
         computerEnv = new BrowserEnvironment({
@@ -124,7 +126,10 @@ export async function bootstrap(): Promise<BootstrapResult> {
       }
 
       await computerEnv.initialize();
-      tools.registerAll(createComputerUseTools(computerEnv, config.computerUse.excludedFunctions));
+
+      // 用户配置的工具策略（按环境键名取对应分组）
+      const userPolicy = config.computerUse.environmentTools?.[envKey as keyof typeof config.computerUse.environmentTools];
+      tools.registerAll(createComputerUseTools(computerEnv, envKey, userPolicy));
     } catch (err) {
       console.error('[Iris] Computer Use 初始化失败:');
       console.error(err);

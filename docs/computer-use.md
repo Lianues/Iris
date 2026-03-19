@@ -170,18 +170,18 @@ LLM 输出的坐标为 **0-999 归一化值**，与屏幕分辨率无关。
 
 | 工具名 | 参数 | 说明 |
 |---|---|---|
-| `open_web_browser` | 无 | 返回当前屏幕截图 |
-| `go_back` | 无 | 浏览器后退 |
-| `go_forward` | 无 | 浏览器前进 |
-| `search` | 无 | 导航到搜索引擎首页 |
-| `navigate` | `url` | 导航到指定 URL |
-| `wait_5_seconds` | 无 | 等待 5 秒 |
+| `get_screenshot` | 无 | 获取当前屏幕截图 |
+| `go_back` | 无 | 后退（浏览器后退 / 桌面 Alt+Left） |
+| `go_forward` | 无 | 前进（浏览器前进 / 桌面 Alt+Right） |
+| `search` | 无 | 打开搜索引擎首页 |
+| `navigate` | `url` | 打开指定 URL（浏览器导航 / 桌面调用系统默认浏览器） |
+| `wait_5_seconds` | 无 | 等待 5 秒（用于等待加载或动画） |
 | `click_at` | `x`, `y` | 点击 |
 | `hover_at` | `x`, `y` | 悬停 |
 | `drag_and_drop` | `x`, `y`, `destination_x`, `destination_y` | 拖放 |
 | `type_text_at` | `x`, `y`, `text`, `press_enter?`, `clear_before_typing?` | 在指定位置输入文本 |
 | `key_combination` | `keys` | 按键组合，如 `"Control+C"` |
-| `scroll_document` | `direction` | 滚动整个页面 |
+| `scroll_document` | `direction` | 滚动当前窗口内容 |
 | `scroll_at` | `x`, `y`, `direction`, `magnitude?` | 在指定位置滚动 |
 
 所有坐标参数均为 0-999 归一化值。每个工具执行后自动截屏，截图通过 `functionResponse.parts`（`InlineDataPart[]`）回传给模型。
@@ -221,10 +221,10 @@ headless: false
 |---|---|---|---|
 | `enabled` | `boolean` | `false` | 是否启用 |
 | `environment` | `browser \| screen` | `browser` | 执行环境 |
-| `excludedFunctions` | `string[]` | — | 排除的预定义函数名 |
 | `initialUrl` | `string` | `https://www.google.com` | 启动时打开的页面 |
 | `searchEngineUrl` | `string` | `https://www.google.com` | search 工具的目标 |
 | `maxRecentScreenshots` | `number` | `3` | 发送给 LLM 时保留截图的最近轮次数 |
+| `environmentTools` | `object` | — | 各环境下的工具策略，见下方说明 |
 
 **browser 环境专用字段：**
 
@@ -240,6 +240,7 @@ headless: false
 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `targetWindow` | `string` | — | 目标窗口标题（子串匹配），设置后进入窗口模式 |
+| `backgroundMode` | `boolean` | `false` | 后台操作模式（仅窗口模式下有效） |
 
 屏幕尺寸自动检测，无需配置 `screenWidth` / `screenHeight`。
 
@@ -247,17 +248,99 @@ headless: false
 
 设置 `targetWindow` 后，screen 环境的行为变化：
 
-| 行为 | 全屏模式 | 窗口模式 |
-|---|---|---|
-| 截屏范围 | 整个桌面 | 目标窗口区域 |
-| `screenSize` | 屏幕分辨率 | 窗口尺寸 |
-| 坐标基准 | 屏幕左上角 | 窗口左上角 |
-| 操作前 | 无特殊处理 | 自动激活窗口（`SetForegroundWindow`） |
+| 行为 | 全屏模式 | 窗口前台模式 | 窗口后台模式 |
+|---|---|---|---|
+| 截屏范围 | 整个桌面 | 目标窗口区域 | 目标窗口区域 |
+| 截屏方式 | `CopyFromScreen` | `CopyFromScreen` | `PrintWindow` |
+| `screenSize` | 屏幕分辨率 | 窗口尺寸 | 窗口尺寸 |
+| 坐标基准 | 屏幕左上角 | 窗口左上角 | 窗口客户区左上角 |
+| 鼠标操作 | `mouse_event`（全局） | `mouse_event`（全局） | `PostMessage`（窗口消息） |
+| 键盘操作 | `SendKeys`（全局） | `SendKeys`（全局） | `PostMessage(WM_KEYDOWN/CHAR)` |
+| 操作前 | 无特殊处理 | 自动激活窗口 | 不激活窗口 |
+| 窗口可被遮挡 | — | 否 | 是 |
 
 窗口标题按子串匹配。如果多个窗口匹配，使用第一个找到的可见窗口。
 如果目标窗口被最小化，操作前会自动恢复（`ShowWindow SW_RESTORE`）。
 
+#### 后台模式
+
+`backgroundMode: true` 在窗口模式基础上，使所有操作通过窗口消息完成，不需要窗口在前台。用户可以同时使用电脑做其他事情，AI 在后台操作目标窗口。
+
+**实现方式：**
+
+| 操作 | 前台模式 | 后台模式 |
+|---|---|---|
+| 截图 | `CopyFromScreen`（从屏幕像素拷贝） | `PrintWindow`（请求窗口自绘到 DC） |
+| 鼠标点击 | `mouse_event`（全局输入事件） | `PostMessage(WM_LBUTTONDOWN/UP)` |
+| 键盘输入 | 剪贴板 + `Ctrl+V` | `PostMessage(WM_CHAR)` 逐字符发送 |
+| 按键组合 | `SendKeys` | `PostMessage(WM_KEYDOWN/KEYUP)` |
+| 滚动 | `mouse_event(WHEEL)` | `PostMessage(WM_MOUSEWHEEL)` |
+
+**兼容性：**
+
+| 应用类型 | 兼容性 | 说明 |
+|---|---|---|
+| 原生 Win32（记事本、资源管理器、计算器） | ✓ | 完全兼容 |
+| WPF / WinForms 应用 | △ | 大部分可用 |
+| GPU 加速窗口（Chrome、Electron、游戏） | ✗ | `PrintWindow` 可能截到黑屏，`PostMessage` 可能不响应 |
+| 拖拽操作 | △ | 通过消息模拟，部分应用不支持 |
+
+**配置示例：**
+
+```yaml
+environment: screen
+targetWindow: "记事本"
+backgroundMode: true
+```
+
 ### `tools.yaml` 审批策略
+
+### 工具策略（environmentTools）
+
+按环境配置哪些工具可用。运行时根据当前环境自动选择匹配的策略：
+
+| 策略键 | 匹配条件 |
+|---|---|
+| `browser` | `environment: browser` |
+| `screen` | `environment: screen`，且 `backgroundMode` 未启用或为 false |
+| `background` | `environment: screen` + `backgroundMode: true` |
+
+每个环境支持两种模式（互斥，`include` 优先）：
+
+- `include: [工具名]` — 白名单，仅启用列出的工具
+- `exclude: [工具名]` — 黑名单，排除列出的工具，其余全部启用
+
+**内置默认策略：**
+
+| 环境 | 默认策略 | 说明 |
+|---|---|---|
+| `browser` | 全部启用 | 浏览器环境下所有工具都有意义 |
+| `screen` | 排除 `go_back` `go_forward` `search` | 桌面环境下这些浏览器导航工具语义不对 |
+| `background` | 排除 `go_back` `go_forward` `search` `drag_and_drop` | 后台拖拽通过消息模拟不可靠 |
+
+配置 `environmentTools` 后**覆盖**对应环境的默认策略。未配置的环境仍使用默认值。
+
+**示例：**
+
+```yaml
+environmentTools:
+  # 浏览器环境：排除拖拽
+  browser:
+    exclude:
+      - drag_and_drop
+
+  # 桌面环境：使用默认排除策略（不配置即可）
+
+  # 后台模式：白名单，只允许基础操作
+  background:
+    include:
+      - get_screenshot
+      - click_at
+      - type_text_at
+      - scroll_document
+      - key_combination
+      - wait_5_seconds
+```
 
 Computer Use 工具遵循标准的工具审批配置：
 

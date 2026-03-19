@@ -159,7 +159,7 @@ sub_agent:
 # 所有坐标参数均为 0-999 归一化值，由工具内部转换为实际像素。
 #
 # 只读 / 低风险操作：建议自动批准
-# open_web_browser:
+# get_screenshot:
 #   autoApprove: true
 # click_at:
 #   autoApprove: true

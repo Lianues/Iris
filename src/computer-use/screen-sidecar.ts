@@ -67,6 +67,13 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
           await adapter.bindWindow(targetWindow);
           screenSize = await adapter.getScreenSize();
           log(`窗口模式已启用，窗口尺寸: ${screenSize[0]}×${screenSize[1]}`);
+
+          // 后台模式
+          const bgMode = p.backgroundMode as boolean | undefined;
+          if (bgMode && adapter.setBackgroundMode) {
+            adapter.setBackgroundMode(true);
+            log('后台操作模式已启用（PostMessage + PrintWindow）');
+          }
         }
         log(`屏幕尺寸: ${screenSize[0]}×${screenSize[1]}`);
 

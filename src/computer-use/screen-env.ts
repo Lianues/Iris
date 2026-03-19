@@ -25,6 +25,8 @@ export interface ScreenEnvConfig {
   searchEngineUrl?: string;
   /** 目标窗口标题（子串匹配），不设置则为全屏模式 */
   targetWindow?: string;
+  /** 是否启用后台操作模式（仅窗口模式下有效），默认 false */
+  backgroundMode?: boolean;
 }
 
 export class ScreenEnvironment implements Computer {
@@ -82,6 +84,7 @@ export class ScreenEnvironment implements Computer {
       initialUrl: this._config.initialUrl,
       searchEngineUrl: this._config.searchEngineUrl,
       targetWindow: this._config.targetWindow,
+      backgroundMode: this._config.backgroundMode,
     });
 
     if (result.screenSize) {
