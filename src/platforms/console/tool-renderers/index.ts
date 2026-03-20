@@ -13,6 +13,8 @@ import { ReadFileRenderer } from './read-file';
 import { ApplyDiffRenderer } from './apply-diff';
 import { SearchInFilesRenderer } from './search-in-files';
 import { FindFilesRenderer } from './find-files';
+import { ListFilesRenderer } from './list-files';
+import { WriteFileRenderer } from './write-file';
 
 const renderers: Record<string, FC<ToolRendererProps>> = {
   shell: ShellRenderer,
@@ -20,6 +22,8 @@ const renderers: Record<string, FC<ToolRendererProps>> = {
   apply_diff: ApplyDiffRenderer,
   search_in_files: SearchInFilesRenderer,
   find_files: FindFilesRenderer,
+  list_files: ListFilesRenderer,
+  write_file: WriteFileRenderer,
 };
 
 export function getToolRenderer(toolName: string): FC<ToolRendererProps> {
