@@ -278,11 +278,13 @@ async function executeSingle(
   }
   logger.info(`执行工具: ${call.functionCall.name}${invocationId ? ` (${invocationId})` : ''}`);
 
+  const execStart = Date.now();
   try {
     const result = await registry.execute(
       call.functionCall.name,
       call.functionCall.args as Record<string, unknown>,
     );
+    const durationMs = Date.now() - execStart;
 
     // 工具可通过约定字段 __response / __parts 返回带多模态内联数据的结果。
     // 适用于需要在工具结果中附带截图、音频等二进制数据的场景。
@@ -311,11 +313,13 @@ async function executeSingle(
         name: call.functionCall.name,
         callId: call.functionCall.callId,
         response,
+        durationMs,
         ...(responseParts ? { parts: responseParts } : {}),
       },
     };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
+    const durationMs = Date.now() - execStart;
     if (toolState && invocationId) {
       toolState.transition(invocationId, 'error', { error: errorMsg });
     }
@@ -325,6 +329,7 @@ async function executeSingle(
         name: call.functionCall.name,
         callId: call.functionCall.callId,
         response: { error: errorMsg },
+        durationMs,
       },
     };
   }

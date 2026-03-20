@@ -87,7 +87,8 @@ export function ToolCall({ invocation }: ToolCallProps) {
 
   const argsSummary = getArgsSummary(toolName, args);
   const Renderer = isFinal && result != null ? getToolRenderer(toolName) : null;
-  const duration = isFinal ? ((updatedAt - createdAt) / 1000).toFixed(1) + 's' : '';
+  const durationSec = (updatedAt - createdAt) / 1000;
+  const duration = isFinal && durationSec > 0 ? durationSec.toFixed(1) + 's' : '';
 
   const nameColor = isAwaitingApproval ? C.warn : C.dim;
 

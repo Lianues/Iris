@@ -48,6 +48,8 @@ export interface FunctionResponsePart {
     callId?: string;
     /** 工具结果附带的多模态内联数据（截图、音频等），对齐 Gemini FunctionResponse.parts */
     parts?: InlineDataPart[];
+    /** 工具执行耗时（毫秒），存储用，不发送给 LLM */
+    durationMs?: number;
   };
 }
 

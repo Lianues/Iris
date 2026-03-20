@@ -10,7 +10,7 @@ import { createRoot } from '@opentui/react';
 import { PlatformAdapter } from '../base';
 import { Backend } from '../../core/backend';
 import { SessionMeta } from '../../storage/base';
-import { Content, Part, ToolInvocation, ToolStatus, UsageMetadata } from '../../types';
+import { Content, Part, FunctionResponsePart, ToolInvocation, ToolStatus, UsageMetadata } from '../../types';
 import { setGlobalLogLevel, LogLevel } from '../../logger/index';
 import type { MCPManager } from '../../mcp';
 import { App, AppHandle, MessageMeta } from './App';
@@ -18,20 +18,61 @@ import { MessagePart } from './components/MessageItem';
 import { ConsoleSettingsController, ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
 import type { LLMModelInfo } from '../../llm/router';
 
-function createToolInvocationFromFunctionCall(part: any, index: number, status: ToolStatus): ToolInvocation {
+function createToolInvocationFromFunctionCall(
+  part: any,
+  index: number,
+  defaultStatus: ToolStatus,
+  response?: Record<string, unknown>,
+  durationMs?: number,
+): ToolInvocation {
+  let status = defaultStatus;
+  let result: unknown;
+  let error: string | undefined;
+
+  if (response != null) {
+    if ('error' in response && typeof response.error === 'string') {
+      status = 'error';
+      error = response.error;
+    } else if ('result' in response) {
+      result = response.result;
+    } else {
+      // 富媒体结果或其他格式 — 将整个 response 对象视为 result
+      result = response;
+    }
+  }
+
+  const now = Date.now();
   return {
     id: `history-tool-${Date.now()}-${index}-${part.functionCall.name}`,
     toolName: part.functionCall.name,
     args: part.functionCall.args ?? {},
     status,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    result,
+    error,
+    createdAt: durationMs != null ? now - durationMs : now,
+    updatedAt: now,
   };
 }
 
-function convertPartsToMessageParts(parts: Part[], toolStatus: ToolStatus = 'success'): MessagePart[] {
+function convertPartsToMessageParts(
+  parts: Part[],
+  toolStatus: ToolStatus = 'success',
+  responseParts?: FunctionResponsePart[],
+): MessagePart[] {
   const result: MessagePart[] = [];
   let toolIndex = 0;
+
+  // 构建 functionResponse 查找表：优先按 callId 匹配，兜底按序号匹配
+  const responseByCallId = new Map<string, FunctionResponsePart>();
+  const responseByIndex: FunctionResponsePart[] = [];
+  if (responseParts) {
+    for (const rp of responseParts) {
+      if (rp.functionResponse.callId) {
+        responseByCallId.set(rp.functionResponse.callId, rp);
+      }
+      responseByIndex.push(rp);
+    }
+  }
 
   for (const part of parts) {
     if ('text' in part) {
@@ -44,7 +85,21 @@ function convertPartsToMessageParts(parts: Part[], toolStatus: ToolStatus = 'suc
     }
 
     if ('functionCall' in part) {
-      const invocation = createToolInvocationFromFunctionCall(part, toolIndex++, toolStatus);
+      // 查找匹配的 functionResponse：优先 callId，兜底按序号
+      let matchedResponse: Record<string, unknown> | undefined;
+      let matchedDurationMs: number | undefined;
+      const callId = (part as any).functionCall.callId;
+      if (callId && responseByCallId.has(callId)) {
+        const matched = responseByCallId.get(callId)!.functionResponse;
+        matchedResponse = matched.response;
+        matchedDurationMs = matched.durationMs;
+      } else if (toolIndex < responseByIndex.length) {
+        const matched = responseByIndex[toolIndex]?.functionResponse;
+        matchedResponse = matched?.response;
+        matchedDurationMs = matched?.durationMs;
+      }
+
+      const invocation = createToolInvocationFromFunctionCall(part, toolIndex++, toolStatus, matchedResponse, matchedDurationMs);
       const last = result.length > 0 ? result[result.length - 1] : undefined;
       if (last && last.type === 'tool_use') {
         last.tools.push(invocation);
@@ -323,9 +378,25 @@ export class ConsolePlatform extends PlatformAdapter {
     this.currentToolIds.clear();
 
     const history = await this.backend.getHistory(id);
-    for (const msg of history) {
+
+    // 预处理：为每条 model 消息收集其对应的 functionResponse 列表
+    // 历史结构: [model: functionCall...] → [user: functionResponse...] → [model: ...]
+    const responseMap = new Map<number, FunctionResponsePart[]>();
+    for (let i = 0; i < history.length; i++) {
+      const msg = history[i];
+      if (msg.role === 'model' && msg.parts.some(p => 'functionCall' in p)) {
+        const next = i + 1 < history.length ? history[i + 1] : undefined;
+        if (next && next.role === 'user') {
+          const responses = next.parts.filter((p): p is FunctionResponsePart => 'functionResponse' in p);
+          if (responses.length > 0) responseMap.set(i, responses);
+        }
+      }
+    }
+
+    for (let i = 0; i < history.length; i++) {
+      const msg = history[i];
       const role = msg.role === 'user' ? 'user' : 'assistant';
-      const parts = convertPartsToMessageParts(msg.parts);
+      const parts = convertPartsToMessageParts(msg.parts, 'success', responseMap.get(i));
       const meta = getMessageMeta(msg);
       if (parts.length > 0) {
         this.appHandle?.addStructuredMessage(role as 'user' | 'assistant', parts, meta);
