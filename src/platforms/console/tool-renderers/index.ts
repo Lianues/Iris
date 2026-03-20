@@ -15,6 +15,8 @@ import { SearchInFilesRenderer } from './search-in-files';
 import { FindFilesRenderer } from './find-files';
 import { ListFilesRenderer } from './list-files';
 import { WriteFileRenderer } from './write-file';
+import { DeleteCodeRenderer } from './delete-code';
+import { InsertCodeRenderer } from './insert-code';
 
 const renderers: Record<string, FC<ToolRendererProps>> = {
   shell: ShellRenderer,
@@ -24,6 +26,8 @@ const renderers: Record<string, FC<ToolRendererProps>> = {
   find_files: FindFilesRenderer,
   list_files: ListFilesRenderer,
   write_file: WriteFileRenderer,
+  delete_code: DeleteCodeRenderer,
+  insert_code: InsertCodeRenderer,
 };
 
 export function getToolRenderer(toolName: string): FC<ToolRendererProps> {

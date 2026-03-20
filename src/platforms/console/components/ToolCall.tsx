@@ -38,6 +38,31 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
     }
     case 'apply_diff':
       return String(args.path || '');
+    case 'write_file': {
+      const files = Array.isArray(args.files) ? args.files as unknown[] : [];
+      if (files.length > 1) {
+        const first = files[0] && typeof files[0] === 'object'
+          ? String((files[0] as Record<string, unknown>).path ?? '') : '';
+        return first ? `${first} +${files.length - 1}` : `${files.length} files`;
+      }
+      if (files.length === 1 && files[0] && typeof files[0] === 'object') {
+        return String((files[0] as Record<string, unknown>).path ?? '');
+      }
+      return String(args.path || '');
+    }
+    case 'delete_code':
+    case 'insert_code': {
+      const files = Array.isArray(args.files) ? args.files as unknown[] : [];
+      if (files.length > 1) {
+        const first = files[0] && typeof files[0] === 'object'
+          ? String((files[0] as Record<string, unknown>).path ?? '') : '';
+        return first ? `${first} +${files.length - 1}` : `${files.length} files`;
+      }
+      if (files.length === 1 && files[0] && typeof files[0] === 'object') {
+        return String((files[0] as Record<string, unknown>).path ?? '');
+      }
+      return String(args.path || '');
+    }
     case 'search_in_files': {
       const q = String(args.query || '');
       const p = String(args.path || '');
