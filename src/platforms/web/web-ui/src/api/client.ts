@@ -267,6 +267,58 @@ export async function cfSetup(apiToken: string): Promise<CfSetupResponse> {
   return res.json()
 }
 
+// ============ 工具审批 ============
+
+export async function approveTool(id: string, approved: boolean): Promise<{ ok: boolean }> {
+  const res = await request(`/api/tools/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approved }),
+  })
+  return res.json()
+}
+
+export async function applyTool(id: string, applied: boolean): Promise<{ ok: boolean }> {
+  const res = await request(`/api/tools/${encodeURIComponent(id)}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ applied }),
+  })
+  return res.json()
+}
+
+// ============ 撤销/重做 ============
+
+export async function undoMessage(sessionId: string): Promise<{ ok: boolean; changed: boolean; messages?: Message[] }> {
+  const res = await request(`/api/sessions/${encodeURIComponent(sessionId)}/undo`, { method: 'POST' })
+  return res.json()
+}
+
+export async function redoMessage(sessionId: string): Promise<{ ok: boolean; changed: boolean; messages?: Message[] }> {
+  const res = await request(`/api/sessions/${encodeURIComponent(sessionId)}/redo`, { method: 'POST' })
+  return res.json()
+}
+
+// ============ Shell / 模型切换 ============
+
+export async function runShellCommand(command: string): Promise<{ output: string; cwd: string }> {
+  const res = await request('/api/shell', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command }),
+  })
+  return res.json()
+}
+
+export async function switchModel(modelName: string): Promise<any> {
+  const res = await request('/api/model/switch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelName }),
+  })
+  return res.json()
+}
+
 // ============ SSE 聊天 ============
 
 let _dispatchCount = 0
@@ -295,6 +347,8 @@ function dispatchChatStreamEvent(rawBlock: string, callbacks: ChatCallbacks): vo
       case 'done': callbacks.onDone?.(); break
       case 'done_meta': callbacks.onDoneMeta?.(event.durationMs); break
       case 'error': callbacks.onError?.(event.message); break
+      case 'tool_update': callbacks.onToolUpdate?.(event.invocations); break
+      case 'usage': callbacks.onUsage?.(event.usage); break
     }
   } catch {
     // 忽略解析错误（如心跳）

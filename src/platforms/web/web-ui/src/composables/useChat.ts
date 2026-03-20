@@ -7,6 +7,8 @@
 
 import { computed, ref, watch } from 'vue'
 import { useSessions } from './useSessions'
+import { useToolApproval } from './useToolApproval'
+import { useContextUsage } from './useContextUsage'
 import * as api from '../api/client'
 import type { ChatDocumentAttachment, ChatImageAttachment, Message, MessagePart } from '../api/types'
 import { hasToolParts } from '../utils/message'
@@ -129,6 +131,8 @@ let suppressNextSessionLoadForId: string | null = null
 let deferredAssistantMessage: Message | null = null
 
 const { currentSessionId, loadSessions, markSessionStreaming, markSessionCompleted, clearSessionActivity } = useSessions()
+const { setToolInvocations, clearToolState } = useToolApproval()
+const { setUsage } = useContextUsage()
 
 function queueStreamingDelta(delta: string) {
   if (!delta) return
@@ -466,6 +470,14 @@ export function useChat() {
 
         void loadSessions()
       },
+      onToolUpdate(invocations) {
+        if (isStale()) return
+        setToolInvocations(invocations)
+      },
+      onUsage(usage) {
+        if (isStale()) return
+        setUsage(usage)
+      },
       onStreamStart() {
         if (isStale()) return
         receivedFinalAssistantPayload = false
@@ -523,6 +535,7 @@ export function useChat() {
       },
       onDone() {
         if (isStale()) return
+        clearToolState()
 
         const finishedSessionId = activeRequestSessionId
         const shouldKeepCompletedBadge = !!finishedSessionId && currentSessionId.value !== finishedSessionId
@@ -554,6 +567,7 @@ export function useChat() {
       },
       onError(msg) {
         if (isStale()) return
+        clearToolState()
 
         const failedSessionId = activeRequestSessionId
 
@@ -679,6 +693,32 @@ export function useChat() {
     void sendMessage(text, images, documents)
   }
 
+  async function undoLastMessage() {
+    if (sending.value || !currentSessionId.value) return
+    try {
+      const data = await api.undoMessage(currentSessionId.value)
+      if (data.changed && data.messages) {
+        revokeBlobUrls(messages.value)
+        messages.value = data.messages
+      }
+    } catch (err) {
+      messageActionError.value = `撤销失败：${err instanceof Error ? err.message : String(err)}`
+    }
+  }
+
+  async function redoLastMessage() {
+    if (sending.value || !currentSessionId.value) return
+    try {
+      const data = await api.redoMessage(currentSessionId.value)
+      if (data.changed && data.messages) {
+        revokeBlobUrls(messages.value)
+        messages.value = data.messages
+      }
+    } catch (err) {
+      messageActionError.value = `重做失败：${err instanceof Error ? err.message : String(err)}`
+    }
+  }
+
   return {
     messages,
     messagesLoading,
@@ -697,5 +737,7 @@ export function useChat() {
     retryLastMessage,
     deleteMessage,
     reloadMessages,
+    undoLastMessage,
+    redoLastMessage,
   }
 }

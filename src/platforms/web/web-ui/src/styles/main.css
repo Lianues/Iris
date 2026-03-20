@@ -1825,6 +1825,7 @@ select:focus-visible {
 }
 
 .input-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -6524,4 +6525,386 @@ select:focus-visible {
 :root[data-theme="light"] .message-code-line-highlighted {
   background: rgba(110, 94, 255, 0.08);
   border-left-color: rgba(110, 94, 255, 0.4);
+}
+
+/* ==========================================
+ *  Tool Approval Bar
+ * ========================================== */
+.tool-approval-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px var(--panel-padding-x);
+  background: var(--surface-glass-strong);
+  backdrop-filter: blur(var(--backdrop-blur-shell));
+  border-top: 1px solid var(--border-soft);
+}
+
+.tool-approval-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.tool-approval-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tool-approval-name {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--accent-cyan);
+}
+
+.tool-approval-args {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-approval-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.tool-approval-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.tool-approval-btn:active {
+  transform: scale(var(--motion-press-scale));
+}
+
+.tool-approval-btn kbd {
+  font-size: 0.6875rem;
+  opacity: 0.6;
+  margin-left: 4px;
+}
+
+.tool-approval-btn--approve {
+  background: var(--accent);
+  color: #fff;
+}
+
+.tool-approval-btn--approve:hover {
+  background: var(--accent-strong);
+}
+
+.tool-approval-btn--reject {
+  background: var(--surface-3);
+  color: var(--text-secondary);
+}
+
+.tool-approval-btn--reject:hover {
+  background: rgba(255, 124, 124, 0.2);
+  color: var(--error);
+}
+
+/* approval-bar transition */
+.approval-bar-enter-active,
+.approval-bar-leave-active {
+  transition: transform var(--transition-medium), opacity var(--transition-medium);
+}
+.approval-bar-enter-from,
+.approval-bar-leave-to {
+  transform: translateY(var(--motion-enter-y));
+  opacity: 0;
+}
+
+/* ==========================================
+ *  Diff Approval Dialog
+ * ========================================== */
+.diff-approval-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay-bg);
+  backdrop-filter: blur(var(--backdrop-blur-overlay));
+}
+
+.diff-approval-dialog {
+  width: min(90vw, 720px);
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.diff-approval-item {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.diff-approval-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.diff-approval-tool-name {
+  font-weight: 600;
+  color: var(--accent-cyan);
+  font-size: 0.9375rem;
+}
+
+.diff-approval-file {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  font-family: monospace;
+}
+
+.diff-approval-content {
+  max-height: 400px;
+  overflow: auto;
+  padding: 14px;
+  background: var(--code-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.diff-approval-content code {
+  font-family: 'Fira Code', 'Consolas', monospace;
+}
+
+.diff-approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.diff-approval-btn {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.diff-approval-btn:active {
+  transform: scale(var(--motion-press-scale));
+}
+
+.diff-approval-btn--apply {
+  background: var(--accent);
+  color: #fff;
+}
+
+.diff-approval-btn--apply:hover {
+  background: var(--accent-strong);
+}
+
+.diff-approval-btn--reject {
+  background: var(--surface-3);
+  color: var(--text-secondary);
+}
+
+.diff-approval-btn--reject:hover {
+  background: rgba(255, 124, 124, 0.2);
+  color: var(--error);
+}
+
+/* diff-dialog transition */
+.diff-dialog-enter-active,
+.diff-dialog-leave-active {
+  transition: opacity var(--transition-medium);
+}
+.diff-dialog-enter-active .diff-approval-dialog,
+.diff-dialog-leave-active .diff-approval-dialog {
+  transition: transform var(--transition-medium);
+}
+.diff-dialog-enter-from,
+.diff-dialog-leave-to {
+  opacity: 0;
+}
+.diff-dialog-enter-from .diff-approval-dialog {
+  transform: translateY(var(--motion-modal-y));
+}
+.diff-dialog-leave-to .diff-approval-dialog {
+  transform: translateY(var(--motion-modal-y));
+}
+
+/* ==========================================
+ *  Context Usage
+ * ========================================== */
+.context-usage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.context-usage-bar {
+  width: 80px;
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.context-usage-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width var(--transition-medium);
+}
+
+.context-usage-label {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-family: 'Fira Code', 'Consolas', monospace;
+  white-space: nowrap;
+}
+
+/* ==========================================
+ *  Topbar Actions (Undo/Redo)
+ * ========================================== */
+.chat-topbar-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.topbar-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-glass);
+  color: var(--text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+
+.topbar-icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.topbar-icon-btn:active:not(:disabled) {
+  transform: scale(var(--motion-press-scale));
+}
+
+.topbar-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.chat-topbar-aside {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ==========================================
+ *  Command Autocomplete
+ * ========================================== */
+.command-autocomplete {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 4px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  z-index: 60;
+}
+
+.command-autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.command-autocomplete-item:hover,
+.command-autocomplete-item.active {
+  background: var(--bg-hover);
+}
+
+.command-autocomplete-name {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--accent);
+  min-width: 60px;
+}
+
+.command-autocomplete-desc {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.command-autocomplete-usage {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: 'Fira Code', 'Consolas', monospace;
+}
+
+/* autocomplete transition */
+.autocomplete-enter-active,
+.autocomplete-leave-active {
+  transition: transform var(--transition-fast), opacity var(--transition-fast);
+}
+.autocomplete-enter-from,
+.autocomplete-leave-to {
+  transform: translateY(6px);
+  opacity: 0;
+}
+
+/* ==========================================
+ *  Light theme overrides for new features
+ * ========================================== */
+:root[data-theme="light"] .tool-approval-btn--reject:hover {
+  background: rgba(220, 60, 60, 0.12);
+}
+
+:root[data-theme="light"] .diff-approval-btn--reject:hover {
+  background: rgba(220, 60, 60, 0.12);
 }

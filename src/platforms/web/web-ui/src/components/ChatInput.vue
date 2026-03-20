@@ -118,6 +118,13 @@
         </div>
       </div>
 
+      <CommandAutocomplete
+        ref="autocompleteRef"
+        :input="text"
+        :visible="showAutocomplete"
+        @select="handleAutocompleteSelect"
+      />
+
       <div class="input-box">
         <textarea
           ref="inputEl"
@@ -126,7 +133,11 @@
           rows="1"
           :disabled="interactionDisabled"
           @keydown.enter.exact="handleEnterKey"
-          @input="autoResize"
+          @keydown.up="handleArrowKey($event, -1)"
+          @keydown.down="handleArrowKey($event, 1)"
+          @keydown.tab="handleTabKey"
+          @keydown.escape="autocompleteDismissed = true"
+          @input="onInput"
           @paste="handlePaste"
         ></textarea>
 
@@ -169,7 +180,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import type { ChatDocumentAttachment, ChatImageAttachment } from '../api/types'
+import type { SlashCommand } from '../composables/useSlashCommands'
 import AppIcon from './AppIcon.vue'
+import CommandAutocomplete from './CommandAutocomplete.vue'
 import { ICONS } from '../constants/icons'
 import { useSessions } from '../composables/useSessions'
 import { SUPPORTED_UPLOAD_ACCEPT, useChatAttachments } from '../composables/useChatAttachments'
@@ -184,6 +197,12 @@ const disabled = computed(() => props.disabled)
 const text = ref('')
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
+const autocompleteRef = ref<InstanceType<typeof CommandAutocomplete> | null>(null)
+/** ESC 强制隐藏补全，输入变化时自动重置 */
+const autocompleteDismissed = ref(false)
+const showAutocomplete = computed(() =>
+  !autocompleteDismissed.value && text.value.trimStart().startsWith('/') && !disabled.value,
+)
 
 const {
   images,
@@ -272,6 +291,11 @@ function handleEnterKey(event: KeyboardEvent) {
   }
   event.preventDefault()
 
+  // 自动补全可见且有匹配项时，Enter 确认选项而不是发送
+  if (showAutocomplete.value && autocompleteRef.value) {
+    if (autocompleteRef.value.confirmSelection()) return
+  }
+
   handleSend()
 }
 
@@ -288,6 +312,32 @@ function handleSend() {
     outgoingDocs.length > 0 ? outgoingDocs : undefined,
   )
   resetComposer()
+}
+
+function handleArrowKey(e: KeyboardEvent, delta: number) {
+  if (showAutocomplete.value && autocompleteRef.value?.hasItems()) {
+    e.preventDefault()
+    autocompleteRef.value.moveSelection(delta)
+  }
+}
+
+function handleTabKey(e: KeyboardEvent) {
+  if (showAutocomplete.value && autocompleteRef.value?.hasItems()) {
+    e.preventDefault()
+    autocompleteRef.value.confirmSelection()
+  }
+}
+
+function handleAutocompleteSelect(cmd: SlashCommand) {
+  text.value = cmd.hasArg ? cmd.name + ' ' : cmd.name
+  autocompleteDismissed.value = true
+  nextTick(() => inputEl.value?.focus())
+}
+
+/** @input 只在用户实际输入时触发，不在程序赋值时触发 */
+function onInput() {
+  autocompleteDismissed.value = false
+  autoResize()
 }
 
 function autoResize() {

@@ -81,6 +81,41 @@ export interface StatusInfo {
   authProtected?: boolean
   managementProtected?: boolean
   platform: string
+  contextWindow?: number
+}
+
+// ============ 工具审批 ============
+
+/** 工具调用状态 */
+export type ToolStatus =
+  | 'pending'
+  | 'running'
+  | 'awaiting_approval'
+  | 'awaiting_apply'
+  | 'approved'
+  | 'rejected'
+  | 'applied'
+  | 'skipped'
+  | 'completed'
+  | 'error'
+
+/** 工具调用记录 */
+export interface ToolInvocation {
+  id: string
+  toolName: string
+  args: Record<string, unknown>
+  status: ToolStatus
+  result?: unknown
+  error?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** 模型用量元数据 */
+export interface UsageMetadata {
+  promptTokenCount?: number
+  candidatesTokenCount?: number
+  totalTokenCount?: number
 }
 
 /** 聊天输入区快捷建议 */
@@ -255,4 +290,6 @@ export interface ChatCallbacks {
   onError?: (message: string) => void
   onSessionId?: (id: string) => void
   onAssistantContent?: (message: Message) => void
+  onToolUpdate?: (invocations: ToolInvocation[]) => void
+  onUsage?: (usage: UsageMetadata) => void
 }

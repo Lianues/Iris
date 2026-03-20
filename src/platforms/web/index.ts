@@ -16,7 +16,7 @@ import { createDeployHandlers } from './handlers/deploy';
 import { Backend } from '../../core/backend';
 import type { ImageInput } from '../../core/backend';
 import type { DocumentInput } from '../../media/document-extract.js';
-import { Router, sendJSON } from './router';
+import { Router, sendJSON, readBody } from './router';
 import { createChatHandler, createChatSuggestionsHandler } from './handlers/chat';
 import { createSessionsHandlers } from './handlers/sessions';
 import { createConfigHandlers } from './handlers/config';
@@ -25,7 +25,7 @@ import { MCPManager } from '../../mcp';
 import { assertManagementToken } from './security/management';
 import { applyRuntimeConfigReload } from '../../config/runtime';
 import { Content, Part, isThoughtTextPart } from '../../types';
-import { formatContent } from './message-format';
+import { formatContent, formatMessages } from './message-format';
 
 const logger = createLogger('WebPlatform');
 
@@ -146,6 +146,14 @@ export class WebPlatform extends PlatformAdapter {
 
     this.backend.on('done', (sid: string, durationMs: number) => {
       this.writeSSE(sid, { type: 'done_meta', durationMs });
+    });
+
+    this.backend.on('tool:update', (sid: string, invocations: any[]) => {
+      this.writeSSE(sid, { type: 'tool_update', invocations });
+    });
+
+    this.backend.on('usage', (sid: string, usage: any) => {
+      this.writeSSE(sid, { type: 'usage', usage });
     });
 
     return new Promise((resolve) => {
@@ -333,6 +341,7 @@ export class WebPlatform extends PlatformAdapter {
 
     // 状态 API
     this.router.get('/api/status', async (_req, res) => {
+      const modelInfo = this.backend.getCurrentModelInfo();
       sendJSON(res, 200, {
         provider: this.config.provider,
         model: this.config.modelId,
@@ -341,7 +350,100 @@ export class WebPlatform extends PlatformAdapter {
         authProtected: !!this.config.authToken,
         managementProtected: !!this.config.managementToken,
         platform: 'web',
+        contextWindow: modelInfo.contextWindow,
       });
+    });
+
+    // 工具审批 API
+    this.router.post('/api/tools/:id/approve', async (req, res, params) => {
+      try {
+        const body = await readBody(req);
+        this.backend.approveTool(params.id, body.approved);
+        sendJSON(res, 200, { ok: true });
+      } catch (err: unknown) {
+        sendJSON(res, 400, { error: err instanceof Error ? err.message : '操作失败' });
+      }
+    });
+
+    this.router.post('/api/tools/:id/apply', async (req, res, params) => {
+      try {
+        const body = await readBody(req);
+        this.backend.applyTool(params.id, body.applied);
+        sendJSON(res, 200, { ok: true });
+      } catch (err: unknown) {
+        sendJSON(res, 400, { error: err instanceof Error ? err.message : '操作失败' });
+      }
+    });
+
+    // 撤销/重做 API
+    this.router.post('/api/sessions/:id/undo', async (_req, res, params) => {
+      const sessionId = params.id;
+      if (this.hasPending(sessionId)) {
+        sendJSON(res, 409, { error: '当前会话正在生成中，无法撤销' });
+        return;
+      }
+      try {
+        const result = await this.backend.undo(sessionId, 'last-visible-message');
+        if (!result) {
+          sendJSON(res, 200, { ok: true, changed: false });
+          return;
+        }
+        const history = await this.backend.getHistory(sessionId);
+        sendJSON(res, 200, { ok: true, changed: true, messages: formatMessages(history) });
+      } catch (err: unknown) {
+        sendJSON(res, 500, { error: err instanceof Error ? err.message : '撤销失败' });
+      }
+    });
+
+    this.router.post('/api/sessions/:id/redo', async (_req, res, params) => {
+      const sessionId = params.id;
+      if (this.hasPending(sessionId)) {
+        sendJSON(res, 409, { error: '当前会话正在生成中，无法重做' });
+        return;
+      }
+      try {
+        const result = await this.backend.redo(sessionId);
+        if (!result) {
+          sendJSON(res, 200, { ok: true, changed: false });
+          return;
+        }
+        const history = await this.backend.getHistory(sessionId);
+        sendJSON(res, 200, { ok: true, changed: true, messages: formatMessages(history) });
+      } catch (err: unknown) {
+        sendJSON(res, 500, { error: err instanceof Error ? err.message : '重做失败' });
+      }
+    });
+
+    // Shell 命令 API
+    this.router.post('/api/shell', async (req, res) => {
+      try {
+        const body = await readBody(req);
+        if (!body.command || typeof body.command !== 'string') {
+          sendJSON(res, 400, { error: '缺少 command 参数' });
+          return;
+        }
+        const result = this.backend.runCommand(body.command);
+        sendJSON(res, 200, result);
+      } catch (err: unknown) {
+        sendJSON(res, 500, { error: err instanceof Error ? err.message : '命令执行失败' });
+      }
+    });
+
+    // 模型切换 API
+    this.router.post('/api/model/switch', async (req, res) => {
+      try {
+        const body = await readBody(req);
+        if (!body.modelName || typeof body.modelName !== 'string') {
+          sendJSON(res, 400, { error: '缺少 modelName 参数' });
+          return;
+        }
+        const info = this.backend.switchModel(body.modelName);
+        this.config.modelId = info.modelId;
+        this.config.provider = info.provider;
+        sendJSON(res, 200, info);
+      } catch (err: unknown) {
+        sendJSON(res, 400, { error: err instanceof Error ? err.message : '切换模型失败' });
+      }
     });
   }
 
