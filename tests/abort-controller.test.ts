@@ -5,6 +5,7 @@
  *   - executePlan / executeSingle（scheduler 层）
  *   - ToolLoop.run()（tool-loop 层）
  *   - buildAbortResult 边界情况
+ *   - sanitizeHistory（加载兜底）
  *   - ToolStateManager 集成
  *   - 并发安全
  *   - combineSignals 降级
@@ -18,6 +19,7 @@ import { buildExecutionPlan, executePlan } from '../src/tools/scheduler.js';
 import { PromptAssembler } from '../src/prompt/assembler.js';
 import type { Content, FunctionCallPart } from '../src/types/index.js';
 import type { ToolPolicyConfig } from '../src/config/types.js';
+import { sanitizeHistory, cleanupTrailingHistory } from '../src/core/history-sanitizer.js';
 
 // ============ 辅助工具 ============
 
@@ -61,10 +63,10 @@ function toolCallModelContent(toolName: string, args: Record<string, unknown> = 
  * 需要配合 ownKeys/getOwnPropertyDescriptor 让 Object.keys() 正常工作——
  * 但 ownKeys 需要预知键名，这里改用工厂函数更安全。
  */
-function allToolsAutoApprove(...toolNames: string[]): Record<string, ToolPolicyConfig> {
+function allToolsAutoApprove(...toolNames: string[]): { permissions: Record<string, ToolPolicyConfig> } {
   const policies: Record<string, ToolPolicyConfig> = {};
   for (const n of toolNames) policies[n] = { autoApprove: true };
-  return policies;
+  return { permissions: policies };
 }
 
 // ============ scheduler 层测试 ============
@@ -187,7 +189,7 @@ describe('ToolLoop: abort support', () => {
     let llmCalled = false;
 
     const callLLM: LLMCaller = async () => { llmCalled = true; return textModelContent('hi'); };
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -199,7 +201,7 @@ describe('ToolLoop: abort support', () => {
   it('LLM 返回纯文本后 abort：保留文本，aborted=undefined（已正常完成）', async () => {
     const controller = new AbortController();
     const callLLM: LLMCaller = async () => textModelContent('final answer');
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -214,7 +216,7 @@ describe('ToolLoop: abort support', () => {
       controller.abort();
       throw new DOMException('The operation was aborted', 'AbortError');
     };
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
     const historyLenBefore = history.length;
 
@@ -224,7 +226,7 @@ describe('ToolLoop: abort support', () => {
     expect(history).toHaveLength(historyLenBefore);
   });
 
-  it('thinking+工具调用阶段中止：丢弃包含 functionCall 的 model 消息', async () => {
+  it('thinking+工具调用阶段中止：保留 model 消息并追加中断响应', async () => {
     const controller = new AbortController();
     let callCount = 0;
     const callLLM: LLMCaller = async () => {
@@ -244,7 +246,7 @@ describe('ToolLoop: abort support', () => {
       name: 'slow_tool',
       handler: async () => { controller.abort(); await delay(10); return 'ok'; },
     }]);
-    const loop = new ToolLoop(abortRegistry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(abortRegistry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -252,6 +254,8 @@ describe('ToolLoop: abort support', () => {
     expect(result.aborted).toBe(true);
     const lastMsg = history[history.length - 1];
     expect(lastMsg.role).toBe('user');
+    // 最后一条应是中断响应（functionResponse），而非原始用户消息
+    expect(lastMsg.parts.some(p => 'functionResponse' in p)).toBe(true);
   });
 
   it('文本输出中中止：保留已有可见文本', async () => {
@@ -267,7 +271,7 @@ describe('ToolLoop: abort support', () => {
       }
       return textModelContent('should not reach');
     };
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -275,7 +279,7 @@ describe('ToolLoop: abort support', () => {
     expect(result.text).toBe('partial output here');
   });
 
-  it('工具调用中中止：丢弃包含 functionCall 的 model 消息', async () => {
+  it('工具调用中中止：保留 model 消息并追加中断响应', async () => {
     const controller = new AbortController();
     const callLLM: LLMCaller = async () => toolCallModelContent('slow_tool');
 
@@ -283,7 +287,7 @@ describe('ToolLoop: abort support', () => {
       name: 'slow_tool',
       handler: async () => { controller.abort(); await delay(50); return 'slow_result'; },
     }]);
-    const loop = new ToolLoop(slowRegistry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(slowRegistry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -291,9 +295,13 @@ describe('ToolLoop: abort support', () => {
     expect(result.aborted).toBe(true);
     const lastMsg = history[history.length - 1];
     expect(lastMsg.role).toBe('user');
+    // 最后一条应是中断响应（functionResponse），model+FC 被保留
+    expect(lastMsg.parts.some(p => 'functionResponse' in p)).toBe(true);
+    // model+FC 仍在历史中
+    expect(history.some(h => h.role === 'model' && h.parts.some(p => 'functionCall' in p))).toBe(true);
   });
 
-  it('多轮工具调用后 abort：保留已完成的工具对，丢弃未完成的', async () => {
+  it('多轮工具调用后 abort：保留已完成的工具对，未完成的追加中断响应', async () => {
     const controller = new AbortController();
     let callCount = 0;
     const callLLM: LLMCaller = async () => {
@@ -307,7 +315,7 @@ describe('ToolLoop: abort support', () => {
       { name: 'fast_tool', handler: async () => 'fast_ok' },
       { name: 'slow_tool', handler: async () => { controller.abort(); return 'slow_ok'; } },
     ]);
-    const loop = new ToolLoop(mixedRegistry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(mixedRegistry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -328,7 +336,7 @@ describe('ToolLoop: abort support', () => {
 
   it('无 signal 时正常执行（向后兼容）', async () => {
     const callLLM: LLMCaller = async () => textModelContent('normal response');
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
 
     const result = await loop.run(history, callLLM);
@@ -347,7 +355,7 @@ describe('ToolLoop: abort support', () => {
       return content;
     };
 
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -375,7 +383,7 @@ describe('ToolLoop: buildAbortResult edge cases', () => {
     const controller = new AbortController();
     controller.abort();
     const callLLM: LLMCaller = async () => textModelContent('never');
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -388,7 +396,7 @@ describe('ToolLoop: buildAbortResult edge cases', () => {
     const controller = new AbortController();
     controller.abort();
     const callLLM: LLMCaller = async () => textModelContent('never');
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -402,7 +410,7 @@ describe('ToolLoop: buildAbortResult edge cases', () => {
     const controller = new AbortController();
     controller.abort();
     const callLLM: LLMCaller = async () => textModelContent('never');
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [
       { role: 'user', parts: [{ text: 'hello' }] },
       { role: 'model', parts: [{ text: 'hi there' }] },
@@ -430,7 +438,7 @@ describe('ToolLoop: buildAbortResult edge cases', () => {
       }
       return textModelContent('never');
     };
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hello' }] }];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -453,7 +461,7 @@ describe('ToolLoop + ToolStateManager: abort', () => {
       handler: async () => { controller.abort(); await delay(50); return 'result'; },
     }]);
     const callLLM: LLMCaller = async () => toolCallModelContent('slow_tool');
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') }, toolState);
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') }, toolState);
     const history: Content[] = [{ role: 'user', parts: [{ text: 'go' }] }];
 
     const result = await loop.run(history, callLLM, { signal: controller.signal });
@@ -480,7 +488,7 @@ describe('abort: concurrency safety', () => {
     const registry = createRegistry([]);
     const assembler = createAssembler();
     const callLLM: LLMCaller = async () => { throw new Error('should not be called'); };
-    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolPolicies: allToolsAutoApprove('slow_tool', 'fast_tool') });
+    const loop = new ToolLoop(registry, assembler, { maxRounds: 10, toolsConfig: allToolsAutoApprove('slow_tool', 'fast_tool') });
     const history: Content[] = [{ role: 'user', parts: [{ text: 'hi' }] }];
 
     const start = Date.now();
@@ -651,8 +659,8 @@ describe('scheduler: abort during awaiting_approval', () => {
 
     const calls = [fc('manual_tool')];
     const plan = buildExecutionPlan(calls, registry);
-    const policies: Record<string, ToolPolicyConfig> = {
-      manual_tool: { autoApprove: false },
+    const policies = {
+      permissions: { manual_tool: { autoApprove: false } as ToolPolicyConfig },
     };
 
     // 100ms 后 abort（模拟用户按 ESC）
@@ -667,6 +675,141 @@ describe('scheduler: abort during awaiting_approval', () => {
     const response = results[0].functionResponse.response as Record<string, unknown>;
     expect(response.error).toBeTruthy();
     expect(toolState.get(inv.id)!.status).toBe('error');
+  });
+});
+
+// ============ sanitizeHistory / cleanupTrailingHistory 测试 ============
+
+describe('sanitizeHistory: 加载兜底清理', () => {
+
+  it('合法历史不做任何修改', () => {
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: 'hello' }] },
+      { role: 'model', parts: [{ text: 'hi there' }] },
+    ];
+    const appended = sanitizeHistory(history);
+    expect(appended).toHaveLength(0);
+    expect(history).toHaveLength(2);
+  });
+
+  it('空历史不崩溃', () => {
+    const history: Content[] = [];
+    const appended = sanitizeHistory(history);
+    expect(appended).toHaveLength(0);
+    expect(history).toHaveLength(0);
+  });
+
+  it('dangling functionCall → 保留并追加中断响应', () => {
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: 'hello' }] },
+      { role: 'model', parts: [fc('my_tool', {}, 'call_1')] },
+    ];
+    const appended = sanitizeHistory(history);
+    // 应追加一条中断响应
+    expect(appended).toHaveLength(1);
+    expect(history).toHaveLength(3);
+    // 最后一条是 user + functionResponse
+    const last = history[2];
+    expect(last.role).toBe('user');
+    expect(last.parts).toHaveLength(1);
+    const fr = last.parts[0] as any;
+    expect(fr.functionResponse).toBeDefined();
+    expect(fr.functionResponse.name).toBe('my_tool');
+    expect(fr.functionResponse.callId).toBe('call_1');
+    expect(fr.functionResponse.response.error).toContain('interrupted');
+  });
+
+  it('多个 dangling functionCall → 每个都有对应的中断响应', () => {
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: 'hello' }] },
+      { role: 'model', parts: [fc('tool_a', {}, 'call_a'), fc('tool_b', {}, 'call_b')] },
+    ];
+    const appended = sanitizeHistory(history);
+    expect(appended).toHaveLength(1);
+    expect(history).toHaveLength(3);
+    const frParts = history[2].parts;
+    expect(frParts).toHaveLength(2);
+    expect((frParts[0] as any).functionResponse.name).toBe('tool_a');
+    expect((frParts[1] as any).functionResponse.name).toBe('tool_b');
+  });
+
+  it('末尾纯 thought → 丢弃', () => {
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: 'hello' }] },
+      { role: 'model', parts: [{ text: 'thinking...', thought: true }] },
+    ];
+    const appended = sanitizeHistory(history);
+    expect(appended).toHaveLength(0);
+    expect(history).toHaveLength(1);
+  });
+
+  it('末尾孤立 tool response → 丢弃', () => {
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: 'hello' }] },
+      // 没有对应的 model+FC，只有一个孤立的 tool response
+      { role: 'user', parts: [{ functionResponse: { name: 'orphan', response: {}, callId: 'x' } }] },
+    ];
+    const appended = sanitizeHistory(history);
+    expect(appended).toHaveLength(0);
+    expect(history).toHaveLength(1);
+  });
+
+  it('完整 FC+FR 对 → 保留', () => {
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: 'hello' }] },
+      { role: 'model', parts: [fc('my_tool', {}, 'call_1')] },
+      { role: 'user', parts: [{ functionResponse: { name: 'my_tool', response: { result: 'ok' }, callId: 'call_1' } }] },
+    ];
+    const appended = sanitizeHistory(history);
+    expect(appended).toHaveLength(0);
+    expect(history).toHaveLength(3);
+  });
+
+  it('末尾 thought + 前面 dangling FC：先移除 thought，再补全 FC', () => {
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: 'hello' }] },
+      { role: 'model', parts: [fc('my_tool', {}, 'call_1')] },
+      // 假设因为某种原因存了一条孤立 thought
+      { role: 'model', parts: [{ text: 'hmm...', thought: true }] },
+    ];
+    const appended = sanitizeHistory(history);
+    // thought 被移除，然后 dangling FC 被补全
+    expect(history).toHaveLength(3); // user + model+FC + abortResponse
+    expect(appended).toHaveLength(1);
+    expect(history[2].role).toBe('user');
+    expect((history[2].parts[0] as any).functionResponse.name).toBe('my_tool');
+  });
+
+  it('有可见文本的 model 消息 → 保留不动', () => {
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: 'hello' }] },
+      { role: 'model', parts: [{ text: 'some partial output' }] },
+    ];
+    const appended = sanitizeHistory(history);
+    expect(appended).toHaveLength(0);
+    expect(history).toHaveLength(2);
+  });
+
+  it('cleanupTrailingHistory 的 minLength 约束', () => {
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: 'hello' }] },
+      { role: 'model', parts: [{ text: 'thinking...', thought: true }] },
+    ];
+    // minLength = 2 表示不能低于 2 条
+    const appended = cleanupTrailingHistory(history, 2);
+    expect(appended).toHaveLength(0);
+    expect(history).toHaveLength(2); // 不能 pop 到 2 以下，所以保持不动
+  });
+
+  it('callId 正确透传到中断响应', () => {
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: 'go' }] },
+      { role: 'model', parts: [fc('search', { q: 'test' }, 'toolu_abc123')] },
+    ];
+    sanitizeHistory(history);
+    const fr = (history[2].parts[0] as any).functionResponse;
+    expect(fr.callId).toBe('toolu_abc123');
+    expect(fr.name).toBe('search');
   });
 });
 

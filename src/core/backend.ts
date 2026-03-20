@@ -27,6 +27,7 @@ import { OCRService, createOCRTextPart, isOCRTextPart, stripOCRTextMarker } from
 import { ToolLoop, ToolLoopConfig, LLMCaller } from './tool-loop';
 import { createLogger } from '../logger';
 import { COMPUTER_USE_FUNCTION_NAMES } from '../computer-use/tools';
+import { sanitizeHistory } from './history-sanitizer';
 import {
   Content, Part, LLMRequest, UsageMetadata, ToolInvocation,
   extractText, isFunctionCallPart, isFunctionResponsePart, isInlineDataPart, isTextPart,
@@ -720,6 +721,22 @@ export class Backend extends EventEmitter {
     //    部分 LLM API（如 Gemini）不允许同角色消息相邻，可能导致请求失败。
     //    平台层应自行实现并发控制或消息缓冲（参考 WXWorkPlatform 的实现）。
     const storedHistory = await this.storage.getHistory(sessionId);
+
+    // 1.1 兜底清理：修复因中断/崩溃导致的不完整历史（dangling functionCall 等）
+    const beforeSanitize = storedHistory.length;
+    const sanitizeAppended = sanitizeHistory(storedHistory);
+    const keptFromOriginal = storedHistory.length - sanitizeAppended.length;
+    if (keptFromOriginal !== beforeSanitize || sanitizeAppended.length > 0) {
+      // 有消息被删除或追加，同步到磁盘
+      if (keptFromOriginal < beforeSanitize) {
+        await this.storage.truncateHistory(sessionId, keptFromOriginal);
+      }
+      for (const msg of sanitizeAppended) {
+        await this.storage.addMessage(sessionId, msg);
+      }
+      logger.info(`历史兜底清理: session=${sessionId}, ${beforeSanitize} → ${storedHistory.length} 条`);
+    }
+
     const history = this.prepareHistoryForLLM(storedHistory);
     const isNewSession = storedHistory.length === 0;
     const userText = extractText(llmUserParts);

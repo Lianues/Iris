@@ -9,7 +9,7 @@
  * 支持 AbortSignal：
  *   - 每轮循环前检查 signal.aborted
  *   - 透传给 LLMCaller 和工具执行器
- *   - abort 时清理历史，保证格式合法
+ *   - abort 时清理历史并补全中断响应，保证格式合法
  *
  * 复用场景：
  *   - Orchestrator：包装 ToolLoop + 存储/平台/流式/记忆
@@ -24,10 +24,10 @@ import { ToolsConfig } from '../config';
 import { PromptAssembler } from '../prompt/assembler';
 import { createLogger } from '../logger';
 import {
-  Content, Part, LLMRequest,
-  isFunctionCallPart, extractText,
-  FunctionCallPart, FunctionResponsePart,
+  Content, Part, LLMRequest, extractText, isFunctionCallPart,
+  FunctionCallPart,
 } from '../types';
+import { cleanupTrailingHistory } from './history-sanitizer';
 
 const logger = createLogger('ToolLoop');
 
@@ -99,7 +99,7 @@ export class ToolLoop {
     while (rounds < this.config.maxRounds) {
       // 每轮开始前检查 abort
       if (signal?.aborted) {
-        return this.buildAbortResult(history, historyBaseLength);
+        return await this.buildAbortResult(history, historyBaseLength, options?.onMessageAppend);
       }
 
       rounds++;
@@ -117,7 +117,7 @@ export class ToolLoop {
       try {
         modelContent = await this.callLLMWithRetry(callLLM, request, options, rounds, signal);
       } catch (err) {
-        if (signal?.aborted) return this.buildAbortResult(history, historyBaseLength);
+        if (signal?.aborted) return await this.buildAbortResult(history, historyBaseLength, options?.onMessageAppend);
         const errorMsg = err instanceof Error ? err.message : String(err);
         logger.error(`LLM 调用失败 (round=${rounds}): ${errorMsg}`);
         return { text: '', error: `LLM 调用出错: ${errorMsg}`, history };
@@ -126,7 +126,7 @@ export class ToolLoop {
       // abort 可能在 LLM 调用过程中触发，但 callLLM 没有抛异常（比如流式已读完部分数据）
       if (signal?.aborted) {
         // modelContent 已产生但我们被 abort 了，不追加到历史
-        return this.buildAbortResult(history, historyBaseLength);
+        return await this.buildAbortResult(history, historyBaseLength, options?.onMessageAppend);
       }
 
       history.push(modelContent);
@@ -144,9 +144,8 @@ export class ToolLoop {
 
       // 工具执行后再次检查 abort
       if (signal?.aborted) {
-        // 此时 modelContent（含 functionCall）已追加到历史，但 tool response 未追加。
-        // 需要回滚这条不完整的 model 消息。
-        return this.buildAbortResult(history, historyBaseLength);
+        // 此时 modelContent（含 functionCall）已追加到历史，但 tool response 未追加 → 补全中断响应。
+        return await this.buildAbortResult(history, historyBaseLength, options?.onMessageAppend);
       }
 
       const toolResponseContent: Content = { role: 'user', parts: responseParts };
@@ -201,68 +200,27 @@ export class ToolLoop {
 
 
   /**
-   * 构建 abort 结果：清理历史中不完整的消息，保证格式合法。
+   * 构建 abort 结果：清理历史中不完整的消息，补全中断响应，保证格式合法。
    *
    * 清理策略：
-   *   1. 从历史末尾往前扫描，找到本轮新增的消息
-   *   2. 如果末尾是包含 functionCall 的 model 消息（工具调用中中止），丢弃它
-   *   3. 如果末尾是纯文本的 model 消息（输出中中止），保留它
-   *   4. 如果末尾是纯 thought 消息（思维链中中止），丢弃它
+   *   1. model 含 functionCall（无对应 response）→ 保留并追加中断提示作为响应
+   *   2. model 纯 thought 或空内容 → 丢弃
+   *   3. model 有可见文本 → 保留（视为正常截断）
+   *   4. 孤立的 tool response → 丢弃
+   *   5. 完整的 functionCall + functionResponse 对 → 保留
    */
-  private buildAbortResult(history: Content[], historyBaseLength: number): ToolLoopResult {
+  private async buildAbortResult(
+    history: Content[],
+    historyBaseLength: number,
+    onMessageAppend?: (content: Content) => Promise<void>,
+  ): Promise<ToolLoopResult> {
     logger.info('工具循环被中止，清理历史');
 
-    // 从末尾往前清理本轮新增的不完整消息
-    while (history.length > historyBaseLength) {
-      const last = history[history.length - 1];
+    const appended = cleanupTrailingHistory(history, historyBaseLength);
 
-      if (last.role === 'model') {
-        const hasFunctionCall = last.parts.some(isFunctionCallPart);
-        if (hasFunctionCall) {
-          // model 消息包含 functionCall，但对应的 functionResponse 未追加 → 丢弃
-          history.pop();
-          continue;
-        }
-
-        const visibleText = extractText(last.parts);
-        const hasOnlyThought = last.parts.every(p =>
-          ('thought' in p && p.thought === true) || ('text' in p && !p.text)
-        );
-
-        if (hasOnlyThought || !visibleText) {
-          // 纯 thought 或空内容 → 丢弃
-          history.pop();
-          continue;
-        }
-
-        // 有可见文本（输出中中止）→ 保留，视为正常截断
-        break;
-      }
-
-      if (last.role === 'user') {
-        // 检查是否是 tool response（包含 functionResponse part）
-        const isToolResponse = last.parts.some(p => 'functionResponse' in p);
-        if (isToolResponse) {
-          // 孤立的 tool response，其对应的 model functionCall 可能已被清除
-          // 或者 abort 发生在工具执行后、下一轮 LLM 调用前
-          // 检查前一条是否是匹配的 model functionCall
-          if (history.length >= 2) {
-            const prev = history[history.length - 2];
-            if (prev.role === 'model' && prev.parts.some(isFunctionCallPart)) {
-              // model(functionCall) + user(functionResponse) 是完整对，保留
-              break;
-            }
-          }
-          // 孤立的 tool response → 丢弃
-          history.pop();
-          continue;
-        }
-        // 普通用户消息 → 保留
-        break;
-      }
-
-      // 其他角色（不应存在）→ 安全起见丢弃
-      history.pop();
+    // 持久化新追加的中断响应（如果有）
+    for (const msg of appended) {
+      await onMessageAppend?.(msg);
     }
 
     const text = this.extractLastVisibleText(history);
