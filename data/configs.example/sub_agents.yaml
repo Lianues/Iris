@@ -28,8 +28,10 @@ types:
     allowedTools:
       - read_file
       - search_in_files
+      - find_files
+      - list_files
       - shell
-    parallel: false
+    parallel: true
     # modelName: gpt4o_mini
     maxToolRounds: 200
 
