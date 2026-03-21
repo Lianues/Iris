@@ -184,17 +184,17 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: var(--overlay-bg);
+  backdrop-filter: blur(var(--backdrop-blur-overlay));
 }
 
 .agent-panel {
   width: min(420px, calc(100vw - 32px));
   max-height: min(520px, calc(100vh - 64px));
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.3);
+  background: var(--surface-shell-strong);
+  border: 1px solid var(--shell-stroke);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -1,0 +1,12 @@
+/* Light Theme — Tail Overrides */
+
+/* ==========================================
+ *  Light theme overrides for new features
+ * ========================================== */
+:root[data-theme="light"] .tool-approval-btn--reject:hover {
+  background: rgba(220, 60, 60, 0.12);
+}
+
+:root[data-theme="light"] .diff-approval-btn--reject:hover {
+  background: rgba(220, 60, 60, 0.12);
+}

@@ -1,4 +1,5 @@
 import { reactive, computed, ref, onMounted, onUnmounted, watch } from 'vue'
+import { showConfirm as showConfirmDialog } from '../../composables/useConfirmDialog'
 import {
   getDeployState,
   detectDeploy,
@@ -168,9 +169,11 @@ export function useDeployView() {
       ? '源站已启用 HTTPS，建议 Cloudflare 使用 Full (Strict)。'
       : '源站为 HTTP-only，建议 Cloudflare 使用 Flexible。'
 
-    const confirmed = window.confirm(
-      `Nginx 部署成功。\n\n当前 Cloudflare SSL：${current}\n建议同步为：${target}\n\n${hint}\n\n是否立即同步？`,
-    )
+    const confirmed = await showConfirmDialog({
+      title: '同步 Cloudflare SSL',
+      description: `Nginx 部署成功。<br><br>当前 Cloudflare SSL：<strong>${current}</strong><br>建议同步为：<strong>${target}</strong><br><br>${hint}`,
+      confirmText: '立即同步',
+    })
 
     if (!confirmed) return
     await handleSyncCloudflare(mode)

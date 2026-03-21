@@ -28,6 +28,12 @@ Iris 实际读取的是 `data/configs/`，不是单文件 `config.yaml`。
 | `sub_agents.yaml` | 否 | 子代理类型与调度配置 |
 | `computer_use.yaml` | 否 | Computer Use 配置（浏览器操控） |
 
+全局配置（非分文件）：
+
+| 文件 | 必选 | 说明 |
+|---|---|---|
+| `agents.yaml` | 否 | 多 Agent 定义（Agent 名称、描述、启用开关）。详见 [agents.md](./agents.md) |
+
 首次使用建议：
 
 ```bash

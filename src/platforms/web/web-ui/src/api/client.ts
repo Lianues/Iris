@@ -129,6 +129,27 @@ export async function getAgents(): Promise<{ agents: Array<{ name: string; descr
   return res.json()
 }
 
+export interface AgentStatusResponse {
+  exists: boolean
+  enabled: boolean
+  agents: Array<{ name: string; description?: string; dataDir?: string }>
+  manifestPath: string
+}
+
+export async function getAgentStatus(): Promise<AgentStatusResponse> {
+  const res = await request('/api/agents/status')
+  return res.json()
+}
+
+export async function toggleAgentEnabled(enabled: boolean): Promise<{ success: boolean; message: string }> {
+  const res = await request('/api/agents/toggle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  })
+  return res.json()
+}
+
 // ============ REST ============
 
 export async function getSessions(signal?: AbortSignal): Promise<{ sessions: SessionSummary[] }> {

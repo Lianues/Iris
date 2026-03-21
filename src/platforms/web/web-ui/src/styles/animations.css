@@ -1,0 +1,143 @@
+/* Animations & Vue Transitions */
+
+/* ---- Transitions ---- */
+.fade-veil-enter-active,
+.fade-veil-leave-active {
+  transition: opacity var(--transition-medium);
+}
+
+.fade-veil-enter-from,
+.fade-veil-leave-to {
+  opacity: 0;
+}
+
+.view-fade-enter-active,
+.view-fade-leave-active {
+  transition:
+    opacity var(--transition-medium),
+    transform var(--transition-medium),
+    filter var(--transition-medium);
+  transform-origin: 50% 24px;
+}
+
+.view-fade-enter-from,
+.view-fade-leave-to {
+  opacity: 0;
+  transform: translateY(var(--motion-enter-y)) scale(0.992);
+  filter: blur(8px);
+}
+
+.panel-modal-enter-active,
+.panel-modal-leave-active {
+  transition: opacity var(--transition-medium), transform var(--transition-medium);
+}
+
+.panel-modal-enter-from,
+.panel-modal-leave-to {
+  opacity: 0;
+}
+
+.panel-modal-enter-from .settings-panel,
+.panel-modal-leave-to .settings-panel,
+.panel-modal-enter-from .deploy-confirm,
+.panel-modal-leave-to .deploy-confirm {
+  transform: translateY(var(--motion-modal-y)) scale(0.985);
+  opacity: 0;
+  filter: blur(8px);
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes glowFloat {
+  from {
+    opacity: 0.56;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    opacity: 0.74;
+    transform: translate3d(12px, -10px, 0) scale(1.04);
+  }
+}
+
+@keyframes sessionDotPulse {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.9;
+    box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.24), 0 0 0 0 rgba(251, 191, 36, 0.2);
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+    box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.28), 0 0 0 8px rgba(251, 191, 36, 0.06);
+  }
+}
+
+@keyframes messageGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(139, 124, 255, 0.12), 0 18px 36px rgba(4, 8, 20, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgba(139, 124, 255, 0.22), 0 24px 42px rgba(75, 64, 191, 0.2);
+  }
+}
+
+@keyframes thinkingPulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0) scale(0.88);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1);
+  }
+}
+
+@keyframes floatUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-glow,
+  .overlay,
+  .settings-panel,
+  .deploy-confirm,
+  .view-fade-enter-active,
+  .view-fade-leave-active,
+  .panel-modal-enter-active,
+  .panel-modal-leave-active,
+  .message-stack,
+  .message-model.streaming,
+  .thinking-dots span,
+  .btn-send-spinner span {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}

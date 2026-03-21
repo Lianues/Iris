@@ -6,6 +6,7 @@
 
 import type { Ref } from 'vue'
 import type { ChatDocumentAttachment, ChatImageAttachment, Message } from '../api/types'
+import { showConfirm } from './useConfirmDialog'
 import { useSessions } from './useSessions'
 import * as api from '../api/client'
 
@@ -110,10 +111,14 @@ async function executeCommand(text: string, ctx: CommandContext) {
       }
       break
 
-    case '/reset-config':
-      if (!window.confirm('确定要重置所有配置为默认值吗？当前的 API 密钥、模型设置等将丢失，此操作不可撤销。')) {
-        return
-      }
+    case '/reset-config': {
+      const confirmed = await showConfirm({
+        title: '确认重置配置',
+        description: '此操作将把所有配置文件恢复为默认模板。<br>当前的 API 密钥、模型设置等将<strong>永久丢失</strong>，且无法撤销。',
+        confirmText: '确认重置',
+        danger: true,
+      })
+      if (!confirmed) return
       try {
         const result = await api.resetConfig()
         ctx.messages.value.push({
@@ -127,6 +132,7 @@ async function executeCommand(text: string, ctx: CommandContext) {
         })
       }
       break
+    }
 
     default:
       ctx.messages.value.push({

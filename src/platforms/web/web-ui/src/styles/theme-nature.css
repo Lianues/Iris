@@ -1,0 +1,528 @@
+/* Nature Journal Theme — Complete Light Re-skin */
+
+/* ==========================================
+ *  Nature Journal GUI Style (Light Theme)
+ *  参考根目录 GUI：emerald + paper cards + subtle borders
+ * ========================================== */
+:root[data-theme="light"] {
+  --bg-canvas: #f5f7f4;
+  --bg-canvas-2: #eef2ef;
+  --bg-canvas-3: #e5ebe7;
+  --bg-sidebar: rgba(255, 255, 255, 0.94);
+  --surface-1: rgba(255, 255, 255, 0.94);
+  --surface-2: rgba(248, 250, 249, 0.92);
+  --surface-3: rgba(243, 247, 244, 0.96);
+  --surface-glass: rgba(255, 255, 255, 0.74);
+  --surface-glass-strong: rgba(255, 255, 255, 0.95);
+  --surface-elevated: rgba(255, 255, 255, 0.99);
+  --bg-hover: rgba(5, 150, 105, 0.08);
+  --bg-active: rgba(5, 150, 105, 0.14);
+  --accent: #059669;
+  --accent-strong: #047857;
+  --accent-soft: rgba(5, 150, 105, 0.1);
+  --accent-soft-strong: rgba(5, 150, 105, 0.2);
+  --accent-cyan: #0f766e;
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-tertiary: #6b7280;
+  --text-muted: #9ca3af;
+  --border-soft: rgba(17, 24, 39, 0.09);
+  --border-strong: rgba(17, 24, 39, 0.16);
+  --border-accent: rgba(5, 150, 105, 0.24);
+  --scrollbar-thumb: rgba(17, 24, 39, 0.22);
+  --code-bg: rgba(15, 23, 42, 0.94);
+  --overlay-bg: rgba(15, 23, 42, 0.28);
+  --shadow-sm: 0 1px 3px rgba(17, 24, 39, 0.08);
+  --shadow-md: 0 8px 24px rgba(17, 24, 39, 0.08);
+  --shadow-lg: 0 20px 44px rgba(17, 24, 39, 0.1);
+  --shadow-accent: 0 10px 24px rgba(5, 150, 105, 0.18);
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --tint-rgb: 17, 24, 39;
+}
+
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(circle at top left, rgba(5, 150, 105, 0.08), transparent 30%),
+    radial-gradient(circle at top right, rgba(6, 78, 59, 0.08), transparent 34%),
+    linear-gradient(145deg, var(--bg-canvas) 0%, var(--bg-canvas-2) 48%, var(--bg-canvas-3) 100%);
+}
+
+:root[data-theme="light"] .app-glow {
+  opacity: 0.5;
+  filter: blur(56px);
+}
+
+:root[data-theme="light"] .glow-primary {
+  background: rgba(5, 150, 105, 0.14);
+}
+
+:root[data-theme="light"] .glow-secondary {
+  background: rgba(6, 78, 59, 0.12);
+}
+
+:root[data-theme="light"] .app-grid {
+  opacity: 0.55;
+}
+
+:root[data-theme="light"] .logo,
+:root[data-theme="light"] .chat-topbar h2,
+:root[data-theme="light"] .welcome h2,
+:root[data-theme="light"] .settings-header h2,
+:root[data-theme="light"] .deploy-title,
+:root[data-theme="light"] .deploy-output-title {
+  font-family: 'Crimson Pro', Georgia, 'Times New Roman', serif;
+  letter-spacing: -0.02em;
+}
+
+:root[data-theme="light"] .sidebar,
+:root[data-theme="light"] .chat-frame,
+:root[data-theme="light"] .deploy-form,
+:root[data-theme="light"] .deploy-output,
+:root[data-theme="light"] .settings-panel,
+:root[data-theme="light"] .deploy-confirm {
+  backdrop-filter: none;
+  border-color: rgba(17, 24, 39, 0.09);
+  box-shadow: var(--shadow-md);
+}
+
+:root[data-theme="light"] .sidebar {
+  background: var(--surface-shell-soft);
+}
+
+:root[data-theme="light"] .chat-frame {
+  background: var(--surface-shell);
+}
+
+:root[data-theme="light"] .deploy-form,
+:root[data-theme="light"] .deploy-output,
+:root[data-theme="light"] .settings-panel,
+:root[data-theme="light"] .deploy-confirm {
+  background: var(--surface-shell-strong);
+}
+
+:root[data-theme="light"] .sidebar::after {
+  border-color: rgba(17, 24, 39, 0.05);
+}
+
+:root[data-theme="light"] .sidebar-badge,
+:root[data-theme="light"] .welcome-badge {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+:root[data-theme="light"] .sidebar-context-card,
+:root[data-theme="light"] .status-card,
+:root[data-theme="light"] .welcome-tip,
+:root[data-theme="light"] .settings-section,
+:root[data-theme="light"] .deploy-detect,
+:root[data-theme="light"] .deploy-steps,
+:root[data-theme="light"] .deploy-form .form-group.inline {
+  background: #f8faf9;
+  border-color: rgba(17, 24, 39, 0.08);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="light"] .settings-section-group {
+  border-color: rgba(17, 24, 39, 0.08);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="light"] .empty-state-block {
+  border-color: rgba(17, 24, 39, 0.12);
+}
+
+:root[data-theme="light"] .tier-block {
+  border-color: rgba(17, 24, 39, 0.1);
+}
+
+:root[data-theme="light"] .tier-header {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+:root[data-theme="light"] .tier-header:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+:root[data-theme="light"] .tier-body {
+  border-top-color: rgba(17, 24, 39, 0.08);
+}
+
+:root[data-theme="light"] .sidebar-nav-link,
+:root[data-theme="light"] .session-button,
+:root[data-theme="light"] .tool-compact,
+:root[data-theme="light"] .btn-inline-action,
+:root[data-theme="light"] .deploy-tab,
+:root[data-theme="light"] .btn-copy,
+:root[data-theme="light"] .btn-download,
+:root[data-theme="light"] .btn-attach,
+:root[data-theme="light"] .btn-cancel,
+:root[data-theme="light"] .message-action-btn,
+:root[data-theme="light"] .tool-collapse-btn {
+  background: #f3f4f6;
+  border-color: rgba(17, 24, 39, 0.09);
+}
+
+:root[data-theme="light"] .message-action-btn.danger {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.18);
+}
+
+:root[data-theme="light"] .message-action-btn.danger:hover,
+:root[data-theme="light"] .message-action-btn.danger.armed,
+:root[data-theme="light"] .message-action-btn.danger.deleting {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.24);
+}
+
+:root[data-theme="light"] .sidebar-nav-link.router-link-active,
+:root[data-theme="light"] .session-item.active .session-button {
+  background: #ecfdf5;
+  border-color: rgba(5, 150, 105, 0.28);
+  color: #065f46;
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.12);
+}
+
+:root[data-theme="light"] .sidebar-nav-link.router-link-active .sidebar-nav-icon {
+  background: rgba(5, 150, 105, 0.14);
+}
+
+:root[data-theme="light"] .session-button::before {
+  background: linear-gradient(180deg, #059669, #047857);
+}
+
+:root[data-theme="light"] .session-item:hover .session-button,
+:root[data-theme="light"] .sidebar-nav-link:hover {
+  background: #f9fafb;
+  border-color: rgba(17, 24, 39, 0.12);
+}
+
+:root[data-theme="light"] .btn-new-chat,
+:root[data-theme="light"] .btn-send,
+:root[data-theme="light"] .btn-save,
+:root[data-theme="light"] .btn-deploy,
+:root[data-theme="light"] .deploy-tab.active {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  border-color: rgba(5, 150, 105, 0.3);
+  color: #fff;
+  box-shadow: var(--shadow-accent);
+}
+
+:root[data-theme="light"] .toggle-sidebar,
+:root[data-theme="light"] .btn-settings,
+:root[data-theme="light"] .btn-close {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(17, 24, 39, 0.12);
+}
+
+:root[data-theme="light"] .status-dot {
+  box-shadow: 0 0 0 6px rgba(5, 150, 105, 0.16);
+}
+
+:root[data-theme="light"] .message-meta-badge-model,
+:root[data-theme="light"] .message-stream-status,
+:root[data-theme="light"] .input-status-badge,
+:root[data-theme="light"] .messages-jump {
+  background: rgba(5, 150, 105, 0.08);
+  border-color: rgba(5, 150, 105, 0.16);
+  color: #047857;
+}
+
+:root[data-theme="light"] .input-quick-chip,
+:root[data-theme="light"] .tool-copy-btn,
+:root[data-theme="light"] .input-attachment-summary {
+  background: #f8faf9;
+  border-color: rgba(17, 24, 39, 0.08);
+  color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .input-drag-mask {
+  background: rgba(255, 255, 255, 0.58);
+}
+
+:root[data-theme="light"] .input-drag-mask-card {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(5, 150, 105, 0.18);
+}
+
+:root[data-theme="light"] .thinking-copy {
+  color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .sidebar-empty-error,
+:root[data-theme="light"] .messages-inline-status,
+:root[data-theme="light"] .message-state-card.error {
+  background: rgba(220, 53, 69, 0.08);
+  border-color: rgba(220, 53, 69, 0.16);
+}
+
+:root[data-theme="light"] .message-state-card.loading {
+  background: rgba(5, 150, 105, 0.08);
+  border-color: rgba(5, 150, 105, 0.16);
+}
+
+:root[data-theme="light"] .sidebar-inline-status,
+:root[data-theme="light"] .message-state-card,
+:root[data-theme="light"] .sidebar-inline-action,
+:root[data-theme="light"] .message-state-action {
+  background: #f8faf9;
+  border-color: rgba(17, 24, 39, 0.08);
+  color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .message-state-icon {
+  background: rgba(17, 24, 39, 0.06);
+}
+
+:root[data-theme="light"] .sidebar-inline-action:hover,
+:root[data-theme="light"] .message-state-action:hover {
+  background: #f3f4f6;
+}
+
+:root[data-theme="light"] .chat-topbar,
+:root[data-theme="light"] .settings-header {
+  border-bottom-color: rgba(17, 24, 39, 0.08);
+}
+
+:root[data-theme="light"] .message-user {
+  background: linear-gradient(135deg, #0f766e 0%, #059669 100%);
+}
+
+:root[data-theme="light"] .message-model {
+  background: #ffffff;
+  border-color: rgba(17, 24, 39, 0.1);
+}
+
+:root[data-theme="light"] .message-model.streaming {
+  border-color: rgba(5, 150, 105, 0.36);
+  box-shadow: 0 0 0 1px rgba(5, 150, 105, 0.16), 0 10px 24px rgba(5, 150, 105, 0.12);
+}
+
+:root[data-theme="light"] .message-model.streaming::after {
+  color: #059669;
+}
+
+:root[data-theme="light"] .tool-block {
+  background: #ffffff;
+  border-color: rgba(17, 24, 39, 0.1);
+}
+
+:root[data-theme="light"] .tool-workflow-section {
+  background: #f8fafc;
+  border-color: rgba(17, 24, 39, 0.08);
+}
+
+:root[data-theme="light"] .tool-workflow-card {
+  background: #ffffff;
+  border-color: rgba(17, 24, 39, 0.1);
+}
+
+:root[data-theme="light"] .tool-workflow-card.expanded {
+  border-color: rgba(5, 150, 105, 0.24);
+}
+
+:root[data-theme="light"] .tool-workflow-action-btn {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.76);
+  border-color: rgba(17, 24, 39, 0.08);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(16px);
+}
+
+:root[data-theme="light"] .tool-leading,
+:root[data-theme="light"] .tool-icon {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(17, 24, 39, 0.08);
+}
+
+:root[data-theme="light"] .tool-block.call .tool-leading,
+:root[data-theme="light"] .tool-block.call .tool-kind-chip {
+  background: rgba(5, 150, 105, 0.12);
+  border-color: rgba(5, 150, 105, 0.16);
+  color: #047857;
+}
+
+:root[data-theme="light"] .tool-block.response .tool-leading,
+:root[data-theme="light"] .tool-block.response .tool-kind-chip {
+  background: rgba(79, 70, 229, 0.1);
+  border-color: rgba(79, 70, 229, 0.14);
+  color: #4338ca;
+}
+
+:root[data-theme="light"] .tool-block.call {
+  border-color: rgba(5, 150, 105, 0.24);
+}
+
+:root[data-theme="light"] .tool-block.response {
+  border-color: rgba(6, 78, 59, 0.24);
+}
+
+:root[data-theme="light"] .tool-header {
+  background: #f8faf9;
+}
+
+:root[data-theme="light"] .tool-header:hover {
+  background: #f2f7f4;
+}
+
+:root[data-theme="light"] .tool-pre {
+  background: #f8fafc;
+  border-color: rgba(17, 24, 39, 0.08);
+}
+
+:root[data-theme="light"] .tool-body {
+  background: #f9fafb;
+  color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .input-shell {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(17, 24, 39, 0.1);
+}
+
+:root[data-theme="light"] .input-shell.drag-active {
+  border-color: rgba(5, 150, 105, 0.42);
+  box-shadow: 0 0 0 1px rgba(5, 150, 105, 0.18), 0 18px 36px rgba(5, 150, 105, 0.12);
+}
+
+:root[data-theme="light"] .image-preview-item,
+:root[data-theme="light"] .image-bubble-model {
+  background: #ffffff;
+  border-color: rgba(17, 24, 39, 0.1);
+}
+
+:root[data-theme="light"] .image-bubble-user {
+  background: linear-gradient(135deg, #0f766e 0%, #059669 100%);
+}
+
+:root[data-theme="light"] .image-preview-remove {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(17, 24, 39, 0.12);
+  color: var(--text-primary);
+}
+
+:root[data-theme="light"] .doc-bubble-model {
+  background: #ffffff;
+  border-color: rgba(17, 24, 39, 0.1);
+}
+
+:root[data-theme="light"] .doc-bubble-user {
+  background: linear-gradient(135deg, #0f766e 0%, #059669 100%);
+}
+
+:root[data-theme="light"] .doc-preview-icon {
+  color: #059669;
+}
+
+:root[data-theme="light"] .input-area textarea,
+:root[data-theme="light"] .form-group input[type='text'],
+:root[data-theme="light"] .form-group input[type='password'],
+:root[data-theme="light"] .form-group input[type='number'],
+:root[data-theme="light"] .form-group select,
+:root[data-theme="light"] .form-group textarea,
+:root[data-theme="light"] .cf-dns-add-type,
+:root[data-theme="light"] .cf-dns-add-input {
+  background: #ffffff;
+  border-color: rgba(17, 24, 39, 0.14);
+}
+
+:root[data-theme="light"] .app-select-trigger,
+:root[data-theme="light"] .app-select-menu {
+  background: #ffffff;
+  border-color: rgba(17, 24, 39, 0.14);
+}
+
+:root[data-theme="light"] .app-select-trigger {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+:root[data-theme="light"] .app-select.open .app-select-trigger {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 0 1px var(--border-accent),
+    0 18px 36px rgba(5, 150, 105, 0.12);
+}
+
+:root[data-theme="light"] .input-area textarea:focus,
+:root[data-theme="light"] .form-group input:focus,
+:root[data-theme="light"] .form-group select:focus,
+:root[data-theme="light"] .form-group textarea:focus,
+:root[data-theme="light"] .cf-dns-add-input:focus,
+:root[data-theme="light"] .cf-dns-add-type:focus {
+  border-color: rgba(5, 150, 105, 0.42);
+  box-shadow: 0 0 0 4px rgba(5, 150, 105, 0.12);
+}
+
+:root[data-theme="light"] .settings-pill,
+:root[data-theme="light"] .deploy-badge,
+:root[data-theme="light"] .deploy-output-status,
+:root[data-theme="light"] .tool-tag {
+  background: rgba(5, 150, 105, 0.12);
+  border-color: rgba(5, 150, 105, 0.22);
+  color: #047857;
+}
+
+:root[data-theme="light"] .deploy-badge.subtle,
+:root[data-theme="light"] .deploy-output-status.disabled {
+  background: #f3f4f6;
+  border-color: rgba(17, 24, 39, 0.1);
+  color: var(--text-tertiary);
+}
+
+:root[data-theme="light"] .cf-dns-table,
+:root[data-theme="light"] .cf-zone-card {
+  border-color: rgba(17, 24, 39, 0.1);
+  background: #ffffff;
+}
+
+:root[data-theme="light"] .cf-dns-header {
+  background: #f8faf9;
+}
+
+:root[data-theme="light"] .deploy-code-wrapper,
+:root[data-theme="light"] .message-code-shell {
+  background: #0f172a;
+  border-color: rgba(15, 23, 42, 0.28);
+}
+
+:root[data-theme="light"] .deploy-code {
+  color: #cbd5e1;
+}
+
+:root[data-theme="light"] .deploy-actions {
+  border-top-color: rgba(17, 24, 39, 0.09);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+:root[data-theme="light"] .deploy-guide {
+  background: rgba(5, 150, 105, 0.08);
+  border-color: rgba(5, 150, 105, 0.2);
+}
+
+:root[data-theme="light"] .deploy-guide h4 {
+  color: #047857;
+}
+
+:root[data-theme="light"] .deploy-guide-cmd {
+  background: rgba(15, 23, 42, 0.88);
+  color: #e5e7eb;
+}
+
+:root[data-theme="light"] .overlay {
+  background: rgba(15, 23, 42, 0.24);
+}
+
+:root[data-theme="light"] button:focus-visible,
+:root[data-theme="light"] input:focus-visible,
+:root[data-theme="light"] textarea:focus-visible,
+:root[data-theme="light"] select:focus-visible {
+  box-shadow:
+    0 0 0 1px rgba(5, 150, 105, 0.45),
+    0 0 0 4px rgba(5, 150, 105, 0.16);
+}

@@ -20,7 +20,9 @@ src/core/
 src/
 ├── bootstrap.ts     核心初始化（创建 Backend 及所有依赖模块）
 ├── index.ts         平台模式入口（bootstrap → 创建平台 → 启动）
-└── cli.ts           CLI 模式入口（bootstrap → backend.chat() → 输出 → 退出）
+├── cli.ts           CLI 模式入口（bootstrap → backend.chat() → 输出 → 退出）
+├── paths.ts         路径常量与多 Agent 路径解析（AgentPaths）
+└── agents/          多 Agent 注册表（agents.yaml 加载、状态查询）
 ```
 
 ## bootstrap()
@@ -28,6 +30,11 @@ src/
 `src/bootstrap.ts` 提供 `bootstrap()` 函数，封装从配置加载到 Backend 创建的全部初始化逻辑。
 
 ```typescript
+interface BootstrapOptions {
+  agentName?: string;     // Agent 名称（多 Agent 模式）
+  agentPaths?: AgentPaths; // Agent 专属路径集
+}
+
 interface BootstrapResult {
   backend: Backend;
   config: AppConfig;
@@ -37,10 +44,11 @@ interface BootstrapResult {
   mcpManager: MCPManager | undefined;
   setMCPManager: (manager?: MCPManager) => void;
   getMCPManager: () => MCPManager | undefined;
+  agentName?: string;     // 多 Agent 模式下的 Agent 标识
 }
 ```
 
-`index.ts` 和 `cli.ts` 都调用 `bootstrap()` 获取 Backend 实例，再各自执行不同的后续逻辑。
+`index.ts` 和 `cli.ts` 都调用 `bootstrap(options?)` 获取 Backend 实例。多 Agent 模式下每个 Agent 独立调用 `bootstrap()`，各自拥有隔离的配置、存储和记忆。详见 [agents.md](./agents.md)。
 
 ## 架构位置
 

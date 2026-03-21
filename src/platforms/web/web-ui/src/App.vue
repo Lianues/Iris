@@ -53,6 +53,8 @@
       @close="managementTokenOpen = false"
       @updated="handleManagementTokenUpdated"
     />
+
+    <ConfirmDialog />
   </div>
 </template>
 
@@ -60,6 +62,7 @@
 import { defineAsyncComponent, ref } from 'vue'
 import AppSidebar from './components/AppSidebar.vue'
 import AppIcon from './components/AppIcon.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import { ICONS } from './constants/icons'
 
 const SettingsPanel = defineAsyncComponent(() => import('./components/SettingsPanel.vue'))

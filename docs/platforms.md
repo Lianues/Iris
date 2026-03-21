@@ -95,7 +95,7 @@ documents: Array<{ fileName: string; mimeType: string; data: string }>
 | sessionId | 启动时生成时间戳 ID，如 `20250715_143052_a7x2` |
 | 流式支持 | 支持 |
 | 工具状态 | 通过 `tool:update` 事件实时显示 |
-| 指令 | `/new`、`/load`、`/sh <命令>`、`/undo`、`/redo`、`/exit` 等 |
+| 指令 | `/new`、`/load`、`/sh <命令>`、`/undo`、`/redo`、`/agent`、`/exit` 等 |
 | 图片输入 | 当前未实现终端内图片上传 |
 | 撤销/重做 | 调用 Backend `undo('last-visible-message')` 与 `redo()` |
 
@@ -295,6 +295,11 @@ qq:
 | PUT | `/api/config` | 更新配置（触发热重载）🔒 管理令牌 |
 | POST | `/api/config/models` | 列出可用模型 🔒 管理令牌 |
 | GET | `/api/status` | 服务器状态 |
+| GET | `/api/models` | 列出可用模型 |
+| POST | `/api/model/switch` | 切换模型 |
+| GET | `/api/agents` | 获取运行时可用 Agent 列表 |
+| GET | `/api/agents/status` | 获取 agents.yaml 完整状态 |
+| POST | `/api/agents/toggle` | 切换多 Agent 模式 enabled 开关 |
 | GET | `/api/deploy/state` | 获取部署状态 🔒 管理令牌 |
 | GET | `/api/deploy/detect` | 检测部署环境 🔒 管理令牌 |
 | POST | `/api/deploy/preview` | 预览部署配置 🔒 管理令牌 |
@@ -380,9 +385,14 @@ qq:
 | `hasPending(sessionId)` | 检查是否已有进行中的 SSE 连接 |
 | `registerPending(sessionId, res)` | 注册 SSE 响应 |
 | `removePending(sessionId)` | 移除 SSE 响应 |
-| `dispatchMessage(sessionId, message, images?, documents?)` | 调用 `backend.chat()` |
-| `setMCPManager(mgr)` | 注入 MCP 管理器 |
-| `getMCPManager()` | 获取 MCP 管理器 |
+| `dispatchMessage(sessionId, message, images?, documents?, agentName?)` | 调用对应 Agent 的 `backend.chat()` |
+| `resolveAgent(req)` | 根据 `X-Agent-Name` 请求头解析 Agent 上下文 |
+| `addAgent(name, backend, config, ...)` | 注册 Agent（多 Agent 模式） |
+| `getAgentList()` | 获取可用 Agent 列表（单 Agent 返回空数组） |
+| `setMCPManager(mgr, agentName?)` | 注入 MCP 管理器 |
+| `getMCPManager(agentName?)` | 获取 MCP 管理器 |
+
+多 Agent 模式下，所有 Agent 共享一个 WebPlatform HTTP 端口，通过 `X-Agent-Name` 请求头路由。详见 [agents.md](./agents.md)。
 
 ---
 
@@ -421,6 +431,7 @@ iris -p "重构代码" --stream --print-tools
 | `-p, --prompt <text>` | 提示词（也可作为位置参数或 stdin） | 必填 |
 | `-s, --session <id>` | 会话 ID，支持多轮对话 | 自动生成 `cli_YYYYMMDD_HHMMSS_xxxx` |
 | `--model <name>` | 覆盖默认模型 | 配置文件中的值 |
+| `--agent <name>` | 指定 Agent（多 Agent 模式） | 第一个已定义的 Agent |
 | `--cwd <dir>` | 工具执行的工作目录 | `process.cwd()` |
 | `--stream` / `--no-stream` | 流式输出控制 | 取配置文件 |
 | `--output <format>` | 输出格式：`text`（默认）/ `json` | `text` |

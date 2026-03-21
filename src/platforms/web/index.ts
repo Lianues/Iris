@@ -346,9 +346,27 @@ export class WebPlatform extends PlatformAdapter {
   private setupRoutes(): void {
     const { configPath } = this.config;
 
-    // Agent 列表 API
+    // Agent 列表 API（运行时可用的 agent）
     this.router.get('/api/agents', async (_req, res) => {
       sendJSON(res, 200, { agents: this.getAgentList() });
+    });
+
+    // Agent 管理 API（读取 agents.yaml 完整状态，含未启用的 agent）
+    this.router.get('/api/agents/status', async (_req, res) => {
+      const { getAgentStatus } = await import('../../agents');
+      sendJSON(res, 200, getAgentStatus());
+    });
+
+    // Agent 启用/禁用切换（修改 agents.yaml 的 enabled 字段）
+    this.router.post('/api/agents/toggle', async (req, res) => {
+      const body = await readBody(req);
+      if (typeof body.enabled !== 'boolean') {
+        sendJSON(res, 400, { error: '缺少 enabled 参数' });
+        return;
+      }
+      const { setAgentEnabled } = await import('../../agents');
+      const result = setAgentEnabled(body.enabled);
+      sendJSON(res, result.success ? 200 : 500, result);
     });
 
     // 聊天 API

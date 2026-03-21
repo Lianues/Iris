@@ -1,0 +1,209 @@
+/* Responsive Breakpoints */
+
+@media (max-width: 1100px) {
+  :root {
+    --sidebar-width: 280px;
+    --conversation-max-width: 780px;
+    --panel-padding-x: 22px;
+  }
+
+  .app-root {
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .chat-topbar,
+  .messages,
+  .input-area {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+
+  .welcome-tips {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --app-padding: 12px;
+    --panel-padding-x: 20px;
+    --panel-padding-y: 18px;
+  }
+
+  .app-root {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: min(88vw, 360px);
+    z-index: 100;
+    transform: translateX(calc(-100% - 20px));
+    transition: transform var(--transition-medium), box-shadow var(--transition-medium);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .toggle-sidebar {
+    display: inline-flex;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgba(4, 6, 14, 0.45);
+  }
+
+  .app-main {
+    padding-top: 56px;
+  }
+
+  .chat-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    padding-top: 22px;
+  }
+
+  .chat-topbar-note {
+    max-width: none;
+    text-align: left;
+  }
+
+  .messages {
+    padding-top: 18px;
+  }
+
+  .message-stack,
+  .tool-block {
+    max-width: 100%;
+  }
+
+  .input-meta,
+  .input-attachment-summary,
+  .messages-inline-status,
+  .sidebar-inline-status,
+  .settings-section-head,
+  .settings-switch-row,
+  .form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .input-box {
+    flex-direction: row;
+    align-items: flex-end;
+  }
+
+  .input-actions {
+    flex-direction: row;
+    flex-shrink: 0;
+  }
+
+  .message-state-card {
+    align-items: stretch;
+  }
+
+  .messages-jump {
+    margin-top: 12px;
+  }
+
+  .message-actions,
+  .btn-delete-session {
+    opacity: 1;
+  }
+
+  .message-stack-bubble.message-stack-model {
+    max-width: 100%;
+  }
+
+  .btn-delete-session {
+    background: rgba(var(--tint-rgb), 0.06);
+  }
+
+  .btn-save {
+    width: 100%;
+  }
+
+  .btn-attach,
+  .btn-send {
+    width: auto;
+  }
+
+  .inline-field-actions { flex-direction: column; }
+
+  .settings-panel {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+  }
+
+  .settings-body,
+  .settings-header {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .settings-grid.two-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  :root {
+    --app-padding: 10px;
+    --panel-padding-x: 16px;
+    --panel-padding-y: 16px;
+  }
+
+  .app-root {
+    padding: 10px;
+  }
+
+  .chat-frame,
+  .sidebar,
+  .settings-panel {
+    border-radius: 24px;
+  }
+
+  .chat-topbar,
+  .messages,
+  .input-area {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .messages-jump,
+  .input-status-badge,
+  .input-clear-attachments {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .input-shell {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .message {
+    padding: 14px 15px;
+    border-radius: 18px;
+  }
+
+  .welcome h2 {
+    font-size: 1.75rem;
+  }
+
+  .overlay {
+    padding: 10px;
+  }
+}

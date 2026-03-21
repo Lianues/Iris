@@ -1,0 +1,108 @@
+/* Global Reset & Base Styles */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(116, 215, 255, 0.16), transparent 28%),
+    radial-gradient(circle at top right, rgba(139, 124, 255, 0.18), transparent 30%),
+    linear-gradient(145deg, var(--bg-canvas) 0%, var(--bg-canvas-2) 48%, var(--bg-canvas-3) 100%);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.material-symbols-outlined {
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* 下拉选项强制使用固定颜色，避免暗色模式下白底白字 */
+select option {
+  background: #fff;
+  color: #1a1d2e;
+}
+
+button {
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+button,
+input,
+textarea,
+select {
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 1px rgba(139, 124, 255, 0.5),
+    0 0 0 4px rgba(139, 124, 255, 0.16);
+}
+
+::selection {
+  background: rgba(139, 124, 255, 0.28);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}

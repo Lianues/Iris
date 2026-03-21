@@ -19,10 +19,12 @@ src/
 ├── mcp/            MCP 客户端层
 ├── tools/          工具注册层
 ├── prompt/         提示词组装层
+├── agents/         多 Agent 系统（注册表、路径隔离）
 ├── modes/          模式系统
 ├── media/          媒体处理（图片缩放、文档提取、Office 转 PDF）
 ├── ocr/            OCR 服务（非 vision 模型的图片回退）
 ├── logger/         日志模块
+├── paths.ts        路径常量与多 Agent 路径解析
 └── config/         配置加载
 ```
 
@@ -64,7 +66,7 @@ src/
 | `src/index.ts` | 平台模式：`bootstrap()` → 创建平台适配器 → 启动长驻服务 | `npm run dev` / `bun run dev` |
 | `src/cli.ts` | CLI 模式：`bootstrap()` → `backend.chat()` → 输出 → 退出 | `npm run cli -- -p "prompt"` |
 
-`bootstrap()` 返回 `{ backend, config, router, tools, mcpManager, ... }`，两种入口共享同一套初始化逻辑。
+`bootstrap(options?)` 接受可选的 `BootstrapOptions`（含 `agentName` / `agentPaths`），返回 `BootstrapResult`。多 Agent 模式下每个 Agent 独立调用 `bootstrap()`。
 
 ---
 
@@ -136,6 +138,7 @@ npm run cli -- -p "分析这个项目"
 | [logger.md](./logger.md) | 日志模块 |
 | [config.md](./config.md) | 配置模块 |
 | [deploy.md](./deploy.md) | 部署指南 |
+| [agents.md](./agents.md) | 多 Agent 系统 |
 | [computer-use.md](./computer-use.md) | Computer Use（浏览器操控） |
 
 ## 自我升级指南（供 AI 阅读）

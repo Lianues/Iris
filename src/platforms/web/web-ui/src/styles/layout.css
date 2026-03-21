@@ -1,0 +1,120 @@
+/* App Layout Shell */
+
+.app-root {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  gap: var(--app-gap);
+  height: 100vh;
+  width: min(100%, var(--layout-max-width));
+  margin: 0 auto;
+  padding: var(--app-padding);
+  align-items: stretch;
+}
+
+.app-background {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.app-glow {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(56px);
+  opacity: 0.68;
+  animation: glowFloat 18s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+.glow-primary {
+  top: -80px;
+  left: 8%;
+  width: 360px;
+  height: 360px;
+  background: rgba(139, 124, 255, 0.2);
+}
+
+.glow-secondary {
+  right: 6%;
+  bottom: -120px;
+  width: 420px;
+  height: 420px;
+  background: rgba(116, 215, 255, 0.16);
+  animation-duration: 24s;
+  animation-direction: alternate-reverse;
+}
+
+.app-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(var(--tint-rgb), 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--tint-rgb), 0.02) 1px, transparent 1px);
+  background-size: 96px 96px;
+  mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.8), transparent 85%);
+  opacity: 0.78;
+}
+
+.app-main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.app-main > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-view-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.app-view-host > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sidebar,
+.chat-frame,
+.deploy-form,
+.deploy-output,
+.settings-panel,
+.deploy-confirm {
+  position: relative;
+  isolation: isolate;
+}
+
+.chat-frame::before,
+.deploy-form::before,
+.deploy-output::before,
+.settings-panel::before,
+.deploy-confirm::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, var(--shell-highlight), transparent 15%, transparent 78%, rgba(4, 8, 20, 0.08));
+  opacity: 0.72;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.chat-frame > *,
+.deploy-form > *,
+.deploy-output > *,
+.settings-panel > *,
+.deploy-confirm > * {
+  position: relative;
+  z-index: 1;
+}

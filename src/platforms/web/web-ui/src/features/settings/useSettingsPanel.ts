@@ -1,4 +1,5 @@
 import { ref, reactive, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import { showConfirm } from '../../composables/useConfirmDialog'
 import {
   getConfig,
   updateConfig,
@@ -987,9 +988,13 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
       await handleSave()
       if (saving.value) return
       if (dirty.value && !saving.value) {
-        const confirmedDiscard = window.confirm(
-          `${statusText.value || '当前更改尚未成功保存。'}\n\n是否放弃未保存的更改并关闭设置？`,
-        )
+        const confirmedDiscard = await showConfirm({
+          title: '放弃未保存的更改？',
+          description: `${statusText.value || '当前更改尚未成功保存。'}<br>关闭后未保存的更改将丢失。`,
+          confirmText: '放弃更改',
+          cancelText: '继续编辑',
+          danger: true,
+        })
         if (!confirmedDiscard) return
       }
     }
@@ -1708,8 +1713,14 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     }
   }
 
-  function confirmDnsDelete(rec: CfDnsRecord) {
-    if (!confirm(`确认删除 DNS 记录？\n\n${rec.type}  ${rec.name}  →  ${rec.content}`)) return
+  async function confirmDnsDelete(rec: CfDnsRecord) {
+    const confirmed = await showConfirm({
+      title: '删除 DNS 记录',
+      description: `确认删除以下 DNS 记录？<br><br><strong>${rec.type}</strong>&nbsp;&nbsp;${rec.name}&nbsp;&nbsp;→&nbsp;&nbsp;${rec.content}`,
+      confirmText: '删除',
+      danger: true,
+    })
+    if (!confirmed) return
     handleDnsDelete(rec.id)
   }
 
@@ -1753,13 +1764,63 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
   // 初始化加载 CF 状态
   onMounted(() => loadCfStatus())
 
+  // ---- 多 Agent 管理 ----
+
+  const agentStatus = reactive({
+    exists: false,
+    enabled: false,
+    agents: [] as Array<{ name: string; description?: string }>,
+    manifestPath: '',
+  })
+
+  async function loadAgentStatus() {
+    try {
+      const { getAgentStatus } = await import('../../api/client')
+      const status = await getAgentStatus()
+      agentStatus.exists = status.exists
+      agentStatus.enabled = status.enabled
+      agentStatus.agents = status.agents
+      agentStatus.manifestPath = status.manifestPath
+    } catch {
+      // 旧版后端不支持
+    }
+  }
+
+  async function handleToggleAgent() {
+    const newEnabled = !agentStatus.enabled
+    try {
+      const { toggleAgentEnabled } = await import('../../api/client')
+      const result = await toggleAgentEnabled(newEnabled)
+      if (result.success) {
+        agentStatus.enabled = newEnabled
+        statusText.value = result.message
+        statusError.value = false
+      } else {
+        statusText.value = result.message
+        statusError.value = true
+      }
+    } catch (err) {
+      statusText.value = `操作失败: ${err instanceof Error ? err.message : String(err)}`
+      statusError.value = true
+    }
+  }
+
+  onMounted(() => loadAgentStatus())
+
   // ---- 重置配置 ----
 
-  async function handleResetConfig() {
-    if (!window.confirm('确定要重置所有配置为默认值吗？\n当前的 API 密钥、模型、MCP 等设置将丢失，此操作不可撤销。')) {
-      return
-    }
+  const resetPending = ref(false)
 
+  async function handleResetConfig() {
+    const confirmed = await showConfirm({
+      title: '确认重置配置',
+      description: '此操作将把所有配置文件恢复为默认模板。<br>当前的 API 密钥、模型、MCP 等设置将<strong>永久丢失</strong>，且无法撤销。',
+      confirmText: '确认重置',
+      danger: true,
+    })
+    if (!confirmed) return
+
+    resetPending.value = true
     try {
       const { resetConfig } = await import('../../api/client')
       const result = await resetConfig()
@@ -1774,6 +1835,8 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     } catch (err) {
       statusText.value = `重置失败: ${err instanceof Error ? err.message : String(err)}`
       statusError.value = true
+    } finally {
+      resetPending.value = false
     }
   }
 
@@ -1845,5 +1908,8 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     confirmDnsDelete,
     handleZoneChange,
     handleResetConfig,
+    resetPending,
+    agentStatus,
+    handleToggleAgent,
   }
 }

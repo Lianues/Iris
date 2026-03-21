@@ -7,4 +7,6 @@ export {
   isMultiAgentEnabled,
   loadAgentDefinitions,
   resolveAgentPaths,
+  getAgentStatus,
+  setAgentEnabled,
 } from './registry';
