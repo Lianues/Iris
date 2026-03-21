@@ -55,6 +55,8 @@ export interface BootstrapResult {
   agentName?: string;
   /** Computer Use 环境实例（screen 模式下提供窗口管理能力） */
   computerEnv?: Computer;
+  /** 初始化过程中的警告信息（TUI 启动后展示给用户） */
+  initWarnings: string[];
 }
 
 /** Bootstrap 选项（多 Agent 模式传入） */
@@ -126,6 +128,7 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
 
   // ---- 3.2 注册 Computer Use 工具 ----
   let computerEnv: Computer | undefined;
+  const initWarnings: string[] = [];
   if (config.computerUse?.enabled) {
     try {
       const { BrowserEnvironment, ScreenEnvironment, createComputerUseTools, resolveEnvironmentKey } = await import('./computer-use');
@@ -151,6 +154,11 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
       }
 
       await cuEnv.initialize();
+
+      // 收集初始化警告（如窗口绑定失败）
+      if ('initWarnings' in cuEnv && Array.isArray((cuEnv as any).initWarnings)) {
+        initWarnings.push(...(cuEnv as any).initWarnings);
+      }
 
       // 用户配置的工具策略（按环境键名取对应分组）
       const userPolicy = config.computerUse.environmentTools?.[envKey as keyof typeof config.computerUse.environmentTools];
@@ -231,5 +239,6 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
     getMCPManager: () => mcpManager,
     agentName: agentLabel,
     computerEnv,
+    initWarnings,
   };
 }

@@ -32,6 +32,8 @@ export interface AppProps {
   agentName?: string;
   /** Computer Use 是否启用（控制 /window 指令在自动补全中的可见性） */
   hasComputerUse?: boolean;
+  /** 初始化过程中的警告信息（首屏展示） */
+  initWarnings?: string[];
   modeName?: string;
   modelId: string;
   modelName: string;

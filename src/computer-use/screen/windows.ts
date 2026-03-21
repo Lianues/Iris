@@ -157,7 +157,10 @@ function normalizeSelector(selector: string | WindowSelector): WindowSelector {
  */
 function windowFindScript(selector: WindowSelector, activate: boolean): string {
   const activateBlock = activate
-    ? `[WinAPI]::ShowWindow($_hwnd, 9) | Out-Null
+    ? `# 前台模式：仅最小化时恢复，不改变最大化/正常状态
+if ([WinAPI]::IsIconic($_hwnd)) {
+    [WinAPI]::ShowWindow($_hwnd, 9) | Out-Null
+}
 [WinAPI]::SetForegroundWindow($_hwnd) | Out-Null
 Start-Sleep -Milliseconds 150`
     : `# 后台模式：不激活窗口，但确保窗口不是最小化状态
@@ -282,21 +285,29 @@ export class WindowsScreenAdapter implements ScreenAdapter {
 
   async bindWindow(selector: string | WindowSelector): Promise<void> {
     const sel = normalizeSelector(selector);
-    const script = PREAMBLE + windowFindScript(sel, !this._backgroundMode) + '"$ww,$wh"';
+    // 输出 HWND 和窗口尺寸，格式: "0x001A0B2C,1920,1080"
+    const script = PREAMBLE + windowFindScript(sel, !this._backgroundMode)
+      + '"$(' + "'0x' + $_hwnd.ToString('X')" + '),$ww,$wh"';
     const output = await this.ps(script);
-    const [w, h] = output.trim().split(',').map(Number);
-    if (!w || !h) throw new Error(`窗口尺寸异常: ${output.trim()}`);
-    this._windowSelector = sel;
+    const parts = output.trim().split(',');
+    const hwnd = parts[0];
+    const w = Number(parts[1]);
+    const h = Number(parts[2]);
+    if (!hwnd || !w || !h) throw new Error(`窗口绑定异常: ${output.trim()}`);
+    // 锁定到 HWND，后续操作不再按选择器重新搜索
+    this._windowSelector = { hwnd };
   }
 
   async bindWindowByHwnd(hwnd: string): Promise<void> {
-    // 将十六进制 HWND 字符串（如 "0x001A0B2C"）转为整数，直接定位窗口
+    // 直接用 HWND 定位，验证窗口可见后锁定
     const activateBlock = this._backgroundMode
       ? `if ([WinAPI]::IsIconic($_hwnd)) {
     [WinAPI]::ShowWindow($_hwnd, 4) | Out-Null
     Start-Sleep -Milliseconds 150
 }`
-      : `[WinAPI]::ShowWindow($_hwnd, 9) | Out-Null
+      : `if ([WinAPI]::IsIconic($_hwnd)) {
+    [WinAPI]::ShowWindow($_hwnd, 9) | Out-Null
+}
 [WinAPI]::SetForegroundWindow($_hwnd) | Out-Null
 Start-Sleep -Milliseconds 150`;
 
@@ -320,17 +331,7 @@ if ($_hr -eq 0) {
     const output = await this.ps(script);
     const [w, h] = output.trim().split(',').map(Number);
     if (!w || !h) throw new Error(`窗口尺寸异常: ${output.trim()}`);
-    // 绑定后用 exactTitle 选择器保持后续操作
-    // 但实际上后续 getScreenSize / captureScreen 等方法仍需通过选择器重新定位
-    // 这里取当前窗口标题作为选择器
-    const titleScript = PREAMBLE + `
-$sb = New-Object System.Text.StringBuilder 256
-[WinAPI]::GetWindowText([IntPtr]${hwnd}, $sb, 256) | Out-Null
-$sb.ToString()
-`;
-    const titleOutput = await this.ps(titleScript);
-    const title = titleOutput.trim();
-    this._windowSelector = title ? { exactTitle: title } : { title: '' };
+    this._windowSelector = { hwnd };
   }
 
   async getScreenSize(): Promise<[number, number]> {

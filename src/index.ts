@@ -33,7 +33,7 @@ async function createPlatforms(
   result: BootstrapResult,
   options?: CreatePlatformsOptions,
 ): Promise<{ platforms: PlatformAdapter[]; webPlatformRef?: WebPlatformType }> {
-  const { backend, config, configDir, router, getMCPManager, setMCPManager, computerEnv } = result;
+  const { backend, config, configDir, router, getMCPManager, setMCPManager, computerEnv, initWarnings } = result;
   const currentModel = router.getCurrentModelInfo();
   const defaultMode = config.system.defaultMode ?? 'default';
 
@@ -126,6 +126,7 @@ async function createPlatforms(
           getMCPManager,
           setMCPManager: (manager?: MCPManager) => { setMCPManager(manager); },
           computerEnv,
+          initWarnings,
         }));
         break;
       }
@@ -313,7 +314,7 @@ async function startConsoleForAgent(
   result: BootstrapResult,
   agentName?: string,
 ): Promise<'exit' | 'switch-agent'> {
-  const { backend, config, configDir, router, getMCPManager, setMCPManager, computerEnv } = result;
+  const { backend, config, configDir, router, getMCPManager, setMCPManager, computerEnv, initWarnings } = result;
   const currentModel = router.getCurrentModelInfo();
   const defaultMode = config.system.defaultMode ?? 'default';
 
@@ -335,6 +336,7 @@ async function startConsoleForAgent(
     setMCPManager: (manager?: MCPManager) => { setMCPManager(manager); },
     agentName,
     computerEnv,
+    initWarnings,
     onSwitchAgent: () => {
       resolved = true;
       consolePlatform.stop();

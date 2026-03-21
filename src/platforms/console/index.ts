@@ -151,6 +151,8 @@ export interface ConsolePlatformOptions {
   onSwitchAgent?: () => void;
   /** Computer Use 环境实例（screen 模式下提供窗口管理能力） */
   computerEnv?: Computer;
+  /** 初始化过程中的警告信息（TUI 启动后展示） */
+  initWarnings?: string[];
 }
 
 export class ConsolePlatform extends PlatformAdapter {
@@ -164,6 +166,7 @@ export class ConsolePlatform extends PlatformAdapter {
   private onSwitchAgent?: () => void;
   private computerEnv?: Computer;
   private settingsController: ConsoleSettingsController;
+  private initWarnings: string[];
   private renderer?: CliRenderer;
   private appHandle?: AppHandle;
 
@@ -184,6 +187,7 @@ export class ConsolePlatform extends PlatformAdapter {
     this.agentName = options.agentName;
     this.onSwitchAgent = options.onSwitchAgent;
     this.computerEnv = options.computerEnv;
+    this.initWarnings = options.initWarnings ?? [];
     this.settingsController = new ConsoleSettingsController({
       backend,
       configDir: options.configDir,
@@ -346,6 +350,7 @@ export class ConsolePlatform extends PlatformAdapter {
         modelId: this.modelId,
         modelName: this.modelName,
         contextWindow: this.contextWindow,
+        initWarnings: this.initWarnings,
       });
 
       createRoot(this.renderer).render(element);

@@ -14,6 +14,7 @@ import type { WindowInfo } from '../../computer-use/types';
 import { BottomPanel } from './components/BottomPanel';
 import { ChatMessageList } from './components/ChatMessageList';
 import { DiffApprovalView } from './components/DiffApprovalView';
+import { InitWarnings } from './components/InitWarnings';
 import { LogoScreen } from './components/LogoScreen';
 import { ModelListView } from './components/ModelListView';
 import { SessionListView } from './components/SessionListView';
@@ -56,6 +57,7 @@ export function App({
   onSwitchWindow,
   onSwitchAgent,
   hasComputerUse,
+  initWarnings,
   agentName,
   modeName,
   modelId,
@@ -192,6 +194,7 @@ export function App({
   return (
     <box flexDirection="column" width="100%" height="100%">
       {!hasMessages ? <LogoScreen /> : null}
+      {!hasMessages && initWarnings && initWarnings.length > 0 ? <InitWarnings warnings={initWarnings} /> : null}
 
       {hasMessages ? (
         <ChatMessageList

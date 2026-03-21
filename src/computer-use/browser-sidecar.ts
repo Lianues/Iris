@@ -261,13 +261,13 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
         await doHighlightMouse(p.x as number, p.y as number);
         await page.mouse.click(p.x as number, p.y as number);
         await page.waitForLoadState('load', { timeout: 5000 }).catch(() => {});
-        if (p.clearBeforeTyping !== false) {
+        if (p.clearBeforeTyping === true) {
           await doKeyCombination(['Control', 'A']);
           await doKeyCombination(['Delete']);
         }
         await page.keyboard.type(p.text as string);
         await page.waitForLoadState('load', { timeout: 5000 }).catch(() => {});
-        if (p.pressEnter !== false) {
+        if (p.pressEnter === true) {
           await doKeyCombination(['Enter']);
         }
         result = await captureState();

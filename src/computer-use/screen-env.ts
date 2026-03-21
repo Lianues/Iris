@@ -31,6 +31,7 @@ export interface ScreenEnvConfig {
 export class ScreenEnvironment implements Computer {
   private _config: ScreenEnvConfig;
   private _screenSize: [number, number] = [1920, 1080];
+  readonly initWarnings: string[] = [];
   private _child: ChildProcess | null = null;
   private _rl: readline.Interface | null = null;
   private _nextId = 1;
@@ -87,6 +88,10 @@ export class ScreenEnvironment implements Computer {
 
     if (result.screenSize) {
       this._screenSize = result.screenSize;
+    }
+    // 收集 sidecar 返回的初始化警告
+    if (Array.isArray(result.warnings)) {
+      this.initWarnings.push(...result.warnings);
     }
   }
 

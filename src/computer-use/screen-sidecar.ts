@@ -52,6 +52,7 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
 
       case 'initialize': {
         log('正在检测平台适配器...');
+        const warnings: string[] = [];
         adapter = getScreenAdapter() ?? null;
         if (!adapter) {
           throw new Error(`当前操作系统 (${process.platform}) 不支持 screen 环境`);
@@ -73,14 +74,20 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
 
           const label = typeof targetWindow === 'string' ? targetWindow : JSON.stringify(targetWindow);
           log(`正在绑定目标窗口: ${label} ...`);
-          await adapter.bindWindow(targetWindow);
-          screenSize = await adapter.getScreenSize();
-          log(`窗口模式已启用，窗口尺寸: ${screenSize[0]}×${screenSize[1]}`);
+          try {
+            await adapter.bindWindow(targetWindow);
+            screenSize = await adapter.getScreenSize();
+            log(`窗口模式已启用，窗口尺寸: ${screenSize[0]}×${screenSize[1]}`);
+          } catch (e: any) {
+            const msg = `窗口绑定失败: ${e?.message ?? e}，已回退到全屏模式。可用 /window 手动绑定。`;
+            log(msg);
+            warnings.push(msg);
+          }
         }
         log(`屏幕尺寸: ${screenSize[0]}×${screenSize[1]}`);
 
         log('Screen 环境就绪');
-        result = { ok: true, screenSize };
+        result = { ok: true, screenSize, warnings };
         break;
       }
 
@@ -194,7 +201,7 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
         if (!adapter) throw new Error('adapter 未初始化');
         await adapter.click(p.x as number, p.y as number);
         await sleep(200);
-        if (p.clearBeforeTyping !== false) {
+        if (p.clearBeforeTyping === true) {
           await adapter.keyCombination(['Control', 'A']);
           await sleep(50);
           await adapter.keyPress('Delete');
@@ -202,7 +209,7 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
         }
         await adapter.typeText(p.text as string);
         await sleep(200);
-        if (p.pressEnter !== false) {
+        if (p.pressEnter === true) {
           await adapter.keyPress('Enter');
         }
         result = await captureState();
