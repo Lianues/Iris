@@ -194,7 +194,7 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
         if (!adapter) throw new Error('adapter 未初始化');
         await adapter.click(p.x as number, p.y as number);
         await sleep(200);
-        if (p.clearBeforeTyping !== false) {
+        if (p.clearBeforeTyping === true) {
           await adapter.keyCombination(['Control', 'A']);
           await sleep(50);
           await adapter.keyPress('Delete');
@@ -202,7 +202,7 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
         }
         await adapter.typeText(p.text as string);
         await sleep(200);
-        if (p.pressEnter !== false) {
+        if (p.pressEnter === true) {
           await adapter.keyPress('Enter');
         }
         result = await captureState();
