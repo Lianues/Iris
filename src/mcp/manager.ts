@@ -9,8 +9,9 @@ import { ToolDefinition } from '../types';
 import { MCPClient } from './client';
 import { MCPServerInfo } from './types';
 import { createLogger } from '../logger';
-import dereferenceJsonSchema from 'dereference-json-schema';
-const { dereferenceSync } = dereferenceJsonSchema;
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { dereferenceSync } = require('dereference-json-schema');
 
 const logger = createLogger('MCPManager');
 
