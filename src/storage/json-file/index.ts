@@ -3,45 +3,46 @@
  *
  * 每个 session 对应两个文件：
  *   - {sessionId}.json       对话历史（Content[]）
- *   - {sessionId}.meta.json会话元数据（SessionMeta）
+ *   - {sessionId}.meta.json  会话元数据（SessionMeta）
  *
- * 数据存储为原始 Gemini 格式，可直接人工阅读、编辑、调试。
+ * 大型内联二进制数据（截图、用户上传图片等）自动提取到 attachments/ 目录，
+ * JSON 中只存储轻量引用，读取历史时按需还原。
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { StorageProvider, SessionMeta } from '../base';
 import { Content } from '../../types';
-import { sessionsDir } from '../../paths';
+import { sessionsDir, attachmentsDir as defaultAttachmentsDir } from '../../paths';
+import { extractAttachments, restoreAttachments } from '../attachment';
 
 export class JsonFileStorage extends StorageProvider {
   private dir: string;
-  /** per-session 写锁，防止并发 read-modify-write竞争 */
+  private attachmentsDir: string;
+  /** per-session 写锁，防止并发 read-modify-write 竞争 */
   private locks = new Map<string, Promise<void>>();
 
-  constructor(dir: string = sessionsDir) {
+  constructor(dir: string = sessionsDir, attachmentsDir?: string) {
     super();
     this.dir = path.resolve(dir);
+    this.attachmentsDir = attachmentsDir ?? defaultAttachmentsDir;
   }
 
   // ============ 对话历史 ============
 
   async getHistory(sessionId: string): Promise<Content[]> {
-    try {
-      const data = await fs.readFile(this.historyPath(sessionId), 'utf-8');
-      return JSON.parse(data) as Content[];
-    } catch (err: unknown) {
-      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return [];
-      }
-      throw err;
-    }
+    const raw = await this.readRawHistory(sessionId);
+    // 还原附件引用 → 完整 base64
+    return Promise.all(raw.map(c => restoreAttachments(c, this.attachmentsDir)));
   }
 
   async addMessage(sessionId: string, content: Content): Promise<void> {
     await this.withLock(sessionId, async () => {
-      const history = await this.getHistory(sessionId);
-      history.push(this.normalize(content));
+      // 读原始数据（包含引用），不还原
+      const history = await this.readRawHistory(sessionId);
+      // 新消息：归一化 + 提取附件
+      const extracted = await extractAttachments(this.normalize(content), this.attachmentsDir);
+      history.push(extracted);
       await this.ensureDir();
       await fs.writeFile(this.historyPath(sessionId), JSON.stringify(history, null, 2), 'utf-8');
     });
@@ -49,9 +50,11 @@ export class JsonFileStorage extends StorageProvider {
 
   async updateLastMessage(sessionId: string, updater: (content: Content) => Content): Promise<void> {
     await this.withLock(sessionId, async () => {
-      const history = await this.getHistory(sessionId);
+      const history = await this.readRawHistory(sessionId);
       if (history.length === 0) return;
-      history[history.length - 1] = this.normalize(updater(history[history.length - 1]));
+      // updater 接收原始数据（含引用），仅修改 durationMs 等元字段，不动 parts
+      const updated = this.normalize(updater(history[history.length - 1]));
+      history[history.length - 1] = await extractAttachments(updated, this.attachmentsDir);
       await this.ensureDir();
       await fs.writeFile(this.historyPath(sessionId), JSON.stringify(history, null, 2), 'utf-8');
     });
@@ -59,7 +62,7 @@ export class JsonFileStorage extends StorageProvider {
 
   async truncateHistory(sessionId: string, keepCount: number): Promise<void> {
     await this.withLock(sessionId, async () => {
-      const history = await this.getHistory(sessionId);
+      const history = await this.readRawHistory(sessionId);
       if (history.length <= keepCount) return;
       const truncated = history.slice(0, keepCount);
       await this.ensureDir();
@@ -67,7 +70,7 @@ export class JsonFileStorage extends StorageProvider {
     });
   }
 
-  async clearHistory(sessionId:string): Promise<void> {
+  async clearHistory(sessionId: string): Promise<void> {
     await this.withLock(sessionId, async () => {
       try {
         await fs.unlink(this.historyPath(sessionId));
@@ -85,7 +88,7 @@ export class JsonFileStorage extends StorageProvider {
         .filter(f => f.endsWith('.json') && !f.endsWith('.meta.json'))
         .map(f => f.replace(/\.json$/, ''));
     } catch {
- return [];
+      return [];
     }
   }
 
@@ -118,6 +121,23 @@ export class JsonFileStorage extends StorageProvider {
   }
 
   // ============ 内部方法 ============
+
+  /**
+   * 读取原始历史数据（不还原附件引用）。
+   * 内部用于 addMessage / updateLastMessage / truncateHistory，
+   * 避免在写入路径上触发不必要的文件 I/O。
+   */
+  private async readRawHistory(sessionId: string): Promise<Content[]> {
+    try {
+      const data = await fs.readFile(this.historyPath(sessionId), 'utf-8');
+      return JSON.parse(data) as Content[];
+    } catch (err: unknown) {
+      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return [];
+      }
+      throw err;
+    }
+  }
 
   private historyPath(sessionId: string): string {
     const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');

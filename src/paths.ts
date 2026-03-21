@@ -12,6 +12,7 @@
  *   ├── configs/       配置文件（yaml）
  *   ├── sessions/      JSON 会话存储
  *   ├── logs/          LLM 请求日志
+ *   ├── attachments/   消息附件（截图等二进制文件）
  *   ├── iris.db        SQLite 会话数据库（可选）
  *   └── memory.db      记忆数据库（可选）
  */
@@ -34,6 +35,9 @@ export const sessionsDir = path.join(dataDir, 'sessions');
 /** LLM 请求日志目录 */
 export const logsDir = path.join(dataDir, 'logs');
 
+/** 消息附件存储目录（截图等大型二进制文件） */
+export const attachmentsDir = path.join(dataDir, 'attachments');
+
 /** SQLite 会话数据库默认路径 */
 export const sessionDbPath = path.join(dataDir, 'iris.db');
 
@@ -50,6 +54,8 @@ export const projectRoot = path.resolve(path.dirname(__filename), '..');
 export interface AgentPaths {
   /** Agent 数据根目录 */
   dataDir: string;
+  /** 消息附件存储目录 */
+  attachmentsDir: string;
   /** 配置文件目录 */
   configDir: string;
   /** JSON 会话存储目录 */
@@ -70,6 +76,7 @@ export function getAgentPaths(agentName: string, customDataDir?: string): AgentP
   return {
     dataDir: agentDataDir,
     configDir: path.join(agentDataDir, 'configs'),
+    attachmentsDir: path.join(agentDataDir, 'attachments'),
     sessionsDir: path.join(agentDataDir, 'sessions'),
     logsDir: path.join(agentDataDir, 'logs'),
     sessionDbPath: path.join(agentDataDir, 'iris.db'),
@@ -79,5 +86,5 @@ export function getAgentPaths(agentName: string, customDataDir?: string): AgentP
 
 /** 获取默认（单 Agent）路径集，等价于现有全局常量 */
 export function getDefaultPaths(): AgentPaths {
-  return { dataDir, configDir, sessionsDir, logsDir, sessionDbPath, memoryDbPath };
+  return { dataDir, configDir, attachmentsDir, sessionsDir, logsDir, sessionDbPath, memoryDbPath };
 }

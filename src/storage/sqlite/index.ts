@@ -3,6 +3,9 @@
  *
  * 使用 better-sqlite3（同步 API）实现，包装为 async 接口。
  * 开启 WAL 模式，天然支持并发读写，无需手动加锁。
+ *
+ * 大型内联二进制数据（截图、用户上传图片等）自动提取到 attachments/ 目录，
+ * 数据库中只存储轻量引用，读取历史时按需还原。
  */
 
 import * as fs from 'fs';
@@ -10,20 +13,23 @@ import * as path from 'path';
 import Database from 'better-sqlite3';
 import { StorageProvider, SessionMeta } from '../base';
 import { Content } from '../../types';
-import { sessionDbPath } from '../../paths';
+import { sessionDbPath, attachmentsDir as defaultAttachmentsDir } from '../../paths';
+import { extractAttachments, restoreAttachments } from '../attachment';
 
 export class SqliteStorage extends StorageProvider {
   private db: Database.Database;
+  private attachmentsDir: string;
 
-  constructor(dbPath: string = sessionDbPath) {
+  constructor(dbPath: string = sessionDbPath, attachmentsDir?: string) {
     super();
 
     const resolved = path.resolve(dbPath);
     const dir = path.dirname(resolved);
-   fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
 
     this.db = new Database(resolved);
     this.db.pragma('journal_mode = WAL');
+    this.attachmentsDir = attachmentsDir ?? defaultAttachmentsDir;
 
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS messages (
@@ -50,14 +56,17 @@ export class SqliteStorage extends StorageProvider {
     const rows = this.db
       .prepare('SELECT content FROM messages WHERE session_id = ? ORDER BY id')
       .all(sessionId) as { content: string }[];
-    return rows.map(row => JSON.parse(row.content) as Content);
+    const contents = rows.map(row => JSON.parse(row.content) as Content);
+    // 还原附件引用 → 完整 base64
+    return Promise.all(contents.map(c => restoreAttachments(c, this.attachmentsDir)));
   }
 
   async addMessage(sessionId: string, content: Content): Promise<void> {
-    const normalized = this.normalize(content);
+    // 归一化 + 提取附件
+    const extracted = await extractAttachments(this.normalize(content), this.attachmentsDir);
     this.db
       .prepare('INSERT INTO messages (session_id, content) VALUES (?, ?)')
-      .run(sessionId, JSON.stringify(normalized));
+      .run(sessionId, JSON.stringify(extracted));
   }
 
   async updateLastMessage(sessionId: string, updater: (content: Content) => Content): Promise<void> {
@@ -67,9 +76,10 @@ export class SqliteStorage extends StorageProvider {
     if (!row) return;
     const content = JSON.parse(row.content) as Content;
     const updated = this.normalize(updater(content));
+    const extracted = await extractAttachments(updated, this.attachmentsDir);
     this.db
       .prepare('UPDATE messages SET content = ? WHERE id = ?')
-      .run(JSON.stringify(updated), row.id);
+      .run(JSON.stringify(extracted), row.id);
   }
 
   async truncateHistory(sessionId: string, keepCount: number): Promise<void> {
@@ -92,13 +102,13 @@ export class SqliteStorage extends StorageProvider {
       .prepare('SELECT DISTINCT session_id FROM messages')
       .all() as { session_id: string }[];
     return rows.map(row => row.session_id);
-}
+  }
 
   // ============ 会话元数据 ============
 
   async getMeta(sessionId: string): Promise<SessionMeta | null> {
     const row = this.db
-   .prepare('SELECT * FROM session_meta WHERE session_id = ?')
+      .prepare('SELECT * FROM session_meta WHERE session_id = ?')
       .get(sessionId) as { session_id: string; title: string; cwd: string; created_at: string; updated_at: string } | undefined;
     if (!row) return null;
     return {

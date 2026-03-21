@@ -32,6 +32,7 @@
     "jszip": "^3.10.1",
     "mammoth": "^1.11.0",
     "marked": "^17.0.4",
+    "mime-types": "^3.0.2",
     "pdf-parse": "^2.4.5",
     "playwright": "^1.58.2",
     "react": ">=19.0.0",
@@ -48,6 +49,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/mime-types": "^3.0.1",
     "@types/node": "^22.19.15",
     "@types/react": ">=19.0.0",
     "@types/ws": "^8.18.0",
