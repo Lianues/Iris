@@ -84,14 +84,16 @@ export function useAppHandle({ onReady, undoRedoRef }: UseAppHandleOptions): Use
           setMessages((prev) => appendAssistantParts(prev, [textPart], meta));
           return;
         }
+        // 发送新用户消息时，清除错误消息、命令消息、以及残留的空 assistant 占位消息
         setMessages((prev) => [
-          ...prev.filter((message) => !message.isError && !message.isCommand),
+          ...prev.filter((m) => !m.isError && !m.isCommand && !(m.role === 'assistant' && m.parts.length === 0)),
           { id: nextMsgId(), role, parts: [textPart], ...meta },
         ]);
       },
       addErrorMessage(text) {
+        // 添加错误消息前，先移除可能存在的空 assistant 占位消息
         setMessages((prev) => [
-          ...prev,
+          ...prev.filter((m) => !(m.role === 'assistant' && m.parts.length === 0)),
           { id: nextMsgId(), role: 'assistant', parts: [{ type: 'text', text }], isError: true },
         ]);
       },
