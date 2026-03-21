@@ -11,6 +11,8 @@
 
 import { loadConfig, findConfigFile, AppConfig } from './config';
 import { setRequestLogging } from './llm/transport';
+import { setLogsDir } from './logger/request-logger';
+import type { AgentPaths } from './paths';
 import { createLLMRouter } from './llm/factory';
 import { LLMRouter } from './llm/router';
 import { JsonFileStorage } from './storage/json-file';
@@ -48,11 +50,29 @@ export interface BootstrapResult {
   /** 更新 mcpManager 引用（供 Web 平台热重载使用） */
   setMCPManager: (manager?: MCPManager) => void;
   getMCPManager: () => MCPManager | undefined;
+  /** Agent 名称（多 Agent 模式下标识；单 Agent 模式为 undefined） */
+  agentName?: string;
 }
 
-export async function bootstrap(): Promise<BootstrapResult> {
-  const configDir = findConfigFile();
-  const config = loadConfig();
+/** Bootstrap 选项（多 Agent 模式传入） */
+export interface BootstrapOptions {
+  /** Agent 名称（用于日志标识和 TUI 显示） */
+  agentName?: string;
+  /** Agent 专属路径集（不提供则使用全局默认路径） */
+  agentPaths?: AgentPaths;
+}
+
+export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapResult> {
+  const agentPaths = options?.agentPaths;
+  const agentLabel = options?.agentName;
+
+  const configDir = findConfigFile(agentPaths?.configDir);
+  const config = loadConfig(agentPaths?.configDir, agentPaths);
+
+  // 多 Agent 模式：将日志目录指向 agent 专属路径
+  if (agentPaths?.logsDir) {
+    setLogsDir(agentPaths.logsDir);
+  }
 
   // ---- 0. 配置日志 ----
   setRequestLogging(!!config.system.logRequests);
@@ -203,5 +223,6 @@ export async function bootstrap(): Promise<BootstrapResult> {
     mcpManager,
     setMCPManager: (manager?: MCPManager) => { mcpManager = manager; },
     getMCPManager: () => mcpManager,
+    agentName: agentLabel,
   };
 }

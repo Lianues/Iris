@@ -123,6 +123,10 @@ interface AppProps {
   onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => Promise<ConsoleSettingsSaveResult>;
   onResetConfig: () => { success: boolean; message: string };
   onExit: () => void;
+  /** 切换 Agent 回调（多 Agent 模式下由 /agent 指令触发） */
+  onSwitchAgent?: () => void;
+  /** 当前 Agent 名称（多 Agent 模式下显示在状态栏） */
+  agentName?: string;
   modeName?: string;
   modelId: string;
   modelName: string;
@@ -130,7 +134,7 @@ interface AppProps {
 }
 
 type ViewMode = 'chat' | 'session-list' | 'model-list' | 'settings';
-export function App({ onReady, onSubmit, onUndo, onRedo, onClearRedoStack, onToolApproval, onToolApply, onAbort, onNewSession, onLoadSession, onListSessions, onRunCommand, onListModels, onSwitchModel, onLoadSettings, onSaveSettings, onResetConfig, onExit, modeName, modelId, modelName, contextWindow }: AppProps) {
+export function App({ onReady, onSubmit, onUndo, onRedo, onClearRedoStack, onToolApproval, onToolApply, onAbort, onNewSession, onLoadSession, onListSessions, onRunCommand, onListModels, onSwitchModel, onLoadSettings, onSaveSettings, onResetConfig, onExit, onSwitchAgent, agentName, modeName, modelId, modelName, contextWindow }: AppProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingParts, setStreamingParts] = useState<MessagePart[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -349,6 +353,11 @@ export function App({ onReady, onSubmit, onUndo, onRedo, onClearRedoStack, onToo
   // ============ 命令处理 ============
   const handleSubmit = useCallback((text: string) => {
     if (text === '/exit') { onExit(); return; }
+    if (text === '/agent') {
+      if (onSwitchAgent) { onSwitchAgent(); return; }
+      setMessages((prev) => [...prev.filter(m => !m.isCommand), { id: nextMsgId(), role: 'assistant' as const, parts: [{ type: 'text' as const, text: '当前未启用多 Agent 模式。请在 ~/.iris/agents.yaml 中设置 enabled: true。' }], isCommand: true }]);
+      return;
+    }
     if (text === '/new') { clearRedo(undoRedoRef.current); onClearRedoStack(); setMessages([]); toolInvocationsRef.current = []; onNewSession(); return; }
     if (text === '/undo') {
       void onUndo().then((ok) => {
@@ -418,7 +427,7 @@ export function App({ onReady, onSubmit, onUndo, onRedo, onClearRedoStack, onToo
     clearRedo(undoRedoRef.current);
     onClearRedoStack();
     onSubmit(text);
-  }, [onSubmit, onUndo, onRedo, onClearRedoStack, onNewSession, onListSessions, onRunCommand, onListModels, onSwitchModel, onResetConfig, onExit]);
+  }, [onSubmit, onUndo, onRedo, onClearRedoStack, onNewSession, onListSessions, onRunCommand, onListModels, onSwitchModel, onResetConfig, onExit, onSwitchAgent]);
 
   // ============ 键盘输入 ============
   useKeyboard((key) => {
@@ -703,6 +712,8 @@ export function App({ onReady, onSubmit, onUndo, onRedo, onClearRedoStack, onToo
             <box flexDirection="row" marginTop={1}>
               <box flexGrow={1}>
                 <text>
+                  {agentName ? <span fg={C.accent}><strong>[{agentName}]</strong></span> : null}
+                  {agentName ? <span fg={C.dim}> · </span> : null}
                   <span fg={C.primaryLight}><strong>{modeNameCapitalized}</strong></span>
                   <span fg={C.dim}> · </span>
                   <span fg={C.textSec}>{currentModelName}</span>

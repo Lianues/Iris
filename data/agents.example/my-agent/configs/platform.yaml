@@ -1,0 +1,49 @@
+# 平台配置
+
+# 类型: console | discord | telegram | web | wxwork | lark
+# 支持单平台或多平台同时启动：
+#   type: console            # 单平台
+#   type: [console, web]     # 多平台同时启动
+type: console
+
+discord:
+  token: your-discord-bot-token
+
+telegram:
+  token: your-telegram-bot-token
+  # 是否在流式回复中展示工具执行状态（默认 true）
+  # showToolStatus: false
+  # 群聊中是否要求 @机器人 后才响应（默认 true）
+  # groupMentionRequired: true
+
+web:
+  port: 8192
+  # 127.0.0.1 = 仅本机访问（配合 Nginx 反代使用，推荐）
+  # 0.0.0.0   = 允许所有网络接口访问（本地开发/无反代时使用）
+  host: 127.0.0.1
+  # API 全局认证令牌（可选，未配置时不启用）
+  # authToken: your-secret-token-here
+  # 管理接口认证令牌（推荐）
+  # managementToken: your-management-token-here
+
+wxwork:
+  # 企业微信智能机器人 Bot ID 和 Secret
+  # 在企业微信管理后台 → 应用管理 → 智能机器人 中创建并获取
+  # 文档: https://developer.work.weixin.qq.com/document/path/101463
+  botId: your-bot-id
+  secret: your-bot-secret
+  # 是否在流式回复中展示工具执行状态（默认 true）
+  # showToolStatus: false
+
+lark:
+  # 飞书自建应用 App ID 和 App Secret
+  # 在飞书开放平台创建自建应用，开启「机器人」能力后获取
+  # 文档: https://open.feishu.cn/document/home/develop-a-bot-in-5-minutes
+  appId: your-app-id
+  appSecret: your-app-secret
+  # 是否在流式回复中展示工具执行状态（默认 true）
+  # showToolStatus: false
+  # 可选：Webhook 模式用的验证 token（WebSocket 模式不需要）
+  # verificationToken: your-verification-token
+  # 可选：Webhook 模式用的加密 key（WebSocket 模式不需要）
+  # encryptKey: your-encrypt-key

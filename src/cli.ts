@@ -13,6 +13,8 @@
  */
 
 import { bootstrap } from './bootstrap';
+import { isMultiAgentEnabled, loadAgentDefinitions, resolveAgentPaths } from './agents';
+import type { BootstrapOptions } from './bootstrap';
 import type { Content } from './types';
 import type { ToolInvocation } from './types/tool';
 import { createRequire } from 'module';
@@ -23,6 +25,7 @@ interface CLIOptions {
   prompt: string;
   sessionId: string;
   model?: string;
+  agent?: string;
   cwd?: string;
   stream?: boolean;
   outputFormat: 'text' | 'json';
@@ -43,6 +46,7 @@ Iris CLI - AI Agent 命令行接口
   -p, --prompt <text>           提示词文本
   -s, --session <id>            会话ID（支持多轮对话）
   --model <name>                覆盖默认模型
+  --agent <name>                指定 Agent（多 Agent 模式）
   --cwd <dir>                   工具执行的工作目录
   --stream                      流式输出（边生成边打印）
   --no-stream                   禁用流式输出
@@ -72,6 +76,7 @@ function parseArgs(argv: string[]): CLIOptions {
   let prompt = '';
   let sessionId = '';
   let model: string | undefined;
+  let agent: string | undefined;
   let cwd: string | undefined;
   let stream: boolean | undefined;
   let outputFormat: 'text' | 'json' = 'text';
@@ -103,6 +108,9 @@ function parseArgs(argv: string[]): CLIOptions {
         break;
       case '--model':
         model = args[++i] || undefined;
+        break;
+      case '--agent':
+        agent = args[++i] || undefined;
         break;
       case '--cwd':
         cwd = args[++i] || undefined;
@@ -136,7 +144,7 @@ function parseArgs(argv: string[]): CLIOptions {
     sessionId = generateSessionId();
   }
 
-  return { prompt, sessionId, model, cwd, stream, outputFormat, printTools, help, version };
+  return { prompt, sessionId, model, agent, cwd, stream, outputFormat, printTools, help, version };
 }
 
 async function readStdin(): Promise<string> {
@@ -191,7 +199,30 @@ async function main() {
   }
 
   // 初始化核心
-  const { backend } = await bootstrap();
+  let bootstrapOpts: BootstrapOptions | undefined;
+  if (options.agent) {
+    // 指定了 --agent：从多 Agent 注册表查找
+    if (!isMultiAgentEnabled()) {
+      console.error('错误: 使用 --agent 需先在 ~/.iris/agents.yaml 中设置 enabled: true。');
+      process.exit(1);
+    }
+    const agentDefs = loadAgentDefinitions();
+    const def = agentDefs.find(d => d.name === options.agent);
+    if (!def) {
+      console.error(`错误: 未找到 Agent "${options.agent}"。可用 Agent: ${agentDefs.map(d => d.name).join(', ')}`);
+      process.exit(1);
+    }
+    bootstrapOpts = { agentName: def.name, agentPaths: resolveAgentPaths(def) };
+  } else if (isMultiAgentEnabled()) {
+    // 多 Agent 模式但未指定 --agent：使用第一个 agent
+    const agentDefs = loadAgentDefinitions();
+    if (agentDefs.length > 0) {
+      const def = agentDefs[0];
+      bootstrapOpts = { agentName: def.name, agentPaths: resolveAgentPaths(def) };
+    }
+  }
+
+  const { backend } = await bootstrap(bootstrapOpts);
 
   // CLI 模式下强制所有工具自动审批（headless 无人交互）
   backend.reloadConfig({

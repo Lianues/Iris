@@ -1,0 +1,71 @@
+# LLM 配置（模型池）
+# defaultModel: 启动时默认使用的模型名称
+# models:       可用模型列表，键名就是模型名称
+
+# defaultModel 必须指向 models 中的某个模型名称
+# 运行中的 Console TUI 可以通过 /model 指令切换当前使用的模型
+
+defaultModel: gemini_flash
+
+models:
+  gemini_flash:
+    # 提供商: gemini | openai-compatible | openai-responses | claude
+    provider: gemini
+    apiKey: your-api-key-here
+    # model 字段填写提供商真实模型 id
+    model: gemini-2.0-flash
+    # Gemini 要以 /v1beta 结尾；OpenAI 兼容 / OpenAI Responses / Claude 要以 /v1 结尾
+    # 在此基础上，程序再补全具体接口后缀
+    baseUrl: https://generativelanguage.googleapis.com/v1beta
+    # 是否支持图片输入；不填时程序会按模型名自动判断。
+    # 如果你使用代理网关、自定义模型别名，建议显式填写。
+    supportsVision: true
+
+    # 模型上下文窗口大小（token 数，用于 TUI 显示占用比例）
+    # 常见模型已有内置默认值，通常无需手动设置
+    # contextWindow: 1048576
+
+    # 自定义请求头：会覆盖 provider 内置同名 header
+    # headers:
+    #   x-goog-api-key: your-override-key
+    #   x-custom-header: hello
+
+    # 自定义请求体：会深合并到 provider 编码后的最终请求体，支持嵌套参数
+    # 例如 Gemini thinking / 输出长度 / 温度等都可以直接这样配置
+    # requestBody:
+    #   generationConfig:
+    #     maxOutputTokens: 32000
+    #     temperature: 1
+    #     topP: 1
+    #     thinkingConfig:
+    #       thinkingBudget: 1228
+    #       includeThoughts: true
+
+  # gpt4o_mini:
+  #   provider: openai-compatible
+  #   apiKey: your-api-key-here
+  #   model: gpt-4o-mini
+  #   baseUrl: https://api.openai.com/v1
+  #   supportsVision: false
+
+  # gpt4o:
+  #   provider: openai-responses
+  #   apiKey: your-api-key-here
+  #   model: gpt-4o
+  #   baseUrl: https://api.openai.com/v1
+  #   supportsVision: true
+
+# Claude 示例：
+# models:
+#   claude_sonnet:
+#     provider: claude
+#     apiKey: your-api-key-here
+#     model: claude-sonnet-4-6
+#     baseUrl: https://api.anthropic.com/v1
+# Gemini 示例：
+# models:
+#   gemini_flash:
+#     provider: gemini
+#     apiKey: your-api-key-here
+#     model: gemini-2.0-flash
+#     baseUrl: https://generativelanguage.googleapis.com/v1beta

@@ -4,11 +4,12 @@
 
 import { MemoryConfig } from './types';
 import { memoryDbPath } from '../paths';
+import type { AgentPaths } from '../paths';
 
-export function parseMemoryConfig(raw: any): MemoryConfig {
+export function parseMemoryConfig(raw: any, agentPaths?: AgentPaths): MemoryConfig {
   if (!raw) return { enabled: false };
   return {
     enabled: raw.enabled ?? false,
-    dbPath: raw.dbPath ?? memoryDbPath,
+    dbPath: raw.dbPath ?? agentPaths?.memoryDbPath ?? memoryDbPath,
   };
 }

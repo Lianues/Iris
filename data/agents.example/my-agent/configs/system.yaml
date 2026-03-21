@@ -1,0 +1,25 @@
+# 系统配置（Agent: my-agent）
+#
+# 每个 agent 拥有独立的系统配置。
+# 你可以为不同 agent 设置不同的提示词、工具轮次等。
+
+# 系统提示词（留空则使用默认）
+systemPrompt: ""
+
+# 工具执行最大轮次
+maxToolRounds: 200
+
+# 流式输出
+stream: true
+
+# LLM 调用报错自动重试（默认开启）
+retryOnError: true
+
+# 最大重试次数（默认 3）
+maxRetries: 3
+
+# 子代理最大嵌套深度（默认 3）
+# maxAgentDepth: 3
+
+# 默认模式（需与 modes.yaml 中定义的名称对应）
+# defaultMode: code

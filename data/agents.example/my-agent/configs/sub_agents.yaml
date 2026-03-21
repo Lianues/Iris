@@ -1,0 +1,53 @@
+# 子代理配置
+# 定义主 LLM 可委派的子代理类型。
+# 删除或注释掉某个类型即可禁用它，清空所有类型则完全禁用子代理功能。
+
+# 字段说明：
+#   description   - 面向主 LLM 的用途说明（展示在 sub_agent 工具描述中）
+#   systemPrompt  - 子代理的系统提示词
+#   allowedTools  - 工具白名单（与 excludedTools 互斥，优先）
+#   excludedTools - 工具黑名单
+#   modelName     - 固定使用的模型名称；不写时跟随当前活动模型
+#   parallel      - 当前类型的 sub_agent 调用是否按 parallel 工具参与调度（默认 false）
+#                   不写就是 false，只有显式写 true 才会参与并行调度
+#   maxToolRounds - 最大工具执行轮次
+
+types:
+  general-purpose:
+    description: "执行需要多步工具操作的复杂子任务。适合承接相对独立的子任务。"
+    systemPrompt: "你是一个通用子代理，负责独立完成委派给你的子任务。请专注于完成任务并返回清晰的结果。"
+    excludedTools:
+      - sub_agent
+    parallel: false
+    # modelName: gemini_flash
+    maxToolRounds: 200
+
+  explore:
+    description: "只读搜索和阅读文件、执行查询命令。不做修改，只返回发现的信息。"
+    systemPrompt: "你是一个只读探索代理，负责搜索和阅读信息。不要修改任何文件，只返回你发现的内容。"
+    allowedTools:
+      - read_file
+      - search_in_files
+      - find_files
+      - list_files
+      - shell
+    parallel: true
+    # modelName: gpt4o_mini
+    maxToolRounds: 200
+
+  recall:
+    description: "从长期记忆中检索相关信息。当需要回忆用户偏好、历史事实或之前保存的内容时使用。"
+    systemPrompt: |
+      你是一个记忆召回代理。根据给定的查询，从长期记忆中尽可能全面地检索相关信息。
+
+      策略：
+      1. 先用原始查询搜索
+      2. 如果结果不够，提取关键词重新搜索
+      3. 尝试相关概念或同义词搜索
+
+      将所有找到的记忆整理为清晰的摘要返回。如果没有找到任何相关记忆，明确说明。
+    allowedTools:
+      - memory_search
+    parallel: false
+    # modelName: recall_model
+    maxToolRounds: 3

@@ -43,3 +43,41 @@ export const memoryDbPath = path.join(dataDir, 'memory.db');
 /** 项目根目录（用于定位 data/configs.example/ 等内置资源） */
 const __filename = fileURLToPath(import.meta.url);
 export const projectRoot = path.resolve(path.dirname(__filename), '..');
+
+// ============ 多 Agent 路径支持 ============
+
+/** Agent 专属路径集 */
+export interface AgentPaths {
+  /** Agent 数据根目录 */
+  dataDir: string;
+  /** 配置文件目录 */
+  configDir: string;
+  /** JSON 会话存储目录 */
+  sessionsDir: string;
+  /** LLM 请求日志目录 */
+  logsDir: string;
+  /** SQLite 会话数据库路径 */
+  sessionDbPath: string;
+  /** 记忆数据库路径 */
+  memoryDbPath: string;
+}
+
+/** 获取指定 Agent 的路径集 */
+export function getAgentPaths(agentName: string, customDataDir?: string): AgentPaths {
+  const agentDataDir = customDataDir
+    ? path.resolve(customDataDir)
+    : path.join(dataDir, 'agents', agentName);
+  return {
+    dataDir: agentDataDir,
+    configDir: path.join(agentDataDir, 'configs'),
+    sessionsDir: path.join(agentDataDir, 'sessions'),
+    logsDir: path.join(agentDataDir, 'logs'),
+    sessionDbPath: path.join(agentDataDir, 'iris.db'),
+    memoryDbPath: path.join(agentDataDir, 'memory.db'),
+  };
+}
+
+/** 获取默认（单 Agent）路径集，等价于现有全局常量 */
+export function getDefaultPaths(): AgentPaths {
+  return { dataDir, configDir, sessionsDir, logsDir, sessionDbPath, memoryDbPath };
+}

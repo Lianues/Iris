@@ -144,6 +144,10 @@ export interface ConsolePlatformOptions {
   configDir: string;
   getMCPManager: () => MCPManager | undefined;
   setMCPManager: (manager?: MCPManager) => void;
+  /** 当前 Agent 名称（多 Agent 模式下显示在 TUI 中） */
+  agentName?: string;
+  /** 切换 Agent 回调（多 Agent 模式下由 /agent 指令触发） */
+  onSwitchAgent?: () => void;
 }
 
 export class ConsolePlatform extends PlatformAdapter {
@@ -153,6 +157,8 @@ export class ConsolePlatform extends PlatformAdapter {
   private modelName: string;
   private contextWindow?: number;
   private backend: Backend;
+  private agentName?: string;
+  private onSwitchAgent?: () => void;
   private settingsController: ConsoleSettingsController;
   private renderer?: CliRenderer;
   private appHandle?: AppHandle;
@@ -171,6 +177,8 @@ export class ConsolePlatform extends PlatformAdapter {
     this.modelId = options.modelId;
     this.modelName = options.modelName;
     this.contextWindow = options.contextWindow;
+    this.agentName = options.agentName;
+    this.onSwitchAgent = options.onSwitchAgent;
     this.settingsController = new ConsoleSettingsController({
       backend,
       configDir: options.configDir,
@@ -324,6 +332,8 @@ export class ConsolePlatform extends PlatformAdapter {
         onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => this.handleSaveSettings(snapshot),
         onResetConfig: () => this.handleResetConfig(),
         onExit: () => this.stop(),
+        onSwitchAgent: this.onSwitchAgent,
+        agentName: this.agentName,
         modeName: this.modeName,
         modelId: this.modelId,
         modelName: this.modelName,

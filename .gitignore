@@ -1,7 +1,5 @@
 node_modules/
 dist/
-data/*
-!data/configs.example/
 src/platforms/web/web-ui/dist/
 src/platforms/web/web-ui/node_modules/
 *.log

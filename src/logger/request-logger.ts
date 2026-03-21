@@ -2,12 +2,23 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logsDir } from '../paths';
 
+/** 运行时日志目录（可通过 setLogsDir 覆盖） */
+let _logsDir = logsDir;
+
+/**
+ * 覆盖日志目录（多 Agent 模式下指向 agent 专属路径）。
+ * 需在写日志前调用。
+ */
+export function setLogsDir(dir: string): void {
+  _logsDir = dir;
+}
+
 /**
  * 确保日志目录存在
  */
 function ensureLogDir() {
-  if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
+  if (!fs.existsSync(_logsDir)) {
+    fs.mkdirSync(_logsDir, { recursive: true });
   }
 }
 
@@ -32,7 +43,7 @@ export function logRequest(details: {
   try {
     ensureLogDir();
     const filename = `request_${timestamp}.json`;
-    const filePath = path.join(logsDir, filename);
+    const filePath = path.join(_logsDir, filename);
     const content = JSON.stringify(details, null, 2);
     fs.writeFileSync(filePath, content, 'utf-8');
   } catch (err) {
@@ -53,7 +64,7 @@ export function logResponse(timestamp: string, body: string, stream: boolean): v
     ensureLogDir();
     const ext = stream ? '.txt' : '.json';
     const filename = `response_${timestamp}${ext}`;
-    const filePath = path.join(logsDir, filename);
+    const filePath = path.join(_logsDir, filename);
     fs.writeFileSync(filePath, body, 'utf-8');
   } catch (err) {
     console.error('Failed to log response:', err);
