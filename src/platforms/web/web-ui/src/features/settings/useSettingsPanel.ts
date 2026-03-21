@@ -1753,6 +1753,30 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
   // 初始化加载 CF 状态
   onMounted(() => loadCfStatus())
 
+  // ---- 重置配置 ----
+
+  async function handleResetConfig() {
+    if (!window.confirm('确定要重置所有配置为默认值吗？\n当前的 API 密钥、模型、MCP 等设置将丢失，此操作不可撤销。')) {
+      return
+    }
+
+    try {
+      const { resetConfig } = await import('../../api/client')
+      const result = await resetConfig()
+      if (result.success) {
+        statusText.value = '配置已重置为默认值，页面即将刷新...'
+        statusError.value = false
+        setTimeout(() => window.location.reload(), 1200)
+      } else {
+        statusText.value = `重置失败: ${result.message}`
+        statusError.value = true
+      }
+    } catch (err) {
+      statusText.value = `重置失败: ${err instanceof Error ? err.message : String(err)}`
+      statusError.value = true
+    }
+  }
+
   return {
     managementEnabled,
     managementReady,
@@ -1820,5 +1844,6 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     handleDnsAdd,
     confirmDnsDelete,
     handleZoneChange,
+    handleResetConfig,
   }
 }

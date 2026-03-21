@@ -46,6 +46,9 @@ const streamingThought = ref('')
 /** 流式思考耗时 */
 const streamingThoughtDurationMs = ref<number | undefined>()
 
+/** LLM 重试状态（重试中时非 null） */
+const retryInfo = ref<{ attempt: number; maxRetries: number; error: string } | null>(null)
+
 /** 尚未刷新到 UI 的流式增量，避免每个 chunk 都触发视图更新 */
 let pendingStreamingDelta = ''
 
@@ -311,6 +314,7 @@ export function useChat() {
       messages.value.push({
         role: 'model',
         parts: [{ type: 'text', text: fullText }],
+        timestamp: Date.now(),
       })
     }
   }
@@ -322,6 +326,7 @@ export function useChat() {
     messages.value.push({
       role: 'model',
       parts: [{ type: 'text', text: finalText }],
+      timestamp: Date.now(),
     })
   }
 
@@ -336,6 +341,7 @@ export function useChat() {
   function commitStructuredAssistantMessage(message: Message) {
     consumeStreamingText()
     if (!isCurrentViewBoundToActiveRequest()) return
+    if (!message.timestamp) message.timestamp = Date.now()
     messages.value.push(message)
   }
 
@@ -437,6 +443,7 @@ export function useChat() {
     messages.value.push({
       role: 'user',
       parts: buildUserMessageParts(text, normalizedImages, normalizedDocs),
+      timestamp: Date.now(),
     })
 
     // 记录本次请求上下文，用于回调归属校验
@@ -477,6 +484,10 @@ export function useChat() {
       onUsage(usage) {
         if (isStale()) return
         setUsage(usage)
+      },
+      onRetry(attempt, maxRetries, error) {
+        if (isStale()) return
+        retryInfo.value = { attempt, maxRetries, error }
       },
       onStreamStart() {
         if (isStale()) return
@@ -536,6 +547,7 @@ export function useChat() {
       onDone() {
         if (isStale()) return
         clearToolState()
+        retryInfo.value = null
 
         const finishedSessionId = activeRequestSessionId
         const shouldKeepCompletedBadge = !!finishedSessionId && currentSessionId.value !== finishedSessionId
@@ -568,6 +580,7 @@ export function useChat() {
       onError(msg) {
         if (isStale()) return
         clearToolState()
+        retryInfo.value = null
 
         const failedSessionId = activeRequestSessionId
 
@@ -731,6 +744,7 @@ export function useChat() {
     streamingThoughtDurationMs: currentSessionStreamingThoughtDurationMs,
     armedDeleteMessageIndex,
     deletingMessageIndex,
+    retryInfo,
     clearMessageActionError,
     currentSessionSending,
     sendMessage,

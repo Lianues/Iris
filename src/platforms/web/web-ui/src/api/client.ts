@@ -319,6 +319,37 @@ export async function switchModel(modelName: string): Promise<any> {
   return res.json()
 }
 
+export interface DiffPreviewItem {
+  filePath: string
+  label: string
+  diff?: string
+  added: number
+  removed: number
+  message?: string
+}
+
+export interface DiffPreviewResponse {
+  toolName: string
+  title: string
+  summary: string[]
+  items: DiffPreviewItem[]
+}
+
+export async function getToolDiffPreview(toolId: string): Promise<DiffPreviewResponse> {
+  const res = await request(`/api/tools/${encodeURIComponent(toolId)}/diff`)
+  return res.json()
+}
+
+export async function resetConfig(): Promise<{ success: boolean; message: string }> {
+  const res = await request('/api/config/reset', { method: 'POST' })
+  return res.json()
+}
+
+export async function listModels(): Promise<{ models: Array<{ modelName: string; modelId: string; provider: string; current?: boolean }> }> {
+  const res = await request('/api/models')
+  return res.json()
+}
+
 // ============ SSE 聊天 ============
 
 let _dispatchCount = 0
@@ -349,6 +380,7 @@ function dispatchChatStreamEvent(rawBlock: string, callbacks: ChatCallbacks): vo
       case 'error': callbacks.onError?.(event.message); break
       case 'tool_update': callbacks.onToolUpdate?.(event.invocations); break
       case 'usage': callbacks.onUsage?.(event.usage); break
+      case 'retry': callbacks.onRetry?.(event.attempt, event.maxRetries, event.error); break
     }
   } catch {
     // 忽略解析错误（如心跳）

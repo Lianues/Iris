@@ -20,6 +20,7 @@ import { Router, sendJSON, readBody } from './router';
 import { createChatHandler, createChatSuggestionsHandler } from './handlers/chat';
 import { createSessionsHandlers } from './handlers/sessions';
 import { createConfigHandlers } from './handlers/config';
+import { createDiffPreviewHandler } from './handlers/diff-preview';
 import { createLogger } from '../../logger';
 import { MCPManager } from '../../mcp';
 import { assertManagementToken } from './security/management';
@@ -154,6 +155,10 @@ export class WebPlatform extends PlatformAdapter {
 
     this.backend.on('usage', (sid: string, usage: any) => {
       this.writeSSE(sid, { type: 'usage', usage });
+    });
+
+    this.backend.on('retry', (sid: string, attempt: number, maxRetries: number, error: string) => {
+      this.writeSSE(sid, { type: 'retry', attempt, maxRetries, error });
     });
 
     return new Promise((resolve) => {
@@ -339,6 +344,25 @@ export class WebPlatform extends PlatformAdapter {
     this.router.put('/api/config', config.update);
     this.router.post('/api/config/models', config.listModels);
 
+    // 重置配置 API
+    this.router.post('/api/config/reset', async (_req, res) => {
+      try {
+        const result = this.backend.resetConfigToDefaults();
+        sendJSON(res, result.success ? 200 : 500, result);
+      } catch (err: unknown) {
+        sendJSON(res, 500, { success: false, message: err instanceof Error ? err.message : '重置失败' });
+      }
+    });
+
+    // 模型列表 API
+    this.router.get('/api/models', async (_req, res) => {
+      try {
+        sendJSON(res, 200, { models: this.backend.listModels() });
+      } catch (err: unknown) {
+        sendJSON(res, 500, { error: err instanceof Error ? err.message : '获取模型列表失败' });
+      }
+    });
+
     // 状态 API
     this.router.get('/api/status', async (_req, res) => {
       const modelInfo = this.backend.getCurrentModelInfo();
@@ -353,6 +377,9 @@ export class WebPlatform extends PlatformAdapter {
         contextWindow: modelInfo.contextWindow,
       });
     });
+
+    // Diff 预览 API
+    this.router.get('/api/tools/:id/diff', createDiffPreviewHandler(this.backend));
 
     // 工具审批 API
     this.router.post('/api/tools/:id/approve', async (req, res, params) => {

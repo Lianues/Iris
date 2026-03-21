@@ -7,6 +7,15 @@
           <h2>AI Agent 对话控制台</h2>
         </div>
         <div class="chat-topbar-aside">
+          <AppSelect
+            v-if="modelOptions.length > 0"
+            class="topbar-model-select"
+            :model-value="currentModelName"
+            :options="modelOptions"
+            placeholder="模型"
+            size="sm"
+            @update:model-value="handleModelSwitch"
+          />
           <div class="chat-topbar-actions">
             <button
               class="topbar-icon-btn"
@@ -31,7 +40,6 @@
             </div>
             <span class="context-usage-label">{{ usageLabel }}</span>
           </div>
-          <p class="chat-topbar-note">支持流式推理、工具执行与多会话编排</p>
         </div>
       </header>
 
@@ -48,7 +56,9 @@
         :actions-locked="sending"
         :armed-delete-message-index="armedDeleteMessageIndex"
         :deleting-message-index="deletingMessageIndex"
+        :retry-info="retryInfo"
         @retry="retryLastMessage"
+        @starter-prompt="handleSend"
         @reload-history="reloadMessages"
         @clear-message-action-error="clearMessageActionError"
         @delete="deleteMessage"
@@ -61,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useChat } from '../composables/useChat'
 import { useContextUsage } from '../composables/useContextUsage'
 import { useSlashCommands } from '../composables/useSlashCommands'
@@ -71,18 +81,43 @@ import MessageList from '../components/MessageList.vue'
 import ChatInput from '../components/ChatInput.vue'
 import ToolApprovalBar from '../components/ToolApprovalBar.vue'
 import DiffApprovalDialog from '../components/DiffApprovalDialog.vue'
+import AppSelect from '../components/AppSelect.vue'
 
 const { currentSessionId } = useSessions()
-const { messages, messagesLoading, messagesError, messageActionError, sending, streamingText, isStreaming, streamingThought, streamingThoughtDurationMs, armedDeleteMessageIndex, deletingMessageIndex, clearMessageActionError, currentSessionSending, sendMessage, retryLastMessage, deleteMessage, reloadMessages, undoLastMessage, redoLastMessage } = useChat()
+const { messages, messagesLoading, messagesError, messageActionError, sending, streamingText, isStreaming, streamingThought, streamingThoughtDurationMs, armedDeleteMessageIndex, deletingMessageIndex, retryInfo, clearMessageActionError, currentSessionSending, sendMessage, retryLastMessage, deleteMessage, reloadMessages, undoLastMessage, redoLastMessage } = useChat()
 const { totalTokenCount, contextWindow, usageLabel, usagePercent, setContextWindow } = useContextUsage()
 const { isSlashCommand, executeCommand } = useSlashCommands()
 
-// 启动时获取 contextWindow
+// ---- 模型选择器 ----
+const currentModelName = ref<string | null>(null)
+const modelOptions = ref<Array<{ value: string; label: string }>>([])
+
+async function loadModels() {
+  try {
+    const { models } = await api.listModels()
+    modelOptions.value = models.map(m => ({
+      value: m.modelName,
+      label: m.modelName,
+    }))
+  } catch { /* ignore */ }
+}
+
+async function handleModelSwitch(value: string | number | null) {
+  if (!value || typeof value !== 'string') return
+  try {
+    const info = await api.switchModel(value)
+    currentModelName.value = info.modelName ?? info.modelId ?? value
+  } catch { /* ignore */ }
+}
+
+// 启动时获取 contextWindow + 模型列表
 onMounted(async () => {
   try {
     const status = await api.getStatus()
     if (status.contextWindow) setContextWindow(status.contextWindow)
+    currentModelName.value = status.model ?? null
   } catch { /* ignore */ }
+  loadModels()
 })
 
 // Ctrl+Z / Ctrl+Shift+Z 快捷键

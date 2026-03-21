@@ -22,6 +22,7 @@ const commands: SlashCommand[] = [
   { name: '/redo', description: '重做上一条撤销', usage: '/redo', hasArg: false },
   { name: '/model', description: '切换模型', usage: '/model <name>', hasArg: true },
   { name: '/sh', description: '执行 shell 命令', usage: '/sh <command>', hasArg: true },
+  { name: '/reset-config', description: '重置配置为默认值', usage: '/reset-config', hasArg: false },
 ]
 
 /** 返回匹配给定前缀的命令列表 */
@@ -105,6 +106,24 @@ async function executeCommand(text: string, ctx: CommandContext) {
         ctx.messages.value.push({
           role: 'model',
           parts: [{ type: 'text', text: `命令执行失败: ${err instanceof Error ? err.message : String(err)}` }],
+        })
+      }
+      break
+
+    case '/reset-config':
+      if (!window.confirm('确定要重置所有配置为默认值吗？当前的 API 密钥、模型设置等将丢失，此操作不可撤销。')) {
+        return
+      }
+      try {
+        const result = await api.resetConfig()
+        ctx.messages.value.push({
+          role: 'model',
+          parts: [{ type: 'text', text: result.success ? `配置已重置: ${result.message}` : `重置失败: ${result.message}` }],
+        })
+      } catch (err) {
+        ctx.messages.value.push({
+          role: 'model',
+          parts: [{ type: 'text', text: `重置配置失败: ${err instanceof Error ? err.message : String(err)}` }],
         })
       }
       break

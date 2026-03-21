@@ -7,6 +7,7 @@
           <span>{{ roleLabel }}</span>
         </div>
         <div v-if="streaming" class="message-stream-status">实时生成中</div>
+        <span v-if="relativeTime" class="message-timestamp">{{ relativeTime }}</span>
       </div>
 
       <div class="message-actions">
@@ -119,6 +120,7 @@ const props = defineProps<{
   retryButtonTitle?: string
   deleteButtonTitle?: string
   messageIndex?: number
+  timestamp?: number
 }>()
 
 const emit = defineEmits<{
@@ -129,6 +131,23 @@ const emit = defineEmits<{
 const canDeleteMessage = computed(() => !props.streaming && typeof props.messageIndex === 'number' && props.messageIndex >= 0)
 const roleLabel = computed(() => getRoleLabel(props.role))
 const roleIcon = computed(() => (props.role === 'user' ? ICONS.common.send : ICONS.common.sparkle))
+
+// ---- 相对时间（使用共享时钟，避免每个气泡都创建定时器） ----
+import { useSharedNow } from '../composables/useSharedNow'
+const { now } = useSharedNow()
+
+const relativeTime = computed(() => {
+  if (!props.timestamp) return ''
+  const diff = now.value - props.timestamp
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86400_000) {
+    const d = new Date(props.timestamp)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+  const d = new Date(props.timestamp)
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+})
 
 const metaSegments = computed<string[]>(() => {
   const m = props.meta

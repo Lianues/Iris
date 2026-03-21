@@ -61,6 +61,8 @@ export interface Message {
   role: 'user' | 'model'
   parts: MessagePart[]
   meta?: MessageMeta
+  /** 前端记录的消息时间戳（毫秒） */
+  timestamp?: number
 }
 
 /** 会话摘要 */
@@ -292,4 +294,5 @@ export interface ChatCallbacks {
   onAssistantContent?: (message: Message) => void
   onToolUpdate?: (invocations: ToolInvocation[]) => void
   onUsage?: (usage: UsageMetadata) => void
+  onRetry?: (attempt: number, maxRetries: number, error: string) => void
 }

@@ -51,6 +51,16 @@
             <span>保留上下文脉络，像工作台一样持续推进任务。</span>
           </div>
         </div>
+
+        <div class="welcome-starters">
+          <button
+            v-for="s in starterPrompts"
+            :key="s"
+            class="welcome-starter-chip"
+            type="button"
+            @click="emit('starter-prompt', s)"
+          >{{ s }}</button>
+        </div>
       </div>
 
       <template v-for="item in displayItems" :key="item.key">
@@ -61,6 +71,7 @@
               :role="item.message.role"
               :text="part.text!"
               :meta="item.message.role === 'model' && isLastVisibleTextPart(item.message, j) ? item.message.meta : undefined"
+              :timestamp="item.message.timestamp"
               :message-index="item.messageIndex"
               :retry-message-index="getRetryMessageIndex(item.messageIndex)"
               :actions-locked="actionsLocked"
@@ -187,6 +198,7 @@
                       type="response"
                       :name="part.name!"
                       :data="part.response"
+                      :call-args="findCallArgsInEntries(item.entries, part)"
                       :collapsed="false"
                     />
                   </template>
@@ -212,6 +224,9 @@
             <span></span>
           </div>
           <div class="thinking-copy">请稍候，Iris 正在整理上下文。</div>
+          <div v-if="retryInfo" class="retry-info">
+            ⟳ 重试中 ({{ retryInfo.attempt }}/{{ retryInfo.maxRetries }}) · {{ truncateRetryError(retryInfo.error) }}
+          </div>
         </div>
       </div>
 
@@ -258,6 +273,7 @@ import ToolBlock from './ToolBlock.vue'
 import AppIcon from './AppIcon.vue'
 import { ICONS } from '../constants/icons'
 import { hasToolParts } from '../utils/message'
+import { getToolSummary } from '../utils/tool-renderers'
 
 interface ToolGroupEntry {
   message: Message
@@ -298,11 +314,20 @@ const props = defineProps<{
   actionsLocked: boolean
   armedDeleteMessageIndex: number | null
   deletingMessageIndex: number | null
+  retryInfo: { attempt: number; maxRetries: number; error: string } | null
 }>()
+
+const starterPrompts = [
+  '帮我分析当前项目的目录结构',
+  '查看最近的 Git 提交记录',
+  '搜索项目中的 TODO 注释',
+  '列出当前目录下的所有文件',
+]
 
 const emit = defineEmits<{
   retry: [messageIndex: number]
   delete: [messageIndex: number]
+  'starter-prompt': [text: string]
   'clear-message-action-error': []
   'reload-history': []
 }>()
@@ -327,6 +352,74 @@ const showJumpToBottom = computed(() => {
   return !shouldStickToBottom.value && (props.messages.length > 0 || props.isStreaming || props.sending)
 })
 
+/**
+ * 在工具组的所有 entries 中查找与 function_response 匹配的 function_call args。
+ * function_call 和 function_response 通常在不同的 message 中（model 消息 vs user 消息），
+ * 因此需要跨 entry 搜索。优先按 callId 匹配，回退到同名最近的 call。
+ */
+function findCallArgsInEntries(entries: ToolGroupEntry[], responsePart: MessagePart): unknown {
+  if (!responsePart.callId && !responsePart.name) return undefined
+
+  // 优先按 callId 匹配（在所有 entries 中搜索）
+  if (responsePart.callId) {
+    for (const entry of entries) {
+      const match = entry.message.parts.find(p => p.type === 'function_call' && p.callId === responsePart.callId)
+      if (match) return match.args
+    }
+  }
+
+  // 回退按 name 匹配（取最后一个同名 call）
+  for (let ei = entries.length - 1; ei >= 0; ei--) {
+    const parts = entries[ei].message.parts
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i]
+      if (p.type === 'function_call' && p.name === responsePart.name) {
+        return p.args
+      }
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * 提取工具组中所有不重复的工具名称
+ */
+function extractToolNames(entries: ToolGroupEntry[]): string[] {
+  const names: string[] = []
+  const seen = new Set<string>()
+
+  for (const entry of entries) {
+    for (const part of entry.message.parts) {
+      if (part.type === 'function_call' && part.name && !seen.has(part.name)) {
+        seen.add(part.name)
+        names.push(part.name)
+      }
+    }
+  }
+
+  return names
+}
+
+/**
+ * 为工具组中的工具结果生成紧凑摘要列表（用于折叠卡片预览）
+ */
+function buildToolGroupCompactSummaries(entries: ToolGroupEntry[]): Array<{ name: string; text: string }> {
+  const summaries: Array<{ name: string; text: string }> = []
+
+  for (const entry of entries) {
+    for (const part of entry.message.parts) {
+      if (part.type === 'function_response' && part.name) {
+        const callArgs = findCallArgsInEntries(entries, part)
+        const summary = getToolSummary(part.name, 'response', part.response, callArgs)
+        summaries.push({ name: part.name, text: summary.text })
+      }
+    }
+  }
+
+  return summaries
+}
+
 /** 后端存储的内部标记文本，不应在 UI 中单独展示 */
 function isInternalMarker(text: string): boolean {
   const normalized = text.trim()
@@ -350,6 +443,11 @@ function toggleThought(key: string) {
 function formatThoughtDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(1)}s`
+}
+
+function truncateRetryError(error: string): string {
+  const firstLine = error.split('\n')[0] ?? error
+  return firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
 }
 
 function isRetryableUserMessage(message: Message | undefined): boolean {
@@ -566,21 +664,35 @@ function buildToolGroupSummary(entries: ToolGroupEntry[]): string {
 }
 
 function buildToolGroupTitle(entries: ToolGroupEntry[]): string {
+  const names = extractToolNames(entries)
   const callCount = entries.reduce((total, entry) => total + countToolCalls(entry.message), 0)
-  const responseCount = entries.reduce((total, entry) => total + countToolResponses(entry.message), 0)
+
+  if (names.length > 0 && names.length <= 3) {
+    return names.join(' · ')
+  }
+
+  if (names.length > 3) {
+    return `${names.slice(0, 3).join(' · ')} +${names.length - 3}`
+  }
 
   if (callCount > 0) {
     return `${callCount} 个工具调用`
-  }
-
-  if (responseCount > 0) {
-    return `${responseCount} 个工具结果`
   }
 
   return '工具工作流'
 }
 
 function buildToolGroupMeta(entries: ToolGroupEntry[]): string {
+  const summaries = buildToolGroupCompactSummaries(entries)
+
+  if (summaries.length > 0) {
+    // 显示最多 3 个工具的简要结果
+    const parts = summaries.slice(0, 3).map(s => s.text)
+    if (summaries.length > 3) parts.push(`+${summaries.length - 3}`)
+    const result = parts.join(' · ')
+    return result.length > 100 ? result.slice(0, 100) + '…' : result
+  }
+
   const callCount = entries.reduce((total, entry) => total + countToolCalls(entry.message), 0)
   const responseCount = entries.reduce((total, entry) => total + countToolResponses(entry.message), 0)
   const segments: string[] = []

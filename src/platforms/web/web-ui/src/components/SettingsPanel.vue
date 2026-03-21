@@ -797,6 +797,30 @@
           </div>
         </section>
 
+        <!-- 危险区域 -->
+        <section class="settings-section settings-danger-zone">
+          <div class="settings-section-head">
+            <div>
+              <h3>危险区域</h3>
+              <p>不可逆操作，请谨慎使用。</p>
+            </div>
+          </div>
+
+          <div class="settings-danger-item">
+            <div class="settings-danger-info">
+              <strong>重置所有配置</strong>
+              <span>将所有配置文件恢复为默认模板。当前的 API 密钥、模型、MCP 等设置将丢失。</span>
+            </div>
+            <button
+              class="settings-danger-btn"
+              type="button"
+              @click="handleResetConfig"
+            >
+              重置配置
+            </button>
+          </div>
+        </section>
+
         <!-- Cloudflare 管理 -->
         <section class="settings-section">
           <div class="settings-section-head">
@@ -1132,6 +1156,7 @@ const {
   handleDnsAdd,
   confirmDnsDelete,
   handleZoneChange,
+  handleResetConfig,
 } = useSettingsPanel({
   onClose: () => emit('close'),
 })

@@ -3,7 +3,16 @@
     <span class="tool-compact">
       <AppIcon :name="compactIconName" class="tool-compact-icon" />
       <span class="tool-compact-copy">{{ name }}</span>
-      <span class="tool-compact-meta">{{ summary }}</span>
+      <span class="tool-compact-meta">
+        <template v-if="toolSummary.segments.length > 0">
+          <span
+            v-for="(s, i) in toolSummary.segments"
+            :key="i"
+            :class="s.color ? `tool-seg-${s.color}` : ''"
+          >{{ s.text }}</span>
+        </template>
+        <template v-else>{{ toolSummary.text }}</template>
+      </span>
     </span>
   </div>
   <div v-else class="tool-block" :class="[type, { open }]">
@@ -21,7 +30,16 @@
           <span class="tool-kind-chip">{{ type === 'call' ? '工具调用' : '工具结果' }}</span>
           <strong class="tool-name">{{ name }}</strong>
         </div>
-        <span class="tool-summary">{{ summary }}</span>
+        <span class="tool-summary">
+          <template v-if="toolSummary.segments.length > 0">
+            <span
+              v-for="(s, i) in toolSummary.segments"
+              :key="i"
+              :class="s.color ? `tool-seg-${s.color}` : ''"
+            >{{ s.text }}</span>
+          </template>
+          <template v-else>{{ toolSummary.text }}</template>
+        </span>
       </div>
       <AppIcon :name="ICONS.common.chevronRight" class="tool-icon" />
     </button>
@@ -51,12 +69,15 @@ import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { ICONS } from '../constants/icons'
 import { useCopyFeedback } from '../composables/useCopyFeedback'
+import { getToolSummary } from '../utils/tool-renderers'
 
 const props = defineProps<{
   type: 'call' | 'response'
   name: string
   data: unknown
   collapsed?: boolean
+  /** 关联的工具调用参数（仅 response 类型使用，供专用渲染器使用） */
+  callArgs?: unknown
 }>()
 
 const open = ref(false)
@@ -69,24 +90,8 @@ function formatToolData(value: unknown): string {
   return JSON.stringify(value ?? null, null, 2)
 }
 
-function summarizeToolData(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `${value.length} 项`
-  }
-  if (value && typeof value === 'object') {
-    return `${Object.keys(value as Record<string, unknown>).length} 个字段`
-  }
-  if (typeof value === 'string') {
-    return `${value.length} 字符`
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return '标量结果'
-  }
-  return '空结果'
-}
-
 const formatted = computed(() => formatToolData(props.data))
-const summary = computed(() => summarizeToolData(props.data))
+const toolSummary = computed(() => getToolSummary(props.name, props.type, props.data, props.callArgs))
 
 const formattedLines = computed(() => {
   const lines = formatted.value.replace(/\r\n?/g, '\n').split('\n')
