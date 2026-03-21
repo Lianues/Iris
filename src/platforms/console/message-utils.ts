@@ -1,0 +1,62 @@
+import type { ToolInvocation } from '../../types';
+import type { ChatMessage, MessagePart } from './components/MessageItem';
+import type { MessageMeta } from './app-types';
+
+let msgIdCounter = 0;
+
+export function nextMsgId(): string {
+  return `msg-${++msgIdCounter}`;
+}
+
+export function appendMergedMessagePart(parts: MessagePart[], nextPart: MessagePart): void {
+  const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
+  if (lastPart && lastPart.type === 'text' && nextPart.type === 'text') {
+    lastPart.text += nextPart.text;
+    return;
+  }
+  if (lastPart && lastPart.type === 'thought' && nextPart.type === 'thought') {
+    lastPart.text += nextPart.text;
+    if (nextPart.durationMs != null) lastPart.durationMs = nextPart.durationMs;
+    return;
+  }
+  if (lastPart && lastPart.type === 'tool_use' && nextPart.type === 'tool_use') {
+    lastPart.tools.push(...nextPart.tools);
+    return;
+  }
+  parts.push(nextPart);
+}
+
+export function mergeMessageParts(parts: MessagePart[]): MessagePart[] {
+  const merged: MessagePart[] = [];
+  for (const part of parts) appendMergedMessagePart(merged, { ...part } as MessagePart);
+  return merged;
+}
+
+export function applyToolInvocationsToParts(parts: MessagePart[], invocations: ToolInvocation[]): MessagePart[] {
+  const nextParts: MessagePart[] = [];
+  let cursor = 0;
+  for (const part of parts) {
+    if (part.type !== 'tool_use') {
+      nextParts.push(part);
+      continue;
+    }
+    const expectedCount = Math.max(1, part.tools.length);
+    const assigned = invocations.slice(cursor, cursor + expectedCount);
+    cursor += assigned.length;
+    nextParts.push({ type: 'tool_use', tools: assigned.length > 0 ? assigned : part.tools });
+  }
+  if (cursor < invocations.length) nextParts.push({ type: 'tool_use', tools: invocations.slice(cursor) });
+  return nextParts;
+}
+
+export function appendAssistantParts(prev: ChatMessage[], partsToAppend: MessagePart[], meta?: MessageMeta): ChatMessage[] {
+  const normalizedParts = mergeMessageParts(partsToAppend);
+  if (normalizedParts.length === 0) return prev;
+  if (prev.length > 0 && prev[prev.length - 1].role === 'assistant') {
+    const copy = [...prev];
+    const last = copy[copy.length - 1];
+    copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...last.parts, ...normalizedParts]), ...meta };
+    return copy;
+  }
+  return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta }];
+}

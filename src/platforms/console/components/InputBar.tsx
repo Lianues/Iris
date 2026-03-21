@@ -194,7 +194,7 @@ export function InputBar({ disabled, onSubmit }: InputBarProps) {
                 <text>
                   <span fg={isSelected ? C.accent : C.dim}>{isSelected ? '▸ ' : '  '}</span>
                   {isSelected ? <strong><span fg={C.text}>{padded}</span></strong> : <span fg={C.textSec}>{padded}</span>}
-                  <span fg={C.dim}>  {cmd.description}</span>
+                  <span fg={isSelected ? C.textSec : C.dim}>  {cmd.description}</span>
                 </text>
               </box>
             );
