@@ -9,6 +9,7 @@
 
 import * as readline from 'readline';
 import { getScreenAdapter, type ScreenAdapter } from './screen/index';
+import type { WindowSelector } from '../config/types';
 
 // ============ 状态 ============
 
@@ -61,7 +62,7 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
         screenSize = await adapter.getScreenSize();
 
         // 窗口模式
-        const targetWindow = p.targetWindow as string | undefined;
+        const targetWindow = p.targetWindow as string | WindowSelector | undefined;
         if (targetWindow && adapter.bindWindow) {
           // 先设置后台模式，再绑定窗口，这样 bindWindow 不会激活窗口
           const bgMode = p.backgroundMode as boolean | undefined;
@@ -70,7 +71,8 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
             log('后台操作模式已启用（PostMessage + PrintWindow）');
           }
 
-          log(`正在绑定目标窗口: "${targetWindow}" ...`);
+          const label = typeof targetWindow === 'string' ? targetWindow : JSON.stringify(targetWindow);
+          log(`正在绑定目标窗口: ${label} ...`);
           await adapter.bindWindow(targetWindow);
           screenSize = await adapter.getScreenSize();
           log(`窗口模式已启用，窗口尺寸: ${screenSize[0]}×${screenSize[1]}`);
@@ -85,6 +87,28 @@ async function handleRequest(req: { id: number; method: string; params?: Record<
       case 'dispose': {
         adapter = null;
         result = { ok: true };
+        break;
+      }
+
+      // ---- 窗口管理 ----
+
+      case 'listWindows': {
+        if (!adapter) throw new Error('adapter 未初始化');
+        if (!adapter.listWindows) throw new Error('当前适配器不支持窗口列表');
+        const windows = await adapter.listWindows();
+        result = { windows };
+        break;
+      }
+
+      case 'switchWindow': {
+        if (!adapter) throw new Error('adapter 未初始化');
+        if (!adapter.bindWindowByHwnd) throw new Error('当前适配器不支持按 HWND 绑定');
+        const hwnd = p.hwnd as string;
+        if (!hwnd) throw new Error('未指定窗口 HWND');
+        await adapter.bindWindowByHwnd(hwnd);
+        screenSize = await adapter.getScreenSize();
+        log(`已切换到窗口: HWND=${hwnd}，窗口尺寸: ${screenSize[0]}×${screenSize[1]}`);
+        result = { ok: true, screenSize };
         break;
       }
 

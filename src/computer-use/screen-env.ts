@@ -11,7 +11,8 @@ import * as readline from 'readline';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { createLogger } from '../logger';
-import type { Computer, EnvState } from './types';
+import type { Computer, EnvState, WindowInfo } from './types';
+import type { WindowSelector } from '../config/types';
 
 const logger = createLogger('ComputerUse');
 
@@ -21,8 +22,8 @@ const __dirname = path.dirname(__filename);
 export interface ScreenEnvConfig {
   /** 搜索引擎 URL */
   searchEngineUrl?: string;
-  /** 目标窗口标题（子串匹配），不设置则为全屏模式 */
-  targetWindow?: string;
+  /** 目标窗口选择器（字符串或对象形式），不设置则为全屏模式 */
+  targetWindow?: string | WindowSelector;
   /** 是否启用后台操作模式（仅窗口模式下有效），默认 false */
   backgroundMode?: boolean;
 }
@@ -159,6 +160,20 @@ export class ScreenEnvironment implements Computer {
 
   async wait5Seconds(): Promise<EnvState> {
     return this._callEnv('wait5Seconds');
+  }
+
+  // ============ 窗口管理 ============
+
+  async listWindows(): Promise<WindowInfo[]> {
+    const result = await this._call('listWindows');
+    return (result.windows as WindowInfo[]) ?? [];
+  }
+
+  async switchWindow(hwnd: string): Promise<void> {
+    const result = await this._call('switchWindow', { hwnd });
+    if (result.screenSize) {
+      this._screenSize = result.screenSize;
+    }
   }
 
   // ============ 内部 IPC ============

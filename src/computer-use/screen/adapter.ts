@@ -5,6 +5,9 @@
  * 新增平台只需实现此接口并在 index.ts 中注册。
  */
 
+import type { WindowInfo } from '../types';
+import type { WindowSelector } from '../../config/types';
+
 export interface ScreenAdapter {
   /** 平台名称（日志用） */
   readonly platform: string;
@@ -52,14 +55,15 @@ export interface ScreenAdapter {
   openUrl(url: string): Promise<void>;
 
   /**
-   * 绑定目标窗口（按标题子串匹配）。
+   * 绑定目标窗口。
+   * 接受标题子串（字符串）或多条件选择器（WindowSelector 对象）。
    * 绑定后，截屏只截取该窗口区域，鼠标操作坐标自动偏移到窗口位置，
    * 操作前自动将窗口置于前台。
    *
    * getScreenSize() 返回窗口尺寸而非全屏尺寸。
    * 不调用此方法则为全屏模式。
    */
-  bindWindow?(windowTitle: string): Promise<void>;
+  bindWindow?(selector: string | WindowSelector): Promise<void>;
 
   /**
    * 启用后台操作模式（仅窗口模式下有效）。
@@ -75,4 +79,18 @@ export interface ScreenAdapter {
    *   - 拖拽操作可能不工作
    */
   setBackgroundMode?(enabled: boolean): void;
+
+  /**
+   * 列举当前可见窗口（返回窗口信息列表）。
+   * 仅 Windows 平台实现。
+   */
+  listWindows?(): Promise<WindowInfo[]>;
+
+  /**
+   * 按 HWND 精确绑定窗口（运行时切换用）。
+   *
+   * 与 bindWindow 的区别：bindWindow 按选择器查找窗口，此方法直接用已知的 HWND。
+   * 仅 Windows 平台实现。
+   */
+  bindWindowByHwnd?(hwnd: string): Promise<void>;
 }

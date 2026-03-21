@@ -1,3 +1,4 @@
+import type { Dispatch, SetStateAction } from 'react';
 import type { ToolInvocation } from '../../types';
 import type { ChatMessage, MessagePart } from './components/MessageItem';
 import type { MessageMeta } from './app-types';
@@ -59,4 +60,27 @@ export function appendAssistantParts(prev: ChatMessage[], partsToAppend: Message
     return copy;
   }
   return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta }];
+}
+
+/**
+ * 向消息列表追加一条系统指令输出消息。
+ *
+ * 会替换掉之前的指令输出消息（同一时刻只保留最新的一条）。
+ * 从 use-command-dispatch.ts 中提取，供 use-app-keyboard.ts 复用。
+ */
+export function appendCommandMessage(
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
+  text: string,
+  options?: { isError?: boolean },
+): void {
+  setMessages((prev) => [
+    ...prev.filter((message) => !message.isCommand),
+    {
+      id: nextMsgId(),
+      role: 'assistant',
+      parts: [{ type: 'text', text }],
+      isCommand: true,
+      isError: options?.isError,
+    },
+  ]);
 }

@@ -1,5 +1,6 @@
 import { useKeyboard } from '@opentui/react';
 import type { LLMModelInfo } from '../../../llm/router';
+import type { WindowInfo } from '../../../computer-use/types';
 import type { SessionMeta } from '../../../storage/base';
 import type { ToolInvocation } from '../../../types';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
@@ -7,6 +8,8 @@ import type { ApprovalChoice, ConfirmChoice, PendingConfirm, SwitchModelResult, 
 import type { ChatMessage } from '../components/MessageItem';
 import { clearRedo, type UndoRedoStack } from '../undo-redo';
 import type { UseModelStateReturn } from './use-model-state';
+import { appendCommandMessage } from '../message-utils';
+import { filterWindows } from '../components/WindowListView';
 
 type SetState<T> = Dispatch<SetStateAction<T>>;
 
@@ -54,6 +57,10 @@ interface UseAppKeyboardOptions {
   onLoadSession: (id: string) => Promise<void>;
   onSwitchModel: (modelName: string) => SwitchModelResult;
   modelState: Pick<UseModelStateReturn, 'updateModel'>;
+  windowList: WindowInfo[];
+  windowSearchText: string;
+  setWindowSearchText: SetState<string>;
+  onSwitchWindow?: (hwnd: string) => Promise<{ ok: boolean; message: string }>;
 }
 
 function closeConfirm(
@@ -92,6 +99,10 @@ export function useAppKeyboard({
   onLoadSession,
   onSwitchModel,
   modelState,
+  windowList,
+  windowSearchText,
+  setWindowSearchText,
+  onSwitchWindow,
 }: UseAppKeyboardOptions) {
   useKeyboard((key) => {
     if (key.ctrl && key.name === 'c') {
@@ -121,7 +132,7 @@ export function useAppKeyboard({
         onAbort();
         return;
       }
-      if (viewMode === 'session-list' || viewMode === 'model-list') {
+      if (viewMode === 'session-list' || viewMode === 'model-list' || viewMode === 'window-list') {
         setViewMode('chat');
         return;
       }
@@ -240,6 +251,41 @@ export function useAppKeyboard({
           modelState.updateModel(result);
           setViewMode('chat');
         }
+      }
+      return;
+    }
+
+    if (viewMode === 'window-list') {
+      const filtered = filterWindows(windowList, windowSearchText);
+
+      if (key.name === 'up') {
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+        return;
+      }
+      if (key.name === 'down') {
+        setSelectedIndex((prev) => Math.min(filtered.length - 1, prev + 1));
+        return;
+      }
+      if (key.name === 'enter' || key.name === 'return') {
+        const selected = filtered[selectedIndex];
+        if (selected && onSwitchWindow) {
+          setViewMode('chat');
+          onSwitchWindow(selected.hwnd).then((result) => {
+            appendCommandMessage(setMessages, result.message, { isError: !result.ok });
+          });
+        }
+        return;
+      }
+      if (key.name === 'backspace') {
+        setWindowSearchText((prev) => prev.slice(0, -1));
+        setSelectedIndex(0);
+        return;
+      }
+      // 可打印字符：追加到搜索文本
+      if (!key.ctrl && key.name && key.name.length === 1) {
+        setWindowSearchText((prev) => prev + key.name);
+        setSelectedIndex(0);
+        return;
       }
     }
   });

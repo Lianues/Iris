@@ -5,6 +5,20 @@
  * 所有环境实现（浏览器、桌面）都遵循此接口。
  */
 
+/** 窗口信息（screen 环境下枚举可见窗口时返回） */
+export interface WindowInfo {
+  /** 窗口句柄（十六进制字符串，如 "0x001A0B2C"） */
+  hwnd: string;
+  /** 窗口标题 */
+  title: string;
+  /** 进程名称（不含 .exe 后缀） */
+  processName: string;
+  /** 进程 ID */
+  processId: number;
+  /** 窗口类名 */
+  className: string;
+}
+
 /** 环境状态：截屏 + 当前 URL */
 export interface EnvState {
   /** 截屏 PNG 字节 */
@@ -53,4 +67,10 @@ export interface Computer {
 
   // ---- 等待 ----
   wait5Seconds(): Promise<EnvState>;
+
+  // ---- 窗口管理（仅 screen 环境支持） ----
+  /** 列举当前可见窗口 */
+  listWindows?(): Promise<WindowInfo[]>;
+  /** 运行时切换绑定的目标窗口（按 HWND 精确绑定） */
+  switchWindow?(hwnd: string): Promise<void>;
 }

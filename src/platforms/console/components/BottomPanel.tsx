@@ -25,6 +25,8 @@ interface BottomPanelProps {
   contextWindow?: number;
   copyMode: boolean;
   exitConfirmArmed: boolean;
+  /** Computer Use 是否启用（用于条件显示 /window 指令） */
+  hasComputerUse?: boolean;
 }
 
 export function BottomPanel({
@@ -42,6 +44,7 @@ export function BottomPanel({
   contextWindow,
   copyMode,
   exitConfirmArmed,
+  hasComputerUse,
 }: BottomPanelProps) {
   return (
     <box flexDirection="column" flexShrink={0} paddingX={1} paddingBottom={1} paddingTop={hasMessages ? 1 : 0}>
@@ -61,7 +64,7 @@ export function BottomPanel({
           padding={1}
           paddingBottom={0}
         >
-          <InputBar disabled={isGenerating} onSubmit={onSubmit} />
+          <InputBar disabled={isGenerating} onSubmit={onSubmit} hasComputerUse={hasComputerUse} />
           <StatusBar
             agentName={agentName}
             modeName={modeName}

@@ -20,13 +20,19 @@ import { getTextWidth } from '../text-layout';
 interface InputBarProps {
   disabled: boolean;
   onSubmit: (text: string) => void;
+  /** Computer Use 是否启用（用于条件显示 /window 指令） */
+  hasComputerUse?: boolean;
 }
 
-export function InputBar({ disabled, onSubmit }: InputBarProps) {
+export function InputBar({ disabled, onSubmit, hasComputerUse }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const cursorVisible = useCursorBlink();
   const { width: termWidth } = useTerminalDimensions();
+
+  const visibleCommands = useMemo(() => {
+    return hasComputerUse ? COMMANDS : COMMANDS.filter((cmd) => cmd.name !== '/window');
+  }, [hasComputerUse]);
 
   // ── 粘贴保护 ──────────────────────────────────────────────
   // 当 bracketed paste 事件触发时，框架可能同时发出对应的逐字符
@@ -44,8 +50,8 @@ export function InputBar({ disabled, onSubmit }: InputBarProps) {
   const value = inputState.value;
 
   const exactMatchIndex = useMemo(() => {
-    return COMMANDS.findIndex((cmd) => isExactCommandValue(value, cmd));
-  }, [value]);
+    return visibleCommands.findIndex((cmd) => isExactCommandValue(value, cmd));
+  }, [value, visibleCommands]);
 
   const commandQuery = useMemo(() => {
     if (disabled) return '';
@@ -58,9 +64,9 @@ export function InputBar({ disabled, onSubmit }: InputBarProps) {
 
   const filtered = useMemo(() => {
     if (!showCommands) return [];
-    if (exactMatchIndex >= 0) return COMMANDS;
-    return COMMANDS.filter((cmd) => cmd.name.startsWith(commandQuery.trim()));
-  }, [showCommands, exactMatchIndex, commandQuery]);
+    if (exactMatchIndex >= 0) return visibleCommands;
+    return visibleCommands.filter((cmd) => cmd.name.startsWith(commandQuery.trim()));
+  }, [showCommands, exactMatchIndex, commandQuery, visibleCommands]);
 
   useEffect(() => {
     if (!showCommands || filtered.length === 0) {

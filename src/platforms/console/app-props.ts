@@ -1,5 +1,6 @@
 import type { LLMModelInfo } from '../../llm/router';
 import type { SessionMeta } from '../../storage/base';
+import type { WindowInfo } from '../../computer-use/types';
 import type { SwitchModelResult } from './app-types';
 import type { AppHandle } from './hooks/use-app-handle';
 import type { ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
@@ -23,8 +24,14 @@ export interface AppProps {
   onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => Promise<ConsoleSettingsSaveResult>;
   onResetConfig: () => { success: boolean; message: string };
   onExit: () => void;
+  /** Computer Use 窗口列表（仅 CU screen 模式下提供） */
+  onListWindows?: () => Promise<WindowInfo[]>;
+  /** Computer Use 切换窗口（仅 CU screen 模式下提供） */
+  onSwitchWindow?: (hwnd: string) => Promise<{ ok: boolean; message: string }>;
   onSwitchAgent?: () => void;
   agentName?: string;
+  /** Computer Use 是否启用（控制 /window 指令在自动补全中的可见性） */
+  hasComputerUse?: boolean;
   modeName?: string;
   modelId: string;
   modelName: string;

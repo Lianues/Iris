@@ -14,7 +14,7 @@ export interface SwitchModelResult {
   contextWindow?: number;
 }
 
-export type ViewMode = 'chat' | 'session-list' | 'model-list' | 'settings';
+export type ViewMode = 'chat' | 'session-list' | 'model-list' | 'settings' | 'window-list';
 export type SettingsInitialSection = 'general' | 'mcp';
 export type ConfirmChoice = 'confirm' | 'cancel';
 export type ApprovalChoice = 'approve' | 'reject';

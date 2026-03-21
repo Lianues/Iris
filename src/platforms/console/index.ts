@@ -13,6 +13,7 @@ import { SessionMeta } from '../../storage/base';
 import { Content, Part, FunctionResponsePart, ToolInvocation, ToolStatus, UsageMetadata } from '../../types';
 import { setGlobalLogLevel, LogLevel } from '../../logger/index';
 import type { MCPManager } from '../../mcp';
+import type { Computer, WindowInfo } from '../../computer-use/types';
 import { App, AppHandle, MessageMeta } from './App';
 import { MessagePart } from './components/MessageItem';
 import { ConsoleSettingsController, ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
@@ -148,6 +149,8 @@ export interface ConsolePlatformOptions {
   agentName?: string;
   /** 切换 Agent 回调（多 Agent 模式下由 /agent 指令触发） */
   onSwitchAgent?: () => void;
+  /** Computer Use 环境实例（screen 模式下提供窗口管理能力） */
+  computerEnv?: Computer;
 }
 
 export class ConsolePlatform extends PlatformAdapter {
@@ -159,6 +162,7 @@ export class ConsolePlatform extends PlatformAdapter {
   private backend: Backend;
   private agentName?: string;
   private onSwitchAgent?: () => void;
+  private computerEnv?: Computer;
   private settingsController: ConsoleSettingsController;
   private renderer?: CliRenderer;
   private appHandle?: AppHandle;
@@ -179,6 +183,7 @@ export class ConsolePlatform extends PlatformAdapter {
     this.contextWindow = options.contextWindow;
     this.agentName = options.agentName;
     this.onSwitchAgent = options.onSwitchAgent;
+    this.computerEnv = options.computerEnv;
     this.settingsController = new ConsoleSettingsController({
       backend,
       configDir: options.configDir,
@@ -333,6 +338,9 @@ export class ConsolePlatform extends PlatformAdapter {
         onResetConfig: () => this.handleResetConfig(),
         onExit: () => this.stop(),
         onSwitchAgent: this.onSwitchAgent,
+        onListWindows: this.computerEnv?.listWindows ? () => this.handleListWindows() : undefined,
+        onSwitchWindow: this.computerEnv?.switchWindow ? (hwnd: string) => this.handleSwitchWindow(hwnd) : undefined,
+        hasComputerUse: !!(this.computerEnv?.listWindows),
         agentName: this.agentName,
         modeName: this.modeName,
         modelId: this.modelId,
@@ -432,6 +440,28 @@ export class ConsolePlatform extends PlatformAdapter {
 
   private handleResetConfig(): { success: boolean; message: string } {
     return this.backend.resetConfigToDefaults();
+  }
+
+  private async handleListWindows(): Promise<WindowInfo[]> {
+    if (!this.computerEnv?.listWindows) return [];
+    try {
+      return await this.computerEnv.listWindows();
+    } catch {
+      return [];
+    }
+  }
+
+  private async handleSwitchWindow(hwnd: string): Promise<{ ok: boolean; message: string }> {
+    if (!this.computerEnv?.switchWindow) {
+      return { ok: false, message: 'Computer Use 未启用或当前环境不支持窗口切换。' };
+    }
+    try {
+      await this.computerEnv.switchWindow(hwnd);
+      return { ok: true, message: `已绑定到窗口 (HWND=${hwnd})` };
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return { ok: false, message: `窗口切换失败: ${detail}` };
+    }
   }
 
   private async handleInput(text: string): Promise<void> {

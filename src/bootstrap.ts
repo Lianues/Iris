@@ -9,6 +9,7 @@
  *   - cli.ts（CLI 模式）：bootstrap() → backend.chat() → 输出 → 退出
  */
 
+import type { Computer } from './computer-use/types';
 import { loadConfig, findConfigFile, AppConfig } from './config';
 import { setRequestLogging } from './llm/transport';
 import { setLogsDir } from './logger/request-logger';
@@ -52,6 +53,8 @@ export interface BootstrapResult {
   getMCPManager: () => MCPManager | undefined;
   /** Agent 名称（多 Agent 模式下标识；单 Agent 模式为 undefined） */
   agentName?: string;
+  /** Computer Use 环境实例（screen 模式下提供窗口管理能力） */
+  computerEnv?: Computer;
 }
 
 /** Bootstrap 选项（多 Agent 模式传入） */
@@ -122,21 +125,22 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
   }
 
   // ---- 3.2 注册 Computer Use 工具 ----
+  let computerEnv: Computer | undefined;
   if (config.computerUse?.enabled) {
     try {
       const { BrowserEnvironment, ScreenEnvironment, createComputerUseTools, resolveEnvironmentKey } = await import('./computer-use');
       const env = config.computerUse.environment ?? 'browser';
-      let computerEnv: import('./computer-use').Computer;
+      let cuEnv: import('./computer-use').Computer;
       const envKey = resolveEnvironmentKey(env, config.computerUse.backgroundMode);
 
       if (env === 'screen') {
-        computerEnv = new ScreenEnvironment({
+        cuEnv = new ScreenEnvironment({
           searchEngineUrl: config.computerUse.searchEngineUrl,
           targetWindow: config.computerUse.targetWindow,
           backgroundMode: config.computerUse.backgroundMode,
         });
       } else {
-        computerEnv = new BrowserEnvironment({
+        cuEnv = new BrowserEnvironment({
           screenWidth: config.computerUse.screenWidth ?? 1440,
           screenHeight: config.computerUse.screenHeight ?? 900,
           headless: config.computerUse.headless,
@@ -146,11 +150,13 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
         });
       }
 
-      await computerEnv.initialize();
+      await cuEnv.initialize();
 
       // 用户配置的工具策略（按环境键名取对应分组）
       const userPolicy = config.computerUse.environmentTools?.[envKey as keyof typeof config.computerUse.environmentTools];
-      tools.registerAll(createComputerUseTools(computerEnv, envKey, userPolicy));
+      tools.registerAll(createComputerUseTools(cuEnv, envKey, userPolicy));
+
+      computerEnv = cuEnv;
     } catch (err) {
       console.error('[Iris] Computer Use 初始化失败:');
       console.error(err);
@@ -224,5 +230,6 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
     setMCPManager: (manager?: MCPManager) => { mcpManager = manager; },
     getMCPManager: () => mcpManager,
     agentName: agentLabel,
+    computerEnv,
   };
 }

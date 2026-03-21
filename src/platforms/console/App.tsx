@@ -10,6 +10,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useRenderer } from '@opentui/react';
 import type { LLMModelInfo } from '../../llm/router';
 import type { SessionMeta } from '../../storage/base';
+import type { WindowInfo } from '../../computer-use/types';
 import { BottomPanel } from './components/BottomPanel';
 import { ChatMessageList } from './components/ChatMessageList';
 import { DiffApprovalView } from './components/DiffApprovalView';
@@ -17,6 +18,7 @@ import { LogoScreen } from './components/LogoScreen';
 import { ModelListView } from './components/ModelListView';
 import { SessionListView } from './components/SessionListView';
 import { SettingsView } from './components/SettingsView';
+import { WindowListView } from './components/WindowListView';
 import { type ConfirmChoice, type PendingConfirm, type SettingsInitialSection, type ViewMode } from './app-types';
 import type { AppProps } from './app-props';
 import { useAppHandle, type AppHandle } from './hooks/use-app-handle';
@@ -50,7 +52,10 @@ export function App({
   onSaveSettings,
   onResetConfig,
   onExit,
+  onListWindows,
+  onSwitchWindow,
   onSwitchAgent,
+  hasComputerUse,
   agentName,
   modeName,
   modelId,
@@ -65,6 +70,8 @@ export function App({
   const [copyMode, setCopyMode] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [confirmChoice, setConfirmChoice] = useState<ConfirmChoice>('confirm');
+  const [windowList, setWindowList] = useState<WindowInfo[]>([]);
+  const [windowSearchText, setWindowSearchText] = useState('');
 
   const renderer = useRenderer();
   const undoRedoRef = useRef<UndoRedoStack>(createUndoRedoStack());
@@ -86,6 +93,10 @@ export function App({
     onResetConfig,
     onExit,
     onSwitchAgent,
+    onListWindows,
+    onSwitchWindow,
+    setWindowList,
+    setWindowSearchText,
     undoRedoRef,
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
@@ -132,6 +143,10 @@ export function App({
     onLoadSession,
     onSwitchModel,
     modelState,
+    windowList,
+    windowSearchText,
+    setWindowSearchText,
+    onSwitchWindow,
   });
 
   const currentApply = appState.isGenerating ? appState.pendingApplies[0] : undefined;
@@ -154,6 +169,10 @@ export function App({
 
   if (viewMode === 'model-list') {
     return <ModelListView models={modelList} selectedIndex={selectedIndex} />;
+  }
+
+  if (viewMode === 'window-list') {
+    return <WindowListView windows={windowList} selectedIndex={selectedIndex} searchText={windowSearchText} />;
   }
 
   if (currentApply) {
@@ -200,6 +219,7 @@ export function App({
         contextWindow={modelState.currentContextWindow}
         copyMode={copyMode}
         exitConfirmArmed={exitConfirm.exitConfirmArmed}
+        hasComputerUse={hasComputerUse}
       />
     </box>
   );

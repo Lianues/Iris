@@ -199,11 +199,16 @@ export interface ComputerUseConfig {
   /** 浏览器环境：是否高亮鼠标位置 */
   highlightMouse?: boolean;
   /**
-   * screen 环境：目标窗口标题（子串匹配）。
-   * 设置后截屏只截取该窗口区域，操作坐标自动偏移到窗口位置。
+   * screen 环境：目标窗口选择器。
+   *
+   * 字符串形式：按标题子串匹配（兼容旧配置）。
+   * 对象形式：支持 hwnd / title / exactTitle / processName / processId / className 多条件筛选。
+   *
+   * 仅作为启动时首次绑定的条件，绑定后锁定到窗口句柄。
+   * 运行时可通过 /window 指令切换。
    * 不设置则为全屏模式。
    */
-  targetWindow?: string;
+  targetWindow?: string | WindowSelector;
   /**
    * screen 环境：是否启用后台操作模式（仅窗口模式下有效）。
    * 启用后通过 PostMessage + PrintWindow 在后台操作窗口，不需要窗口在前台。
@@ -232,6 +237,31 @@ export interface ComputerUseConfig {
     screen?: CUToolPolicy;
     background?: CUToolPolicy;
   };
+}
+
+/**
+ * 窗口选择器（对象形式）。
+ *
+ * hwnd 优先级最高：填了 hwnd 就直接定位到该窗口，忽略其他字段。
+ * 其他字段同时存在时取交集（全部匹配才选中）。
+ */
+export interface WindowSelector {
+  /**
+   * 窗口句柄（十六进制字符串，如 "0x001A0B2C"）。
+   * 优先级最高，填了就直接定位，忽略其他所有字段。
+   * 可通过 /window 指令查看。注意 HWND 在窗口关闭或重启后会变。
+   */
+  hwnd?: string;
+  /** 标题子串匹配（不区分大小写） */
+  title?: string;
+  /** 标题精确匹配（区分大小写） */
+  exactTitle?: string;
+  /** 进程名称匹配（不含 .exe 后缀，不区分大小写） */
+  processName?: string;
+  /** 进程 ID 精确匹配。注意 PID 在进程重启后会变。 */
+  processId?: number;
+  /** 窗口类名匹配（精确匹配） */
+  className?: string;
 }
 
 /**

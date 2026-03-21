@@ -4,7 +4,7 @@
  * 导出模块公共 API，供 bootstrap 和外部使用。
  */
 
-export type { Computer, EnvState } from './types';
+export type { Computer, EnvState, WindowInfo } from './types';
 export { BrowserEnvironment } from './browser-env';
 export type { BrowserEnvConfig } from './browser-env';
 export { ScreenEnvironment } from './screen-env';
