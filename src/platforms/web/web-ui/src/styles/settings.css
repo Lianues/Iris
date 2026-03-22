@@ -771,17 +771,71 @@
   cursor: not-allowed;
 }
 
-.agent-editing-banner {
+.agent-config-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 18px;
-  margin-bottom: 16px;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 18px 22px;
   border-radius: var(--radius-sm);
   background: var(--accent-soft);
   border: 1px solid var(--accent-soft-strong);
+}
+
+.agent-config-title h3 {
+  margin: 0;
+  font-size: 1.1rem;
   color: var(--text-primary);
-  font-size: 0.88rem;
+}
+
+.agent-config-title p {
+  margin: 4px 0 0;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+}
+
+.agent-config-header .agent-back-btn {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.agent-back-arrow {
+  display: inline-block;
+  transition: transform 0.15s;
+}
+
+.agent-back-btn:hover .agent-back-arrow {
+  transform: translateX(-3px);
+}
+
+/* agent-card transition */
+.agent-card-enter-active {
+  animation: agentCardIn 280ms ease-out;
+}
+.agent-card-leave-active {
+  animation: agentCardOut 180ms ease-in;
+}
+
+@keyframes agentCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes agentCardOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
 }
 
 .agent-back-btn {

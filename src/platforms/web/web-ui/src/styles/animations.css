@@ -136,7 +136,9 @@
   .message-stack,
   .message-model.streaming,
   .thinking-dots span,
-  .btn-send-spinner span {
+  .btn-send-spinner span,
+  .agent-card-enter-active,
+  .agent-card-leave-active {
     animation: none !important;
     transition-duration: 0.01ms !important;
   }

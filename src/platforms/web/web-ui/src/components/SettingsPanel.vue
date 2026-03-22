@@ -23,14 +23,21 @@
       </div>
 
       <div class="settings-body">
-        <!-- Agent 编辑提示条 -->
-        <div v-if="editingAgent" class="agent-editing-banner">
-          <span>正在编辑 Agent：<strong>{{ editingAgent }}</strong></span>
-          <button class="agent-back-btn" type="button" @click="switchEditingAgent(null)">← 返回主配置</button>
-        </div>
+        <!-- Agent 配置 header -->
+        <Transition name="agent-card">
+          <div v-if="editingAgent" key="agent-header" class="agent-config-header">
+            <button class="agent-back-btn" type="button" @click="switchEditingAgent(null)">
+              <span class="agent-back-arrow">←</span> 返回主配置
+            </button>
+            <div class="agent-config-title">
+              <h3>{{ editingAgent }}</h3>
+              <p>配置此 Agent 的独立模型、工具和系统设置。修改会自动保存到 Agent 专属配置。</p>
+            </div>
+          </div>
+        </Transition>
 
         <div class="settings-section-group">
-          <p class="section-group-intro">{{ editingAgent ? `正在配置 Agent「${editingAgent}」的独立模型、工具和系统设置。` : 'Iris 采用「主模型 + 子代理」协作模式：你在下方注册模型连接，然后为子代理绑定模型。主 AI 遇到复杂任务时会自动委派给对应子代理。' }}</p>
+          <p v-if="!editingAgent" class="section-group-intro">Iris 采用「主模型 + 子代理」协作模式：你在下方注册模型连接，然后为子代理绑定模型。主 AI 遇到复杂任务时会自动委派给对应子代理。</p>
 
         <section class="settings-section">
           <div class="settings-section-head">
@@ -620,7 +627,7 @@
         </section>
 
         <!-- 平台配置 -->
-        <section class="settings-section">
+        <section v-if="!editingAgent" class="settings-section">
           <div class="settings-section-head">
             <div>
               <h3>平台配置</h3>
@@ -927,7 +934,7 @@
         </section>
 
         <!-- 危险区域 -->
-        <section class="settings-section settings-danger-zone">
+        <section v-if="!editingAgent" class="settings-section settings-danger-zone">
           <div class="settings-section-head">
             <div>
               <h3>危险区域</h3>
@@ -953,7 +960,7 @@
         </section>
 
         <!-- Cloudflare 管理 -->
-        <section class="settings-section">
+        <section v-if="!editingAgent" class="settings-section">
           <div class="settings-section-head">
             <div>
               <h3>Cloudflare 管理</h3>
@@ -1086,6 +1093,8 @@
           </template>
         </section>
 
+
+
         <div class="form-actions">
           <span v-if="saving" class="settings-status">自动保存中...</span>
           <span v-else-if="statusText" class="settings-status" :class="{ error: statusError }">
@@ -1098,7 +1107,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, Transition } from 'vue'
 import AppIcon from './AppIcon.vue'
 import AppSelect from './AppSelect.vue'
 import { ICONS } from '../constants/icons'
