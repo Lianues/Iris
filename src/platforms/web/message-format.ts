@@ -39,8 +39,13 @@ function extractDocumentMarkerFileName(text?: string): string | null {
   const normalized = text?.trim() ?? ''
   if (!normalized.startsWith('[Document: ')) return null
 
-  const match = normalized.match(/^\[Document: ([^\]\r\n]+)\](?:$|\r?\n)/)
+  // 匹配 [Document: file.json] 后跟换行/空格/行尾（兼容提取失败/处理异常等后缀）
+  const match = normalized.match(/^\[Document: ([^\]\r\n]+)\]/)
   return match?.[1]?.trim() || null
+}
+
+function isImageDimensionNote(text?: string): boolean {
+  return /^\[Image: original \d+x\d+/.test(text?.trim() ?? '')
 }
 
 export function formatContent(content: Content): WebMessage {
@@ -69,12 +74,33 @@ export function formatContent(content: Content): WebMessage {
     }
 
     if (isTextPart(part)) {
+      // 过滤图片尺寸标记（仅供 LLM 坐标映射，不需要展示给用户）
+      if (isImageDimensionNote(part.text)) continue
+
       const fileName = extractDocumentMarkerFileName(part.text)
       if (fileName && pendingDocumentIndices.length > 0) {
+        // 有对应的 inlineData document part，回填文件名
         const targetIndex = pendingDocumentIndices.shift()
         if (typeof targetIndex === 'number' && formatted.parts[targetIndex]?.type === 'document') {
           formatted.parts[targetIndex].fileName = fileName
         }
+      } else if (fileName) {
+        // 后端将文本格式文档（JSON/TXT/CSV 等）存储为纯文本 part，
+        // 刷新后需要还原为 document 类型以渲染 DocumentBubble
+        const ext = fileName.split('.').pop()?.toLowerCase() ?? ''
+        const mimeMap: Record<string, string> = {
+          json: 'application/json', txt: 'text/plain', csv: 'text/csv',
+          xml: 'application/xml', md: 'text/markdown', yaml: 'application/x-yaml',
+          yml: 'application/x-yaml', py: 'text/x-python', js: 'application/javascript',
+          ts: 'application/typescript', html: 'text/html', css: 'text/css',
+        }
+        formatted.parts.push({
+          type: 'document',
+          fileName,
+          mimeType: mimeMap[ext] || 'text/plain',
+          text: part.text?.replace(/^\[Document: [^\]\r\n]+\]\s*/, '') ?? '',
+        })
+        continue
       }
       formatted.parts.push({ type: 'text', text: part.text })
       continue

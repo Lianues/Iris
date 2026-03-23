@@ -97,11 +97,21 @@ export async function applyRuntimeConfigReload(
   };
 }
 
+/** 上次应用的 computer_use 配置快照，用于跳过无变化的重载 */
+let lastCuConfigSnapshot = '';
+
 async function reloadComputerUse(
   context: RuntimeConfigReloadContext,
   tools: ToolRegistry,
   mergedConfig: any,
 ): Promise<void> {
+  const cuConfig = mergedConfig.computer_use;
+  const newSnapshot = JSON.stringify(cuConfig ?? null);
+
+  // 配置未变化时跳过，避免修改 LLM/MCP 等无关配置时重启浏览器
+  if (newSnapshot === lastCuConfigSnapshot) return;
+  lastCuConfigSnapshot = newSnapshot;
+
   const { COMPUTER_USE_FUNCTION_NAMES, BrowserEnvironment, ScreenEnvironment, createComputerUseTools, resolveEnvironmentKey } = await import('../computer-use');
 
   // 注销旧的 Computer Use 工具
@@ -119,7 +129,6 @@ async function reloadComputerUse(
   }
 
   // 如果新配置启用了 computer_use，重新初始化
-  const cuConfig = mergedConfig.computer_use;
   if (cuConfig?.enabled) {
     try {
       const { parseComputerUseConfig } = await import('./computer-use');

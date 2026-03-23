@@ -1075,13 +1075,17 @@
   height: 100vh;
   max-width: 100vw;
   max-height: 100vh;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   padding: 0;
   margin: 0;
   border: none;
   background: transparent;
+}
+
+.iris-lightbox[open] {
+  display: flex;
 }
 
 .iris-lightbox::backdrop {

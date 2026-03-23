@@ -302,9 +302,11 @@ async function handleSave() {
   saving.value = true
   statusText.value = ''
   statusError.value = false
+  const payload = buildPayload()
   try {
-    const result = await updateConfig({ computer_use: buildPayload() })
+    const result = await updateConfig({ computer_use: payload })
     if (result.ok) {
+      lastSavedSnapshot = JSON.stringify(payload)
       statusText.value = result.restartRequired ? '已保存，需要重启生效' : '已保存并生效'
       statusError.value = false
     } else {
@@ -321,11 +323,16 @@ async function handleSave() {
 
 let configLoaded = false
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+/** 上次保存/加载时的配置快照，用于避免无变化时触发不必要的热重载 */
+let lastSavedSnapshot = ''
 
 function scheduleAutoSave() {
   if (!configLoaded) return
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
   autoSaveTimer = setTimeout(() => {
+    // 配置未变化时跳过保存，避免打开面板就触发 Computer Use 环境重启
+    const currentSnapshot = JSON.stringify(buildPayload())
+    if (currentSnapshot === lastSavedSnapshot) return
     if (saving.value) { scheduleAutoSave(); return }
     handleSave()
   }, 1000)
@@ -337,6 +344,8 @@ onMounted(async () => {
   try {
     const data = await getConfig()
     loadComputerUseFromData(data)
+    // 记录初始快照，防止 watcher 触发后将未变化的配置当作"更改"保存
+    lastSavedSnapshot = JSON.stringify(buildPayload())
   } catch (err: any) {
     statusText.value = '加载失败: ' + (err instanceof Error ? err.message : '未知错误')
     statusError.value = true

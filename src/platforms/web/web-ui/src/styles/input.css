@@ -128,7 +128,7 @@
 .input-actions {
   display: flex;
   gap: 12px;
-  align-items: stretch;
+  align-items: flex-end;
 }
 
 .input-area textarea {
@@ -345,7 +345,7 @@
 }
 
 .input-box {
-  align-items: stretch;
+  align-items: flex-end;
 }
 
 .input-actions {
