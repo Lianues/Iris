@@ -24,6 +24,7 @@ export interface AppHandle {
   setGenerating(generating: boolean): void;
   clearMessages(): void;
   setUserTokens(tokenCount: number): void;
+  addSummaryMessage(summaryText: string, tokenCount?: number): void;
   commitTools(): void;
   setUsage(usage: UsageMetadata): void;
   setRetryInfo(info: RetryInfo | null): void;
@@ -212,6 +213,18 @@ export function useAppHandle({ onReady, undoRedoRef }: UseAppHandleOptions): Use
           }
           return prev;
         });
+      },
+      addSummaryMessage(summaryText: string, tokenCount?: number) {
+        setMessages((prev) => [
+          ...prev.filter((m) => !m.isCommand),
+          {
+            id: nextMsgId(),
+            role: 'user',
+            parts: [{ type: 'text', text: summaryText }],
+            isSummary: true,
+            tokenIn: tokenCount,
+          },
+        ]);
       },
       setUsage(usage) {
         setContextTokens(usage.totalTokenCount ?? 0);

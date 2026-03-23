@@ -7,6 +7,11 @@
 
 defaultModel: gemini_flash
 
+# 用于 /compact 上下文压缩的模型名称
+# 需指向 models 中的某个模型，不填则使用 defaultModel
+# 建议使用速度快、成本低的模型（如 gemini-3-flash）
+summaryModel: gemini_flash
+
 models:
   gemini_flash:
     # 提供商: gemini | openai-compatible | openai-responses | claude
@@ -24,6 +29,12 @@ models:
     # 模型上下文窗口大小（token 数，用于 TUI 显示占用比例）
     # 常见模型已有内置默认值，通常无需手动设置
     # contextWindow: 1048576
+
+    # 自动上下文压缩阈值：token 数超过此值时自动执行 /compact
+    # 支持绝对值（如 100000）或 contextWindow 百分比（如 "80%"）
+    # 不设置则不自动压缩
+    # autoSummaryThreshold: "80%"
+    # autoSummaryThreshold: 100000
 
     # 自定义请求头：会覆盖 provider 内置同名 header
     # headers:

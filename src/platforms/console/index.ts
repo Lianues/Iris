@@ -12,6 +12,7 @@ import { Backend } from '../../core/backend';
 import { SessionMeta } from '../../storage/base';
 import { Content, Part, FunctionResponsePart, ToolInvocation, ToolStatus, UsageMetadata } from '../../types';
 import { setGlobalLogLevel, LogLevel } from '../../logger/index';
+import { estimateTokenCount } from 'tokenx';
 import type { MCPManager } from '../../mcp';
 import type { Computer, WindowInfo } from '../../computer-use/types';
 import { App, AppHandle, MessageMeta } from './App';
@@ -118,6 +119,7 @@ function getMessageMeta(content: Content): MessageMeta | undefined {
   if (content.usageMetadata?.promptTokenCount != null) meta.tokenIn = content.usageMetadata.promptTokenCount;
   if (content.usageMetadata?.candidatesTokenCount != null) meta.tokenOut = content.usageMetadata.candidatesTokenCount;
   if (content.createdAt != null) meta.createdAt = content.createdAt;
+  if (content.isSummary) meta.isSummary = true;
   if (content.durationMs != null) meta.durationMs = content.durationMs;
   if (content.streamOutputDurationMs != null) meta.streamOutputDurationMs = content.streamOutputDurationMs;
   if (content.modelName) (meta as any).modelName = content.modelName;
@@ -281,6 +283,14 @@ export class ConsolePlatform extends PlatformAdapter {
       }
     });
 
+    this.backend.on('auto-compact', (sid: string, summaryText: string) => {
+      if (sid === this.sessionId) {
+        const fullText = `[Context Summary]\n\n${summaryText}`;
+        const tokenCount = estimateTokenCount(fullText);
+        this.appHandle?.addSummaryMessage(fullText, tokenCount > 0 ? tokenCount : undefined);
+      }
+    });
+
     // 创建 OpenTUI 渲染器（全屏交替缓冲区）
     return new Promise<void>(async (resolve, reject) => {
       try {
@@ -348,6 +358,7 @@ export class ConsolePlatform extends PlatformAdapter {
         onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => this.handleSaveSettings(snapshot),
         onResetConfig: () => this.handleResetConfig(),
         onExit: () => this.stop(),
+        onSummarize: () => this.handleSummarize(),
         onSwitchAgent: this.onSwitchAgent,
         onListWindows: this.computerEnv?.listWindows ? () => this.handleListWindows() : undefined,
         onSwitchWindow: this.computerEnv?.switchWindow ? (hwnd: string) => this.handleSwitchWindow(hwnd) : undefined,
@@ -473,6 +484,23 @@ export class ConsolePlatform extends PlatformAdapter {
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err);
       return { ok: false, message: `窗口切换失败: ${detail}` };
+    }
+  }
+
+  private async handleSummarize(): Promise<{ ok: boolean; message: string }> {
+    this.appHandle?.setGenerating(true);
+    try {
+      const summaryText = await this.backend.summarize(this.sessionId);
+      const fullText = `[Context Summary]\n\n${summaryText}`;
+      const tokenCount = estimateTokenCount(fullText);
+      this.appHandle?.addSummaryMessage(fullText, tokenCount > 0 ? tokenCount : undefined);
+      return { ok: true, message: 'Context compressed.' };
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err);
+      this.appHandle?.addErrorMessage(`Context compression failed: ${detail}`);
+      return { ok: false, message: detail };
+    } finally {
+      this.appHandle?.setGenerating(false);
     }
   }
 

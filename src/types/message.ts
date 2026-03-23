@@ -88,6 +88,8 @@ export interface Content {
   modelName?: string;
   /** 消息创建时间戳（毫秒），用户消息为发送时间，模型消息为首个流式块或非流响应到达时间 */
   createdAt?: number;
+  /** 是否为上下文总结消息（/compact 生成），后续 LLM 调用仅从最后一条总结消息开始加载上下文 */
+  isSummary?: boolean;
 }
 
 // ============ 类型守卫工具函数 ============

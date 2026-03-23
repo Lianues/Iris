@@ -20,6 +20,16 @@ function getThoughtTailPreview(text: string, maxChars: number): string {
   return `\u2026${latestLine.slice(-(maxChars - 1))}`;
 }
 
+/** 将总结文本截取为单行预览（去掉 [Context Summary] 前缀） */
+function getSummaryPreview(text: string, maxChars: number): string {
+  const clean = text.replace(/^\[Context Summary\]\s*\n*/i, '').trim();
+  const lines = clean.split('\n').map(s => s.trim()).filter(Boolean);
+  if (lines.length === 0) return '';
+  const first = lines[0];
+  if (first.length <= maxChars) return first;
+  return first.slice(0, maxChars - 1) + '\u2026';
+}
+
 
 function formatElapsedMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
@@ -52,6 +62,7 @@ export type MessagePart =
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
+  isSummary?: boolean;
   createdAt?: number;
   isError?: boolean;
   isCommand?: boolean;
@@ -115,8 +126,37 @@ export const MessageItem = React.memo(function MessageItem(
 ) {
   const { width: termWidth } = useTerminalDimensions();
   const isUser = msg.role === 'user';
-  const labelName = isUser ? 'you' : (msg.isCommand ? 'shell' : (msg.modelName || modelName || 'iris').toLowerCase());
-  const labelColor = isUser ? C.roleUser : (msg.isError ? C.error : (msg.isCommand ? C.command : C.roleAssistant));
+  const isSummary = msg.isSummary === true;
+
+  // 总结消息：缩略单行显示
+  if (isSummary) {
+    const headerText = `\u00b7 context `;
+    const separatorLen = Math.max(2, termWidth - headerText.length - 2);
+    const preview = getSummaryPreview(
+      msg.parts.filter(p => p.type === 'text').map(p => p.text).join('\n'),
+      Math.max(30, termWidth - 20),
+    );
+    return (
+      <box flexDirection="column" width="100%">
+        <box marginBottom={1}>
+          <text>
+            <span fg={C.warn}><strong>{headerText}</strong></span>
+            <span fg={C.warn}>{'\u2500'.repeat(separatorLen)}</span>
+          </text>
+        </box>
+        <text fg={C.dim}>{preview}</text>
+        <box marginTop={1}>
+          <text fg={C.dim}>
+            {msg.createdAt != null ? formatTime(msg.createdAt) : ''}
+            {msg.tokenIn != null ? `  \u2191${msg.tokenIn.toLocaleString()}` : ''}
+          </text>
+        </box>
+      </box>
+    );
+  }
+
+  const labelName = isSummary ? 'context' : isUser ? 'you' : (msg.isCommand ? 'shell' : (msg.modelName || modelName || 'iris').toLowerCase());
+  const labelColor = isSummary ? C.warn : isUser ? C.roleUser : (msg.isError ? C.error : (msg.isCommand ? C.command : C.roleAssistant));
   const headerText = `\u00b7 ${labelName} `;
 
   const displayParts: MessagePart[] = [...msg.parts];

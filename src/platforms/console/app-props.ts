@@ -24,6 +24,7 @@ export interface AppProps {
   onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => Promise<ConsoleSettingsSaveResult>;
   onResetConfig: () => { success: boolean; message: string };
   onExit: () => void;
+  onSummarize: () => Promise<{ ok: boolean; message: string }>;
   /** Computer Use 窗口列表（仅 CU screen 模式下提供） */
   onListWindows?: () => Promise<WindowInfo[]>;
   /** Computer Use 切换窗口（仅 CU screen 模式下提供） */

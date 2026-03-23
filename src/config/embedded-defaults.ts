@@ -138,4 +138,8 @@ maxRecentScreenshots: 3
 #   - name: my-tool
 #     enabled: true
 `,
+
+  'summary.yaml': `# 上下文压缩配置（/compact 指令）
+# 使用默认提示词，通常无需修改
+`,
 };

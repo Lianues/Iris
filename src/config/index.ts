@@ -36,6 +36,7 @@ import { parseSubAgentsConfig } from './sub_agents';
 import { parseComputerUseConfig } from './computer-use';
 import { loadRawConfigDir } from './raw';
 import { parsePluginsConfig } from './plugins';
+import { parseSummaryConfig } from './summary';
 
 export type {
   AppConfig,
@@ -50,6 +51,7 @@ export type {
   MemoryConfig,
   MCPConfig,
   MCPServerConfig,
+  SummaryConfig,
   SubAgentsConfig,
   SubAgentTypeDef,
 } from './types';
@@ -128,6 +130,7 @@ export function loadConfig(customConfigDir?: string, agentPaths?: AgentPaths): A
     subAgents: parseSubAgentsConfig(data.sub_agents),
     computerUse: parseComputerUseConfig(data.computer_use),
     plugins: parsePluginsConfig(data.plugins),
+    summary: parseSummaryConfig(data.summary),
   };
 }
 

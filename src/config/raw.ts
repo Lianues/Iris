@@ -20,6 +20,7 @@ export const CONFIG_SECTION_KEYS = [
   'mcp',
   'modes',
   'sub_agents',
+  'summary',
   'computer_use',
   'plugins',
 ] as const;

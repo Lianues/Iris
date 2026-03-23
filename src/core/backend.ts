@@ -34,6 +34,8 @@ import {
   Content, Part, LLMRequest, UsageMetadata, ToolInvocation,
   extractText, isFunctionCallPart, isFunctionResponsePart, isInlineDataPart, isTextPart,
 } from '../types';
+import type { SummaryConfig } from '../config/types';
+import { summarizeHistory } from './summarizer';
 import { resizeImage, formatDimensionNote } from '../media/image-resize.js';
 import { extractDocument, isSupportedDocumentMime } from '../media/document-extract.js';
 import { convertToPDF } from '../media/office-to-pdf.js';
@@ -176,6 +178,10 @@ export interface BackendConfig {
   ocrService?: OCRService;
   /** Computer Use 截图保留的最近轮次数（默认 3） */
   maxRecentScreenshots?: number;
+  /** 用于 /compact 上下文压缩的模型名称（需在 LLMRouter 中已注册） */
+  summaryModelName?: string;
+  /** 上下文压缩提示词配置 */
+  summaryConfig?: SummaryConfig;
 }
 
 export interface BackendEvents {
@@ -201,6 +207,8 @@ export interface BackendEvents {
   'done': (sessionId: string, durationMs: number) => void;
   /** 一轮模型输出完成后的完整内容（结构化） */
   'assistant:content': (sessionId: string, content: Content) => void;
+  /** 自动上下文压缩完成（阈值触发） */
+  'auto-compact': (sessionId: string, summaryText: string) => void;
 }
 
 // ============ Backend 类 ============
@@ -219,6 +227,8 @@ export class Backend extends EventEmitter {
   private currentLLMConfig?: LLMConfig;
   private ocrService?: OCRService;
   private maxRecentScreenshots: number;
+  private summaryModelName?: string;
+  private summaryConfig?: SummaryConfig;
 
   private toolLoop: ToolLoop;
   private toolLoopConfig: ToolLoopConfig;
@@ -232,6 +242,9 @@ export class Backend extends EventEmitter {
 
   /** 每个 session 的 redo 栈。每组元素都是一次 undo 移除的完整 Content 组。 */
   private redoHistory = new Map<string, Content[][]>();
+
+  /** 每个 session 最近一次 LLM 调用的 totalTokenCount（用于自动总结阈值判断） */
+  private lastSessionTokens = new Map<string, number>();
 
   /** 插件钩子列表 */
   private pluginHooks: PluginHook[] = [];
@@ -261,6 +274,8 @@ export class Backend extends EventEmitter {
     this.currentLLMConfig = config?.currentLLMConfig;
     this.ocrService = config?.ocrService;
     this.maxRecentScreenshots = config?.maxRecentScreenshots ?? 3;
+    this.summaryModelName = config?.summaryModelName;
+    this.summaryConfig = config?.summaryConfig;
 
     this.toolLoopConfig = {
       maxRounds: config?.maxToolRounds ?? 200,
@@ -383,6 +398,62 @@ export class Backend extends EventEmitter {
   /** 截断会话历史 */
   async truncateHistory(sessionId: string, keepCount: number): Promise<void> {
     await this.storage.truncateHistory(sessionId, keepCount);
+  }
+
+  /**
+   * 压缩当前会话的上下文。
+   *
+   * 取最后一条总结消息（若有）之后的所有历史，调用 LLM 生成摘要，
+   * 然后将摘要作为 isSummary 标记的 user 消息追加到历史末尾。
+   * 后续 LLM 调用在 prepareHistoryForLLM 中会自动从最后一条总结消息开始加载。
+   */
+  async summarize(sessionId: string, signal?: AbortSignal): Promise<string> {
+    const history = await this.storage.getHistory(sessionId);
+    if (history.length === 0) {
+      throw new Error('当前会话没有历史消息');
+    }
+
+    // 定位最后一条总结消息，只总结其后的内容
+    let startIndex = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].isSummary) {
+        startIndex = i;
+        break;
+      }
+    }
+
+    const toSummarize = history.slice(startIndex);
+    if (toSummarize.length < 2) {
+      throw new Error('消息过少，无需压缩');
+    }
+
+    // 调用 LLM 生成摘要
+    const summaryText = await summarizeHistory(
+      this.router,
+      toSummarize,
+      this.summaryModelName,
+      this.summaryConfig,
+      signal,
+    );
+
+    const now = Date.now();
+    const fullText = `[Context Summary]\n\n${summaryText}`;
+
+    // 估算 token 数
+    const estimatedTokens = estimateTokenCount(fullText);
+
+    // 持久化总结 user 消息
+    const summaryContent: Content = {
+      role: 'user',
+      parts: [{ text: fullText }],
+      isSummary: true,
+      createdAt: now,
+      ...(estimatedTokens > 0 ? { usageMetadata: { promptTokenCount: estimatedTokens } } : {}),
+    };
+    await this.storage.addMessage(sessionId, summaryContent);
+
+    this.clearRedo(sessionId);
+    return summaryText;
   }
 
   /** 清空指定会话的 redo 栈。任何新的写入都应使 redo 失效。 */
@@ -656,6 +727,30 @@ export class Backend extends EventEmitter {
 
   // ============ 核心流程 ============
 
+  /**
+   * 根据当前模型配置解析自动总结阈值（绝对 token 数）。
+   * 支持绝对值（number）和 contextWindow 百分比（string "80%"）。
+   * 未配置或无法解析时返回 undefined。
+   */
+  private getAutoSummaryThreshold(): number | undefined {
+    const config = this.currentLLMConfig;
+    if (!config?.autoSummaryThreshold) return undefined;
+    const raw = config.autoSummaryThreshold;
+    if (typeof raw === 'number') return raw > 0 ? raw : undefined;
+    if (typeof raw === 'string') {
+      const trimmed = raw.trim();
+      if (trimmed.endsWith('%')) {
+        const percent = parseFloat(trimmed);
+        if (!isNaN(percent) && percent > 0 && config.contextWindow && config.contextWindow > 0) {
+          return Math.floor(config.contextWindow * percent / 100);
+        }
+      }
+      const num = parseFloat(trimmed);
+      return !isNaN(num) && num > 0 ? num : undefined;
+    }
+    return undefined;
+  }
+
   private async handleMessage(sessionId: string, storedUserParts: Part[], llmUserParts: Part[], signal?: AbortSignal): Promise<void> {
     this.activeSessionId = sessionId;
     const startTime = Date.now();
@@ -668,7 +763,7 @@ export class Backend extends EventEmitter {
     //    如果平台层并发调用 chat()，历史中会出现连续两条 role: "user" 的消息。
     //    部分 LLM API（如 Gemini）不允许同角色消息相邻，可能导致请求失败。
     //    平台层应自行实现并发控制或消息缓冲（参考 WXWorkPlatform 的实现）。
-    const storedHistory = await this.storage.getHistory(sessionId);
+    let storedHistory = await this.storage.getHistory(sessionId);
 
     // 1.1 兜底清理：修复因中断/崩溃导致的不完整历史（dangling functionCall 等）
     const beforeSanitize = storedHistory.length;
@@ -683,6 +778,25 @@ export class Backend extends EventEmitter {
         await this.storage.addMessage(sessionId, msg);
       }
       logger.info(`历史兜底清理: session=${sessionId}, ${beforeSanitize} → ${storedHistory.length} 条`);
+    }
+
+    // 1.2 自动上下文压缩（pre-message）：上一轮 token 总量 + 本轮用户消息估算值 > 阈值 → 先压缩
+    const autoThreshold = this.getAutoSummaryThreshold();
+    if (autoThreshold && storedHistory.length > 0) {
+      const lastTokens = this.lastSessionTokens.get(sessionId) ?? 0;
+      if (lastTokens > 0) {
+        const estUser = estimateTokenCount(extractText(storedUserParts) || '');
+        if (lastTokens + estUser > autoThreshold) {
+          logger.info(`Auto-compact (pre-message): ${lastTokens} + ${estUser} > ${autoThreshold}`);
+          try {
+            const summaryText = await this.summarize(sessionId, signal);
+            this.emit('auto-compact', sessionId, summaryText);
+            storedHistory = await this.storage.getHistory(sessionId);
+          } catch (err) {
+            logger.warn('Auto-compact (pre-message) failed:', err);
+          }
+        }
+      }
     }
 
     const history = this.prepareHistoryForLLM(storedHistory);
@@ -719,10 +833,12 @@ export class Backend extends EventEmitter {
     }
 
     // 3. 构建 LLM 调用函数
+    let lastCallTotalTokens = 0;
     const callLLM: LLMCaller = async (request, modelName, callSignal) => {
       let content: Content;
       if (this.stream) {
         content = await this.callLLMStream(sessionId, request, modelName, callSignal);
+        if (content.usageMetadata?.totalTokenCount) lastCallTotalTokens = content.usageMetadata.totalTokenCount;
         // 让 stream:end 的 SSE 数据在 assistant:content 之前到达浏览器，
         // 使客户端有机会在 onStreamEnd 中 flush 流式文本并触发渲染，
         // 再收到 onAssistantContent 设置 receivedFinalAssistantPayload。
@@ -735,6 +851,7 @@ export class Backend extends EventEmitter {
         if (response.usageMetadata) {
           content.usageMetadata = response.usageMetadata;
           this.emit('usage', sessionId, response.usageMetadata);
+          if (response.usageMetadata.totalTokenCount) lastCallTotalTokens = response.usageMetadata.totalTokenCount;
         }
       }
       this.emit('assistant:content', sessionId, content);
@@ -768,6 +885,8 @@ export class Backend extends EventEmitter {
     }
     // 通知前端用户消息的估算 token 数
     if (estimatedUserTokens > 0) this.emit('user:token', sessionId, estimatedUserTokens);
+    // 追踪用户消息 token 到 session 累计值
+    this.lastSessionTokens.set(sessionId, (this.lastSessionTokens.get(sessionId) ?? 0) + estimatedUserTokens);
 
     // 6. 执行工具循环（新增消息通过回调实时持久化；redo 已在步骤 5 清空，无需重复清）
     const result = await loop.run(history, callLLM, {
@@ -849,6 +968,20 @@ export class Backend extends EventEmitter {
       this.emit('response', sessionId, finalText);
     }
     this.emit('done', sessionId, durationMs);
+
+    // 11. 更新 session token 追踪；若超阈值则自动压缩（为下一轮准备）
+    if (lastCallTotalTokens > 0) {
+      this.lastSessionTokens.set(sessionId, lastCallTotalTokens);
+    }
+    if (autoThreshold && lastCallTotalTokens > autoThreshold) {
+      logger.info(`Auto-compact (post-response): ${lastCallTotalTokens} > ${autoThreshold}`);
+      try {
+        const summaryText = await this.summarize(sessionId);
+        this.emit('auto-compact', sessionId, summaryText);
+      } catch (err) {
+        logger.warn('Auto-compact (post-response) failed:', err);
+      }
+    }
 
     this.activeSessionId = undefined;
   }
@@ -1104,7 +1237,17 @@ export class Backend extends EventEmitter {
   }
 
   private prepareHistoryForLLM(history: Content[]): Content[] {
-    const prepared = history.map((content) => ({
+    // 从最后一条总结消息开始加载上下文，跳过更早的历史
+    let startIndex = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].isSummary) {
+        startIndex = i;
+        break;
+      }
+    }
+    const relevantHistory = startIndex > 0 ? history.slice(startIndex) : history;
+
+    const prepared = relevantHistory.map((content) => ({
       role: content.role,
       parts: this.preparePartsForLLM(content.parts),
       usageMetadata: content.usageMetadata,

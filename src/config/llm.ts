@@ -41,6 +41,9 @@ export function parseSingleLLMConfig(raw: any = {}): LLMConfig {
     baseUrl: raw.baseUrl || defaults.baseUrl || '',
     contextWindow: typeof raw.contextWindow === 'number' ? raw.contextWindow : defaults.contextWindow,
     supportsVision: typeof raw.supportsVision === 'boolean' ? raw.supportsVision : undefined,
+    autoSummaryThreshold: (typeof raw.autoSummaryThreshold === 'number' || typeof raw.autoSummaryThreshold === 'string')
+      ? raw.autoSummaryThreshold
+      : undefined,
     headers: raw.headers && typeof raw.headers === 'object' && !Array.isArray(raw.headers) ? raw.headers : undefined,
     requestBody: raw.requestBody && typeof raw.requestBody === 'object' && !Array.isArray(raw.requestBody) ? raw.requestBody : undefined,
   };
@@ -74,8 +77,10 @@ export function parseLLMConfig(raw: any = {}): LLMRegistryConfig {
     if (models.length > 0) {
       const modelNames = new Set(models.map(model => model.modelName));
       const requestedDefault = normalizeModelName(raw.defaultModel);
+      const requestedSummary = normalizeModelName(raw.summaryModel);
       return {
         defaultModelName: requestedDefault && modelNames.has(requestedDefault) ? requestedDefault : models[0].modelName,
+        summaryModelName: requestedSummary && modelNames.has(requestedSummary) ? requestedSummary : undefined,
         models,
       };
     }

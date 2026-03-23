@@ -14,6 +14,12 @@ export interface LLMConfig {
   contextWindow?: number;
   /** 显式声明当前模型是否支持图片输入 */
   supportsVision?: boolean;
+  /**
+   * 自动上下文压缩阈值（token 数超过此值时自动执行 /compact）
+   * 支持绝对值（如 100000）或 contextWindow 百分比（如 "80%"）
+   * 不设置则不自动压缩
+   */
+  autoSummaryThreshold?: number | string;
   /** 自定义请求头，会覆盖 provider 内置同名 header */
   headers?: Record<string, string>;
   /** 自定义请求体，会深合并到 provider 编码后的最终请求体，支持嵌套参数 */
@@ -29,6 +35,8 @@ export interface LLMModelDef extends LLMConfig {
 export interface LLMRegistryConfig {
   /** 启动时默认使用的模型名称 */
   defaultModelName: string;
+  /** 用于 /compact 上下文压缩的模型名称（需指向 models 中的某个模型，不填则使用 defaultModel） */
+  summaryModelName?: string;
   /** 可用模型列表 */
   models: LLMModelDef[];
 }
@@ -282,6 +290,14 @@ export interface CUToolPolicy {
   exclude?: string[];
 }
 
+/** 上下文压缩（/compact）配置 */
+export interface SummaryConfig {
+  /** 总结 AI 的系统提示词 */
+  systemPrompt: string;
+  /** 追加在对话末尾的用户指令 */
+  userPrompt: string;
+}
+
 export interface AppConfig {
   llm: LLMRegistryConfig;
   ocr?: OCRConfig;
@@ -299,6 +315,8 @@ export interface AppConfig {
   computerUse?: ComputerUseConfig;
   /** 插件配置（可选，对应 plugins.yaml） */
   plugins?: Array<{ name: string; type?: 'local' | 'npm'; enabled?: boolean; config?: Record<string, unknown> }>;
+  /** 上下文压缩配置（对应 summary.yaml） */
+  summary: SummaryConfig;
 }
 
 /** 子代理类型定义（配置文件格式） */

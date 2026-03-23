@@ -228,6 +228,8 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
     currentLLMConfig: router.getCurrentConfig(),
     ocrService,
     maxRecentScreenshots: config.computerUse?.maxRecentScreenshots,
+    summaryModelName: config.llm.summaryModelName,
+    summaryConfig: config.summary,
   }, memory, modeRegistry);
 
   // 注册子代理工具（需要 backend 引用；无类型定义时跳过）

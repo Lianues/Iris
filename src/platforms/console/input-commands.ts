@@ -18,6 +18,7 @@ export const COMMANDS: Command[] = [
   { name: '/mcp',      description: '直接打开 MCP 管理区' },
   { name: '/sh',       description: '执行命令（如 cd、dir、git 等）' },
   { name: '/reset-config', description: '重置配置为默认值' },
+  { name: '/compact',  description: '压缩上下文（总结历史消息）' },
   { name: '/window',   description: '查看或切换绑定窗口（Computer Use）' },
   { name: '/agent',    description: '切换 Agent（多 Agent 模式）' },
   { name: '/exit',     description: '退出应用' },

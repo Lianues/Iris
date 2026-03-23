@@ -38,6 +38,7 @@ interface UseCommandDispatchOptions {
   onSwitchModel: (modelName: string) => SwitchModelResult;
   onResetConfig: () => { success: boolean; message: string };
   onExit: () => void;
+  onSummarize: () => Promise<{ ok: boolean; message: string }>;
   onSwitchAgent?: () => void;
   onListWindows?: () => Promise<WindowInfo[]>;
   onSwitchWindow?: (hwnd: string) => Promise<{ ok: boolean; message: string }>;
@@ -74,6 +75,7 @@ export function useCommandDispatch({
   onResetConfig,
   onExit,
   onSwitchAgent,
+  onSummarize,
   onListWindows,
   onSwitchWindow,
   setWindowList,
@@ -212,6 +214,17 @@ export function useCommandDispatch({
       return;
     }
 
+    if (text === '/compact') {
+      onSummarize().then((result) => {
+        if (!result.ok) {
+          appendCommandMessage(setMessages, result.message, { isError: true });
+        }
+      }).catch((err: any) => {
+        appendCommandMessage(setMessages, `Context compression failed: ${err.message ?? err}`, { isError: true });
+      });
+      return;
+    }
+
     if (text.startsWith('/sh ') || text === '/sh') {
       const cmd = text.slice(4).trim();
       if (!cmd) return;
@@ -243,6 +256,7 @@ export function useCommandDispatch({
     onSubmit,
     onSwitchAgent,
     onSwitchModel,
+    onSummarize,
     onUndo,
     setConfirmChoice,
     setMessages,
