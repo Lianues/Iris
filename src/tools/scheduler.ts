@@ -18,6 +18,7 @@ import { ToolRegistry } from './registry';
 import { ToolStateManager } from './state';
 import { FunctionCallPart, FunctionResponsePart, InlineDataPart } from '../types';
 import { createLogger } from '../logger';
+import type { ToolAttachment } from '../types';
 import { ToolPolicyConfig, ToolsConfig } from '../config';
 import type { BeforeToolExecInterceptor, AfterToolExecInterceptor } from '../plugins/types';
 
@@ -216,6 +217,7 @@ async function executeSingle(
   signal?: AbortSignal,
   beforeToolExec?: BeforeToolExecInterceptor,
   afterToolExec?: AfterToolExecInterceptor,
+  onAttachments?: (attachments: ToolAttachment[]) => void,
 ): Promise<FunctionResponsePart> {
   const toolName = call.functionCall.name;
 
@@ -311,6 +313,10 @@ async function executeSingle(
     let result = await registry.execute(toolName, effectiveArgs);
     const durationMs = Date.now() - execStart;
 
+    // 保存原始返回值，用于 MCP 附件识别兜底（afterToolExec 可能改变 result 的结构）
+    const rawResult = result;
+
+    // 插件钩子：工具执行后拦截器（上游 main 新增）
     if (afterToolExec) {
       try {
         const interception = await afterToolExec(toolName, effectiveArgs, result, durationMs);
@@ -323,17 +329,40 @@ async function executeSingle(
       }
     }
 
-    // 工具可通过约定字段 __response / __parts 返回带多模态内联数据的结果。
-    // 适用于需要在工具结果中附带截图、音频等二进制数据的场景。
-    //   __response → functionResponse.response（扁平，不包在 { result } 里）
-    //   __parts    → functionResponse.parts（InlineDataPart 数组）
-    const isRichResult = result != null && typeof result === 'object'
-      && !Array.isArray(result) && '__response' in (result as Record<string, unknown>);
+    // MCP 结果识别：优先检查 afterToolExec 后的 result，回退到原始 rawResult。
+    // MCP 工具返回 { text, attachments }，把 text 留给 LLM，附件旁路给平台层。
+    const isMCPEnvelope = (v: unknown): v is { text: string; attachments: ToolAttachment[] } =>
+      v != null && typeof v === 'object' && !Array.isArray(v)
+      && typeof (v as any).text === 'string'
+      && Array.isArray((v as any).attachments);
+    const isMCPResult = isMCPEnvelope(result) || isMCPEnvelope(rawResult);
+    const mcpSource = isMCPEnvelope(result) ? result : (isMCPEnvelope(rawResult) ? rawResult : undefined);
+
+    // 现有约定：普通工具也可以通过 __response / __parts 返回富结果。
+    // 这是旧链路，保留不动，避免影响已有的截图/音频工具。
+    const isRichResult = !isMCPResult
+      && result != null
+      && typeof result === 'object'
+      && !Array.isArray(result)
+      && '__response' in (result as Record<string, unknown>);
 
     let response: Record<string, unknown>;
     let responseParts: InlineDataPart[] | undefined;
+    let stateResult: unknown = result;
 
-    if (isRichResult) {
+    if (isMCPResult) {
+      // mcpSource 已在上面通过 isMCPEnvelope 确定，此处断言安全
+      const mcp = mcpSource!;
+      response = { result: mcp.text };
+      logger.info(`[executeSingle] MCP 结果识别: tool=${toolName}, text长度=${mcp.text.length}, attachments=${mcp.attachments.length}`);
+      stateResult = mcp.text;
+
+      // 附件不进入 functionResponse.parts，否则会被历史/上下文继续携带。
+      // 这里通过回调旁路给平台层，让 Telegram / Discord / Lark 自己发图。
+      if (mcp.attachments.length > 0) {
+        onAttachments?.(mcp.attachments);
+      }
+    } else if (isRichResult) {
       const rich = result as Record<string, unknown>;
       response = (rich.__response as Record<string, unknown>) ?? {};
       responseParts = Array.isArray(rich.__parts) ? rich.__parts as InlineDataPart[] : undefined;
@@ -342,8 +371,9 @@ async function executeSingle(
     }
 
     if (toolState && invocationId) {
-      // 存储原始工具输出（非 API response 包裹），供 TUI 渲染器直接使用
-      toolState.transition(invocationId, 'success', { result });
+      // 存储尽量轻量的结果。MCP 图片附件已经通过 onAttachments 旁路发送，
+      // 这里不保留 Buffer，避免状态对象被大块二进制拖重。
+      toolState.transition(invocationId, 'success', { result: stateResult });
     }
     return {
       functionResponse: {
@@ -393,6 +423,7 @@ export async function executePlan(
   signal?: AbortSignal,
   beforeToolExec?: BeforeToolExecInterceptor,
   afterToolExec?: AfterToolExecInterceptor,
+  onAttachments?: (attachments: ToolAttachment[]) => void,
 ): Promise<FunctionResponsePart[]> {
   const responseParts: FunctionResponsePart[] = new Array(calls.length);
 
@@ -423,7 +454,7 @@ export async function executePlan(
 
       const results = await Promise.all(
         batch.indices.map(i =>
-          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec)
+          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments)
         ),
       );
       for (let j = 0; j < batch.indices.length; j++) {
@@ -431,7 +462,7 @@ export async function executePlan(
       }
     } else {
       for (const i of batch.indices) {
-        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec);
+        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments);
       }
     }
   }

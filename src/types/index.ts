@@ -6,3 +6,4 @@ export * from './message';
 export * from './tool';
 export * from './llm';
 export * from './platform';
+export * from './attachment';

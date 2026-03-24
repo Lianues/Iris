@@ -23,6 +23,7 @@ import {
   TelegramPendingMessage,
   TelegramSessionTarget,
 } from './types';
+import type { ToolAttachment } from '../../types';
 
 const logger = createLogger('Telegram');
 
@@ -194,6 +195,31 @@ export class TelegramPlatform extends PlatformAdapter {
 
       if (!displayText) return;
       this.editStreamMessage(cs, displayText);
+    });
+
+    // ---- 工具附件（图片等） ----
+    this.backend.on('attachments', (sid: string, attachments: ToolAttachment[]) => {
+      const cs = this.findChatStateBySid(sid);
+      // 调试日志：确认 attachments 事件是否到达 Telegram 平台层
+      logger.info(`[attachments] 收到附件事件: sid=${sid}, count=${attachments.length}, cs=${!!cs}, stopped=${cs?.stopped}`);
+      if (!cs || cs.stopped || attachments.length === 0) {
+        logger.info(`[attachments] 跳过: cs=${!!cs}, stopped=${cs?.stopped}, count=${attachments.length}`);
+        return;
+      }
+
+      // 附件是平台级能力，不进入 LLM 上下文。
+      // 这里直接把图片发给用户，文本摘要仍会通过后续 response 事件送出。
+      void (async () => {
+        for (const att of attachments) {
+          if (att.type !== 'image') continue;
+          try {
+            logger.info(`[attachments] 正在发送图片到 Telegram: chatId=${cs.target.chatId}, dataSize=${att.data.length}`);
+            await this.client.sendPhoto(cs.target, att.data, att.caption);
+          } catch (err) {
+            logger.error('发送图片失败:', err);
+          }
+        }
+      })();
     });
 
     // ---- 流式输出 ----

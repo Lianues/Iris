@@ -30,9 +30,9 @@ import type {
 } from '../plugins/types';
 import { createLogger } from '../logger';
 import {
-  Content, Part, LLMRequest, extractText, isFunctionCallPart,
-  FunctionCallPart, FunctionResponsePart,
+  extractText, isFunctionCallPart,
 } from '../types';
+import type { Content, Part, LLMRequest, FunctionCallPart, FunctionResponsePart, ToolAttachment } from '../types';
 import { cleanupTrailingHistory } from './history-sanitizer';
 
 const logger = createLogger('ToolLoop');
@@ -79,6 +79,13 @@ export interface ToolLoopRunOptions {
   onMessageAppend?: (content: Content) => Promise<void>;
   /** 一轮模型输出完成后的回调（在插件 afterLLMCall 之后、写入历史之前） */
   onModelContent?: (content: Content, round: number) => Promise<void> | void;
+  /**
+   * 工具执行时产生的附件（例如 MCP 返回的图片）。
+   *
+   * 这些附件不进入 LLM 上下文，由平台层直接发送给用户，
+   * 避免把 base64 当作文本塞进历史。
+   */
+  onAttachments?: (attachments: ToolAttachment[]) => void;
   /** 固定使用的模型名称；不填时由调用方自行决定默认模型 */
   modelName?: string;
   /** 中止信号：触发后安全退出循环并清理历史 */
@@ -186,7 +193,7 @@ export class ToolLoop {
       }
 
       // 执行工具（通过 scheduler 分批调度）
-      const responseParts = await this.executeTools(functionCalls, signal);
+      const responseParts = await this.executeTools(functionCalls, signal, options?.onAttachments);
 
       // 工具执行后再次检查 abort
       if (signal?.aborted) {
@@ -283,7 +290,11 @@ export class ToolLoop {
     return '';
   }
 
-  private async executeTools(calls: FunctionCallPart[], signal?: AbortSignal): Promise<FunctionResponsePart[]> {
+  private async executeTools(
+    calls: FunctionCallPart[],
+    signal?: AbortSignal,
+    onAttachments?: (attachments: ToolAttachment[]) => void,
+  ): Promise<FunctionResponsePart[]> {
     const plan = buildExecutionPlan(calls, this.tools);
 
     if (this.toolState) {
@@ -305,6 +316,7 @@ export class ToolLoop {
         signal,
         this.config.beforeToolExec,
         this.config.afterToolExec,
+        onAttachments,
       );
     }
 
@@ -319,6 +331,7 @@ export class ToolLoop {
       signal,
       this.config.beforeToolExec,
       this.config.afterToolExec,
+      onAttachments,
     );
   }
 }
