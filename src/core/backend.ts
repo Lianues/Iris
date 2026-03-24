@@ -32,11 +32,13 @@ import { COMPUTER_USE_FUNCTION_NAMES } from '../computer-use/tools';
 import { sanitizeHistory } from './history-sanitizer';
 import { estimateTokenCount } from 'tokenx';
 import {
-  Content, Part, LLMRequest, UsageMetadata, ToolInvocation,
   extractText, isFunctionCallPart, isFunctionResponsePart, isInlineDataPart, isTextPart,
 } from '../types';
+// 上游 main 新增的 summary 相关导入
 import type { SummaryConfig } from '../config/types';
 import { summarizeHistory } from './summarizer';
+// feat 分支新增的 ToolAttachment 类型（MCP 附件旁路功能需要）
+import type { Content, Part, LLMRequest, UsageMetadata, ToolInvocation, ToolAttachment } from '../types';
 import { resizeImage, formatDimensionNote } from '../media/image-resize.js';
 import { extractDocument, isSupportedDocumentMime } from '../media/document-extract.js';
 import { convertToPDF } from '../media/office-to-pdf.js';
@@ -210,6 +212,13 @@ export interface BackendEvents {
   'assistant:content': (sessionId: string, content: Content) => void;
   /** 自动上下文压缩完成（阈值触发） */
   'auto-compact': (sessionId: string, summaryText: string) => void;
+  /**
+   * 工具执行产生的附件（例如 MCP 生图结果）。
+   *
+   * 这里是平台层的旁路通道：附件不进入 LLM 上下文，
+   * 由具体平台自己决定如何发送给用户。
+   */
+  'attachments': (sessionId: string, attachments: ToolAttachment[]) => void;
 }
 
 // ============ Backend 类 ============
@@ -978,7 +987,16 @@ export class Backend extends EventEmitter {
     const result = await loop.run(history, callLLM, {
       extraParts,
       onMessageAppend: (content) => this.storage.addMessage(sessionId, content),
+      // 上游 main 新增：模型输出完成后通知平台层
       onModelContent: (content) => { this.emit('assistant:content', sessionId, content); },
+      // feat 分支新增：MCP 附件单独旁路给平台层
+      // 文本继续走原有 tool loop / history 流程，
+      // 图片等二进制内容直接由 Telegram / Discord / Lark 等平台发送，
+      // 这样不会把 base64 图片带进历史，也不会撑爆上下文。
+      onAttachments: (attachments) => {
+        logger.info(`[handleMessage] onAttachments 回调触发: sessionId=${sessionId}, count=${attachments.length}, types=${attachments.map(a => `${a.type}(${a.data.length}B)`).join(',')}`);
+        this.emit('attachments', sessionId, attachments);
+      },
       signal,
       onRetry: (attempt, maxRetries, error) => {
         this.emit('retry', sessionId, attempt, maxRetries, error);

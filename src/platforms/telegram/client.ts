@@ -8,7 +8,7 @@
  * 4. 为文件下载、回调按钮等能力预留稳定边界。
  */
 
-import { Bot, Context } from 'grammy';
+import { Bot, Context, InputFile } from 'grammy';
 import { splitText } from '../base';
 import { createLogger } from '../../logger';
 import { TELEGRAM_BOT_COMMANDS } from './commands';
@@ -120,6 +120,25 @@ export class TelegramClient {
 
   async deleteMessage(target: TelegramSessionTarget, messageId: number): Promise<void> {
     await this.bot.api.deleteMessage(target.chatId, messageId);
+  }
+
+  /**
+   * 直接向 Telegram 发送图片。
+   *
+   * 这里使用 InputFile 包装 Buffer，避免先落盘再读取，减少一次不必要的 I/O。
+   * 这条链路是附件旁路的终点：图片不进 LLM 上下文，直接给用户看。
+   */
+  async sendPhoto(target: TelegramSessionTarget, photo: Buffer, caption?: string): Promise<number> {
+    const extra: Record<string, unknown> = {};
+    if (target.threadId != null) {
+      extra.message_thread_id = target.threadId;
+    }
+    if (caption) {
+      extra.caption = caption;
+    }
+    const inputFile = new InputFile(photo);
+    const msg = await this.bot.api.sendPhoto(target.chatId, inputFile, extra);
+    return msg.message_id;
   }
 
   async getFile(fileId: string) {

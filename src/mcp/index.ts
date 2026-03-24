@@ -5,6 +5,7 @@
 export { MCPClient } from './client';
 export { MCPManager } from './manager';
 export type { MCPClientStatus, MCPServerInfo } from './types';
+export type { MCPToolResult } from './client';
 
 import { MCPConfig } from '../config/types';
 import { MCPManager } from './manager';
