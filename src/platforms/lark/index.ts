@@ -379,6 +379,9 @@ export class LarkPlatform extends PlatformAdapter {
     const cs = this.getChatState(parsed.session);
     cs.lastInboundMessageId = parsed.messageId;
 
+    // TODO: 对码门禁 — 后续接入 PairingGuard，当前未实现。
+    // 设计文档：.limcode/design/对码系统设计.md
+
     // 命令处理
     if (parsed.text.startsWith('/')) {
       const handled = await this.handleCommand(parsed.text, cs);

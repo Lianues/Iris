@@ -5,6 +5,7 @@ src/platforms/web/web-ui/node_modules/
 *.log
 logs/
 limcode/
+.limcode/
 
 .env
 

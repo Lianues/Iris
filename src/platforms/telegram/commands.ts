@@ -23,6 +23,10 @@ export const TELEGRAM_BOT_COMMANDS = [
   { command: 'redo', description: '恢复撤销的对话' },
   { command: 'skill', description: '查看 Skill 列表或详情' },
   { command: 'mode', description: '查看或切换 Mode（提示词模式）' },
+  { command: 'invite', description: '生成邀请对码（管理员）' },
+  { command: 'users', description: '查看白名单用户（管理员）' },
+  { command: 'kick', description: '移除白名单用户（管理员）' },
+  { command: 'transfer', description: '让渡管理员身份（管理员）' },
   { command: 'help', description: '显示帮助' },
 ];
 

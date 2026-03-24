@@ -752,6 +752,9 @@ export class WXWorkPlatform extends PlatformAdapter {
 
     const ck = this.chatKey(chatType, chatId, senderId);
 
+    // TODO: 对码门禁 — 后续接入 PairingGuard，当前未实现。
+    // 设计文档：.limcode/design/对码系统设计.md
+
     logger.info(`[${ck}] from=${senderId}: text="${parsed.text.slice(0, 50)}" images=${parsed.imageUrls.length}`);
 
     // 指令处理（任何时候都能用，不受 busy 影响）

@@ -80,6 +80,7 @@ export function createDefaultPlatformRegistry(): PlatformRegistry {
       token: config.platform.telegram.token,
       showToolStatus: config.platform.telegram.showToolStatus,
       groupMentionRequired: config.platform.telegram.groupMentionRequired,
+      pairing: config.platform.telegram.pairing,
     });
   });
 

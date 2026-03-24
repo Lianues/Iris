@@ -16,6 +16,8 @@ export interface TelegramConfig {
   showToolStatus?: boolean;
   /** 群聊中是否要求显式 @ 机器人后才响应，默认 true。 */
   groupMentionRequired?: boolean;
+  /** 对码配置（从全局配置与分平台覆盖合并后传入） */
+  pairing?: import('../pairing/types').PairingConfig;
 }
 
 export interface TelegramPhotoRef {

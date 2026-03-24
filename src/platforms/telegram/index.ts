@@ -12,6 +12,8 @@ import { PlatformAdapter } from '../base';
 import { Backend } from '../../core/backend';
 import type { ImageInput, DocumentInput } from '../../core/backend';
 import { createLogger } from '../../logger';
+import { PairingGuard, PairingStore } from '../pairing';
+import { dataDir } from '../../paths';
 import { TelegramClient } from './client';
 import { TelegramCommandRouter } from './commands';
 import { TelegramMediaService } from './media';
@@ -82,6 +84,8 @@ export class TelegramPlatform extends PlatformAdapter {
   private readonly commandRouter: TelegramCommandRouter;
   private readonly mediaService: TelegramMediaService;
   private readonly showToolStatus: boolean;
+  private readonly pairingStore: PairingStore | null;
+  private readonly pairingGuard: PairingGuard | null;
 
   private readonly chatStates = new Map<string, TelegramChatState>();
   /** chatKey → sessionId 映射，/new 时更新 */
@@ -99,6 +103,15 @@ export class TelegramPlatform extends PlatformAdapter {
     this.commandRouter = new TelegramCommandRouter();
     this.mediaService = new TelegramMediaService();
     this.showToolStatus = config.showToolStatus !== false;
+
+    // 对码门禁初始化（仅在配置了 pairing 且 dmPolicy !== 'open' 时创建）
+    if (config.pairing && config.pairing.dmPolicy !== 'open') {
+      this.pairingStore = new PairingStore();
+      this.pairingGuard = new PairingGuard('telegram', config.pairing, this.pairingStore);
+    } else {
+      this.pairingStore = null;
+      this.pairingGuard = null;
+    }
   }
 
   async start(): Promise<void> {
@@ -107,6 +120,18 @@ export class TelegramPlatform extends PlatformAdapter {
     this.client.onCallbackQuery((ctx) => this.handleCallbackQuery(ctx));
     await this.client.start();
     logger.info('Telegram 平台已启动');
+
+    // 启动对码输出
+    if (this.pairingGuard && this.pairingStore?.needsBootstrap()) {
+      const code = this.pairingStore.getOrCreateBootstrapCode();
+      logger.info('');
+      logger.info('╔════════════════════════════════════════════════════════╗');
+      logger.info('║  首次使用，请在 Telegram 发送以下对码完成管理员绑定：    ║');
+      logger.info(`║  对码：${code}                                          ║`);
+      logger.info('║  第一个完成对码的用户将成为管理员。                      ║');
+      logger.info('╚════════════════════════════════════════════════════════╝');
+      logger.info('');
+    }
   }
 
   async stop(): Promise<void> {
@@ -444,6 +469,29 @@ export class TelegramPlatform extends PlatformAdapter {
         return;
       }
 
+      // ---- 对码门禁 ----
+      // 目的：在消息进入 Backend 之前，检查用户是否有权使用 Bot。
+      // 仅对私聊生效；群聊在上方 mention 检查中已处理。
+      // 对码系统与 Backend 完全无关，纯平台层访问控制。
+      if (this.pairingGuard && parsed.session.scope === 'dm') {
+        const senderId = String(ctx.from?.id ?? '');
+        const senderName = ctx.from?.username || ctx.from?.first_name || '';
+        const result = this.pairingGuard.check(senderId, parsed.text, senderName);
+        if (!result.allowed) {
+          if (result.replyText) {
+            await this.client.sendText(parsed.session, result.replyText);
+          }
+          return;
+        }
+        // 对码成功消息也需要回复但不进入 Backend
+        if (result.reason === 'bootstrap-success' || result.reason === 'pairing-success') {
+          if (result.replyText) {
+            await this.client.sendText(parsed.session, result.replyText);
+          }
+          return;
+        }
+      }
+
       const cs = this.getChatState(parsed.session);
       cs.lastInboundMessageId = parsed.messageId;
 
@@ -753,6 +801,63 @@ export class TelegramPlatform extends PlatformAdapter {
             keyboard,
           );
         }
+        return true;
+      }
+
+      case 'invite': {
+        const userId = String(cs.target.chatId);
+        if (!this.pairingGuard?.isAdmin(userId)) {
+          await reply('❌ 仅管理员可使用此命令。');
+          return true;
+        }
+        const code = this.pairingGuard.generateInviteCode();
+        await reply(`🎫 对码已生成：\`${code}\`（1 小时内有效）`);
+        return true;
+      }
+
+      case 'users': {
+        const userId = String(cs.target.chatId);
+        if (!this.pairingGuard?.isAdmin(userId)) {
+          await reply('❌ 仅管理员可使用此命令。');
+          return true;
+        }
+        const users = this.pairingGuard.listUsers();
+        if (users.length === 0) {
+          await reply('ℹ️ 当前白名单为空。');
+        } else {
+          const list = users.map(u => `- ${u.userName || '未知'}(${u.platform}:${u.userId}) 于 ${new Date(u.pairedAt).toLocaleString()} 加入`).join('\n');
+          await reply(`👥 白名单用户：\n${list}`);
+        }
+        return true;
+      }
+
+      case 'kick': {
+        const userId = String(cs.target.chatId);
+        if (!this.pairingGuard?.isAdmin(userId)) {
+          await reply('❌ 仅管理员可使用此命令。');
+          return true;
+        }
+        if (!cmd.args) {
+          await reply('❌ 请提供要移除的用户 ID。格式：/kick <userId>');
+          return true;
+        }
+        const ok = this.pairingGuard.removeUser('telegram', cmd.args);
+        await reply(ok ? `✅ 用户 ${cmd.args} 已从白名单移除。` : `❌ 未找到用户 ${cmd.args}。`);
+        return true;
+      }
+
+      case 'transfer': {
+        const userId = String(cs.target.chatId);
+        if (!this.pairingGuard?.isAdmin(userId)) {
+          await reply('❌ 仅管理员可使用此命令。');
+          return true;
+        }
+        if (!cmd.args) {
+          await reply('❌ 请提供新的管理员 ID。格式：/transfer <userId>');
+          return true;
+        }
+        this.pairingGuard.transferAdmin('telegram', cmd.args);
+        await reply(`✅ 管理员身份已让渡给用户 ${cmd.args}。`);
         return true;
       }
 

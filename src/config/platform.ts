@@ -40,14 +40,37 @@ function parseTypes(raw: unknown): string[] {
 
 export function parsePlatformConfig(raw: any = {}): PlatformConfig {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+
+  // 全局对码配置默认值
+  const globalPairing = {
+    dmPolicy: source.pairing?.dmPolicy ?? 'pairing',
+    admin: source.pairing?.admin,
+    allowFrom: source.pairing?.allowFrom,
+  };
+
+  // 辅助函数：合并分平台覆盖
+  const parsePairingOverride = (platformPairing: any) => {
+    if (!platformPairing) return globalPairing;
+    return {
+      dmPolicy: platformPairing.dmPolicy ?? globalPairing.dmPolicy,
+      admin: platformPairing.admin ?? globalPairing.admin,
+      allowFrom: platformPairing.allowFrom ?? globalPairing.allowFrom,
+    };
+  };
+
   return {
     ...source,
     types: parseTypes(source.type),
-    discord: { token: source.discord?.token ?? '' },
+    pairing: globalPairing,
+    discord: {
+      token: source.discord?.token ?? '',
+      pairing: parsePairingOverride(source.discord?.pairing),
+    },
     telegram: {
       token: source.telegram?.token ?? '',
       showToolStatus: source.telegram?.showToolStatus !== false,
       groupMentionRequired: source.telegram?.groupMentionRequired !== false,
+      pairing: parsePairingOverride(source.telegram?.pairing),
     },
     web: {
       port: source.web?.port ?? 8192,
@@ -59,6 +82,7 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
       botId: source.wxwork?.botId ?? '',
       secret: source.wxwork?.secret ?? '',
       showToolStatus: source.wxwork?.showToolStatus !== false,
+      pairing: parsePairingOverride(source.wxwork?.pairing),
     },
     lark: {
       appId: source.lark?.appId ?? '',
@@ -66,6 +90,7 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
       verificationToken: source.lark?.verificationToken,
       encryptKey: source.lark?.encryptKey,
       showToolStatus: source.lark?.showToolStatus !== false,
+      pairing: parsePairingOverride(source.lark?.pairing),
     },
     qq: {
       wsUrl: source.qq?.wsUrl ?? 'ws://127.0.0.1:3001',
@@ -73,6 +98,7 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
       selfId: source.qq?.selfId ?? '',
       groupMode: source.qq?.groupMode ?? 'at',
       showToolStatus: source.qq?.showToolStatus !== false,
+      pairing: parsePairingOverride(source.qq?.pairing),
     },
   } as PlatformConfig;
 }

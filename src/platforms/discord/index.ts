@@ -100,6 +100,9 @@ export class DiscordPlatform extends PlatformAdapter {
     if (msg.author.bot) return;
     if (!msg.content) return;
 
+    // TODO: 对码门禁 — 后续接入 PairingGuard，当前未实现。
+    // 设计文档：.limcode/design/对码系统设计.md
+
     const isDM = !msg.guild;
     const isMentioned = msg.mentions.has(this.client.user!);
 

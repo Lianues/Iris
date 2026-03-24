@@ -733,6 +733,9 @@ export class QQPlatform extends PlatformAdapter {
       return;
     }
 
+    // TODO: 对码门禁 — 后续接入 PairingGuard，当前未实现。
+    // 设计文档：.limcode/design/对码系统设计.md
+
     const ck = this.chatKey(messageType, senderId, groupId);
     const target: MessageTarget = messageType === 'group'
       ? { groupId }

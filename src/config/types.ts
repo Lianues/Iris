@@ -3,6 +3,7 @@
  */
 
 import type { OCRConfig } from './ocr';
+import type { PairingConfig } from '../platforms/pairing/types';
 
 export interface LLMConfig {
   provider: string;
@@ -45,7 +46,13 @@ export interface LLMRegistryConfig {
 export interface PlatformConfig {
   /** 启动的平台类型列表（兼容单字符串和数组写法；支持插件平台注册的自定义平台） */
   types: string[];
-  discord: { token: string };
+  /** 全局对码配置 */
+  pairing?: PairingConfig;
+  discord: {
+    token: string;
+    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
+    pairing?: PairingConfig;
+  };
   telegram: {
     token: string;
     /**
@@ -55,6 +62,8 @@ export interface PlatformConfig {
     showToolStatus?: boolean;
     /** 群聊中是否必须显式 @ 机器人后才响应，默认 true。 */
     groupMentionRequired?: boolean;
+    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
+    pairing?: PairingConfig;
   };
   web: {
     port: number;
@@ -69,6 +78,8 @@ export interface PlatformConfig {
     secret: string;
     /** 是否在流式回复中展示工具执行状态（默认 true） */
     showToolStatus?: boolean;
+    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
+    pairing?: PairingConfig;
   };
   lark: {
     /**
@@ -84,6 +95,8 @@ export interface PlatformConfig {
     encryptKey?: string;
     /** 是否在流式回复中展示工具执行状态（默认 true）。 */
     showToolStatus?: boolean;
+    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
+    pairing?: PairingConfig;
   };
   qq: {
     /** NapCat OneBot v11 正向 WebSocket 地址 */
@@ -96,6 +109,8 @@ export interface PlatformConfig {
     groupMode?: 'at' | 'all' | 'off';
     /** 是否在回复中展示工具执行状态（默认 true） */
     showToolStatus?: boolean;
+    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
+    pairing?: PairingConfig;
   };
   [key: string]: unknown;
 }
