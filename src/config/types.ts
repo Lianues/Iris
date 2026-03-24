@@ -149,6 +149,22 @@ export interface ToolsConfig {
   disabledTools?: string[];
 }
 
+/** Skill 定义（按需加载的提示词模块） */
+export interface SkillDefinition {
+  /**
+   * Skill 名称（唯一标识，从 YAML 键名解析）。
+   * 命名规则：仅允许 ASCII 字母、数字、下划线、连字符，最长 64 字符。
+   * 正则：^[a-zA-Z0-9_-]{1,64}$
+   */
+  name: string;
+  /** Skill 描述 */
+  description?: string;
+  /** Skill 提示词内容（启用后拼接到用户消息末尾） */
+  content: string;
+  /** 是否默认启用，默认 false */
+  enabled?: boolean;
+}
+
 export interface SystemConfig {
   systemPrompt: string;
   maxToolRounds: number;
@@ -163,6 +179,18 @@ export interface SystemConfig {
   defaultMode?: string;
   /** 是否记录 LLM 请求日志到文件，默认 false */
   logRequests?: boolean;
+  /** Skill 定义列表（可选） */
+  skills?: SkillDefinition[];
+  /**
+   * Skill 注入引导词模板（可选）。
+   *
+   * 用 {{SKILL}} 占位符标记 Skill 内容的插入位置。
+   * 启用的 Skill 内容会替换 {{SKILL}} 后拼接到用户消息末尾。
+   *
+   * 不设置时使用内置默认引导词。
+   * 设为空字符串 "" 则不添加任何引导词，直接拼接原始 Skill 内容（旧行为）。
+   */
+  skillPreamble?: string;
 }
 
 export interface MemoryConfig {

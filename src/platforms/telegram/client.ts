@@ -87,6 +87,35 @@ export class TelegramClient {
     return msg.message_id;
   }
 
+  /**
+   * 发送带 inline keyboard 的消息，返回 message_id。
+   * 用于 /model、/session、/mode、/skill 命令的列表展示。
+   */
+  async sendMessageWithKeyboard(
+    target: TelegramSessionTarget,
+    text: string,
+    keyboard: Array<Array<{ text: string; callback_data: string }>>,
+  ): Promise<number> {
+    const extra: Record<string, unknown> = {
+      reply_markup: { inline_keyboard: keyboard },
+    };
+    if (target.threadId != null) {
+      extra.message_thread_id = target.threadId;
+    }
+    const msg = await this.bot.api.sendMessage(target.chatId, text, extra);
+    return msg.message_id;
+  }
+
+  /** 注册 callback_query 处理器 */
+  onCallbackQuery(handler: (ctx: any) => void): void {
+    this.bot.on('callback_query:data', handler);
+  }
+
+  /** 回答 callback_query（消除 loading 动画） */
+  async answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
+    await this.bot.api.answerCallbackQuery(callbackQueryId, text ? { text } : {});
+  }
+
   async sendText(target: TelegramSessionTarget, text: string, options: TelegramSendTextOptions = {}): Promise<void> {
     const chunks = splitText(text, TELEGRAM_MESSAGE_MAX_LENGTH);
     for (const chunk of chunks) {

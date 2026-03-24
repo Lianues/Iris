@@ -36,6 +36,7 @@ import { SubAgentTypeRegistry, buildSubAgentGuidance, createSubAgentTool } from 
 import { ModeRegistry, DEFAULT_MODE, DEFAULT_MODE_NAME } from './modes';
 import { PromptAssembler } from './prompt/assembler';
 import { createHistorySearchTool } from './tools/internal/history_search';
+import { createManageSkillsTool } from './tools/internal/manage_skills';
 import { DEFAULT_SYSTEM_PROMPT } from './prompt/templates/default';
 import { Backend } from './core/backend';
 import type { StorageProvider } from './storage/base';
@@ -253,6 +254,8 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
     maxRecentScreenshots: config.computerUse?.maxRecentScreenshots,
     summaryModelName: config.llm.summaryModelName,
     summaryConfig: config.summary,
+    skills: config.system.skills,
+    skillPreamble: config.system.skillPreamble,
   }, memory, modeRegistry);
 
   // 注册子代理工具（需要 backend 引用；无类型定义时跳过）
@@ -271,6 +274,30 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
     getStorage: () => backend.getStorage(),
     getSessionId: () => backend.getActiveSessionId(),
   }));
+
+  // 注册 Skill 管理工具（toggle_skills 风格，仅在配置了 Skill 时注册）
+  // 工具声明中包含每个 Skill 的 name 和 description，LLM 从声明即可了解所有可用 Skill。
+  // Skill 列表或启用状态变化时，通过回调重新注册工具以更新声明中的参数。
+  if (config.system.skills?.length) {
+    const rebuildSkillsTool = () => {
+      const skillsList = backend.listSkills();
+      if (skillsList.length > 0) {
+        // 有 Skill 时注册/更新 toggle_skills 工具
+        tools.register(createManageSkillsTool({
+          getBackend: () => backend,
+        }));
+      } else {
+        // 无 Skill 时注销工具，避免空参数列表混淆 LLM
+        tools.unregister('toggle_skills');
+      }
+    };
+
+    // 初始注册
+    rebuildSkillsTool();
+
+    // 注册回调：Skill 列表或启用状态变化时自动重建工具声明
+    backend.setOnSkillsChanged(rebuildSkillsTool);
+  }
 
   // 将插件钩子注入 Backend
   const eventBus = new PluginEventBus();

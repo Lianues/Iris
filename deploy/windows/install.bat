@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul 2>&1
 title Iris Installer
 setlocal EnableDelayedExpansion
@@ -224,4 +224,3 @@ echo 安装失败，请检查以上错误信息。
 pause
 exit /b 1
 
-﻿

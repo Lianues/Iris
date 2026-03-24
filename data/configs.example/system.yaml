@@ -27,3 +27,45 @@ maxRetries: 3
 #   response_<timestamp>.json  — 非流式响应原文
 #   response_<timestamp>.txt   — 流式响应原文（SSE）
 # logRequests: true
+
+# Skill 注入引导词模板（可选）
+# 启用的 Skill 注入到 LLM 时，会用引导词包裹，帮助 LLM 理解这些内容的身份和边界。
+# 模板中用 {{SKILL}} 标记 Skill 内容的插入位置。
+#
+# 不设置时使用内置默认引导词（推荐）。
+# 设为空字符串 "" 则不添加任何引导词，直接拼接原始 Skill 内容。
+#
+# 默认引导词格式：
+#   ===== ACTIVE SKILLS =====
+#   The following skills are currently active and provide specialized knowledge and instructions:
+#   ===== SKILL: <name> =====
+#   （Skill 内容）
+#   ===== END: <name> =====
+#
+# 自定义示例：
+# skillPreamble: |
+#   以下是当前激活的技能模块，请参考其中的指令执行任务：
+#   {{SKILL}}
+
+# Skill 定义（按需加载的提示词模块）
+# 启用的 Skill 内容会拼接到用户消息末尾
+# 名称规则：仅允许 ASCII 字母、数字、下划线、连字符，最长 64 字符
+#
+# 除了在此处内联定义，也可以将 SKILL.md 放在以下目录：
+#   ~/.iris/skills/<name>/SKILL.md    — 全局 Skill
+#   .agents/skills/<name>/SKILL.md    — 项目级 Skill（cwd 下）
+# 文件格式遵循 Agent Skills 开放标准（YAML frontmatter + Markdown 正文）
+# 同名时此处的内联定义优先于文件系统中的定义
+# skills:
+#   code-review:
+#     description: "代码审查专家"
+#     content: |
+#       你是一个代码审查专家。请对用户的代码进行详细审查，
+#       关注代码质量、安全性、性能和可维护性。
+#     enabled: true
+#
+#   translator:
+#     description: "中英翻译助手"
+#     content: |
+#       请将用户的内容翻译为对应的另一种语言（中→英 或 英→中）。
+#       保持原文的语气和风格。

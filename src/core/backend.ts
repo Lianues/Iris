@@ -14,7 +14,7 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawnSync } from 'child_process';
-import type { LLMConfig, ToolsConfig, ToolPolicyConfig } from '../config/types';
+import type { LLMConfig, ToolsConfig, ToolPolicyConfig, SkillDefinition } from '../config/types';
 import { LLMRouter } from '../llm/router';
 import { supportsVision as llmSupportsVision, isDocumentMimeType, supportsNativePDF, supportsNativeOffice } from '../llm/vision';
 import type { PluginHook } from '../plugins/types';
@@ -185,6 +185,10 @@ export interface BackendConfig {
   summaryModelName?: string;
   /** 上下文压缩提示词配置 */
   summaryConfig?: SummaryConfig;
+  /** Skill 定义列表 */
+  skills?: SkillDefinition[];
+  /** Skill 注入引导词模板，支持 {{SKILL}} 占位符；undefined 使用内置默认 */
+  skillPreamble?: string;
 }
 
 export interface BackendEvents {
@@ -258,6 +262,23 @@ export class Backend extends EventEmitter {
 
   /** 插件钩子列表 */
   private pluginHooks: PluginHook[] = [];
+  /** Skill 定义列表 */
+  private skills: SkillDefinition[] = [];
+  /** 当前启用的 Skill 名称集合 */
+  private enabledSkills = new Set<string>();
+  /**
+   * Skill 注入引导词模板。
+   * 用 {{SKILL}} 标记 Skill 内容的插入位置。
+   * undefined 表示使用内置默认引导词。
+   * 空字符串 "" 表示不添加引导词（旧行为：直接拼接 Skill 内容）。
+   */
+  private skillPreamble?: string;
+
+  /**
+   * Skill 列表或启用状态变化时的回调。
+   * 由外部（bootstrap）设置，用于在 Skill 变化时重建 toggle_skills 工具声明。
+   */
+  private _onSkillsChanged?: () => void;
 
   constructor(
     router: LLMRouter,
@@ -286,6 +307,16 @@ export class Backend extends EventEmitter {
     this.maxRecentScreenshots = config?.maxRecentScreenshots ?? 3;
     this.summaryModelName = config?.summaryModelName;
     this.summaryConfig = config?.summaryConfig;
+
+    // 初始化 Skill
+    if (config?.skills) {
+      this.skills = config.skills;
+      for (const s of config.skills) {
+        if (s.enabled) this.enabledSkills.add(s.name);
+      }
+    }
+    // 初始化 Skill 引导词模板
+    this.skillPreamble = config?.skillPreamble;
 
     this.toolLoopConfig = {
       maxRounds: config?.maxToolRounds ?? 200,
@@ -708,6 +739,128 @@ export class Backend extends EventEmitter {
     return this.modeRegistry;
   }
 
+  // ============ Skill 管理 ============
+
+  /** 注册 Skill 列表变化回调（用于重建 toggle_skills 工具声明） */
+  setOnSkillsChanged(callback: () => void): void {
+    this._onSkillsChanged = callback;
+  }
+
+  /** 列出所有已定义的 Skill 及其启用状态 */
+  listSkills(): { name: string; description?: string; enabled: boolean }[] {
+    return this.skills.map(s => ({
+      name: s.name,
+      description: s.description,
+      enabled: this.enabledSkills.has(s.name),
+    }));
+  }
+
+  /** 启用指定 Skill，返回是否成功（Skill 不存在时返回 false） */
+  enableSkill(name: string): boolean {
+    if (!this.skills.some(s => s.name === name)) return false;
+    this.enabledSkills.add(name);
+    // 通知外部 Skill 状态已变化，需重建工具声明
+    this._onSkillsChanged?.();
+    return true;
+  }
+
+  /** 禁用指定 Skill，返回是否成功（Skill 不存在时返回 false） */
+  disableSkill(name: string): boolean {
+    if (!this.skills.some(s => s.name === name)) return false;
+    this.enabledSkills.delete(name);
+    // 通知外部 Skill 状态已变化，需重建工具声明
+    this._onSkillsChanged?.();
+    return true;
+  }
+
+  /** 切换指定 Skill 的启用状态，返回切换后的状态（Skill 不存在时返回 undefined） */
+  toggleSkill(name: string): boolean | undefined {
+    if (!this.skills.some(s => s.name === name)) return undefined;
+    if (this.enabledSkills.has(name)) {
+      this.enabledSkills.delete(name);
+      // 通知外部 Skill 状态已变化，需重建工具声明
+      this._onSkillsChanged?.();
+      return false;
+    } else {
+      this.enabledSkills.add(name);
+      // 通知外部 Skill 状态已变化，需重建工具声明
+      this._onSkillsChanged?.();
+      return true;
+    }
+  }
+
+  // ============ Mode 管理 ============
+
+  /** 列出所有已注册的 Mode */
+  listModes(): { name: string; description?: string; current: boolean }[] {
+    if (!this.modeRegistry) return [];
+    return this.modeRegistry.getAll().map(m => ({
+      name: m.name,
+      description: m.description,
+      current: m.name === this.defaultMode,
+    }));
+  }
+
+  /** 切换当前 Mode，返回是否成功（Mode 不存在时返回 false） */
+  switchMode(name: string): boolean {
+    if (!this.modeRegistry) return false;
+    const mode = this.modeRegistry.get(name);
+    if (!mode) return false;
+    this.defaultMode = name;
+    logger.info(`Mode 已切换: ${name}`);
+    return true;
+  }
+
+  /** 获取当前 Mode 名称 */
+  getCurrentMode(): string | undefined {
+    return this.defaultMode;
+  }
+
+  /**
+   * 构建 Skill 注入文本（内部使用）。
+   *
+   * 将所有已启用的 Skill 按结构化格式拼装，并使用 skillPreamble 引导词包裹。
+   * 引导词中的 {{SKILL}} 占位符会被替换为实际的 Skill 块。
+   *
+   * 返回 undefined 表示没有启用的 Skill，不需要注入。
+   */
+  private buildSkillInjection(): string | undefined {
+    // 收集当前启用的 Skill
+    const activeSkills = this.skills.filter(s => this.enabledSkills.has(s.name));
+    if (activeSkills.length === 0) return undefined;
+
+    // 按 Skill 名称分组，用明确的标记分隔每个 Skill 块
+    const skillBlocks = activeSkills.map(s => {
+      const header = `===== SKILL: ${s.name} =====`;
+      const footer = `===== END: ${s.name} =====`;
+      return `${header}\n\n${s.content}\n\n${footer}`;
+    }).join('\n\n');
+
+    // 确定引导词模板：
+    //   - undefined → 使用内置默认引导词
+    //   - 空字符串 "" → 不添加引导词，直接返回 Skill 块（旧行为）
+    //   - 非空字符串 → 使用用户自定义模板
+    const preamble = this.skillPreamble;
+    if (preamble === undefined) {
+      // 内置默认引导词，参考 Limcode 的格式
+      return (
+        '===== ACTIVE SKILLS =====\n\n' +
+        'The following skills are currently active and provide specialized knowledge and instructions:\n\n' +
+        skillBlocks
+      );
+    }
+    if (preamble === '') {
+      // 用户显式设为空字符串，不添加引导词
+      return skillBlocks;
+    }
+    // 用户自定义模板，用 {{SKILL}} 占位符标记插入位置
+    if (preamble.includes('{{SKILL}}')) {
+      return preamble.replace('{{SKILL}}', skillBlocks);
+    }
+    // 用户提供了引导词但没写 {{SKILL}}，把 Skill 块拼接到引导词后面
+    return preamble + '\n\n' + skillBlocks;
+  }
+
   /** 获取当前活动模型名称 */
   getCurrentModelName(): string {
     return this.router.getCurrentModelName();
@@ -796,6 +949,9 @@ export class Backend extends EventEmitter {
     currentLLMConfig?: LLMConfig;
     ocrService?: OCRProvider;
     maxRecentScreenshots?: number;
+    skills?: SkillDefinition[];
+    /** Skill 注入引导词模板（热重载时更新） */
+    skillPreamble?: string;
   }): void {
     if (opts.stream !== undefined) this.stream = opts.stream;
     if (opts.maxToolRounds !== undefined) this.toolLoopConfig.maxRounds = opts.maxToolRounds;
@@ -806,6 +962,17 @@ export class Backend extends EventEmitter {
     if ('currentLLMConfig' in opts) this.currentLLMConfig = opts.currentLLMConfig;
     if ('ocrService' in opts) this.ocrService = opts.ocrService;
     if (opts.maxRecentScreenshots !== undefined) this.maxRecentScreenshots = opts.maxRecentScreenshots;
+    if (opts.skills !== undefined) {
+      this.skills = opts.skills;
+      this.enabledSkills.clear();
+      for (const s of opts.skills) {
+        if (s.enabled) this.enabledSkills.add(s.name);
+      }
+      // 通知外部 Skill 列表已变化，需重建 toggle_skills 工具声明
+      this._onSkillsChanged?.();
+    }
+    // 热重载 Skill 引导词模板
+    if ('skillPreamble' in opts) this.skillPreamble = opts.skillPreamble;
     logger.info(`配置已热重载: stream=${this.stream} maxToolRounds=${this.toolLoopConfig.maxRounds} toolPolicies=${Object.keys(this.toolLoopConfig.toolsConfig.permissions).length}`);
   }
 
@@ -891,7 +1058,13 @@ export class Backend extends EventEmitter {
     const history = this.prepareHistoryForLLM(storedHistory);
     const isNewSession = storedHistory.length === 0;
     const userText = extractText(llmUserParts);
-    history.push({ role: 'user', parts: llmUserParts });
+
+    // 注入启用的 Skill 内容（拼接到用户消息末尾，不存入持久化历史）
+    const skillInjection = this.buildSkillInjection();
+    const finalLlmParts = skillInjection
+      ? [...llmUserParts, { text: '\n\n' + skillInjection }]
+      : llmUserParts;
+    history.push({ role: 'user', parts: finalLlmParts });
 
     // 2. 构建 per-request 额外上下文
     let extraParts: Part[] | undefined;

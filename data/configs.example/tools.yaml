@@ -186,6 +186,9 @@ shell:
 sub_agent:
   autoApprove: false
 
+toggle_skills:
+  autoApprove: true
+
 # ─────────────────────────────────────────────────────────────
 # Computer Use 工具配置（需在 computer_use.yaml 中启用）
 # ─────────────────────────────────────────────────────────────

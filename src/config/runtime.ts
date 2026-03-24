@@ -3,12 +3,14 @@
  */
 
 import { Backend } from '../core/backend';
+import { dataDir } from '../paths';
 import { createLLMRouter } from '../llm/factory';
 import { OCRService, type OCRProvider } from '../ocr';
 import { parseLLMConfig } from './llm';
 import { parseOCRConfig } from './ocr';
 import { parseToolsConfig } from './tools';
 import { parseMCPConfig } from './mcp';
+import { parseSystemConfig } from './system';
 import { DEFAULT_SYSTEM_PROMPT } from '../prompt/templates/default';
 import { createMCPManager, MCPManager } from '../mcp';
 import { ToolRegistry } from '../tools/registry';
@@ -70,6 +72,8 @@ export async function applyRuntimeConfigReload(
   const currentModel = newRouter.getCurrentModelInfo();
 
   context.backend.reloadLLM(newRouter);
+  // 解析 system 配置（提取 skills 和 skillPreamble，避免重复调用 parseSystemConfig）
+  const systemConfig = parseSystemConfig(mergedConfig.system, dataDir);
   context.backend.reloadConfig({
     stream: mergedConfig.system?.stream,
     maxToolRounds: mergedConfig.system?.maxToolRounds,
@@ -79,6 +83,9 @@ export async function applyRuntimeConfigReload(
     systemPrompt: mergedConfig.system?.systemPrompt || DEFAULT_SYSTEM_PROMPT,
     currentLLMConfig: newRouter.getCurrentConfig(),
     ocrService: await createReloadOCRProvider(context, ocrConfig),
+    // 热重载 Skill 定义和引导词模板
+    skills: systemConfig.skills,
+    skillPreamble: systemConfig.skillPreamble,
   });
 
   const tools = context.backend.getTools();

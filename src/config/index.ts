@@ -19,7 +19,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { configDir as globalConfigDir, dataDir, projectRoot } from '../paths';
+import { configDir as globalConfigDir, dataDir as globalDataDir, projectRoot } from '../paths';
 import { EMBEDDED_CONFIG_DEFAULTS } from './embedded-defaults';
 import type { AgentPaths } from '../paths';
 import { AppConfig } from './types';
@@ -82,7 +82,7 @@ export function findConfigFile(customConfigDir?: string): string {
 
     // 初始化全局配置时，同时拷贝 agents.yaml 和示例 agent 配置
     if (!customConfigDir) {
-      initAgentsData(projectRoot, dataDir);
+      initAgentsData(projectRoot, globalDataDir);
     }
 
     console.log('[Iris] 请编辑配置文件（至少填写 LLM API Key）后重新启动。');
@@ -99,7 +99,7 @@ export function findConfigFile(customConfigDir?: string): string {
 
   // 初始化全局配置时，同时尝试拷贝 agents 数据（若源文件可用）
   if (!customConfigDir) {
-    initAgentsData(projectRoot, dataDir);
+    initAgentsData(projectRoot, globalDataDir);
   }
 
   console.log(`[Iris] 已初始化配置目录: ${targetDir}`);
@@ -116,6 +116,8 @@ export function findConfigFile(customConfigDir?: string): string {
 export function loadConfig(customConfigDir?: string, agentPaths?: AgentPaths): AppConfig {
   const configsDir = findConfigFile(customConfigDir);
   const data = loadRawConfigDir(configsDir);
+  // Skill 文件系统扫描需要数据目录：Agent 模式用 agentPaths.dataDir，否则用全局 dataDir
+  const effectiveDataDir = agentPaths?.dataDir || globalDataDir;
 
   return {
     llm: parseLLMConfig(data.llm),
@@ -123,7 +125,7 @@ export function loadConfig(customConfigDir?: string, agentPaths?: AgentPaths): A
     platform: parsePlatformConfig(data.platform),
     storage: parseStorageConfig(data.storage, agentPaths),
     tools: parseToolsConfig(data.tools),
-    system: parseSystemConfig(data.system),
+    system: parseSystemConfig(data.system, effectiveDataDir),
     memory: parseMemoryConfig(data.memory, agentPaths),
     mcp: parseMCPConfig(data.mcp),
     modes: parseModeConfig(data.modes),
