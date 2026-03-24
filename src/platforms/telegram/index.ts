@@ -65,7 +65,12 @@ interface TelegramChatState {
   pendingMessages: TelegramPendingMessage[];
   stopped: boolean;
   lastInboundMessageId?: number;
-  lastBotMessageId?: number;  // 用于 undo/redo 时处理平台侧最后一条机器人消息的 UI 状态
+  /**
+   * bot 消息 ID 栈（LIFO）。
+   * 每次 bot 发消息时 push，每次 undo 时 pop。
+   * 支持连续 undo 逐条编辑/删除对应的 bot 消息。
+   */
+  botMessageIdStack: number[];
   /** 流式输出状态，非流式模式时为 null */
   stream: TelegramStreamState | null;
 }
@@ -137,6 +142,7 @@ export class TelegramPlatform extends PlatformAdapter {
         target,
         pendingMessages: [],
         stopped: false,
+        botMessageIdStack: [],
         stream: null,
       };
       this.chatStates.set(target.chatKey, cs);
@@ -309,7 +315,8 @@ export class TelegramPlatform extends PlatformAdapter {
         cs.target,
         this.messageBuilder.buildThinkingText(),
       );
-      cs.lastBotMessageId = messageId; // 记录用于 undo
+      // 将 bot 消息 ID 压入栈，支持后续 undo 时的 UI 处理
+      cs.botMessageIdStack.push(messageId);
       cs.stream = {
         placeholderMessageId: messageId,
         buffer: '',
@@ -354,30 +361,41 @@ export class TelegramPlatform extends PlatformAdapter {
 
   // ---- 发送消息 ----
 
-  private async sendToChat(cs: TelegramChatState, text: string): Promise<void> {
+  /**
+   * 向聊天室发送消息。
+   * @param cs 聊天状态
+   * @param text 消息内容
+   * @param options 发送选项。trackMessage 为 false 时，该消息不会进入 botMessageIdStack，不参与 undo 时的 UI 撤销逻辑。
+   */
+  private async sendToChat(cs: TelegramChatState, text: string, options?: { trackMessage?: boolean }): Promise<void> {
     const msgId = await this.client.sendMessageReturningId(cs.target, text);
-    cs.lastBotMessageId = msgId; // 记录用于 undo
+    // 默认追踪 bot 消息 ID，用于 undo 时逐条编辑/删除
+    if (options?.trackMessage !== false) {
+      cs.botMessageIdStack.push(msgId);
+    }
   }
 
   /**
    * undo 时处理 bot 消息的 UI 标记（编辑为"已撤销"或删除）。
-   * 从 undo 命令处理中提取出来，保持命令逻辑简洁。
+   * 采用栈结构支持连续撤销：从栈顶弹出一个消息 ID 进行处理。
    */
   private async markBotMessageAsUndone(cs: TelegramChatState): Promise<void> {
-    if (cs.lastBotMessageId) {
+    const messageId = cs.botMessageIdStack.pop();
+    if (messageId != null) {
       try {
-        await this.client.editText(cs.target, cs.lastBotMessageId, '~~已撤销~~');
+        await this.client.editText(cs.target, messageId, '~~已撤销~~');
       } catch (e) {
-        logger.warn(`Telegram 消息编辑为已撤销失败 (${cs.lastBotMessageId})，尝试删除:`, e);
+        logger.warn(`Telegram 消息编辑为已撤销失败 (${messageId})，尝试删除:`, e);
         try {
-          await this.client.deleteMessage(cs.target, cs.lastBotMessageId);
+          await this.client.deleteMessage(cs.target, messageId);
         } catch (err) {
           logger.warn(`Telegram deleteMessage 也失败了:`, err);
         }
       }
-      cs.lastBotMessageId = undefined;
     } else {
-      await this.sendToChat(cs, '✅ 上一轮对话已撤销。');
+      // 栈为空，没有可操作的 bot 消息（例如已被撤销完，或者是非 LLM 回复的消息）
+      // 发送提示但不追踪到栈中，避免干扰正常的回复追踪
+      await this.sendToChat(cs, '✅ 上一轮对话已撤销。', { trackMessage: false });
     }
   }
 

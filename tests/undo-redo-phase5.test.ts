@@ -184,7 +184,7 @@ describe('Telegram Phase 5: Undo/Redo', () => {
 
     await (platform as any).handleMessage(makeCtx('Test'));
     const cs = (platform as any).getChatState({ chatKey: 'dm:3001' } as any);
-    cs.lastBotMessageId = 888;
+    cs.botMessageIdStack = [888];
     cs.busy = false;
 
     await (platform as any).handleMessage(makeCtx('/undo'));
@@ -195,7 +195,7 @@ describe('Telegram Phase 5: Undo/Redo', () => {
     expect(edited).toHaveLength(1);
     expect(edited[0].id).toBe(888);
     expect(edited[0].text).toContain('已撤销');
-    expect(cs.lastBotMessageId).toBeUndefined();
+    expect(cs.botMessageIdStack).toHaveLength(0);
   });
 
   it('执行 /redo 时恢复上一轮的用户输入', async () => {
