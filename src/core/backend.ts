@@ -14,6 +14,7 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawnSync } from 'child_process';
+import { loadSkillsFromFilesystem } from '../config/skill-loader';
 import type { LLMConfig, ToolsConfig, ToolPolicyConfig, SkillDefinition } from '../config/types';
 import { LLMRouter } from '../llm/router';
 import { supportsVision as llmSupportsVision, isDocumentMimeType, supportsNativePDF, supportsNativeOffice } from '../llm/vision';
@@ -743,6 +744,38 @@ export class Backend extends EventEmitter {
     return this.skills.find(s => s.path === skillPath);
   }
 
+  /**
+   * 从文件系统重新扫描 Skill 并合并内联定义，更新内存中的 Skill 列表。
+   * 用于文件系统 watcher 检测到 SKILL.md 变化时触发热重载。
+   *
+   * @param dataDir  数据目录，用于定位全局 skills 目录
+   * @param inlineSkills  system.yaml 中的内联 Skill 定义（可选，不传则只更新文件系统 Skill）
+   */
+  reloadSkillsFromFilesystem(dataDir: string, inlineSkills?: SkillDefinition[]): void {
+    const fsSkills: SkillDefinition[] = loadSkillsFromFilesystem(dataDir);
+
+    // 合并：文件系统 Skill 打底，内联定义覆盖同名
+    const merged = new Map<string, SkillDefinition>();
+    for (const s of fsSkills) merged.set(s.name, s);
+    if (inlineSkills) {
+      for (const s of inlineSkills) merged.set(s.name, s);
+    }
+
+    const newSkills = Array.from(merged.values());
+
+    // 只在列表实际发生变化时才触发回调，避免无意义的工具重建
+    const oldPaths = this.skills.map(s => s.path).sort().join('\0');
+    const newPaths = newSkills.map(s => s.path).sort().join('\0');
+    if (oldPaths === newPaths) {
+      // 路径一致但内容可能变化，静默更新内容
+      this.skills = newSkills;
+      return;
+    }
+
+    this.skills = newSkills;
+    this._onSkillsChanged?.();
+  }
+
   // ============ Mode 管理 ============
 
   /** 列出所有已注册的 Mode */
@@ -869,8 +902,11 @@ export class Backend extends EventEmitter {
     if ('currentLLMConfig' in opts) this.currentLLMConfig = opts.currentLLMConfig;
     if ('ocrService' in opts) this.ocrService = opts.ocrService;
     if (opts.maxRecentScreenshots !== undefined) this.maxRecentScreenshots = opts.maxRecentScreenshots;
-    if (opts.skills !== undefined) {
-      this.skills = opts.skills;
+    // 修复：使用 'in' 操作符判断调用方是否传入了 skills 字段。
+    // 原写法 `opts.skills !== undefined` 在新配置无 skill 时（skills: undefined）
+    // 不会清空旧列表，导致已删除的 Skill 残留在内存中。
+    if ('skills' in opts) {
+      this.skills = opts.skills ?? [];
       // Skill 列表变化后，通知外部重建 read_skill 工具声明。
       this._onSkillsChanged?.();
     }

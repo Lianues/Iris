@@ -91,6 +91,7 @@ export interface ConsoleSettingsSaveResult {
 interface ConsoleSettingsControllerOptions {
   backend: Backend;
   configDir: string;
+  dataDir?: string;
   getMCPManager(): MCPManager | undefined;
   setMCPManager(manager?: MCPManager): void;
   extensions?: Pick<BootstrapExtensionRegistry, 'llmProviders' | 'ocrProviders'>;
@@ -318,6 +319,7 @@ function buildMCPPayload(snapshot: ConsoleSettingsSnapshot): { servers: Record<s
 export class ConsoleSettingsController {
   private backend: Backend;
   private configDir: string;
+  private dataDir?: string;
   private getMCPManager: () => MCPManager | undefined;
   private setMCPManager: (manager?: MCPManager) => void;
   private extensions?: Pick<BootstrapExtensionRegistry, 'llmProviders' | 'ocrProviders'>;
@@ -325,6 +327,7 @@ export class ConsoleSettingsController {
   constructor(options: ConsoleSettingsControllerOptions) {
     this.backend = options.backend;
     this.configDir = options.configDir;
+    this.dataDir = options.dataDir;
     this.getMCPManager = options.getMCPManager;
     this.setMCPManager = options.setMCPManager;
     this.extensions = options.extensions;
@@ -442,6 +445,7 @@ export class ConsoleSettingsController {
         {
           backend: this.backend,
           getMCPManager: this.getMCPManager,
+          dataDir: this.dataDir,
           setMCPManager: this.setMCPManager,
           extensions: this.extensions,
         },

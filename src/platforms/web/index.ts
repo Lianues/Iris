@@ -60,6 +60,8 @@ export interface AgentContext {
   setMCPManager: (mgr?: MCPManager) => void;
   getComputerEnv?: () => import('../../computer-use/types').Computer | undefined;
   setComputerEnv?: (env?: import('../../computer-use/types').Computer) => void;
+  /** 当前 Agent 对应的数据目录，用于热重载时扫描正确的 skills 目录 */
+  dataDir?: string;
   extensions?: RuntimeReloadExtensions;
 }
 
@@ -142,6 +144,7 @@ export class WebPlatform extends PlatformAdapter {
       name: 'default', backend, config,
       getMCPManager: () => _mcpManager,
       setMCPManager: (mgr?) => { _mcpManager = mgr; },
+      dataDir: path.dirname(config.configPath),
       extensions,
     });
     this.setupRoutes();
@@ -178,6 +181,7 @@ export class WebPlatform extends PlatformAdapter {
       name, description, backend, config,
       getMCPManager: getMCPManager ?? (() => undefined),
       setMCPManager: setMCPManager ?? (() => {}),
+      dataDir: path.dirname(config.configPath),
       extensions,
     });
   }
@@ -255,6 +259,7 @@ export class WebPlatform extends PlatformAdapter {
           configPath: result.configDir,
         },
         getMCPManager: () => _mcpManager,
+        dataDir: path.dirname(result.configDir),
         setMCPManager: (mgr?) => { _mcpManager = mgr; },
         extensions: { llmProviders: result.extensions.llmProviders, ocrProviders: result.extensions.ocrProviders },
       });
@@ -735,6 +740,7 @@ export class WebPlatform extends PlatformAdapter {
             setMCPManager: agent.setMCPManager,
             getComputerEnv: agent.getComputerEnv,
             setComputerEnv: agent.setComputerEnv,
+            dataDir: agent.dataDir,
             extensions: agent.extensions,
           },
           mergedConfig,

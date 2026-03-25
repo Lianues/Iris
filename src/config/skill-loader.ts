@@ -142,3 +142,68 @@ export function loadSkillsFromFilesystem(dataDir: string): SkillDefinition[] {
 
   return Array.from(merged.values());
 }
+
+/**
+ * 获取需要监听的 Skill 目录列表。
+ * 返回所有可能存放 SKILL.md 的根目录（全局 + 项目级）。
+ */
+export function getSkillWatchDirs(dataDir: string): string[] {
+  const dirs: string[] = [];
+  const globalDir = path.join(dataDir, 'skills');
+  const projectDir = path.join(process.cwd(), '.agents', 'skills');
+  if (fs.existsSync(globalDir)) dirs.push(globalDir);
+  if (fs.existsSync(projectDir)) dirs.push(projectDir);
+  return dirs;
+}
+
+/**
+ * 创建 Skill 目录的文件系统监听器。
+ * 监听 SKILL.md 的创建、修改、删除事件，触发回调。
+ *
+ * 使用 debounce 防抖（500ms），避免连续文件操作触发过多回调。
+ * 不存在的目录会被跳过。
+ *
+ * @param dataDir   数据目录（用于定位全局 skills 目录）
+ * @param onChange  变化回调
+ * @returns 清理函数，调用后停止所有监听
+ */
+export function createSkillWatcher(
+  dataDir: string,
+  onChange: () => void,
+): () => void {
+  const dirs = getSkillWatchDirs(dataDir);
+  const watchers: fs.FSWatcher[] = [];
+
+  // 防抖定时器：500ms 内连续变化只触发一次回调
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const debouncedOnChange = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      onChange();
+    }, 500);
+  };
+
+  for (const dir of dirs) {
+    try {
+      // recursive: true 可监听子目录中的 SKILL.md 变化
+      const watcher = fs.watch(dir, { recursive: true }, (_eventType, filename) => {
+        const normalized = filename == null ? '' : String(filename);
+        if (normalized.endsWith('SKILL.md') || normalized.endsWith('SKILL.md/')) {
+          debouncedOnChange();
+        }
+      });
+      watchers.push(watcher);
+    } catch {
+      // 目录不可监听（权限等问题），静默跳过
+    }
+  }
+
+  // 返回清理函数
+  return () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    for (const w of watchers) {
+      try { w.close(); } catch { /* 忽略 */ }
+    }
+  };
+}

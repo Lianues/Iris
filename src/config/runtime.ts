@@ -23,6 +23,8 @@ export interface RuntimeConfigReloadContext {
   setMCPManager(manager?: MCPManager): void;
   getComputerEnv?(): Computer | undefined;
   setComputerEnv?(env?: Computer): void;
+  /** Skill 文件系统扫描使用的数据目录（多 Agent 模式下为 agent 专属目录） */
+  dataDir?: string;
   extensions?: Pick<BootstrapExtensionRegistry, 'llmProviders' | 'ocrProviders'>;
 }
 
@@ -73,7 +75,10 @@ export async function applyRuntimeConfigReload(
 
   context.backend.reloadLLM(newRouter);
   // 解析 system 配置（提取技能定义，避免重复调用 parseSystemConfig）
-  const systemConfig = parseSystemConfig(mergedConfig.system, dataDir);
+  // 修复：优先使用 context 中传入的 agent 专属 dataDir，
+  // 避免多 Agent 热重载时错误地扫描全局 skills 目录。
+  const effectiveDataDir = context.dataDir ?? dataDir;
+  const systemConfig = parseSystemConfig(mergedConfig.system, effectiveDataDir);
   context.backend.reloadConfig({
     stream: mergedConfig.system?.stream,
     maxToolRounds: mergedConfig.system?.maxToolRounds,

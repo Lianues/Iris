@@ -14,9 +14,10 @@ import { loadConfig, findConfigFile, AppConfig } from './config';
 import { loadRawConfigDir } from './config/raw';
 import { initCuConfigSnapshot } from './config/runtime';
 import type { AgentPaths } from './paths';
-import { logsDir as globalLogsDir } from './paths';
+import { dataDir as globalDataDir, logsDir as globalLogsDir } from './paths';
 import { createLLMRouter } from './llm/factory';
 import { LLMRouter } from './llm/router';
+import { createSkillWatcher } from './config/skill-loader';
 import type { MemoryProvider } from './memory';
 import { createMCPManager, MCPManager } from './mcp';
 import type { OCRProvider } from './ocr';
@@ -297,6 +298,16 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
 
   // 注册回调：Skill 列表变化时自动重建 read_skill 工具声明
   backend.setOnSkillsChanged(rebuildSkillsTool);
+
+  // 启动 Skill 目录文件系统监听：
+  // 检测到 SKILL.md 变化时自动重新扫描并更新 Skill 列表，
+  // 使 AI 创建或修改 Skill 后无需重启即可生效。
+  const effectiveDataDir = agentPaths?.dataDir || globalDataDir;
+  const inlineSkills = config.system.skills?.filter(s => s.path.startsWith('inline:'));
+  const stopSkillWatcher = createSkillWatcher(effectiveDataDir, () => {
+    backend.reloadSkillsFromFilesystem(effectiveDataDir, inlineSkills);
+  });
+  void stopSkillWatcher;
 
   // 将插件钩子注入 Backend
   const eventBus = new PluginEventBus();

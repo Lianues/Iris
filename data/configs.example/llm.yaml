@@ -73,19 +73,19 @@ models:
 #     apiKey: your-api-key-here
 #     model: claude-sonnet-4-6
 #     baseUrl: https://api.anthropic.com/v1
-#     # Enable Anthropic Prompt Caching (manual cache breakpoints).
-#     # Injects cache_control: { type: "ephemeral" } at key positions:
-#     #   1. tools    — last tool definition
-#     #   2. system   — system instruction (converted to content-block array)
-#     #   3. messages — last content block of the last user message
-#     # Uses at most 3 breakpoints (Anthropic allows up to 4).
-#     # Cached reads cost only 10% of base input token price.
-#     # promptCaching: true
-#     # Enable Anthropic automatic prompt caching.
-#     # Adds top-level cache_control to the request body;
-#     # the server decides which prefix to cache automatically.
-#     # Can be used independently or together with promptCaching.
-#     # autoCaching: true
+#     # 启用 Anthropic Prompt Caching（手动缓存断点）。
+#     # 在请求体的关键位置注入 cache_control: { type: "ephemeral" } 标记：
+#     #   1. tools    — 最后一个工具定义
+#     #   2. system   — 系统指令（转换为 content-block 数组）
+#     #   3. messages — 最后一条用户消息的最后一个内容块
+#     # 最多使用 3 个断点（Anthropic 允许最多 4 个）。
+#     # 缓存读取仅需基础输入 token 价格的 10%。
+#     promptCaching: true
+#     # 启用 Anthropic 自动提示词缓存。
+#     # 在请求体顶层添加 cache_control 字段；
+#     # 服务端自动决定缓存哪部分前缀。
+#     # 可单独使用，也可与 promptCaching 组合使用。
+#     autoCaching: true
 # Gemini 示例：
 # models:
 #   gemini_flash:

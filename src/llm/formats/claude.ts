@@ -156,15 +156,15 @@ export class ClaudeFormat implements FormatAdapter {
     // 流式参数
     if (stream) body.stream = true;
 
-    // Inject manual cache breakpoints when Prompt Caching is enabled.
-    // Follows Anthropic's cache prefix hierarchy: tools → system → messages.
-    // At most 3 breakpoints (Anthropic allows up to 4).
+    // 启用手动缓存断点时，注入 Prompt Caching 标记。
+    // 遵循 Anthropic 的缓存前缀层级：tools → system → messages。
+    // 最多 3 个断点（Anthropic 允许最多 4 个）。
     if (this.promptCaching) {
       this.injectCacheBreakpoints(body);
     }
 
-    // Inject top-level automatic caching marker.
-    // The server places the breakpoint on the last cacheable block automatically.
+    // 注入顶层自动缓存标记。
+    // 服务端会自动将断点放置在最后一个可缓存的内容块上。
     if (this.autoCaching) {
       (body as any).cache_control = { type: 'ephemeral' };
     }
@@ -337,25 +337,25 @@ export class ClaudeFormat implements FormatAdapter {
   }
 
   /**
-   * Inject manual cache breakpoints for Anthropic Prompt Caching.
+   * 为 Anthropic Prompt Caching 注入手动缓存断点。
    *
-   * Cache prefix hierarchy (order matters):
-   *   1. tools    — mark the last tool definition
-   *   2. system   — convert string to content-block array, mark the last block
-   *   3. messages — mark the last content block of the last user message
+   * 缓存前缀层级（顺序重要）：
+   *   1. tools    — 标记最后一个工具定义
+   *   2. system   — 将字符串转换为 content-block 数组，标记最后一个块
+   *   3. messages — 标记最后一条用户消息的最后一个内容块
    */
   private injectCacheBreakpoints(body: Record<string, unknown>): void {
     const cacheControl = { type: 'ephemeral' as const };
 
-    // 1. Mark the last tool definition
+    // 1. 标记最后一个工具定义
     const tools = body.tools as any[] | undefined;
     if (tools && tools.length > 0) {
       tools[tools.length - 1].cache_control = cacheControl;
     }
 
-    // 2. Convert system from string to content-block array and mark it.
-    //    Anthropic accepts system as either a string or an array of content blocks;
-    //    the array form is required to attach cache_control.
+    // 2. 将 system 从字符串转换为 content-block 数组并标记。
+    //    Anthropic 接受 system 为字符串或内容块数组；
+    //    需要数组形式才能附加 cache_control。
     if (typeof body.system === 'string' && body.system) {
       body.system = [
         { type: 'text', text: body.system, cache_control: cacheControl },
@@ -364,8 +364,8 @@ export class ClaudeFormat implements FormatAdapter {
       (body.system as any[])[body.system.length - 1].cache_control = cacheControl;
     }
 
-    // 3. Mark the last content block of the last user message.
-    //    This caches the entire conversation history prefix.
+    // 3. 标记最后一条用户消息的最后一个内容块。
+    //    这会缓存整个对话历史前缀。
     const messages = body.messages as any[] | undefined;
     if (messages && messages.length > 0) {
       for (let i = messages.length - 1; i >= 0; i--) {

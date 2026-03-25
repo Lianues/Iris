@@ -26,33 +26,32 @@ export interface LLMConfig {
   /** 自定义请求体，会深合并到 provider 编码后的最终请求体，支持嵌套参数 */
   requestBody?: Record<string, unknown>;
   /**
-   * [Claude only] Enable Anthropic Prompt Caching (manual cache breakpoints).
+   * [仅 Claude] 启用 Anthropic Prompt Caching（手动缓存断点）。
    *
-   * When enabled, cache_control: { type: "ephemeral" } markers are injected at
-   * key positions in the request body following Anthropic's cache prefix hierarchy:
-   *   1. tools  — last tool definition
-   *   2. system — system instruction (converted to content-block array)
-   *   3. messages — last content block of the last user message
+   * 启用后，会在请求体的关键位置注入 cache_control: { type: "ephemeral" } 标记，
+   * 遵循 Anthropic 的缓存前缀层级：
+   *   1. tools    — 最后一个工具定义
+   *   2. system   — 系统指令（转换为 content-block 数组）
+   *   3. messages — 最后一条用户消息的最后一个内容块
    *
-   * At most 3 breakpoints are used (Anthropic allows up to 4).
-   * Cached reads cost only 10% of base input token price.
+   * 最多使用 3 个断点（Anthropic 允许最多 4 个）。
+   * 缓存读取仅需基础输入 token 价格的 10%。
    *
-   * Only takes effect when provider is "claude". Ignored for other providers.
-   * Default: false
+   * 仅在 provider 为 "claude" 时生效，其他 provider 忽略此选项。
+   * 默认值：false
    */
   promptCaching?: boolean;
   /**
-   * [Claude only] Enable Anthropic automatic prompt caching.
+   * [仅 Claude] 启用 Anthropic 自动提示词缓存。
    *
-   * When enabled, a top-level `cache_control: { type: "ephemeral" }` field is
-   * added to the request body. The server automatically places the cache
-   * breakpoint on the last cacheable block and moves it forward as
-   * conversations grow. No per-block markers are injected.
+   * 启用后，会在请求体顶层添加 cache_control: { type: "ephemeral" } 字段。
+   * 服务端会自动将缓存断点放置在最后一个可缓存的内容块上，
+   * 并随对话增长自动前移。不注入逐块标记。
    *
-   * Can be used independently or together with promptCaching (explicit breakpoints).
-   * When combined, the automatic breakpoint uses 1 of the 4 available slots.
-   * Only takes effect when provider is "claude". Ignored for other providers.
-   * Default: false
+   * 可单独使用，也可与 promptCaching（显式断点）组合使用。
+   * 组合使用时，自动断点占用 4 个可用槽位中的 1 个。
+   * 仅在 provider 为 "claude" 时生效，其他 provider 忽略此选项。
+   * 默认值：false
    */
   autoCaching?: boolean;
   [key: string]: unknown;

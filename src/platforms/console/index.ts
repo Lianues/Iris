@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import * as path from 'node:path';
 import { createCliRenderer, type CliRenderer } from '@opentui/core';
 import { createRoot } from '@opentui/react';
 import { PlatformAdapter } from '../base';
@@ -198,6 +199,7 @@ export class ConsolePlatform extends PlatformAdapter {
       configDir: options.configDir,
       getMCPManager: options.getMCPManager,
       setMCPManager: options.setMCPManager,
+      dataDir: path.dirname(options.configDir),
       extensions: options.extensions,
     });
   }
