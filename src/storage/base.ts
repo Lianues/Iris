@@ -23,6 +23,8 @@ export interface SessionMeta {
   createdAt: string;
   /** 最后活跃时间（ISO 8601） */
   updatedAt: string;
+  /** 使用过该会话的平台列表（��� ['console', 'web', 'telegram']） */
+  platforms?: string[];
 }
 
 export abstract class StorageProvider {

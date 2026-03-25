@@ -912,7 +912,7 @@ export class TelegramPlatform extends PlatformAdapter {
     }
 
     try {
-      await this.backend.chat(cs.sessionId, message.text, images, documents);
+      await this.backend.chat(cs.sessionId, message.text, images, documents, 'telegram');
     } catch (err) {
       logger.error(`backend.chat 失败 (session=${cs.sessionId}):`, err);
     }

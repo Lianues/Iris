@@ -709,7 +709,7 @@ export class QQPlatform extends PlatformAdapter {
     cs.target = target;
 
     try {
-      await this.backend.chat(cs.sessionId, text, images);
+      await this.backend.chat(cs.sessionId, text, images, undefined, 'qq');
     } catch (err) {
       logger.error(`backend.chat 失败 (session=${cs.sessionId}):`, err);
     }

@@ -513,7 +513,7 @@ export class ConsolePlatform extends PlatformAdapter {
     this.currentToolIds.clear();
 
     try {
-      await this.backend.chat(this.sessionId, text);
+      await this.backend.chat(this.sessionId, text, undefined, undefined, 'console');
     } finally {
       this.appHandle?.commitTools();
       this.appHandle?.setGenerating(false);

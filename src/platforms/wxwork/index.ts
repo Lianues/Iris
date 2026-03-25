@@ -733,7 +733,7 @@ export class WXWorkPlatform extends PlatformAdapter {
     }
 
     try {
-      await this.backend.chat(cs.sessionId, text, images);
+      await this.backend.chat(cs.sessionId, text, images, undefined, 'wxwork');
     } catch (err) {
       logger.error(`backend.chat 失败 (session=${cs.sessionId}):`, err);
     }

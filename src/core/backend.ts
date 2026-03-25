@@ -407,7 +407,7 @@ export class Backend extends EventEmitter {
   }
 
   /** 发送消息，触发完整的 LLM + 工具循环 */
-  async chat(sessionId: string, text: string, images?: ImageInput[], documents?: DocumentInput[]): Promise<void> {
+  async chat(sessionId: string, text: string, images?: ImageInput[], documents?: DocumentInput[], platformName?: string): Promise<void> {
     const startTime = Date.now();
     const abortController = new AbortController();
     this.activeAbortControllers.set(sessionId, abortController);
@@ -425,7 +425,7 @@ export class Backend extends EventEmitter {
 
       const storedUserParts = await this.buildStoredUserParts(text, images, documents);
       const llmUserParts = this.preparePartsForLLM(storedUserParts);
-      await this.handleMessage(sessionId, storedUserParts, llmUserParts, abortController.signal);
+      await this.handleMessage(sessionId, storedUserParts, llmUserParts, abortController.signal, platformName);
     } catch (err) {
       // 区分用户主动 abort 和其他错误
       if (abortController.signal.aborted) {
@@ -908,7 +908,7 @@ export class Backend extends EventEmitter {
     return undefined;
   }
 
-  private async handleMessage(sessionId: string, storedUserParts: Part[], llmUserParts: Part[], signal?: AbortSignal): Promise<void> {
+  private async handleMessage(sessionId: string, storedUserParts: Part[], llmUserParts: Part[], signal?: AbortSignal, platformName?: string): Promise<void> {
     this.activeSessionId = sessionId;
     const startTime = Date.now();
 
@@ -1040,7 +1040,7 @@ export class Backend extends EventEmitter {
       ...(estimatedUserTokens > 0 ? { usageMetadata: { promptTokenCount: estimatedUserTokens } } : {}),
     });
     if (isNewSession) {
-      await this.updateSessionMeta(sessionId, storedUserParts, true);
+      await this.updateSessionMeta(sessionId, storedUserParts, true, platformName);
       for (const hook of this.pluginHooks) {
         try {
           await hook.onSessionCreate?.({ sessionId });
@@ -1124,7 +1124,7 @@ export class Backend extends EventEmitter {
     });
 
     // 8. 管理会话元数据
-    await this.updateSessionMeta(sessionId, storedUserParts, false);
+    await this.updateSessionMeta(sessionId, storedUserParts, false, platformName);
 
     // 9. 插件钩子: onAfterChat（可修改最终响应文本）
     let finalText = result.text;
@@ -1566,7 +1566,7 @@ export class Backend extends EventEmitter {
     return prepared;
   }
 
-  private async updateSessionMeta(sessionId: string, userParts: Part[], isNewSession: boolean): Promise<void> {
+  private async updateSessionMeta(sessionId: string, userParts: Part[], isNewSession: boolean, platformName?: string): Promise<void> {
     const now = new Date().toISOString();
     const cwd = process.cwd();
 
@@ -1602,6 +1602,7 @@ export class Backend extends EventEmitter {
         cwd,
         createdAt: now,
         updatedAt: now,
+        platforms: platformName ? [platformName] : [],
       });
     } else {
       const meta = await this.storage.getMeta(sessionId);
@@ -1609,6 +1610,14 @@ export class Backend extends EventEmitter {
         meta.updatedAt = now;
         if (meta.cwd !== cwd) {
           meta.cwd = cwd;
+        }
+        // 将当前平台追加到列表（去重）
+        if (platformName) {
+          const platforms = meta.platforms ?? [];
+          if (!platforms.includes(platformName)) {
+            platforms.push(platformName);
+          }
+          meta.platforms = platforms;
         }
         await this.storage.saveMeta(meta);
       }

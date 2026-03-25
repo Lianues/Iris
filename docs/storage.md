@@ -47,6 +47,7 @@ interface SessionMeta {
   cwd: string;         // 对话所在的工作目录
   createdAt: string;   // ISO 8601
   updatedAt: string;   // ISO 8601
+  platforms?: string[];  // 使用过该会话的平台列表
 }
 ```
 

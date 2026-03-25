@@ -103,7 +103,7 @@ new Backend(
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
-| `chat` | `(sessionId: string, text: string, images?: ImageInput[], documents?: DocumentInput[]) => Promise<void>` | 发送消息，触发完整的 LLM + 工具循环。结果通过事件推送。 |
+| `chat` | `(sessionId: string, text: string, images?: ImageInput[], documents?: DocumentInput[], platformName?: string) => Promise<void>` | 发送消息，触发完整的 LLM + 工具循环。结果通过事件推送。`platformName` 用于记录会话来源平台。 |
 
 ### 会话管理
 

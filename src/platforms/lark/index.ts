@@ -634,7 +634,7 @@ export class LarkPlatform extends PlatformAdapter {
     try {
       // 将文本和下载后的媒体一并传给 Backend。
       // 目的：让 LLM 能"看到"图片、读取文件内容。
-      await this.backend.chat(cs.sessionId, message.text, images, documents);
+      await this.backend.chat(cs.sessionId, message.text, images, documents, 'lark');
     } catch (err) {
       logger.error(`backend.chat 失败 (session=${cs.sessionId}):`, err);
     }

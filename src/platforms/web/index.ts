@@ -474,7 +474,7 @@ export class WebPlatform extends PlatformAdapter {
     const agent = agentName && this.agents.has(agentName)
       ? this.agents.get(agentName)!
       : this.agents.get(this.defaultAgentName) ?? this.agents.values().next().value!;
-    await agent.backend.chat(sessionId, message, images, documents);
+    await agent.backend.chat(sessionId, message, images, documents, 'web');
   }
 
   /** 注入 MCP 管理器引用（单 Agent 兼容 / 指定 agent） */

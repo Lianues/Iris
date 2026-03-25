@@ -116,7 +116,7 @@ export class DiscordPlatform extends PlatformAdapter {
 
     const sessionId = `discord-${msg.channelId}`;
     try {
-      await this.backend.chat(sessionId, content);
+      await this.backend.chat(sessionId, content, undefined, undefined, 'discord');
     } catch (err) {
       logger.error('处理消息时出错:', err);
     }
