@@ -66,6 +66,8 @@ export interface LLMModelDef extends LLMConfig {
 export interface LLMRegistryConfig {
   /** 启动时默认使用的模型名称 */
   defaultModelName: string;
+  /** 是否记住各平台上次使用的模型（重启后自动恢复），默认 true */
+  rememberPlatformModel?: boolean;
   /** 用于 /compact 上下文压缩的模型名称（需指向 models 中的某个模型，不填则使用 defaultModel） */
   summaryModelName?: string;
   /** 可用模型列表 */
@@ -79,11 +81,15 @@ export interface PlatformConfig {
   pairing?: PairingConfig;
   discord: {
     token: string;
+    /** 上次使用的模型名称（自动管理，rememberPlatformModel 启用时写入） */
+    lastModel?: string;
     /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
     pairing?: PairingConfig;
   };
   telegram: {
     token: string;
+    /** 上次使用的模型名称（自动管理） */
+    lastModel?: string;
     /**
      * 是否在 Telegram 输出中展示工具状态。
      * 目的：为后续与飞书对齐的流式 / 审批 / MCP 状态展示预留统一开关。
@@ -97,6 +103,8 @@ export interface PlatformConfig {
   web: {
     port: number;
     host: string;
+    /** 上次使用的模型名称（自动管理） */
+    lastModel?: string;
     /** 全局 API 认证令牌（可选） */
     authToken?: string;
     /** 管理面令牌（可选，启用后 /api/config 需 X-Management-Token） */
@@ -105,6 +113,8 @@ export interface PlatformConfig {
   wxwork: {
     botId: string;
     secret: string;
+    /** 上次使用的模型名称（自动管理） */
+    lastModel?: string;
     /** 是否在流式回复中展示工具执行状态（默认 true） */
     showToolStatus?: boolean;
     /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
@@ -118,6 +128,8 @@ export interface PlatformConfig {
     appId: string;
     /** 飞书自建应用 App Secret，用于调用 OpenAPI 和建立长连接。 */
     appSecret: string;
+    /** 上次使用的模型名称（自动管理） */
+    lastModel?: string;
     /** 可选：Webhook 模式验签 token；当前预留字段，便于后续扩展。 */
     verificationToken?: string;
     /** 可选：Webhook 模式消息解密 key；当前预留字段，便于后续扩展。 */
@@ -130,6 +142,8 @@ export interface PlatformConfig {
   weixin: {
     /** ilink Bot Token（扫码登录后获取） */
     botToken?: string;
+    /** 上次使用的模型名称（自动管理） */
+    lastModel?: string;
     /** 可选：覆盖 API 基地址（默认 https://ilinkai.weixin.qq.com） */
     baseUrl?: string;
     /** 是否在回复中展示工具执行状态（默认 true） */
@@ -140,6 +154,8 @@ export interface PlatformConfig {
   qq: {
     /** NapCat OneBot v11 正向 WebSocket 地址 */
     wsUrl: string;
+    /** 上次使用的模型名称（自动管理） */
+    lastModel?: string;
     /** OneBot access_token（可选，用于鉴权） */
     accessToken?: string;
     /** 机器人自身 QQ 号（用于群聊 @ 判断） */

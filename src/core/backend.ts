@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import { spawnSync } from 'child_process';
 import { loadSkillsFromFilesystem } from '../config/skill-loader';
 import type { LLMConfig, ToolsConfig, ToolPolicyConfig, SkillDefinition } from '../config/types';
+import { updatePlatformLastModel } from '../config/platform';
 import { LLMRouter } from '../llm/router';
 import { supportsVision as llmSupportsVision, isDocumentMimeType, supportsNativePDF, supportsNativeOffice } from '../llm/vision';
 import type { PluginHook } from '../plugins/types';
@@ -188,6 +189,10 @@ export interface BackendConfig {
   summaryConfig?: SummaryConfig;
   /** Skill 定义列表 */
   skills?: SkillDefinition[];
+  /** 配置目录路径（用于 rememberPlatformModel 写回 platform.yaml） */
+  configDir?: string;
+  /** 是否记住各平台上次使用的模型 */
+  rememberPlatformModel?: boolean;
 }
 
 export interface BackendEvents {
@@ -243,6 +248,8 @@ export class Backend extends EventEmitter {
   private summaryModelName?: string;
   private summaryConfig?: SummaryConfig;
 
+  private configDir?: string;
+  private rememberPlatformModel: boolean;
   private toolLoop: ToolLoop;
   private toolLoopConfig: ToolLoopConfig;
   private toolState: ToolStateManager;
@@ -297,6 +304,8 @@ export class Backend extends EventEmitter {
     this.summaryModelName = config?.summaryModelName;
     this.summaryConfig = config?.summaryConfig;
 
+    this.configDir = config?.configDir;
+    this.rememberPlatformModel = config?.rememberPlatformModel ?? true;
     // 初始化 Skill 定义列表。Skill 内容改为通过 read_skill 工具按需读取，不再维护启用状态。
     if (config?.skills) {
       this.skills = config.skills;
@@ -818,11 +827,21 @@ export class Backend extends EventEmitter {
     return this.router.listModels();
   }
 
-  /** 切换当前活动模型 */
-  switchModel(modelName: string) {
+  /** 切换当前活动模型（传入 platformName 时，若启用了 rememberPlatformModel 则持久化到 platform.yaml） */
+  switchModel(modelName: string, platformName?: string) {
     const info = this.router.setCurrentModel(modelName);
     this.currentLLMConfig = this.router.getCurrentConfig();
     logger.info(`当前模型已切换: ${info.modelName} -> ${info.modelId}`);
+
+    // 持久化平台上次使用的模型
+    if (platformName && this.rememberPlatformModel && this.configDir) {
+      try {
+        updatePlatformLastModel(this.configDir, platformName, info.modelName);
+      } catch (err) {
+        logger.warn(`持久化平台模型失败 (${platformName}):`, err);
+      }
+    }
+
     return info;
   }
 

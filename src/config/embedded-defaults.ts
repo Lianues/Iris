@@ -10,9 +10,12 @@
 export const EMBEDDED_CONFIG_DEFAULTS: Record<string, string> = {
   'llm.yaml': `# LLM 配置（模型池）
 # defaultModel: 启动时默认使用的模型名称
+# rememberPlatformModel: 记住各平台上次使用的模型
 # models:       可用模型列表，键名就是模型名称
 
 defaultModel: gemini_flash
+rememberPlatformModel: true
+
 
 models:
   gemini_flash:

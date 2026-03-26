@@ -903,7 +903,7 @@ export class WebPlatform extends PlatformAdapter {
           sendJSON(res, 400, { error: '缺少 modelName 参数' });
           return;
         }
-        const info = agent.backend.switchModel(body.modelName);
+        const info = agent.backend.switchModel(body.modelName, 'web');
         agent.config.modelId = info.modelId;
         agent.config.provider = info.provider;
         sendJSON(res, 200, info);

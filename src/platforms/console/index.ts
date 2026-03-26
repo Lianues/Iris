@@ -402,7 +402,7 @@ export class ConsolePlatform extends PlatformAdapter {
 
   private handleSwitchModel(modelName: string): { ok: boolean; message: string; modelId?: string; modelName?: string; contextWindow?: number } {
     try {
-      const info = this.backend.switchModel(modelName);
+      const info = this.backend.switchModel(modelName, 'console');
       this.modelName = info.modelName;
       this.modelId = info.modelId;
       this.contextWindow = info.contextWindow;

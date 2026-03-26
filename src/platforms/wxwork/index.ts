@@ -562,7 +562,7 @@ export class WXWorkPlatform extends PlatformAdapter {
     if (cmd.startsWith('/model ')) {
       const modelName = text.slice('/model '.length).trim();
       try {
-        const result = this.backend.switchModel(modelName);
+        const result = this.backend.switchModel(modelName, 'wxwork');
         await reply(`✅ 模型已切换为 **${result.modelName}** → \`${result.modelId}\``);
       } catch {
         await reply(`❌ 未找到模型 "${modelName}"。发送 /model 查看可用列表。`);

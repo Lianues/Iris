@@ -8,6 +8,9 @@
  * 同时支持插件注册的自定义平台类型。
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
+import { parseDocument } from 'yaml';
 import { PlatformConfig } from './types';
 
 function parseTypes(raw: unknown): string[] {
@@ -64,10 +67,12 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
     pairing: globalPairing,
     discord: {
       token: source.discord?.token ?? '',
+      lastModel: source.discord?.lastModel,
       pairing: parsePairingOverride(source.discord?.pairing),
     },
     telegram: {
       token: source.telegram?.token ?? '',
+      lastModel: source.telegram?.lastModel,
       showToolStatus: source.telegram?.showToolStatus !== false,
       groupMentionRequired: source.telegram?.groupMentionRequired !== false,
       pairing: parsePairingOverride(source.telegram?.pairing),
@@ -75,18 +80,21 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
     web: {
       port: source.web?.port ?? 8192,
       host: source.web?.host ?? '127.0.0.1',
+      lastModel: source.web?.lastModel,
       authToken: source.web?.authToken,
       managementToken: source.web?.managementToken,
     },
     wxwork: {
       botId: source.wxwork?.botId ?? '',
       secret: source.wxwork?.secret ?? '',
+      lastModel: source.wxwork?.lastModel,
       showToolStatus: source.wxwork?.showToolStatus !== false,
       pairing: parsePairingOverride(source.wxwork?.pairing),
     },
     lark: {
       appId: source.lark?.appId ?? '',
       appSecret: source.lark?.appSecret ?? '',
+      lastModel: source.lark?.lastModel,
       verificationToken: source.lark?.verificationToken,
       encryptKey: source.lark?.encryptKey,
       showToolStatus: source.lark?.showToolStatus !== false,
@@ -94,12 +102,14 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
     },
     weixin: {
       botToken: source.weixin?.botToken ?? '',
+      lastModel: source.weixin?.lastModel,
       baseUrl: source.weixin?.baseUrl,
       showToolStatus: source.weixin?.showToolStatus !== false,
       pairing: parsePairingOverride(source.weixin?.pairing),
     },
     qq: {
       wsUrl: source.qq?.wsUrl ?? 'ws://127.0.0.1:3001',
+      lastModel: source.qq?.lastModel,
       accessToken: source.qq?.accessToken,
       selfId: source.qq?.selfId ?? '',
       groupMode: source.qq?.groupMode ?? 'at',
@@ -107,4 +117,23 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
       pairing: parsePairingOverride(source.qq?.pairing),
     },
   } as PlatformConfig;
+}
+
+
+/**
+ * 将平台上次使用的模型名写回 platform.yaml（保留注释和格式）。
+ * 仅在 rememberPlatformModel 启用时由 Backend.switchModel 调用。
+ */
+export function updatePlatformLastModel(configDir: string, platformName: string, modelName: string): void {
+  const filePath = path.join(configDir, 'platform.yaml');
+  let content = '';
+  try {
+    content = fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return; // 文件不存在则跳过
+  }
+
+  const doc = parseDocument(content);
+  doc.setIn([platformName, 'lastModel'], modelName);
+  fs.writeFileSync(filePath, doc.toString(), 'utf-8');
 }

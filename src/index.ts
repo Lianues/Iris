@@ -48,6 +48,17 @@ async function createPlatforms(
       continue;
     }
 
+    // 恢复平台上次使用的模型（rememberPlatformModel 启用时）
+    if (config.llm.rememberPlatformModel) {
+      const platformSubConfig = config.platform[platformType];
+      const lastModel = platformSubConfig && typeof platformSubConfig === 'object' && 'lastModel' in platformSubConfig
+        ? (platformSubConfig as { lastModel?: string }).lastModel
+        : undefined;
+      if (lastModel && router.hasModel(lastModel)) {
+        try { backend.switchModel(lastModel); } catch { /* ignore */ }
+      }
+    }
+
     const platform = await platformRegistry.create(platformType, {
       backend,
       config,

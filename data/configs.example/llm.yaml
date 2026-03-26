@@ -7,6 +7,10 @@
 
 defaultModel: gemini_flash
 
+# 是否记住各平台上次使用的模型（通过 /model 切换后持久化，重启后自动恢复）
+# 启用后，各平台的 lastModel 会自动写入 platform.yaml 对应平台节内
+rememberPlatformModel: true
+
 # 用于 /compact 上下文压缩的模型名称
 # 需指向 models 中的某个模型，不填则使用 defaultModel
 # 建议使用速度快、成本低的模型（如 gemini-3-flash）

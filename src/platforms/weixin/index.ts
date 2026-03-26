@@ -910,7 +910,7 @@ export class WeixinPlatform extends PlatformAdapter {
     if (cmd.startsWith('/model ')) {
       const modelName = text.slice('/model '.length).trim();
       try {
-        const result = this.backend.switchModel(modelName);
+        const result = this.backend.switchModel(modelName, 'weixin');
         await fastReply(`✅ 模型已切换为 **${result.modelName}**`);
       } catch {
         await fastReply(`❌ 未找到模型 "${modelName}"`);

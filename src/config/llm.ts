@@ -85,6 +85,7 @@ export function parseLLMConfig(raw: any = {}): LLMRegistryConfig {
       return {
         defaultModelName: requestedDefault && modelNames.has(requestedDefault) ? requestedDefault : models[0].modelName,
         summaryModelName: requestedSummary && modelNames.has(requestedSummary) ? requestedSummary : undefined,
+        rememberPlatformModel: raw.rememberPlatformModel !== false,
         models,
       };
     }

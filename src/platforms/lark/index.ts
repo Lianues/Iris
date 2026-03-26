@@ -432,7 +432,7 @@ export class LarkPlatform extends PlatformAdapter {
       case 'models': {
         if (cmd.args) {
           try {
-            const result = this.backend.switchModel(cmd.args);
+            const result = this.backend.switchModel(cmd.args, 'lark');
             await reply(`✅ 模型已切换为 ${result.modelName} → ${result.modelId}`);
           } catch {
             await reply(`❌ 未找到模型 "${cmd.args}"。发送 /model 查看可用列表。`);
