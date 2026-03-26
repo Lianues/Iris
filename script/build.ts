@@ -49,6 +49,7 @@ const allTargets: Target[] = [
   { os: "darwin", arch: "arm64" },
   { os: "darwin", arch: "x64" },
   { os: "win32", arch: "x64" },
+  { os: "win32", arch: "arm64" },
 ]
 
 const singleFlag = process.argv.includes("--single")
