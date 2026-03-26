@@ -378,12 +378,8 @@ export class ClaudeFormat implements FormatAdapter {
           msg.content = [{ type: 'text', text: msg.content }];
         }
 
-        if (Array.isArray(msg.content) && msg.content.length > 0) {
-          const lastBlock = msg.content[msg.content.length - 1];
-          if (typeof lastBlock === 'object' && lastBlock !== null) {
-            lastBlock.cache_control = cacheControl;
-          }
-        }
+        const lastBlock = msg.content[msg.content.length - 1];
+        lastBlock.cache_control = cacheControl;
         break;
       }
     }
