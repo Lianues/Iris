@@ -81,8 +81,8 @@ for (const item of targets) {
   try {
     await Bun.build({
       entrypoints: ["./src/main.ts"],
-      // Playwright 内部可选依赖，编译时无法解析，运行时不影响核心功能
-      external: ["chromium-bidi", "electron"],
+      // Playwright / OpenTUI 内部可选依赖，编译时无法解析，运行时不影响核心功能
+      external: ["chromium-bidi", "electron", "react-devtools-core"],
       compile: {
         target: `bun-${item.os}-${item.arch}` as any,
         outfile: `dist/bin/${name}/bin/iris`,
