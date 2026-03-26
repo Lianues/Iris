@@ -21,6 +21,12 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: '是否发布到 GitHub Release 和 npm'
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: write
@@ -113,10 +119,13 @@ jobs:
   release:
     name: Create GitHub Release
     needs: [build]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -135,13 +144,14 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
           files: release/*
 
   publish-npm:
     name: Publish to npm
     needs: [build]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
     runs-on: ubuntu-latest
 
     steps:
