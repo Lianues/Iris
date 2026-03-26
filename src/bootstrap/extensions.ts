@@ -64,6 +64,13 @@ export interface BootstrapExtensionRegistry {
 }
 
 /** 创建并注册内置扩展 */
+//
+// ⚠️  注意：此处注册的工厂函数才是运行时实际执行的代码路径。
+//    factory.ts 中的 switch-case 仅在 registry 中无对应条目时作为 fallback。
+//    新增 provider 配置字段时，必须同时更新：
+//      1. 本文件 (extensions.ts) — 注册的工厂函数
+//      2. factory.ts — switch-case fallback
+//
 export function createBootstrapExtensionRegistry(): BootstrapExtensionRegistry {
   const llmProviders = new LLMProviderFactoryRegistry();
   llmProviders.register('gemini', (config) => createGeminiProvider({
@@ -86,6 +93,8 @@ export function createBootstrapExtensionRegistry(): BootstrapExtensionRegistry {
     baseUrl: config.baseUrl,
     headers: config.headers,
     requestBody: config.requestBody,
+    promptCaching: config.promptCaching === true,
+    autoCaching: config.autoCaching === true,
   }));
   llmProviders.register('openai-responses', (config) => createOpenAIResponsesProvider({
     apiKey: config.apiKey,

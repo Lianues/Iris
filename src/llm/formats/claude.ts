@@ -370,13 +370,21 @@ export class ClaudeFormat implements FormatAdapter {
     if (messages && messages.length > 0) {
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
-        if (msg.role === 'user' && Array.isArray(msg.content) && msg.content.length > 0) {
+        if (msg.role !== 'user') continue;
+
+        // Plain-text user messages use content as a string; convert to
+        // content-block array so we can attach cache_control.
+        if (typeof msg.content === 'string') {
+          msg.content = [{ type: 'text', text: msg.content }];
+        }
+
+        if (Array.isArray(msg.content) && msg.content.length > 0) {
           const lastBlock = msg.content[msg.content.length - 1];
           if (typeof lastBlock === 'object' && lastBlock !== null) {
             lastBlock.cache_control = cacheControl;
           }
-          break;
         }
+        break;
       }
     }
   }

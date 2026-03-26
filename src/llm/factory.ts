@@ -14,6 +14,12 @@ import { LLMRouter } from './router';
 import { LLMConfig, LLMRegistryConfig } from '../config/types';
 import type { LLMProviderFactoryRegistry } from '../bootstrap/extensions';
 
+//
+// ⚠️  注意：此 switch-case 仅为 fallback。
+//    运行时优先使用 bootstrap/extensions.ts 中注册的工厂函数
+//    （下方 registeredFactory 判断会先行 return）。
+//    新增配置字段时，必须同步更新 extensions.ts。
+//
 export function createLLMFromConfig(config: LLMConfig, registry?: Pick<LLMProviderFactoryRegistry, 'get'>): LLMProviderLike {
   const registeredFactory = registry?.get(config.provider);
   if (registeredFactory) return registeredFactory(config);
