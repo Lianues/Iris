@@ -349,6 +349,16 @@ bun run build:compile    # 编译为独立二进制
 ## 社区支持
 - [LinuxDO](https://linux.do)
 
+## Star History
+
+<a href="https://star-history.com/#Lianues/Iris&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lianues/Iris&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lianues/Iris&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Lianues/Iris&type=Date" />
+ </picture>
+</a>
+
 ## 许可证
 
 本项目采用 GNU General Public License v3.0 发布，对应 SPDX 标识为 `GPL-3.0-only`。
