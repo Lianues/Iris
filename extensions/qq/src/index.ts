@@ -21,9 +21,39 @@
  */
 
 import WebSocket from 'ws';
-import { PlatformAdapter, splitText } from '../base';
-import { Backend, ImageInput } from '../../core/backend';
-import { createLogger } from '../../logger';
+import { createLogger } from './logger';
+
+type ImageInput = {
+  mimeType: string;
+  data: string;
+};
+
+interface QQPlatformFactoryContextLike {
+  backend: any;
+  config: {
+    platform?: {
+      qq?: Partial<QQConfig>;
+    };
+  };
+}
+
+function splitText(text: string, maxLen: number): string[] {
+  if (text.length <= maxLen) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLen) {
+      chunks.push(remaining);
+      break;
+    }
+    let splitAt = remaining.lastIndexOf('\n', maxLen);
+    if (splitAt <= 0) splitAt = maxLen;
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt).replace(/^\n/, '');
+  }
+  return chunks;
+}
 
 const logger = createLogger('QQ');
 
@@ -170,9 +200,9 @@ interface ChatState {
 
 // ============ 平台适配器 ============
 
-export class QQPlatform extends PlatformAdapter {
+export class QQPlatform {
   private ws: WebSocket | null = null;
-  private backend: Backend;
+  private backend: any;
   private config: QQConfig;
 
   /** 是否在回复中展示工具执行状态 */
@@ -210,8 +240,7 @@ export class QQPlatform extends PlatformAdapter {
   /** 已通知的工具调用 ID（避免重复通知） */
   private notifiedToolIds = new Set<string>();
 
-  constructor(backend: Backend, config: QQConfig) {
-    super();
+  constructor(backend: any, config: QQConfig) {
     this.backend = backend;
     this.config = config;
     this.showToolStatus = config.showToolStatus !== false;
@@ -878,3 +907,20 @@ function detectImageMime(buffer: Buffer): string | null {
   if (buffer[0] === 0x42 && buffer[1] === 0x4D) return 'image/bmp';
   return null;
 }
+
+function resolveQQConfigFromContext(context: QQPlatformFactoryContextLike): QQConfig {
+  const qq = context.config.platform?.qq ?? {};
+  return {
+    wsUrl: qq.wsUrl ?? 'ws://127.0.0.1:3001',
+    accessToken: qq.accessToken,
+    selfId: qq.selfId ?? '',
+    groupMode: qq.groupMode,
+    showToolStatus: qq.showToolStatus,
+  };
+}
+
+export function createQQPlatform(context: QQPlatformFactoryContextLike): QQPlatform {
+  return new QQPlatform(context.backend, resolveQQConfigFromContext(context));
+}
+
+export default createQQPlatform;

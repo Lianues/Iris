@@ -14,6 +14,8 @@
 ## 仓库内示例
 
 - `extensions/lark/`：飞书平台 extension，当前随发行包内嵌。
+- `extensions/discord/`：Discord 平台 extension，可选安装。
+- `extensions/qq/`：QQ 平台 extension，可选安装。
 - `extensions/wxwork/`：企业微信平台 extension，可选安装。
 - `extensions/weixin/`：微信平台 extension，可选安装。
 - 各 extension 的 `manifest.json` 负责声明自己的平台贡献。
@@ -23,7 +25,7 @@
 
 ## embedded.json
 
-`extensions/embedded.json` 是发行包内嵌 extension 的白名单。只有这个文件里列出的 extension，才会在 `script/build.ts` 中被预先打包，并复制进最终产物的 `extensions/` 目录。当前内嵌的是 `lark`；`wxwork` 和 `weixin` 不在白名单内，属于可选 extension。
+`extensions/embedded.json` 是发行包内嵌 extension 的白名单。只有这个文件里列出的 extension，才会在 `script/build.ts` 中被预先打包，并复制进最终产物的 `extensions/` 目录。当前内嵌的是 `lark`；`discord`、`qq`、`wxwork` 和 `weixin` 不在白名单内，属于可选 extension。
 
 ## manifest.json 结构
 

@@ -61,4 +61,4 @@ Onboard 会从传入的安装目录读取 `data/configs.example/`，并将配置
 5. **选择平台** — Console (TUI) / Web (HTTP+GUI) / Telegram / 飞书 / 企业微信 / 微信 / QQ (NapCat)
 6. **确认写入** — 预览配置并写入 `IRIS_DATA_DIR/configs/*.yaml`
 
-发行包默认附带 `extensions/lark/`，因此飞书平台可以直接在引导流程中启用。企业微信和微信平台是可选 extension，使用前需先安装对应 extension。
+发行包默认附带 `extensions/lark/`，因此飞书平台可以直接在引导流程中启用。QQ、企业微信和微信平台是可选 extension，使用前需先安装对应 extension。

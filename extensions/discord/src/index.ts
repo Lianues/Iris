@@ -5,10 +5,42 @@
  */
 
 import { Client, GatewayIntentBits, Message, Partials } from 'discord.js';
-import { PlatformAdapter, splitText } from '../base';
-import { Backend } from '../../core/backend';
-import { createLogger } from '../../logger';
-import { Content, extractText } from '../../types';
+import { createLogger } from './logger';
+
+interface DiscordPlatformFactoryContextLike {
+  backend: any;
+  config: {
+    platform?: {
+      discord?: Partial<DiscordConfig>;
+    };
+  };
+}
+
+interface ContentLike {
+  parts?: Array<{ text?: string; thought?: boolean }>;
+}
+
+function splitText(text: string, maxLen: number): string[] {
+  if (text.length <= maxLen) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLen) {
+      chunks.push(remaining);
+      break;
+    }
+    let splitAt = remaining.lastIndexOf('\n', maxLen);
+    if (splitAt <= 0) splitAt = maxLen;
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt).replace(/^\n/, '');
+  }
+  return chunks;
+}
+
+function extractText(parts: ContentLike['parts']): string {
+  return (parts ?? []).filter((part) => part?.thought !== true).map((part) => part?.text || '').join('');
+}
 
 const logger = createLogger('Discord');
 
@@ -18,14 +50,13 @@ export interface DiscordConfig {
   token: string;
 }
 
-export class DiscordPlatform extends PlatformAdapter {
+export class DiscordPlatform {
   private client: Client;
   private token: string;
-  private backend: Backend;
+  private backend: any;
   private pendingTexts = new Map<string, string>();
 
-  constructor(backend: Backend, config: DiscordConfig) {
-    super();
+  constructor(backend: any, config: DiscordConfig) {
     this.backend = backend;
     this.token = config.token;
     this.client = new Client({
@@ -47,7 +78,7 @@ export class DiscordPlatform extends PlatformAdapter {
     });
 
     // 流式模式下缓存每轮完整 assistant 文本，待 done 时一次性发送
-    this.backend.on('assistant:content', (sid: string, content: Content) => {
+    this.backend.on('assistant:content', (sid: string, content: ContentLike) => {
       const text = extractText(content.parts);
       if (!text) return;
       this.pendingTexts.set(sid, text);
@@ -122,3 +153,15 @@ export class DiscordPlatform extends PlatformAdapter {
     }
   }
 }
+
+function resolveDiscordConfigFromContext(context: DiscordPlatformFactoryContextLike): DiscordConfig {
+  return {
+    token: context.config.platform?.discord?.token ?? '',
+  };
+}
+
+export function createDiscordPlatform(context: DiscordPlatformFactoryContextLike): DiscordPlatform {
+  return new DiscordPlatform(context.backend, resolveDiscordConfigFromContext(context));
+}
+
+export default createDiscordPlatform;

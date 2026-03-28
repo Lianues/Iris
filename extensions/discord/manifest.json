@@ -1,0 +1,11 @@
+{
+  "name": "discord",
+  "version": "0.1.0",
+  "description": "Discord platform extension for Iris",
+  "platforms": [
+    {
+      "name": "discord",
+      "entry": "dist/index.mjs"
+    }
+  ]
+}

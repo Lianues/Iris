@@ -69,11 +69,6 @@ export class PlatformRegistry {
 export function createDefaultPlatformRegistry(): PlatformRegistry {
   const registry = new PlatformRegistry();
 
-  registry.register('discord', async ({ backend, config }) => {
-    const { DiscordPlatform } = await import('./discord');
-    return new DiscordPlatform(backend, { token: config.platform.discord.token });
-  });
-
   registry.register('telegram', async ({ backend, config }) => {
     const { TelegramPlatform } = await import('./telegram');
     return new TelegramPlatform(backend, {
@@ -100,17 +95,6 @@ export function createDefaultPlatformRegistry(): PlatformRegistry {
     const mcpMgr = getMCPManager();
     if (mcpMgr) webPlatform.setMCPManager(mcpMgr);
     return webPlatform;
-  });
-
-  registry.register('qq', async ({ backend, config }) => {
-    const { QQPlatform } = await import('./qq');
-    return new QQPlatform(backend, {
-      wsUrl: config.platform.qq.wsUrl,
-      accessToken: config.platform.qq.accessToken,
-      selfId: config.platform.qq.selfId,
-      groupMode: config.platform.qq.groupMode,
-      showToolStatus: config.platform.qq.showToolStatus,
-    });
   });
 
   registry.register('console', async ({ backend, config, configDir, router, getMCPManager, setMCPManager, computerEnv, initWarnings, agentName, onSwitchAgent, extensions }) => {

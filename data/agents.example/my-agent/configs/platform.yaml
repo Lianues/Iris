@@ -1,13 +1,14 @@
 # 平台配置
 
 # 类型: console | discord | telegram | web | weixin | wxwork | lark | qq
-# 注意：lark 由随仓库提供的 extensions/lark 注册；wxwork / weixin 为可选 extension，使用前需先安装。
+# 注意：lark 由随仓库提供的 extensions/lark 注册；discord / qq / wxwork / weixin 为可选 extension，使用前需先安装。
 # 支持单平台或多平台同时启动：
 #   type: console            # 单平台
 #   type: [console, web]     # 多平台同时启动
 type: console
 
 discord:
+  # 该平台由可选 extension extensions/discord/ 提供；发行包默认不内嵌，使用前先执行 iris ext install discord
   token: your-discord-bot-token
 
 telegram:
@@ -62,3 +63,14 @@ weixin:
   # 可选：覆盖 API 基地址
   # baseUrl: https://ilinkai.weixin.qq.com
   # showToolStatus: false
+
+qq:
+  # 该平台由可选 extension extensions/qq/ 提供；发行包默认不内嵌，使用前先执行 iris ext install qq
+  # NapCat OneBot v11 正向 WebSocket 地址
+  wsUrl: ws://127.0.0.1:3001
+  # 机器人自身 QQ 号（用于群聊 @ 判断）
+  selfId: your-qq-number
+  # NapCat 鉴权 token（可选）
+  # accessToken: your-napcat-token
+  # groupMode: at
+  # showToolStatus: true

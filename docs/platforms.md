@@ -26,12 +26,12 @@ src/platforms/
 ├── (cli.ts)             # CLI headless 模式（非平台适配器，直接调用 Backend）
 ├── base.ts              # PlatformAdapter 抽象基类
 ├── console/             # 控制台 TUI（OpenTUI / React）
-├── qq/                  # QQ 个人账号（NapCat / OneBot v11）
-├── discord/             # Discord Bot
 ├── telegram/            # Telegram Bot
 └── web/                 # Web GUI（HTTP + SSE + Vue）
 extensions/
 ├── lark/                # 飞书平台 extension（内嵌）
+├── discord/             # Discord 平台 extension（可选安装）
+├── qq/                  # QQ 平台 extension（可选安装）
 ├── wxwork/              # 企业微信平台 extension（可选安装）
 └── weixin/              # 微信平台 extension（可选安装）
 ```
@@ -191,7 +191,9 @@ WXWork 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extension
 
 ### QQ（NapCat / OneBot v11）
 
-基于 OneBot v11 协议，通过 NapCat 框架连接个人 QQ 账号。使用正向 WebSocket 长连接模式。
+QQ 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensions/qq/manifest.json` 注册。该平台属于可选 extension，发行包默认不内嵌，使用前请先执行 `iris ext install qq`。
+
+实现基于 OneBot v11 协议，通过 NapCat 框架连接个人 QQ 账号。使用正向 WebSocket 长连接模式。
 
 | 项目 | 说明 |
 |------|------|
@@ -220,7 +222,7 @@ WXWork 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extension
 
 #### 配置
 
-在 `data/configs/platform.yaml` 中设置 `type: qq`（或加入多平台数组），并填写 QQ 相关配置：
+先安装 extension：`iris ext install qq`。然后在 `data/configs/platform.yaml` 中设置 `type: qq`（或加入多平台数组），并填写 QQ 相关配置：
 
 ```yaml
 type: qq
@@ -241,7 +243,9 @@ qq:
 
 ### Discord
 
-基于 discord.js 官方 SDK。
+Discord 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensions/discord/manifest.json` 注册。该平台属于可选 extension，发行包默认不内嵌，使用前请先执行 `iris ext install discord`。
+
+实现基于 discord.js 官方 SDK。
 
 | 项目 | 说明 |
 |------|------|
@@ -250,6 +254,10 @@ qq:
 | 流式支持 | 不支持，仅监听 `response` |
 | 消息限制 | 自动分段，每段最多 2000 字符 |
 | 图片输入 | 当前未接入 |
+
+#### 配置
+
+先安装 extension：`iris ext install discord`。然后在 `data/configs/platform.yaml` 中设置 `type: discord`（或加入多平台数组），并填写 `discord.token`。
 
 ### Telegram
 

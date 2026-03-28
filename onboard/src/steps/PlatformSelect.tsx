@@ -40,7 +40,7 @@ const PLATFORMS = [
   {
     value: "qq",
     label: "QQ (NapCat)",
-    desc: "个人 QQ 账号，通过 NapCat OneBot v11 协议对接",
+    desc: "个人 QQ 账号，通过 NapCat OneBot v11 协议对接（可选 extension，需先安装）",
   },
 ] as const
 

@@ -1,0 +1,11 @@
+{
+  "name": "qq",
+  "version": "0.1.0",
+  "description": "QQ platform extension for Iris",
+  "platforms": [
+    {
+      "name": "qq",
+      "entry": "dist/index.mjs"
+    }
+  ]
+}
