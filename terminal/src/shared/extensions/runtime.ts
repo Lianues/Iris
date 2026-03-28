@@ -6,6 +6,7 @@ import { resolveRuntimeConfigDir, resolveRuntimeDataDir } from "../runtime-paths
 const MANIFEST_FILE = "manifest.json"
 const DISABLED_MARKER_FILE = ".disabled"
 const DEFAULT_REMOTE_EXTENSION_INDEX_URL = "https://raw.githubusercontent.com/Lianues/Iris/main/extensions/index.json"
+const DEFAULT_REMOTE_EXTENSION_REQUEST_TIMEOUT_MS = 15000
 const DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL = "https://raw.githubusercontent.com/Lianues/Iris/main"
 const DEFAULT_REMOTE_EXTENSIONS_SUBDIR = "extensions"
 const SOURCE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts"])
@@ -135,6 +136,11 @@ function getEmbeddedExtensionsDir(installDir: string): string {
   return path.join(path.resolve(installDir), "extensions")
 }
 
+export function getRemoteExtensionRequestTimeoutMs(): number {
+  const raw = Number(process.env.IRIS_EXTENSION_REMOTE_TIMEOUT_MS?.trim())
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_REMOTE_EXTENSION_REQUEST_TIMEOUT_MS
+}
+
 function getRemoteIndexUrl(): string {
   return process.env.IRIS_EXTENSION_REMOTE_INDEX_URL?.trim() || DEFAULT_REMOTE_EXTENSION_INDEX_URL
 }
@@ -166,6 +172,23 @@ function resolveSafeRelativePath(rootDir: string, relativePath: string): string 
 
 function ensureDirectory(dirPath: string): void {
   fs.mkdirSync(dirPath, { recursive: true })
+}
+
+async function fetchWithTimeout(url: string, label: string): Promise<Response> {
+  const timeoutMs = getRemoteExtensionRequestTimeoutMs()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(url, { signal: controller.signal })
+  } catch (error) {
+    const message = error instanceof Error && error.name === "AbortError"
+      ? `${label} 请求超时（${timeoutMs}ms）: ${url}`
+      : `${label} 请求失败: ${error instanceof Error ? error.message : String(error)}: ${url}`
+    throw new Error(message)
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function createTempInstallDir(installedRootDir: string): string {
@@ -561,7 +584,7 @@ function buildSummary(
 }
 
 async function fetchBuffer(url: string, label: string): Promise<Buffer> {
-  const response = await fetch(url)
+  const response = await fetchWithTimeout(url, label)
   if (!response.ok) {
     throw new Error(`${label} 下载失败 (${response.status} ${response.statusText}): ${url}`)
   }
@@ -570,7 +593,7 @@ async function fetchBuffer(url: string, label: string): Promise<Buffer> {
 }
 
 async function fetchJson<T>(url: string, label: string): Promise<T> {
-  const response = await fetch(url)
+  const response = await fetchWithTimeout(url, label)
   if (!response.ok) {
     throw new Error(`${label} 读取失败 (${response.status} ${response.statusText}): ${url}`)
   }
@@ -701,8 +724,9 @@ function buildLocalVersionHint(summary: ExtensionSummary): string {
 }
 
 export async function listRemoteExtensions(installDir: string): Promise<ExtensionSummary[]> {
+  const remoteIndex = await fetchRemoteIndex()
   const remoteEntries = (await Promise.allSettled(
-    (await fetchRemoteIndex()).map(async (requestedPath) => {
+    remoteIndex.map(async (requestedPath) => {
       const manifest = await fetchRemoteManifest(requestedPath)
       return {
         requestedPath,
@@ -715,6 +739,9 @@ export async function listRemoteExtensions(installDir: string): Promise<Extensio
       return item.status === "fulfilled"
     })
     .map((item) => item.value)
+  if (remoteIndex.length > 0 && remoteEntries.length === 0) {
+    throw new Error("远程 extension manifest 全部读取失败")
+  }
   const installedMap = new Map(loadInstalledExtensions().map((item) => [item.name, item]))
   const embeddedMap = new Map(loadEmbeddedExtensions(installDir).map((item) => [item.name, item]))
   const results: ExtensionSummary[] = []

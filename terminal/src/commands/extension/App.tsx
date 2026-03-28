@@ -13,6 +13,7 @@ import {
   deleteInstalledExtension,
   disableInstalledExtension,
   enableInstalledExtension,
+  getRemoteExtensionRequestTimeoutMs,
   installRemoteExtension,
   listRemoteExtensions,
   loadInstalledExtensions,
@@ -160,17 +161,16 @@ function buildActionDescription(action: ManageAction, summary: ExtensionSummary)
 export function App({ installDir }: ExtensionAppProps) {
   const [step, setStep] = useState<Step>("home")
   const [remoteCatalogState, setRemoteCatalogState] = useState<RemoteCatalogState>({ status: "idle", items: [] })
+  const [remoteCatalogRefreshToken, setRemoteCatalogRefreshToken] = useState(0)
   const [installedRefreshToken, setInstalledRefreshToken] = useState(0)
   const installedExtensions = useMemo(() => loadInstalledExtensions(), [installedRefreshToken])
   const [selectedRemoteExtension, setSelectedRemoteExtension] = useState<ExtensionSummary | null>(null)
   const [selectedInstalledExtension, setSelectedInstalledExtension] = useState<ExtensionSummary | null>(null)
   const [selectedManageAction, setSelectedManageAction] = useState<ManageAction | null>(null)
+  const remoteTimeoutMs = useMemo(() => getRemoteExtensionRequestTimeoutMs(), [])
 
   useEffect(() => {
-    if (step !== "download-list" || remoteCatalogState.status !== "idle") {
-      return
-    }
-
+    if (step !== "download-list") return
     let cancelled = false
     setRemoteCatalogState({ status: "loading", items: [] })
 
@@ -191,7 +191,7 @@ export function App({ installDir }: ExtensionAppProps) {
     return () => {
       cancelled = true
     }
-  }, [installDir, step, remoteCatalogState.status])
+  }, [installDir, step, remoteCatalogRefreshToken])
 
   if (step === "home") {
     return (
@@ -230,6 +230,7 @@ export function App({ installDir }: ExtensionAppProps) {
           description="正在从远程仓库读取 extension 目录。"
           lines={[
             "请稍候。",
+            `单个远程请求超过 ${remoteTimeoutMs}ms 会自动超时。`,
             "读取完成后会显示类型、名称、描述和当前安装状态。",
           ]}
           onBack={() => setStep("home")}
@@ -247,7 +248,7 @@ export function App({ installDir }: ExtensionAppProps) {
             "按 Enter 重试，或按 Esc 返回。",
           ]}
           primaryActionText="Enter 重试"
-          onPrimaryAction={() => setRemoteCatalogState({ status: "idle", items: [] })}
+          onPrimaryAction={() => setRemoteCatalogRefreshToken((value) => value + 1)}
           onBack={() => setStep("home")}
         />
       )
