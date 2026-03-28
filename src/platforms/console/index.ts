@@ -25,6 +25,7 @@ import { ConsoleSettingsController, ConsoleSettingsSaveResult, ConsoleSettingsSn
 import type { LLMModelInfo } from '../../llm/router';
 import type { BootstrapExtensionRegistry } from '../../bootstrap/extensions';
 import { configureBundledOpenTuiTreeSitter } from './opentui-runtime';
+import { attachCompiledResizeWatcher } from './resize-watcher';
 
 configureBundledOpenTuiTreeSitter();
 
@@ -181,6 +182,7 @@ export class ConsolePlatform extends PlatformAdapter {
   private initWarnings: string[];
   private renderer?: CliRenderer;
   private appHandle?: AppHandle;
+  private disposeResizeWatcher?: () => void;
 
   /** 当前响应周期内的工具调用 ID 集合 */
   private currentToolIds = new Set<string>();
@@ -319,6 +321,8 @@ export class ConsolePlatform extends PlatformAdapter {
         return;
       }
 
+      this.disposeResizeWatcher = attachCompiledResizeWatcher(this.renderer);
+
       const element = React.createElement(App, {
         onReady: (handle: AppHandle) => {
           this.appHandle = handle;
@@ -388,6 +392,7 @@ export class ConsolePlatform extends PlatformAdapter {
 
   override async stop(): Promise<void> {
     // OpenTUI 的 destroy() 会清理交替屏幕、恢复光标等
+    this.disposeResizeWatcher?.();
     this.renderer?.destroy();
   }
 
