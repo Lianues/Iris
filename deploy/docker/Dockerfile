@@ -118,8 +118,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends tini && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -g 1001 iris 2>/dev/null || true && \
-    useradd -u 1001 -g iris -m -s /bin/bash iris 2>/dev/null || true
+RUN useradd -u 1001 -m -s /bin/bash iris 2>/dev/null || true
 
 WORKDIR /app
 
@@ -135,7 +134,7 @@ COPY deploy/docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 COPY extensions/ extensions/
 
-RUN mkdir -p /data && chown iris:iris /data
+RUN mkdir -p /data && chown 1001:1001 /data
 
 ENV NODE_ENV=production \
     IRIS_DATA_DIR=/data \
@@ -144,7 +143,7 @@ ENV NODE_ENV=production \
 
 EXPOSE 8192
 VOLUME /data
-USER iris
+USER 1001
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/app/entrypoint.sh"]
