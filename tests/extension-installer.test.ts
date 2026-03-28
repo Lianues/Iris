@@ -75,7 +75,7 @@ describe('extension installer', () => {
     expect(fs.existsSync(path.join(installedExtensionsDir, 'demo-extension', 'index.mjs'))).toBe(true);
   });
 
-  it('install 支持按远程 extensions 目录安装，并接受 @extensions 前缀', async () => {
+  it('install 支持按远程 extensions 目录安装', async () => {
     const installedExtensionsDir = createTempDir('iris-ext-installed-');
     const remoteArchiveUrl = 'https://example.com/Iris-main.zip';
     const archive = await createZipBuffer({
@@ -91,7 +91,7 @@ describe('extension installer', () => {
       [remoteArchiveUrl]: new Response(archive, { status: 200 }),
     });
 
-    const result = await installExtension('@extensions/community/demo-extension', {
+    const result = await installExtension('community/demo-extension', {
       remoteArchiveUrl,
       remoteArchiveRootDir: 'Iris-main',
       installedExtensionsDir,

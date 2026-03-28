@@ -1,10 +1,3 @@
-/**
- * 飞书 Slash 命令解析与帮助文本。
- *
- * 与 Telegram 的命令集保持一致，方便用户跨平台使用。
- * 飞书没有 @botname 后缀，解析逻辑更简单。
- */
-
 export interface ParsedLarkCommand {
   name: string;
   args: string;
@@ -41,7 +34,7 @@ export class LarkCommandRouter {
     const lines = [
       '📋 可用指令',
       '',
-      ...LARK_COMMANDS.map((c) => `/${c.name} — ${c.description}`),
+      ...LARK_COMMANDS.map((command) => `/${command.name} — ${command.description}`),
     ];
     return lines.join('\n');
   }

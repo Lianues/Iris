@@ -1,0 +1,11 @@
+{
+  "name": "lark",
+  "version": "0.1.0",
+  "description": "Lark platform extension for Iris",
+  "platforms": [
+    {
+      "name": "lark",
+      "entry": "dist/index.mjs"
+    }
+  ]
+}

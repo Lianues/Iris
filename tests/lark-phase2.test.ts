@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildLarkCard, formatLarkToolLine } from '../src/platforms/lark/card-builder';
-import { LarkCommandRouter, LARK_COMMANDS } from '../src/platforms/lark/commands';
+import { buildLarkCard, formatLarkToolLine } from '../extensions/lark/src/card-builder';
+import { LarkCommandRouter, LARK_COMMANDS } from '../extensions/lark/src/commands';
 
 describe('Lark Phase 2: card builder', () => {
   it('构建 thinking 卡片', () => {

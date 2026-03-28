@@ -122,15 +122,6 @@ export function createDefaultPlatformRegistry(): PlatformRegistry {
     });
   });
 
-  registry.register('lark', async ({ backend, config }) => {
-    const { LarkPlatform } = await import('./lark');
-    return new LarkPlatform(backend, {
-      appId: config.platform.lark.appId,
-      appSecret: config.platform.lark.appSecret,
-      showToolStatus: config.platform.lark.showToolStatus,
-    });
-  });
-
   registry.register('weixin', async ({ backend, config }) => {
     const { WeixinPlatform } = await import('./weixin');
     return new WeixinPlatform(backend, {

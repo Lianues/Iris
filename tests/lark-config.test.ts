@@ -5,8 +5,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { registerExtensionPlatforms } from '../src/extension/index';
 import { parsePlatformConfig } from '../src/config/platform';
-import { LarkPlatform } from '../src/platforms/lark';
+import { createDefaultPlatformRegistry } from '../src/platforms/registry';
+import { LarkPlatform } from '../extensions/lark/src';
 
 describe('Lark Phase 0: parsePlatformConfig', () => {
   it('解析 lark 配置并提供默认值', () => {
@@ -33,5 +35,19 @@ describe('Lark Phase 0: platform skeleton', () => {
     });
 
     await expect(platform.start()).rejects.toThrow('Lark 平台启动失败：缺少 appId 或 appSecret。');
+  });
+
+  it('不再内置注册 lark，而是由 extension 清单注册', async () => {
+    const registry = createDefaultPlatformRegistry();
+    expect(registry.has('lark')).toBe(false);
+
+    const registered = registerExtensionPlatforms(registry);
+    expect(registered).toContain('lark');
+
+    const platform = await registry.create('lark', {
+      backend: {} as any,
+      config: { platform: { lark: { appId: 'cli_xxx', appSecret: 'secret_xxx' } } } as any,
+    } as any);
+    expect(typeof (platform as { start?: unknown }).start).toBe('function');
   });
 });

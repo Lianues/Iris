@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 describe('Lark Phase 3: 多媒体类型定义', () => {
   it('LarkResourceRef 支持 image/file/audio 三种类型', async () => {
-    const { LarkResourceRef } = await import('../src/platforms/lark/types') as any;
+    const { LarkResourceRef } = await import('../extensions/lark/src/types') as any;
     // 类型测试：确保 LarkResourceRef 的 type 字段覆盖三种类型
     const imageRef = { type: 'image' as const, fileKey: 'img_key_001' };
     const fileRef = { type: 'file' as const, fileKey: 'file_key_001', fileName: 'doc.pdf' };
@@ -24,9 +24,9 @@ describe('Lark Phase 3: 多媒体类型定义', () => {
   });
 
   it('LarkDownloadedResource / LarkUploadImageResult / LarkUploadFileResult 结构正确', async () => {
-    const types = await import('../src/platforms/lark/types');
+    const types = await import('../extensions/lark/src/types');
     // 验证类型导出存在（编译时检查）
-    const downloadResult: import('../src/platforms/lark/types').LarkDownloadedResource = {
+    const downloadResult: import('../extensions/lark/src/types').LarkDownloadedResource = {
       buffer: Buffer.from('test'),
       contentType: 'image/jpeg',
       fileName: 'test.jpg',
@@ -34,12 +34,12 @@ describe('Lark Phase 3: 多媒体类型定义', () => {
     expect(downloadResult.buffer).toBeInstanceOf(Buffer);
     expect(downloadResult.contentType).toBe('image/jpeg');
 
-    const uploadImageResult: import('../src/platforms/lark/types').LarkUploadImageResult = {
+    const uploadImageResult: import('../extensions/lark/src/types').LarkUploadImageResult = {
       imageKey: 'img_v2_xxx',
     };
     expect(uploadImageResult.imageKey).toBe('img_v2_xxx');
 
-    const uploadFileResult: import('../src/platforms/lark/types').LarkUploadFileResult = {
+    const uploadFileResult: import('../extensions/lark/src/types').LarkUploadFileResult = {
       fileKey: 'file_v2_xxx',
     };
     expect(uploadFileResult.fileKey).toBe('file_v2_xxx');
@@ -48,7 +48,7 @@ describe('Lark Phase 3: 多媒体类型定义', () => {
 
 describe('Lark Phase 3: 消息解析器对多媒体的解析', () => {
   it('解析 image 消息并提取 resources', async () => {
-    const { LarkMessageHandler } = await import('../src/platforms/lark/message-handler');
+    const { LarkMessageHandler } = await import('../extensions/lark/src/message-handler');
     const handler = new LarkMessageHandler();
 
     const result = handler.parseIncomingMessage({
@@ -73,7 +73,7 @@ describe('Lark Phase 3: 消息解析器对多媒体的解析', () => {
   });
 
   it('解析 file 消息并提取 resources', async () => {
-    const { LarkMessageHandler } = await import('../src/platforms/lark/message-handler');
+    const { LarkMessageHandler } = await import('../extensions/lark/src/message-handler');
     const handler = new LarkMessageHandler();
 
     const result = handler.parseIncomingMessage({
@@ -97,7 +97,7 @@ describe('Lark Phase 3: 消息解析器对多媒体的解析', () => {
   });
 
   it('解析 audio 消息并提取 resources', async () => {
-    const { LarkMessageHandler } = await import('../src/platforms/lark/message-handler');
+    const { LarkMessageHandler } = await import('../extensions/lark/src/message-handler');
     const handler = new LarkMessageHandler();
 
     const result = handler.parseIncomingMessage({
@@ -121,7 +121,7 @@ describe('Lark Phase 3: 消息解析器对多媒体的解析', () => {
   });
 
   it('解析 post 消息中的内嵌图片', async () => {
-    const { LarkMessageHandler } = await import('../src/platforms/lark/message-handler');
+    const { LarkMessageHandler } = await import('../extensions/lark/src/message-handler');
     const handler = new LarkMessageHandler();
 
     const result = handler.parseIncomingMessage({

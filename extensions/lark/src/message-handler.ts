@@ -1,17 +1,9 @@
-/**
- * 飞书入站消息解析器。
- *
- * 当前阶段先实现最基础的 text / post 解析，并统一输出标准会话结构。
- * 这样做的目的，是让平台主类可以先把接入链路跑通，
- * 后续再继续补 image / file / audio / card.action 等能力。
- */
-
-import { createLogger } from '../../logger';
+import { createLogger } from './logger';
 import {
   buildLarkSessionTarget,
-  LarkMessageEvent,
-  LarkResourceRef,
-  ParsedLarkMessage,
+  type LarkMessageEvent,
+  type LarkResourceRef,
+  type ParsedLarkMessage,
 } from './types';
 
 const logger = createLogger('LarkMessageHandler');
@@ -109,8 +101,6 @@ export function extractLarkText(message: {
 export function stripLarkBotMention(text: string): string {
   return text
     .replace(/<at\s+user_id="[^"]+">[^<]*<\/at>/g, ' ')
-    // 这里保留换行，只压缩行内多余空白。
-    // 目的：post 消息通常是多段结构，直接把所有空白折叠成一个空格会丢失段落信息。
     .split(/\r?\n/)
     .map((line) => line.replace(/[\t ]+/g, ' ').trim())
     .filter(Boolean)
@@ -217,4 +207,3 @@ function safeJsonParse(content: string | undefined): Record<string, any> | null 
     return null;
   }
 }
-

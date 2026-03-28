@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 describe('Lark Phase 5: Undo/Redo', () => {
   it('执行 /undo 时截断历史并撤回上一条消息', async () => {
-    const { LarkPlatform } = await import('../src/platforms/lark');
+    const { LarkPlatform } = await import('../extensions/lark/src');
 
     class FakeBackend extends EventEmitter {
       chats: any[] = [];
@@ -82,7 +82,7 @@ describe('Lark Phase 5: Undo/Redo', () => {
   });
 
   it('执行 /redo 时恢复上一轮的用户输入', async () => {
-    const { LarkPlatform } = await import('../src/platforms/lark');
+    const { LarkPlatform } = await import('../extensions/lark/src');
 
     class FakeBackend extends EventEmitter {
       chats: any[] = [];

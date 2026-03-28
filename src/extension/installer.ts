@@ -87,13 +87,11 @@ function ensureNonEmptyRequested(requested: string, label: string): string {
 
 function normalizeRequestedExtensionPath(requested: string, label: string): string {
   let normalized = ensureNonEmptyRequested(requested, label).replace(/\\/g, '/').trim();
-  if (normalized.startsWith('@')) {
-    normalized = normalized.slice(1);
-  }
   normalized = normalized.replace(/^\.\//, '').replace(/^\/+/, '');
   if (normalized === 'extensions' || normalized === 'extensions/') {
     throw new Error(`${label}不能为空`);
   }
+
   if (normalized.startsWith('extensions/')) {
     normalized = normalized.slice('extensions/'.length);
   }

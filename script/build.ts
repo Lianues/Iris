@@ -11,6 +11,7 @@
  *     bin/iris(.exe)            编译后的主程序二进制
  *     bin/iris-onboard(.exe)    交互式配置引导工具
  *     data/                     配置模板和示例文件
+ *     extensions/               按 extensions/embedded.json 白名单内嵌的 extension
  *     web-ui/dist/              Web 平台静态资源
  *     package.json              平台包描述（npm 包名使用 irises-{platform}-{arch}）
  *
@@ -34,6 +35,7 @@ const version: string = pkg.version
 const webUiDistDir = path.join(rootDir, "src", "platforms", "web", "web-ui", "dist")
 const opentuiCoreDir = path.join(rootDir, "node_modules", "@opentui", "core")
 const opentuiRuntimeStagingDir = path.join(rootDir, "dist", ".opentui-runtime")
+const embeddedExtensionsConfigPath = path.join(rootDir, "extensions", "embedded.json")
 
 if (!fs.existsSync(webUiDistDir)) {
   console.error("未找到 Web UI 构建产物，请先运行 npm run build:ui")
@@ -43,6 +45,27 @@ if (!fs.existsSync(webUiDistDir)) {
 interface Target {
   os: string
   arch: "x64" | "arm64"
+}
+
+type BundledModuleTarget = "node" | "bun"
+type BundledModuleFormat = "esm" | "cjs"
+
+interface EmbeddedExtensionBuildConfigItem {
+  name: string
+  sourceDir?: string
+  entrypoint?: string
+  outfile?: string
+  target?: BundledModuleTarget
+  format?: BundledModuleFormat
+}
+
+interface EmbeddedExtensionBuildTarget {
+  name: string
+  sourceDir: string
+  entrypoint: string
+  outfile: string
+  target: BundledModuleTarget
+  format: BundledModuleFormat
 }
 
 const allTargets: Target[] = [
@@ -171,13 +194,132 @@ async function buildCompiledBinary(options: {
   }
 }
 
+async function buildBundledModule(options: {
+  entrypoint: string
+  outfile: string
+  target?: "node" | "bun"
+  format?: "esm" | "cjs"
+}): Promise<void> {
+  const result = await Bun.build({
+    entrypoints: [options.entrypoint],
+    outfile: options.outfile,
+    target: options.target ?? "node",
+    format: options.format ?? "esm",
+  })
+
+  if (!result.success) {
+    const logs = formatBuildLogs(result)
+    throw new Error(logs || `构建失败: ${options.outfile}`)
+  }
+}
+
+function resolvePathFromRoot(filePath: string): string {
+  return path.isAbsolute(filePath) ? filePath : path.resolve(rootDir, filePath)
+}
+
+function formatRelativePath(filePath: string): string {
+  return path.relative(rootDir, filePath).replace(/\\/g, "/")
+}
+
+function loadEmbeddedExtensionBuildTargets(): EmbeddedExtensionBuildTarget[] {
+  if (!fs.existsSync(embeddedExtensionsConfigPath)) {
+    console.log("! 未找到 extensions/embedded.json，跳过 extension 内嵌打包")
+    return []
+  }
+
+  const raw = JSON.parse(fs.readFileSync(embeddedExtensionsConfigPath, "utf8")) as {
+    extensions?: unknown
+  }
+
+  if (!Array.isArray(raw.extensions)) {
+    throw new Error("extensions/embedded.json 格式无效：缺少 extensions 数组")
+  }
+
+  const targets: EmbeddedExtensionBuildTarget[] = []
+  const seenNames = new Set<string>()
+
+  for (const [index, item] of raw.extensions.entries()) {
+    if (!item || typeof item !== "object") {
+      throw new Error(`extensions/embedded.json 第 ${index + 1} 项不是对象`)
+    }
+
+    const config = item as EmbeddedExtensionBuildConfigItem
+    const name = typeof config.name === "string" ? config.name.trim() : ""
+    if (!name) {
+      throw new Error(`extensions/embedded.json 第 ${index + 1} 项缺少有效 name`)
+    }
+    if (seenNames.has(name)) {
+      throw new Error(`extensions/embedded.json 存在重复 extension: ${name}`)
+    }
+    seenNames.add(name)
+
+    const sourceDirInput = typeof config.sourceDir === "string" && config.sourceDir.trim()
+      ? config.sourceDir.trim()
+      : path.join("extensions", name)
+    const entrypointInput = typeof config.entrypoint === "string" && config.entrypoint.trim()
+      ? config.entrypoint.trim()
+      : path.join(sourceDirInput, "src", "index.ts")
+    const outfileInput = typeof config.outfile === "string" && config.outfile.trim()
+      ? config.outfile.trim()
+      : path.join(sourceDirInput, "dist", "index.mjs")
+
+    const sourceDir = resolvePathFromRoot(sourceDirInput)
+    const entrypoint = resolvePathFromRoot(entrypointInput)
+    const outfile = resolvePathFromRoot(outfileInput)
+
+    if (!fs.existsSync(sourceDir)) {
+      throw new Error(`内嵌 extension 目录不存在: ${formatRelativePath(sourceDir)}`)
+    }
+    if (!fs.existsSync(entrypoint)) {
+      throw new Error(`内嵌 extension 入口不存在: ${formatRelativePath(entrypoint)}`)
+    }
+
+    targets.push({
+      name,
+      sourceDir,
+      entrypoint,
+      outfile,
+      target: config.target === "bun" ? "bun" : "node",
+      format: config.format === "cjs" ? "cjs" : "esm",
+    })
+  }
+
+  return targets
+}
+
+async function buildEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[]): Promise<void> {
+  for (const extension of extensions) {
+    await buildBundledModule({
+      entrypoint: extension.entrypoint,
+      outfile: extension.outfile,
+      target: extension.target,
+      format: extension.format,
+    })
+    console.log(`✓ extension bundled: ${extension.name} -> ${formatRelativePath(extension.outfile)}`)
+  }
+}
+
+function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targetRootDir: string): void {
+  if (extensions.length === 0) return
+  fs.mkdirSync(targetRootDir, { recursive: true })
+  for (const extension of extensions) {
+    const targetDir = path.join(targetRootDir, extension.name)
+    fs.rmSync(targetDir, { recursive: true, force: true })
+    fs.cpSync(extension.sourceDir, targetDir, { recursive: true })
+    console.log(`  ✓ extension copied: extensions/${extension.name}`)
+  }
+}
+
 function copyDirectoryIfExists(sourceDir: string, targetDir: string, label: string): void {
   if (!fs.existsSync(sourceDir)) return
   fs.cpSync(sourceDir, targetDir, { recursive: true })
   console.log(`  ✓ ${label} copied`)
 }
 
+const embeddedExtensions = loadEmbeddedExtensionBuildTargets()
 const binaries: Record<string, string> = {}
+
+await buildEmbeddedExtensions(embeddedExtensions)
 
 for (const target of targets) {
   const platformName = getPlatformName(target.os)
@@ -210,6 +352,7 @@ for (const target of targets) {
     console.log("  ✓ iris-onboard built")
 
     copyDirectoryIfExists(path.join(rootDir, "data"), path.join(outDir, "data"), "data/")
+    copyEmbeddedExtensions(embeddedExtensions, path.join(outDir, "extensions"))
     copyDirectoryIfExists(webUiDistDir, path.join(outDir, "web-ui", "dist"), "web-ui/dist")
     copyDirectoryIfExists(opentuiRuntimeStagingDir, path.join(outDir, "bin", "opentui"), "bin/opentui")
 

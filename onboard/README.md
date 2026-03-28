@@ -60,3 +60,5 @@ Onboard 会从传入的安装目录读取 `data/configs.example/`，并将配置
 4. **模型配置** — 模型别名、模型 ID、Base URL（提供默认值）
 5. **选择平台** — Console (TUI) / Web (HTTP+GUI) / Telegram / 企业微信 / 飞书 / QQ (NapCat)
 6. **确认写入** — 预览配置并写入 `IRIS_DATA_DIR/configs/*.yaml`
+
+发行包默认附带 `extensions/lark/`，因此飞书平台可以直接在引导流程中启用。

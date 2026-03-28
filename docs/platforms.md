@@ -27,12 +27,13 @@ src/platforms/
 ├── base.ts              # PlatformAdapter 抽象基类
 ├── console/             # 控制台 TUI（OpenTUI / React）
 ├── weixin/              # 普通微信（ilink 长轮询）
-├── lark/                # 飞书机器人（WebSocket 长连接）
 ├── wxwork/              # 企业微信智能机器人
 ├── qq/                  # QQ 个人账号（NapCat / OneBot v11）
 ├── discord/             # Discord Bot
 ├── telegram/            # Telegram Bot
 └── web/                 # Web GUI（HTTP + SSE + Vue）
+extensions/
+└── lark/                # 飞书平台 extension（manifest + dist/index.mjs）
 ```
 
 ---
@@ -279,7 +280,9 @@ qq:
 
 ### Lark（飞书）
 
-基于飞书官方 `@larksuiteoapi/node-sdk`，使用 WebSocket 长连接模式。流式输出通过卡片消息 + `im.message.patch` 实现（非 CardKit 2.0，技术选型详见 `card-builder.ts` 文件头注释）。
+Lark 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensions/lark/manifest.json` 在启动时自动注册。运行时入口为 `extensions/lark/dist/index.mjs`。
+
+实现基于飞书官方 `@larksuiteoapi/node-sdk`，使用 WebSocket 长连接模式。流式输出通过卡片消息 + `im.message.patch` 实现（非 CardKit 2.0，技术选型详见 `extensions/lark/src/card-builder.ts` 文件头注释）。
 
 | 项目 | 说明 |
 |------|------|
@@ -301,6 +304,8 @@ qq:
 #### 配置
 
 在 `data/configs/platform.yaml` 中设置 `type: lark`（或加入多平台数组），并填写 `lark.appId` 和 `lark.appSecret`。
+
+发行包和仓库默认会附带 `extensions/lark/`。如果手动精简目录，需保留该目录，或先执行 `iris ext install-local lark` 再启用 `type: lark`。
 
 在飞书开放平台创建自建应用，开启「机器人」能力，配置事件订阅（WebSocket 模式不需要公网 IP）。
 

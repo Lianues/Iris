@@ -5,9 +5,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildLarkTextContent, normalizeLarkMessageId } from '../src/platforms/lark/client';
-import { extractLarkMessageContent, extractLarkText, LarkMessageHandler, stripLarkBotMention } from '../src/platforms/lark/message-handler';
-import { buildLarkSessionTarget, parseLarkSessionTarget } from '../src/platforms/lark/types';
+import { buildLarkTextContent, normalizeLarkMessageId } from '../extensions/lark/src/client';
+import { extractLarkMessageContent, extractLarkText, LarkMessageHandler, stripLarkBotMention } from '../extensions/lark/src/message-handler';
+import { buildLarkSessionTarget, parseLarkSessionTarget } from '../extensions/lark/src/types';
 
 describe('Lark Phase 1: session target', () => {
   it('构造并解析私聊 sessionId', () => {

@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 describe('Lark Phase 7: 消息去重', () => {
   it('相同 messageId 的消息只处理一次', async () => {
-    const { LarkPlatform } = await import('../src/platforms/lark');
+    const { LarkPlatform } = await import('../extensions/lark/src');
 
     class FakeBackend extends EventEmitter {
       chats: any[] = [];
@@ -77,7 +77,7 @@ describe('Lark Phase 7: 消息去重', () => {
 
 describe('Lark Phase 7: 消息过期', () => {
   it('丢弃 create_time 超过 30s 的旧消息', async () => {
-    const { LarkPlatform } = await import('../src/platforms/lark');
+    const { LarkPlatform } = await import('../extensions/lark/src');
 
     class FakeBackend extends EventEmitter {
       chats: any[] = [];

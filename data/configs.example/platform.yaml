@@ -1,6 +1,7 @@
 # 平台配置
 
 # 类型: console | discord | telegram | web | weixin | wxwork | lark | qq
+# 注意：lark 由随仓库提供的 extensions/lark 注册；手动精简目录时不要删除该目录。
 # 支持单平台或多平台同时启动：
 #   type: console            # 单平台
 #   type: [console, web]     # 多平台同时启动
@@ -46,6 +47,7 @@ wxwork:
   # showToolStatus: false
 
 lark:
+  # 该平台由 extensions/lark/ 提供，运行时加载 dist/index.mjs
   # 飞书自建应用 App ID 和 App Secret
   # 在飞书开放平台创建自建应用，开启「机器人」能力后获取
   # 文档: https://open.feishu.cn/document/home/develop-a-bot-in-5-minutes

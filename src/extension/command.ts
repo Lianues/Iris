@@ -22,7 +22,7 @@ Iris Extension 命令
   iris ext <path>                      install 的最简写法
 
 说明:
-  - install 支持这些写法：aaa、group/aaa、extensions/aaa、@extensions/aaa
+  - install 支持这些写法：aaa、group/aaa、extensions/aaa
   - 安装目标目录：~/.iris/extensions/<manifest.name>/
   - install 会优先从远程仓库压缩包提取 extensions/<path>/；仅当远程不存在该目录时，才尝试本地安装
   - install-local 只会从当前仓库根目录 ./extensions/ 查找并安装

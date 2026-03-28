@@ -1,27 +1,6 @@
-/**
- * 飞书官方 SDK 客户端封装。
- *
- * 职责：
- *   1. 延迟初始化 OpenAPI Client；
- *   2. 管理 WebSocket Client 生命周期；
- *   3. bot 探测、文本/卡片发送与回复；
- *   4. 多媒体下载（入站）：通过 im.messageResource.get 下载消息中的图片/文件/音频。
- *
- * ## 关于多媒体出站（uploadImage / uploadFile / sendImage / sendFile）
- *
- * 这 4 个方法是为出站媒体发送预留的，当前未被 index.ts 调用。
- * 保留原因：API 封装已写好且通过类型检查，出站媒体是近期计划内的功能。
- * 如果长期不接入，应删除，实现时再添加。
- *
- * ## 延迟加载策略
- *
- * 这里使用延迟加载，而不是顶层直接导入 SDK。
- * 目的：即使尚未安装 @larksuiteoapi/node-sdk，测试中的纯逻辑部分也可以先运行，
- * 同时把真正的 SDK 访问收敛到这一处。
- */
-
-import { createLogger } from '../../logger';
-import {
+import { Readable } from 'node:stream';
+import { createLogger } from './logger';
+import type {
   LarkConfig,
   LarkDownloadedResource,
   LarkProbeResult,
@@ -35,10 +14,7 @@ import {
 } from './types';
 
 const logger = createLogger('LarkClient');
-
-import { Readable } from 'node:stream';
-
-const MEDIA_DOWNLOAD_TIMEOUT_MS = 30_000; // 媒体下载超时（ms）
+const MEDIA_DOWNLOAD_TIMEOUT_MS = 30_000;
 
 interface LarkSdkClientLike {
   request(args: { method: string; url: string; data?: unknown }): Promise<any>;
@@ -57,9 +33,6 @@ interface LarkSdkClientLike {
         data: Record<string, unknown>;
       }): Promise<any>;
     };
-    // Phase 3 新增的 messageResource / image / file 通过 request() 或动态属性访问调用。
-    // Phase 5 的 message.delete 也通过此动态属性访问。
-    // 目的：避免和 SDK 编译时类型强耦合导致 cast 报错。
     [key: string]: any;
   };
 }
@@ -203,14 +176,10 @@ export class LarkClient {
     };
   }
 
-  /**
-   * 发送飞书 interactive 卡片消息。
-   * 目的：流式模式先发一个 thinking 卡片，拿到 messageId 后通过 patchCard 更新。
-   */
   async sendCard(options: {
     card: Record<string, unknown>;
-    target: Pick<import('./types').LarkSessionTarget, 'receiveId' | 'receiveIdType'>;
-  }): Promise<import('./types').LarkSendResult> {
+    target: { receiveId: string; receiveIdType: string };
+  }): Promise<LarkSendResult> {
     const client = await this.getSdkClient();
     const response = await client.im.message.create({
       params: {
@@ -229,10 +198,6 @@ export class LarkClient {
     };
   }
 
-  /**
-   * 更新已发送的飞书卡片消息。
-   * 目的：流式输出期间，通过 PATCH 更新卡片内容实现实时刷新。
-   */
   async patchCard(options: {
     messageId: string;
     card: Record<string, unknown>;
@@ -248,37 +213,23 @@ export class LarkClient {
     });
   }
 
-  // ---- Phase 5：消息编辑/撤销 ----
-
-  /**
-   * 撤回飞书消息。
-   * 目的：用于实现 /undo 命令时撤回机器人发出的上一条消息。
-   */
   async deleteMessage(messageId: string): Promise<void> {
     const client = await this.getSdkClient();
-    // 通过 request 直接调用飞书撤回消息 API，
-    // 避免在 LarkSdkClientLike 接口上对 message.delete 做显式声明导致 cast 失败。
     await client.request({
       method: 'DELETE',
       url: `/open-apis/im/v1/messages/${normalizeLarkMessageId(messageId)}`,
     });
   }
 
-  // ---- Phase 3：多媒体下载 ----
-
-  /**
-   * 下载飞书消息中的资源文件（图片/文件/音频）。
-   * 目的：将入站消息中的 image_key / file_key 转为可供 Backend 使用的二进制数据。
-   */
   async downloadResource(options: {
     messageId: string;
     fileKey: string;
     type: 'image' | 'file';
   }): Promise<LarkDownloadedResource> {
     const client = await this.getSdkClient();
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), MEDIA_DOWNLOAD_TIMEOUT_MS);
+    const timeout = setTimeout(() => {
+      logger.warn(`飞书资源下载超时: ${options.type}:${options.fileKey}`);
+    }, MEDIA_DOWNLOAD_TIMEOUT_MS);
 
     try {
       const response = await client.im.messageResource.get({
@@ -298,15 +249,6 @@ export class LarkClient {
     }
   }
 
-  // ---- Phase 3：多媒体上传 ----
-
-  // 以下 4 个方法（uploadImage / uploadFile / sendImage / sendFile）
-  // 为出站媒体发送预留，当前未被 index.ts 调用。详见文件头注释。
-
-   /**
-   * 上传图片到飞书 IM 存储。
-   * 目的：将 AI 生成的图片或需要转发的图片上传为 image_key，用于后续发送。
-   */
   async uploadImage(imageBuffer: Buffer): Promise<LarkUploadImageResult> {
     const client = await this.getSdkClient();
     const imageStream = Readable.from(imageBuffer);
@@ -326,10 +268,6 @@ export class LarkClient {
     return { imageKey };
   }
 
-  /**
-   * 上传文件到飞书 IM 存储。
-   * 目的：将需要发送的文件上传为 file_key，用于后续发送。
-   */
   async uploadFile(options: {
     buffer: Buffer;
     fileName: string;
@@ -354,12 +292,6 @@ export class LarkClient {
     return { fileKey };
   }
 
-  // ---- Phase 3：多媒体发送 ----
-
-  /**
-   * 发送图片消息。
-   * 目的：在 AI 回复中需要发送图片时，先上传再发送。
-   */
   async sendImage(options: LarkSendMediaOptions & { imageKey: string }): Promise<LarkSendResult> {
     const client = await this.getSdkClient();
     const content = JSON.stringify({ image_key: options.imageKey });
@@ -385,10 +317,6 @@ export class LarkClient {
     };
   }
 
-  /**
-   * 发送文件消息。
-   * 目的：在 AI 回复中需要发送文件时，先上传再发送。
-   */
   async sendFile(options: LarkSendMediaOptions & { fileKey: string }): Promise<LarkSendResult> {
     const client = await this.getSdkClient();
     const content = JSON.stringify({ file_key: options.fileKey });
@@ -451,8 +379,7 @@ export class LarkClient {
     try {
       this.wsClient.close({ force: true });
     } catch {
-      // 这里忽略关闭阶段的错误。
-      // 目的：确保 stop/dispose 是幂等的，避免二次关闭把流程打断。
+      // ignore
     } finally {
       this.wsClient = null;
     }
@@ -516,28 +443,13 @@ export function normalizeLarkMessageId(messageId: string): string {
   return separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : normalized;
 }
 
-/**
- * 从飞书 SDK 响应中提取二进制数据。
- *
- * 飞书 Node SDK 在不同版本 / 运行时下返回的数据格式不一致：
- *   - 直接 Buffer
- *   - ArrayBuffer
- *   - { data: Buffer | ArrayBuffer | Readable }
- *   - { getReadableStream(): Readable }
- *   - { writeFile(path): void }
- *   - Readable stream
- *
- * 参考 openclaw-lark 的 extractBufferFromResponse 实现。
- */
 async function extractBufferFromLarkResponse(
   response: unknown,
 ): Promise<{ buffer: Buffer; contentType?: string; fileName?: string }> {
-  // 直接 Buffer
   if (Buffer.isBuffer(response)) {
     return { buffer: response };
   }
 
-  // ArrayBuffer
   if (response instanceof ArrayBuffer) {
     return { buffer: Buffer.from(response) };
   }
@@ -547,13 +459,10 @@ async function extractBufferFromLarkResponse(
   }
 
   const resp = response as Record<string, any>;
-  const contentType: string | undefined =
-    resp.headers?.['content-type'] ?? resp.contentType ?? undefined;
+  const contentType: string | undefined = resp.headers?.['content-type'] ?? resp.contentType ?? undefined;
 
-  // 从 Content-Disposition 提取文件名
   let fileName: string | undefined;
-  const disposition =
-    resp.headers?.['content-disposition'] ?? resp.headers?.['Content-Disposition'];
+  const disposition = resp.headers?.['content-disposition'] ?? resp.headers?.['Content-Disposition'];
   if (typeof disposition === 'string') {
     const match = disposition.match(/filename[*]?=(?:UTF-8'')?["']?([^"';\n]+)/i);
     if (match) {
@@ -561,7 +470,6 @@ async function extractBufferFromLarkResponse(
     }
   }
 
-  // .data 可能是 Buffer / ArrayBuffer / Readable
   if (resp.data != null) {
     if (Buffer.isBuffer(resp.data)) {
       return { buffer: resp.data, contentType, fileName };
@@ -569,30 +477,26 @@ async function extractBufferFromLarkResponse(
     if (resp.data instanceof ArrayBuffer) {
       return { buffer: Buffer.from(resp.data), contentType, fileName };
     }
-    // .data 是 Readable stream
     if (typeof resp.data.pipe === 'function') {
-      const buf = await collectStream(resp.data);
-      return { buffer: buf, contentType, fileName };
+      const buffer = await collectStream(resp.data as Readable);
+      return { buffer, contentType, fileName };
     }
   }
 
-  // .getReadableStream() 方法
   if (typeof resp.getReadableStream === 'function') {
     const stream = await resp.getReadableStream();
-    const buf = await collectStream(stream);
-    return { buffer: buf, contentType, fileName };
+    const buffer = await collectStream(stream as Readable);
+    return { buffer, contentType, fileName };
   }
 
-  // 自身就是 Readable stream
   if (typeof resp.pipe === 'function') {
-    const buf = await collectStream(resp as Readable);
-    return { buffer: buf, contentType, fileName };
+    const buffer = await collectStream(resp as Readable);
+    return { buffer, contentType, fileName };
   }
 
   throw new Error('飞书资源下载失败：无法从响应中提取二进制数据');
 }
 
-/** 将 Readable stream 收集为 Buffer */
 function collectStream(stream: Readable): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -601,4 +505,3 @@ function collectStream(stream: Readable): Promise<Buffer> {
     stream.on('error', reject);
   });
 }
-
