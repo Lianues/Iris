@@ -72,9 +72,7 @@ FROM node:22-slim AS production
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends tini && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    groupadd -g 1000 iris && \
-    useradd -u 1000 -g iris -m -s /bin/sh iris
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -95,8 +93,8 @@ RUN chmod +x bin/iris bin/iris-onboard
 COPY deploy/docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Ensure data volume mount point exists and is owned by iris
-RUN mkdir -p /data && chown iris:iris /data
+# Ensure data volume mount point exists and is owned by node
+RUN mkdir -p /data && chown node:node /data
 
 ENV NODE_ENV=production \
     IRIS_DATA_DIR=/data \
@@ -104,7 +102,7 @@ ENV NODE_ENV=production \
 
 EXPOSE 8192
 VOLUME /data
-USER iris
+USER node
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/app/entrypoint.sh"]
@@ -118,8 +116,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends tini && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -g 1000 iris 2>/dev/null || true && \
-    useradd -u 1000 -g iris -m -s /bin/bash iris 2>/dev/null || true
+RUN groupadd -g 1001 iris 2>/dev/null || true && \
+    useradd -u 1001 -g iris -m -s /bin/bash iris 2>/dev/null || true
 
 WORKDIR /app
 

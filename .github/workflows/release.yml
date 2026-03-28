@@ -3,7 +3,7 @@
 #
 #  触发条件：
 #  1. push 以 v* 开头的 tag（如 v1.0.0）→ 自动构建 + 发布 Release + 发布 npm + 发布 Docker
-#  2. 手动触发 workflow_dispatch → 可独立勾选构建、发布 Release、发布 npm
+#  2. 手动触发 workflow_dispatch → 可独立勾选构建、发布 Release、发布 npm、发布 Docker
 #
 #  手动触发用法：
 #  - 什么都不勾：仅构建，产物保留 30 天供后续发布复用
@@ -51,6 +51,11 @@ on:
         type: string
         default: ''
         required: false
+      publish_docker:
+        description: '发布 Docker 镜像到 GHCR'
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: write
@@ -62,7 +67,7 @@ jobs:
   # 当提供了 build_run_id 时跳过，后续 job 直接从指定 Run 下载产物
   build:
     name: Build (${{ matrix.platform }}-${{ matrix.arch }})
-    if: ${{ !inputs.build_run_id }}
+    if: ${{ !inputs.build_run_id && !(inputs.publish_docker && !inputs.publish_release && !inputs.publish_npm) }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -271,7 +276,7 @@ jobs:
   # Docker 从源码独立构建，不依赖 binary build job，可并行运行
   publish-docker:
     name: Publish Docker images
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish_docker
     runs-on: ubuntu-latest
 
     steps:
@@ -288,9 +293,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from tag
+      - name: Extract version
         id: version
-        run: echo "tag=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            TAG=$(node -p "require('./package.json').version")
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          fi
 
       # Production image (Node 22 Debian slim)
       - name: Build & push production image
