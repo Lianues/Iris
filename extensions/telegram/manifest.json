@@ -1,0 +1,11 @@
+{
+  "name": "telegram",
+  "version": "0.1.0",
+  "description": "Telegram platform extension for Iris",
+  "platforms": [
+    {
+      "name": "telegram",
+      "entry": "dist/index.mjs"
+    }
+  ]
+}

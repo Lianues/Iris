@@ -8,7 +8,7 @@
 
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
-import { TelegramPlatform } from '../src/platforms/telegram';
+import { TelegramPlatform } from '../extensions/telegram/src';
 
 class FakeBackend extends EventEmitter {
   chats: Array<{ sessionId: string; text: string; images?: any[]; documents?: any[] }> = [];

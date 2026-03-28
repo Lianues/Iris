@@ -69,16 +69,6 @@ export class PlatformRegistry {
 export function createDefaultPlatformRegistry(): PlatformRegistry {
   const registry = new PlatformRegistry();
 
-  registry.register('telegram', async ({ backend, config }) => {
-    const { TelegramPlatform } = await import('./telegram');
-    return new TelegramPlatform(backend, {
-      token: config.platform.telegram.token,
-      showToolStatus: config.platform.telegram.showToolStatus,
-      groupMentionRequired: config.platform.telegram.groupMentionRequired,
-      pairing: config.platform.telegram.pairing,
-    });
-  });
-
   registry.register('web', async ({ backend, config, configDir, router, getMCPManager, extensions }) => {
     const { WebPlatform } = await import('./web');
     const currentModel = router.getCurrentModelInfo();

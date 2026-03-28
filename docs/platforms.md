@@ -26,10 +26,10 @@ src/platforms/
 ├── (cli.ts)             # CLI headless 模式（非平台适配器，直接调用 Backend）
 ├── base.ts              # PlatformAdapter 抽象基类
 ├── console/             # 控制台 TUI（OpenTUI / React）
-├── telegram/            # Telegram Bot
 └── web/                 # Web GUI（HTTP + SSE + Vue）
 extensions/
 ├── lark/                # 飞书平台 extension（内嵌）
+├── telegram/            # Telegram 平台 extension（内嵌）
 ├── discord/             # Discord 平台 extension（可选安装）
 ├── qq/                  # QQ 平台 extension（可选安装）
 ├── wxwork/              # 企业微信平台 extension（可选安装）
@@ -261,7 +261,9 @@ Discord 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensio
 
 ### Telegram
 
-基于 grammY 官方 SDK，支持流式输出、多媒体输入、并发控制。
+Telegram 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensions/telegram/manifest.json` 在启动时自动注册。运行时入口为 `extensions/telegram/dist/index.mjs`。
+
+实现基于 grammY 官方 SDK，支持流式输出、多媒体输入、并发控制。
 
 | 项目 | 说明 |
 |------|------|
@@ -289,6 +291,12 @@ Discord 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensio
 | `/undo` | 撤销上一轮对话 |
 | `/redo` | 恢复撤销的对话 |
 | `/help` | 显示帮助 |
+
+#### 配置
+
+在 `data/configs/platform.yaml` 中设置 `type: telegram`（或加入多平台数组），并填写 `telegram.token`。
+
+发行包和仓库默认会附带 `extensions/telegram/`。如果手动精简目录，需保留该目录，或先执行 `iris ext install-local telegram` 再启用 `type: telegram`。
 
 ### Lark（飞书）
 

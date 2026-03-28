@@ -159,13 +159,13 @@ describe('Lark Phase 3: 消息解析器对多媒体的解析', () => {
 
 describe('Telegram Phase 3: TelegramMediaService', () => {
   it('supportsInboundMedia 返回 true', async () => {
-    const { TelegramMediaService } = await import('../src/platforms/telegram/media');
+    const { TelegramMediaService } = await import('../extensions/telegram/src/media');
     const service = new TelegramMediaService();
     expect(service.supportsInboundMedia()).toBe(true);
   });
 
   it('downloadPhoto 正确转换为 ImageInput', async () => {
-    const { TelegramMediaService } = await import('../src/platforms/telegram/media');
+    const { TelegramMediaService } = await import('../extensions/telegram/src/media');
     const service = new TelegramMediaService();
 
     // JPEG 文件头
@@ -191,7 +191,7 @@ describe('Telegram Phase 3: TelegramMediaService', () => {
   });
 
   it('downloadPhoto 对 PNG 图片正确检测 MIME', async () => {
-    const { TelegramMediaService } = await import('../src/platforms/telegram/media');
+    const { TelegramMediaService } = await import('../extensions/telegram/src/media');
     const service = new TelegramMediaService();
 
     // PNG 文件头
@@ -210,7 +210,7 @@ describe('Telegram Phase 3: TelegramMediaService', () => {
   });
 
   it('downloadPhoto 下载失败时返回 null', async () => {
-    const { TelegramMediaService } = await import('../src/platforms/telegram/media');
+    const { TelegramMediaService } = await import('../extensions/telegram/src/media');
     const service = new TelegramMediaService();
 
     const mockClient = {
@@ -222,7 +222,7 @@ describe('Telegram Phase 3: TelegramMediaService', () => {
   });
 
   it('downloadDocument 正确转换为 DocumentInput', async () => {
-    const { TelegramMediaService } = await import('../src/platforms/telegram/media');
+    const { TelegramMediaService } = await import('../extensions/telegram/src/media');
     const service = new TelegramMediaService();
 
     const pdfBuffer = Buffer.from('%PDF-1.4 test content');
@@ -247,7 +247,7 @@ describe('Telegram Phase 3: TelegramMediaService', () => {
   });
 
   it('downloadDocument 无 fileName 时使用兜底名', async () => {
-    const { TelegramMediaService } = await import('../src/platforms/telegram/media');
+    const { TelegramMediaService } = await import('../extensions/telegram/src/media');
     const service = new TelegramMediaService();
 
     const mockClient = {
@@ -270,7 +270,7 @@ describe('Telegram Phase 3: TelegramMediaService', () => {
   });
 
   it('downloadVoice 正确转换为 DocumentInput', async () => {
-    const { TelegramMediaService } = await import('../src/platforms/telegram/media');
+    const { TelegramMediaService } = await import('../extensions/telegram/src/media');
     const service = new TelegramMediaService();
 
     const oggBuffer = Buffer.from('OggS fake audio data');
@@ -299,7 +299,7 @@ describe('Telegram Phase 3: TelegramMediaService', () => {
 describe('Telegram Phase 3: 平台主类对多媒体消息的处理', () => {
   it('纯图片消息下载后传给 backend.chat', async () => {
     const { EventEmitter } = await import('node:events');
-    const { TelegramPlatform } = await import('../src/platforms/telegram');
+    const { TelegramPlatform } = await import('../extensions/telegram/src');
 
     class FakeBackend extends EventEmitter {
       chats: any[] = [];
@@ -343,7 +343,7 @@ describe('Telegram Phase 3: 平台主类对多媒体消息的处理', () => {
 
   it('图片+文字消息同时传递 text 和 images', async () => {
     const { EventEmitter } = await import('node:events');
-    const { TelegramPlatform } = await import('../src/platforms/telegram');
+    const { TelegramPlatform } = await import('../extensions/telegram/src');
 
     class FakeBackend extends EventEmitter {
       chats: any[] = [];
@@ -386,7 +386,7 @@ describe('Telegram Phase 3: 平台主类对多媒体消息的处理', () => {
 
   it('文件消息下载后作为 documents 传给 backend', async () => {
     const { EventEmitter } = await import('node:events');
-    const { TelegramPlatform } = await import('../src/platforms/telegram');
+    const { TelegramPlatform } = await import('../extensions/telegram/src');
 
     class FakeBackend extends EventEmitter {
       chats: any[] = [];

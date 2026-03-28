@@ -1,7 +1,7 @@
 # 平台配置
 
 # 类型: console | discord | telegram | web | weixin | wxwork | lark | qq
-# 注意：lark 由随仓库提供的 extensions/lark 注册；discord / qq / wxwork / weixin 为可选 extension，使用前需先安装。
+# 注意：lark / telegram 由随仓库提供的 extensions 注册；discord / qq / wxwork / weixin 为可选 extension，使用前需先安装。
 # 支持单平台或多平台同时启动：
 #   type: console            # 单平台
 #   type: [console, web]     # 多平台同时启动
@@ -12,6 +12,7 @@ discord:
   token: your-discord-bot-token
 
 telegram:
+  # 该平台由内嵌 extension extensions/telegram/ 提供；发行包默认附带，无需单独安装
   token: your-telegram-bot-token
   # 是否在流式回复中展示工具执行状态（默认 true）
   # showToolStatus: false

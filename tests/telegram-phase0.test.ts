@@ -6,14 +6,16 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { registerExtensionPlatforms } from '../src/extension/index';
 import { parsePlatformConfig } from '../src/config/platform';
-import { TelegramClient } from '../src/platforms/telegram/client';
+import { createDefaultPlatformRegistry } from '../src/platforms/registry';
+import { TelegramClient } from '../extensions/telegram/src/client';
 import {
   TelegramMessageHandler,
   extractTelegramText,
   stripBotMention,
-} from '../src/platforms/telegram/message-handler';
-import { buildTelegramSessionTarget, parseTelegramSessionTarget } from '../src/platforms/telegram/types';
+} from '../extensions/telegram/src/message-handler';
+import { buildTelegramSessionTarget, parseTelegramSessionTarget } from '../extensions/telegram/src/types';
 
 describe('Telegram Phase 0: parsePlatformConfig', () => {
   it('解析 telegram 行为开关并提供默认值', () => {
@@ -27,6 +29,22 @@ describe('Telegram Phase 0: parsePlatformConfig', () => {
     expect(config.telegram.token).toBe('bot-token');
     expect(config.telegram.showToolStatus).toBe(true);
     expect(config.telegram.groupMentionRequired).toBe(true);
+  });
+});
+
+describe('Telegram Phase 0: extension registration', () => {
+  it('不再内置注册 telegram，而是由内嵌 extension 注册', async () => {
+    const registry = createDefaultPlatformRegistry();
+    expect(registry.has('telegram')).toBe(false);
+
+    const registered = registerExtensionPlatforms(registry);
+    expect(registered).toContain('telegram');
+
+    const platform = await registry.create('telegram', {
+      backend: {} as any,
+      config: { platform: { telegram: { token: 'bot-token' } } } as any,
+    } as any);
+    expect(typeof (platform as { start?: unknown }).start).toBe('function');
   });
 });
 

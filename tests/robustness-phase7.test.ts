@@ -135,7 +135,7 @@ describe('Lark Phase 7: 消息过期', () => {
 
 describe('Telegram Phase 7: 消息去重', () => {
   it('相同 message_id 的消息只处理一次', async () => {
-    const { TelegramPlatform } = await import('../src/platforms/telegram');
+    const { TelegramPlatform } = await import('../extensions/telegram/src');
 
     class FakeBackend extends EventEmitter {
       chats: any[] = [];
@@ -184,7 +184,7 @@ describe('Telegram Phase 7: 消息去重', () => {
 
 describe('Telegram Phase 7: 消息过期', () => {
   it('丢弃 date 超过 30s 的旧消息', async () => {
-    const { TelegramPlatform } = await import('../src/platforms/telegram');
+    const { TelegramPlatform } = await import('../extensions/telegram/src');
 
     class FakeBackend extends EventEmitter {
       chats: any[] = [];
@@ -223,7 +223,7 @@ describe('Telegram Phase 7: 消息过期', () => {
 
 describe('Telegram Phase 7: editText 静默忽略 "message is not modified"', () => {
   it('编辑相同内容时不抛异常', async () => {
-    const { TelegramClient } = await import('../src/platforms/telegram/client');
+    const { TelegramClient } = await import('../extensions/telegram/src/client');
 
     const client = new TelegramClient({ token: 'fake-token' });
     // mock bot.api.editMessageText 抛出 "message is not modified" 错误
@@ -242,7 +242,7 @@ describe('Telegram Phase 7: editText 静默忽略 "message is not modified"', ()
   });
 
   it('其他错误正常抛出', async () => {
-    const { TelegramClient } = await import('../src/platforms/telegram/client');
+    const { TelegramClient } = await import('../extensions/telegram/src/client');
 
     const client = new TelegramClient({ token: 'fake-token' });
     (client as any).bot = {

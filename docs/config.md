@@ -28,7 +28,7 @@ Iris 实际读取的是 `data/configs/`，不是单文件 `config.yaml`。
 | `sub_agents.yaml` | 否 | 子代理类型与调度配置 |
 | `computer_use.yaml` | 否 | Computer Use 配置（浏览器操控） |
 
-其中 `lark`、`discord`、`qq`、`wxwork`、`weixin` 都不再是 `src/platforms` 下的内置注册项，而是由 extension 注册；其中 `lark` 随仓库和发行包提供，`discord`、`qq`、`wxwork`、`weixin` 为可选 extension。配置键仍然写在 `platform.yaml` 的 `lark:` / `discord:` / `qq:` / `wxwork:` / `weixin:` 下。
+其中 `telegram`、`lark`、`discord`、`qq`、`wxwork`、`weixin` 都不再是 `src/platforms` 下的内置注册项，而是由 extension 注册；其中 `telegram` 和 `lark` 随仓库和发行包提供，`discord`、`qq`、`wxwork`、`weixin` 为可选 extension。配置键仍然写在 `platform.yaml` 的 `telegram:` / `lark:` / `discord:` / `qq:` / `wxwork:` / `weixin:` 下。
 
 全局配置（非分文件）：
 

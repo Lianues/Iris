@@ -1,0 +1,8 @@
+{
+  "name": "@iris-extension/telegram",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm"
+  }
+}

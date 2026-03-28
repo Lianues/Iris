@@ -7,7 +7,7 @@
  */
 
 import type { Context } from 'grammy';
-import { createLogger } from '../../logger';
+import { createLogger } from './logger';
 import {
   ParsedTelegramMessage,
   TelegramConfig,

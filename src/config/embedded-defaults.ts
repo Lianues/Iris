@@ -34,7 +34,7 @@ models:
 
   'platform.yaml': `# 平台配置
 # 类型: console | discord | telegram | web | weixin | wxwork | lark | qq
-# 注意：lark 由随包附带的 extensions/lark 注册；discord / qq / wxwork / weixin 为可选 extension，使用前需先安装。
+# 注意：lark / telegram 由随包附带的 extensions 注册；discord / qq / wxwork / weixin 为可选 extension，使用前需先安装。
 type: console
 `,
 

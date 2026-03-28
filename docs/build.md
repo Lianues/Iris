@@ -8,7 +8,7 @@ Iris 的代码按运行时需求分为两部分：
 
 | 部分 | 运行时 | 说明 |
 |------|--------|------|
-| 后端主体（LLM、存储、工具、MCP、web/discord/telegram/wxwork 平台） | Node.js / Bun 均可 | 纯 TypeScript，无 Bun 专有 API |
+| 后端主体（LLM、存储、工具、MCP、web 与各 extension 平台） | Node.js / Bun 均可 | 纯 TypeScript，无 Bun 专有 API |
 | Console 平台（TUI 界面） | 仅 Bun | 依赖 [OpenTUI](https://opentui.com/) 的 Bun FFI 原生绑定 |
 
 后端代码不使用任何 `Bun.` API 或 `bun:` 模块。Console 平台通过动态 `import()` 加载，非 console 模式下不会触及 opentui 依赖。
@@ -17,7 +17,7 @@ Iris 的代码按运行时需求分为两部分：
 
 ### Node.js 模式（后端开发）
 
-适用于 web、discord、telegram、wxwork 等平台的开发，不需要安装 Bun。
+适用于 web、telegram 以及已安装 extension 平台的开发，不需要安装 Bun。
 
 ```bash
 npm install
@@ -27,7 +27,7 @@ npm run dev            # 启动（按当前平台配置自动选择运行时）
 
 此模式下 `@opentui/core` 和 `@opentui/react` 作为 `optionalDependencies`，安装失败不影响运行。若配置文件中选择了 console 平台，启动脚本会自动切换到 Bun 运行时；若系统中未安装 Bun，则给出提示。
 
-如果当前是 `web`、`discord`、`telegram`、`wxwork` 等平台，`npm run dev` 仍会继续使用 Node.js + tsx。
+如果当前是 `web`、`telegram` 或其他 extension 平台，`npm run dev` 仍会继续使用 Node.js + tsx。
 
 ### Bun 模式（全功能开发）
 

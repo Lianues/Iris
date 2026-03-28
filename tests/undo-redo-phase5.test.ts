@@ -139,7 +139,7 @@ describe('Lark Phase 5: Undo/Redo', () => {
 
 describe('Telegram Phase 5: Undo/Redo', () => {
   it('执行 /undo 时截断历史并尝试 editText', async () => {
-    const { TelegramPlatform } = await import('../src/platforms/telegram');
+    const { TelegramPlatform } = await import('../extensions/telegram/src');
 
     class FakeBackend extends EventEmitter {
       chats: any[] = [];
@@ -199,7 +199,7 @@ describe('Telegram Phase 5: Undo/Redo', () => {
   });
 
   it('执行 /redo 时恢复上一轮的用户输入', async () => {
-    const { TelegramPlatform } = await import('../src/platforms/telegram');
+    const { TelegramPlatform } = await import('../extensions/telegram/src');
 
     class FakeBackend extends EventEmitter {
       redoCalls: string[] = [];

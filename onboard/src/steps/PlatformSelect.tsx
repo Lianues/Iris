@@ -20,7 +20,7 @@ const PLATFORMS = [
   {
     value: "telegram",
     label: "Telegram Bot",
-    desc: "Telegram 机器人，支持私聊和群聊 @触发",
+    desc: "Telegram 机器人，支持私聊和群聊 @触发（随包附带的 extension）",
   },
   {
     value: "lark",

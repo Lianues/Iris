@@ -9,8 +9,8 @@
  */
 
 import { Bot, Context, InputFile } from 'grammy';
-import { splitText } from '../base';
-import { createLogger } from '../../logger';
+import { splitText } from './base';
+import { createLogger } from './logger';
 import { TELEGRAM_BOT_COMMANDS } from './commands';
 import {
   TELEGRAM_MESSAGE_MAX_LENGTH,

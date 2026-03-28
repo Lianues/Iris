@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { TelegramMessageBuilder, formatTelegramToolLine } from '../src/platforms/telegram/message-builder';
-import { TelegramCommandRouter, TELEGRAM_BOT_COMMANDS } from '../src/platforms/telegram/commands';
+import { TelegramMessageBuilder, formatTelegramToolLine } from '../extensions/telegram/src/message-builder';
+import { TelegramCommandRouter, TELEGRAM_BOT_COMMANDS } from '../extensions/telegram/src/commands';
 
 describe('Telegram Phase 2: message builder', () => {
   const builder = new TelegramMessageBuilder();

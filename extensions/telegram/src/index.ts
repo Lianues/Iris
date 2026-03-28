@@ -8,12 +8,10 @@
  *   - 并发控制：ChatState + busy 锁 + pendingMessages 缓冲。
  */
 
-import { PlatformAdapter } from '../base';
-import { Backend } from '../../core/backend';
-import type { ImageInput, DocumentInput } from '../../core/backend';
-import { createLogger } from '../../logger';
-import { PairingGuard, PairingStore } from '../pairing';
-import { dataDir } from '../../paths';
+import { PlatformAdapter } from './base';
+import type { ImageInput, DocumentInput } from '../../../src/core/backend';
+import { createLogger } from './logger';
+import { PairingGuard, PairingStore } from '../../../src/platforms/pairing';
 import { TelegramClient } from './client';
 import { TelegramCommandRouter } from './commands';
 import { TelegramMediaService } from './media';
@@ -26,7 +24,16 @@ import {
   TelegramSessionTarget,
   buildTelegramSessionTarget,
 } from './types';
-import type { ToolAttachment } from '../../types';
+import type { ToolAttachment } from '../../../src/types';
+
+interface TelegramPlatformFactoryContextLike {
+  backend: any;
+  config: {
+    platform?: {
+      telegram?: Partial<TelegramConfig>;
+    };
+  };
+}
 
 const logger = createLogger('Telegram');
 
@@ -95,7 +102,7 @@ export class TelegramPlatform extends PlatformAdapter {
   /** Phase 7：去重集合上次清理时间 */
   private lastDedupCleanup = Date.now();
 
-  constructor(private readonly backend: Backend, private readonly config: TelegramConfig) {
+  constructor(private readonly backend: any, private readonly config: TelegramConfig) {
     super();
     this.client = new TelegramClient(config);
     this.messageHandler = new TelegramMessageHandler(config);
@@ -954,3 +961,19 @@ export class TelegramPlatform extends PlatformAdapter {
 function hasTelegramUnsupportedMedia(message: ParsedTelegramMessage): boolean {
   return Boolean(message.photo || message.document || message.voice || message.audio);
 }
+
+function resolveTelegramConfigFromContext(context: TelegramPlatformFactoryContextLike): TelegramConfig {
+  const telegram = context.config.platform?.telegram ?? {};
+  return {
+    token: telegram.token ?? '',
+    showToolStatus: telegram.showToolStatus,
+    groupMentionRequired: telegram.groupMentionRequired,
+    pairing: telegram.pairing,
+  };
+}
+
+export function createTelegramPlatform(context: TelegramPlatformFactoryContextLike): TelegramPlatform {
+  return new TelegramPlatform(context.backend, resolveTelegramConfigFromContext(context));
+}
+
+export default createTelegramPlatform;
