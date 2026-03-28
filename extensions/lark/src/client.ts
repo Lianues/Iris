@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream';
-import { createExtensionLogger } from '@iris/extension-sdk';
+import { createExtensionLogger } from '@irises/extension-sdk';
 import type {
   LarkConfig,
   LarkDownloadedResource,

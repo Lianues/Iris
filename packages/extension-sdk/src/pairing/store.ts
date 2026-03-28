@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createExtensionLogger } from '../logger';
-import { resolveDefaultDataDir } from '../runtime-paths';
-import { generatePairingCode } from './code-gen';
-import type { AllowedUser, PairingAdmin, PendingPairing } from './types';
+import { createExtensionLogger } from '../logger.js';
+import { resolveDefaultDataDir } from '../runtime-paths.js';
+import { generatePairingCode } from './code-gen.js';
+import type { AllowedUser, PairingAdmin, PendingPairing } from './types.js';
 
 const logger = createExtensionLogger('ExtensionSDK', 'PairingStore');
 const NEVER_EXPIRE = 253402272000000;

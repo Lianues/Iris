@@ -5,7 +5,7 @@
  * 目的：为后续把单文件适配器拆分成多模块做准备，避免状态结构继续散落在 index.ts 中。
  */
 
-import type { PairingConfig } from '@iris/extension-sdk/pairing';
+import type { PairingConfig } from '@irises/extension-sdk/pairing';
 
 export const TELEGRAM_MESSAGE_MAX_LENGTH = 4096;
 

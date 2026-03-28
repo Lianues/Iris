@@ -9,7 +9,7 @@
  */
 
 import { Bot, Context, InputFile } from 'grammy';
-import { createExtensionLogger, splitText } from '@iris/extension-sdk';
+import { createExtensionLogger, splitText } from '@irises/extension-sdk';
 import { TELEGRAM_BOT_COMMANDS } from './commands';
 import {
   TELEGRAM_MESSAGE_MAX_LENGTH,

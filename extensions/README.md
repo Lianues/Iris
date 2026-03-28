@@ -36,7 +36,7 @@
 
 extension 开发应遵守下面几条：
 
-- 公共类型、`PlatformAdapter`、`splitText`、logger、pairing 等能力，统一从 `@iris/extension-sdk` 获取。
+- 公共类型、`PlatformAdapter`、`splitText`、logger、pairing 等能力，统一从 `@irises/extension-sdk` 获取。
 - 不要再直接 import 宿主内部源码，例如：`../../../src/core/backend`、`../../../src/types`、`../../../src/platforms/pairing`。
 - extension 使用到的第三方库，必须写到 extension 自己的 `package.json`。
 - extension 的锁文件也应放在 extension 自己目录，例如 `extensions/telegram/package-lock.json`。

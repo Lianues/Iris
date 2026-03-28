@@ -1,4 +1,4 @@
-# @iris/extension-sdk
+# @irises/extension-sdk
 
 Iris extension / plugin 公共 SDK。
 
@@ -7,6 +7,25 @@ Iris extension / plugin 公共 SDK。
 1. 给平台 extension 和插件提供稳定的公共接口。
 2. 避免 extension / plugin 直接 import 宿主仓库内部的 `src/**`。
 3. 让 extension / plugin 可以在独立仓库中维护自己的 `package.json`、锁文件和第三方依赖。
+4. 作为独立 npm 包发布，供外部 extension / plugin 仓库以版本依赖方式使用。
+
+## 安装
+
+```bash
+npm install @irises/extension-sdk
+```
+
+外部 extension / plugin 仓库中，建议使用正常版本依赖，例如：
+
+```json
+{
+  "dependencies": {
+    "@irises/extension-sdk": "^0.1.0"
+  }
+}
+```
+
+当前 Iris 仓库内部的 extension，为了本地联调方便，仍可使用本地路径或独立安装脚本；但对外发布时，应以 npm 版本依赖为准。
 
 ## 当前导出内容
 
@@ -45,7 +64,7 @@ import {
   type IrisBackendLike,
   type IrisPlatformFactoryContextLike,
   type ToolAttachment,
-} from '@iris/extension-sdk';
+} from '@irises/extension-sdk';
 
 import {
   definePlugin,
@@ -53,9 +72,9 @@ import {
   type IrisPlugin,
   type PluginContext,
   type PreBootstrapContext,
-} from '@iris/extension-sdk/plugin';
+} from '@irises/extension-sdk/plugin';
 
-import { PairingGuard, PairingStore, type PairingConfig } from '@iris/extension-sdk/pairing';
+import { PairingGuard, PairingStore, type PairingConfig } from '@irises/extension-sdk/pairing';
 ```
 
 ## 依赖边界
@@ -75,10 +94,8 @@ extension / plugin 自己使用的第三方库，应当写在它自己的 `packa
 推荐做法是：
 
 - extension / plugin 在自己的仓库里维护自己的锁文件
-- 运行时优先加载 extension 自己目录下的 `node_modules`
-- 如果 extension 发布的是自包含的 `dist/index.mjs`，也可以不依赖运行时 `node_modules`
-
-在当前仓库内，为了便于统一开发和测试，可能仍会存在本地安装层面的集中处理；但依赖归属应当属于 extension / plugin 自己，而不是宿主。
+- 开发时在 extension / plugin 自己目录执行 `npm install` 或其他包管理器安装
+- 正式分发给用户的 extension 应当是已经构建好的发行包，不要求用户在安装 extension 时再安装依赖
 
 ## 约束
 

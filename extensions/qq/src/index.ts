@@ -20,7 +20,7 @@
  * OneBot v11 参考：https://github.com/botuniverse/onebot-11
  */
 
-import { createExtensionLogger, definePlatformFactory, splitText, type ImageInput, type IrisBackendLike } from '@iris/extension-sdk';
+import { createExtensionLogger, definePlatformFactory, splitText, type ImageInput, type IrisBackendLike } from '@irises/extension-sdk';
 import WebSocket from 'ws';
 
 const logger = createExtensionLogger('QQExtension', 'QQ');

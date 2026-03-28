@@ -1,6 +1,6 @@
-import type { AllowedUser, PairingAdmin, PairingCheckResult, PairingConfig, PendingPairing } from './types';
-import { generatePairingCode } from './code-gen';
-import { PairingStore } from './store';
+import type { AllowedUser, PairingAdmin, PairingCheckResult, PairingConfig, PendingPairing } from './types.js';
+import { generatePairingCode } from './code-gen.js';
+import { PairingStore } from './store.js';
 
 export class PairingGuard {
   constructor(

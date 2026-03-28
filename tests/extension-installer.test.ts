@@ -119,7 +119,7 @@ describe('extension installer', () => {
       name: '@iris-extension/source-first-demo',
       version: '0.1.0',
       scripts: { build: 'echo build' },
-      dependencies: { '@iris/extension-sdk': 'file:../../packages/extension-sdk' },
+      dependencies: { '@irises/extension-sdk': 'file:../../packages/extension-sdk' },
     });
     writeText(path.join(sourceDir, 'src', 'index.ts'), 'export default {};\n');
 

@@ -8,8 +8,8 @@
  *   - 并发控制：ChatState + busy 锁 + pendingMessages 缓冲。
  */
 
-import { PairingGuard, PairingStore } from '@iris/extension-sdk/pairing';
-import { PlatformAdapter, createExtensionLogger, definePlatformFactory, type DocumentInput, type ImageInput, type IrisBackendLike, type ToolAttachment } from '@iris/extension-sdk';
+import { PairingGuard, PairingStore } from '@irises/extension-sdk/pairing';
+import { PlatformAdapter, createExtensionLogger, definePlatformFactory, type DocumentInput, type ImageInput, type IrisBackendLike, type ToolAttachment } from '@irises/extension-sdk';
 import { TelegramClient } from './client';
 import { TelegramCommandRouter } from './commands';
 import { TelegramMediaService } from './media';

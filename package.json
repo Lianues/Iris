@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "npm run typecheck:ui && npm run build:ui && npx tsc -p tsconfig.build.json",
+    "build:extension-sdk": "npm --prefix packages/extension-sdk run build",
     "build:compile": "npm install --no-save react-devtools-core && tsx script/install-extension-deps.ts --embedded-only --frozen-lockfile && bun run script/build.ts",
     "build:ui": "cd src/platforms/web/web-ui && npm run build",
     "typecheck:ui": "cd src/platforms/web/web-ui && npm run typecheck",

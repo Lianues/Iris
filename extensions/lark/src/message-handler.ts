@@ -1,4 +1,4 @@
-import { createExtensionLogger } from '@iris/extension-sdk';
+import { createExtensionLogger } from '@irises/extension-sdk';
 import {
   buildLarkSessionTarget,
   type LarkMessageEvent,

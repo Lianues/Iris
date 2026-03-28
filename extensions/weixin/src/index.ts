@@ -19,7 +19,7 @@
  *   协议文档：https://ilinkai.weixin.qq.com
  */
 
-import { createExtensionLogger, definePlatformFactory, splitText, type ImageInput, type IrisBackendLike, type IrisPlatformFactoryContextLike } from '@iris/extension-sdk';
+import { createExtensionLogger, definePlatformFactory, splitText, type ImageInput, type IrisBackendLike, type IrisPlatformFactoryContextLike } from '@irises/extension-sdk';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';

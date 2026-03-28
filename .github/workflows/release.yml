@@ -246,6 +246,20 @@ jobs:
         with:
           bun-version: "1.2"
 
+      - name: Install extension SDK dependencies
+        working-directory: packages/extension-sdk
+        run: npm install
+
+      - name: Build extension SDK
+        working-directory: packages/extension-sdk
+        run: npm run build
+
+      - name: Publish extension SDK
+        working-directory: packages/extension-sdk
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Download npm package artifacts
         uses: actions/download-artifact@v5
         with:

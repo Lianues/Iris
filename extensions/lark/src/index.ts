@@ -1,4 +1,4 @@
-import { createExtensionLogger, definePlatformFactory } from '@iris/extension-sdk';
+import { createExtensionLogger, definePlatformFactory } from '@irises/extension-sdk';
 import { buildLarkCard, formatLarkToolLine, type LarkToolStatusEntry } from './card-builder';
 import { LarkClient } from './client';
 import { LarkCommandRouter } from './commands';

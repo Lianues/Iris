@@ -1,6 +1,6 @@
-import type { Content, Part, UsageMetadata } from './message';
-import type { FunctionCallPart } from './message';
-import type { FunctionDeclaration } from './tool';
+import type { Content, Part, UsageMetadata } from './message.js';
+import type { FunctionCallPart } from './message.js';
+import type { FunctionDeclaration } from './tool.js';
 
 export interface LLMGenerationConfig {
   temperature?: number;

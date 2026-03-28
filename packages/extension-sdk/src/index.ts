@@ -8,14 +8,14 @@ export type {
   ExtensionDistributionMode,
   ResolvedLocalPlugin,
   ExtensionInstallFallbackReason,
-} from './manifest';
+} from './manifest.js';
 
 export {
   definePlatformFactory,
   getPlatformConfig,
   PlatformAdapter,
   splitText,
-} from './platform';
+} from './platform.js';
 
 export type {
   DocumentInput,
@@ -29,7 +29,7 @@ export type {
   IrisToolInvocationLike,
   PlatformFactoryHelperOptions,
   ToolAttachment,
-} from './platform';
+} from './platform.js';
 
 export type {
   Content,
@@ -41,19 +41,19 @@ export type {
   TextPart,
   TokensDetail,
   UsageMetadata,
-} from './message';
+} from './message.js';
 
 export type {
   LLMGenerationConfig,
   LLMRequest,
   LLMResponse,
   LLMStreamChunk,
-} from './llm';
+} from './llm.js';
 
 export type {
   ModeDefinition,
   ToolFilter,
-} from './mode';
+} from './mode.js';
 
 export type {
   FunctionDeclaration,
@@ -63,20 +63,20 @@ export type {
   ToolParallelPolicy,
   ToolParallelResolver,
   ToolStatus,
-} from './tool';
+} from './tool.js';
 
 export {
   createExtensionLogger,
-} from './logger';
+} from './logger.js';
 
 export type {
   ExtensionLogger,
-} from './logger';
+} from './logger.js';
 
 export {
   createPluginLogger,
   definePlugin,
-} from './plugin';
+} from './plugin.js';
 
 export type {
   BootstrapExtensionRegistryLike,
@@ -105,17 +105,17 @@ export type {
   ToolExecInterception,
   ToolRegistryLike,
   ToolWrapper,
-} from './plugin';
+} from './plugin.js';
 
 export {
   resolveDefaultDataDir,
-} from './runtime-paths';
+} from './runtime-paths.js';
 
 export {
   PairingGuard,
   PairingStore,
   generatePairingCode,
-} from './pairing';
+} from './pairing/index.js';
 
 export type {
   AllowedUser,
@@ -123,4 +123,4 @@ export type {
   PairingCheckResult,
   PairingConfig,
   PendingPairing,
-} from './pairing';
+} from './pairing/index.js';

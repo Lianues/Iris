@@ -7,7 +7,7 @@
  */
 
 import type { Context } from 'grammy';
-import { createExtensionLogger } from '@iris/extension-sdk';
+import { createExtensionLogger } from '@irises/extension-sdk';
 import {
   ParsedTelegramMessage,
   TelegramConfig,

@@ -1,9 +1,9 @@
-import { createExtensionLogger, type ExtensionLogger } from './logger';
-import type { LLMRequest } from './llm';
-import type { Content, Part } from './message';
-import type { ModeDefinition } from './mode';
-import type { IrisBackendLike, IrisPlatformFactoryContextLike, PlatformAdapter } from './platform';
-import type { ToolDefinition, ToolHandler } from './tool';
+import { createExtensionLogger, type ExtensionLogger } from './logger.js';
+import type { LLMRequest } from './llm.js';
+import type { Content, Part } from './message.js';
+import type { ModeDefinition } from './mode.js';
+import type { IrisBackendLike, IrisPlatformFactoryContextLike, PlatformAdapter } from './platform.js';
+import type { ToolDefinition, ToolHandler } from './tool.js';
 
 export type PatchDisposer = () => void;
 export type PatchMethod = (...args: any[]) => PatchDisposer;

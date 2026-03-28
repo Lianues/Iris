@@ -6,7 +6,7 @@ import type {
   IrisPlatformFactoryContextLike as SDKIrisPlatformFactoryContextLike,
   IrisSessionMetaLike as SDKIrisSessionMetaLike,
   IrisToolInvocationLike as SDKIrisToolInvocationLike,
-} from '@iris/extension-sdk';
+} from '@irises/extension-sdk';
 
 export interface LarkConfig {
   appId: string;

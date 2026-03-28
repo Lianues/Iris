@@ -4,7 +4,7 @@
  * 基于 discord.js 官方 SDK。
  */
 
-import { createExtensionLogger, definePlatformFactory, splitText, type IrisBackendLike } from '@iris/extension-sdk';
+import { createExtensionLogger, definePlatformFactory, splitText, type IrisBackendLike } from '@irises/extension-sdk';
 import { Client, GatewayIntentBits, Message, Partials } from 'discord.js';
 
 interface ContentLike {
