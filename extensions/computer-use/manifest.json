@@ -1,0 +1,18 @@
+{
+  "name": "computer-use",
+  "version": "0.1.0",
+  "description": "Computer Use extension for Iris — browser and desktop automation via LLM tools",
+  "plugin": {
+    "entry": "dist/index.mjs",
+    "configFile": "config.yaml"
+  },
+  "distribution": {
+    "files": [
+      "config.yaml",
+      "dist/browser-sidecar.mjs",
+      "dist/index.mjs",
+      "dist/screen-sidecar.mjs",
+      "package.json"
+    ]
+  }
+}

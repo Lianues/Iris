@@ -1,0 +1,14 @@
+# Computer Use 默认配置
+#
+# 该文件提供 CU 扩展的默认配置。
+# 用户可在 configs/computer_use.yaml 或 plugins.yaml 中的 config 字段覆盖。
+
+enabled: false
+environment: browser
+screenWidth: 1440
+screenHeight: 900
+headless: false
+initialUrl: https://www.google.com
+searchEngineUrl: https://www.google.com
+highlightMouse: false
+backgroundMode: false

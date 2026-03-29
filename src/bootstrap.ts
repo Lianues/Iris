@@ -11,8 +11,6 @@
 
 import type { Computer } from './computer-use/types';
 import { loadConfig, findConfigFile, AppConfig } from './config';
-import { loadRawConfigDir } from './config/raw';
-import { initCuConfigSnapshot } from './config/runtime';
 import type { AgentPaths } from './paths';
 import { dataDir as globalDataDir, logsDir as globalLogsDir } from './paths';
 import { createLLMRouter } from './llm/factory';
@@ -63,7 +61,7 @@ export interface BootstrapResult {
   getMCPManager: () => MCPManager | undefined;
   /** Agent 名称（多 Agent 模式下标识；单 Agent 模式为 undefined） */
   agentName?: string;
-  /** Computer Use 环境实例（screen 模式下提供窗口管理能力） */
+  /** 由 computer-use 扩展插件管理。插件通过 onReady 回调设置此值。 */
   computerEnv?: Computer;
   /** 初始化过程中的警告信息（TUI 启动后展示给用户） */
   initWarnings: string[];
@@ -103,6 +101,7 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
   let pluginManager: PluginManager | undefined;
   if (config.plugins?.length || inlinePlugins.length > 0) {
     pluginManager = new PluginManager();
+    pluginManager.setConfigDir(configDir);
     await pluginManager.prepareAll(config.plugins ?? [], config, inlinePlugins);
     await pluginManager.runPreBootstrap(config, extensions);
   }
@@ -163,55 +162,9 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
     tools.registerAll(mcpManager.getTools());
   }
 
-  // ---- 3.2 注册 Computer Use 工具 ----
-  let computerEnv: Computer | undefined;
   const initWarnings: string[] = [];
-  if (config.computerUse?.enabled) {
-    try {
-      const { BrowserEnvironment, ScreenEnvironment, createComputerUseTools, resolveEnvironmentKey } = await import('./computer-use');
-      const env = config.computerUse.environment ?? 'browser';
-      let cuEnv: import('./computer-use').Computer;
-      const envKey = resolveEnvironmentKey(env, config.computerUse.backgroundMode);
-
-      if (env === 'screen') {
-        cuEnv = new ScreenEnvironment({
-          searchEngineUrl: config.computerUse.searchEngineUrl,
-          targetWindow: config.computerUse.targetWindow,
-          backgroundMode: config.computerUse.backgroundMode,
-        });
-      } else {
-        cuEnv = new BrowserEnvironment({
-          screenWidth: config.computerUse.screenWidth ?? 1440,
-          screenHeight: config.computerUse.screenHeight ?? 900,
-          headless: config.computerUse.headless,
-          initialUrl: config.computerUse.initialUrl,
-          searchEngineUrl: config.computerUse.searchEngineUrl,
-          highlightMouse: config.computerUse.highlightMouse,
-        });
-      }
-
-      await cuEnv.initialize();
-
-      // 收集初始化警告（如窗口绑定失败）
-      if ('initWarnings' in cuEnv && Array.isArray((cuEnv as { initWarnings?: string[] }).initWarnings)) {
-        initWarnings.push(...(((cuEnv as { initWarnings?: string[] }).initWarnings) ?? []));
-      }
-
-      // 用户配置的工具策略（按环境键名取对应分组）
-      const userPolicy = config.computerUse.environmentTools?.[envKey as keyof typeof config.computerUse.environmentTools];
-      tools.registerAll(createComputerUseTools(cuEnv, envKey, userPolicy));
-
-      computerEnv = cuEnv;
-    } catch (err) {
-      console.error('[Iris] Computer Use 初始化失败:');
-      console.error(err);
-      console.error('[Iris] 已跳过 Computer Use，其余功能正常启动。');
-    }
-  }
-
-  // 记录 CU 初始快照，防止后续无关配置保存时误触发 sidecar 重启
-  const rawData = loadRawConfigDir(configDir);
-  initCuConfigSnapshot(rawData.computer_use);
+  /** 由 CU 扩展插件在 onReady 中设置 */
+  let computerEnv: Computer | undefined;
 
   // ---- 3.5 注册子代理工具 ----
   const subAgentTypes = new SubAgentTypeRegistry();
@@ -348,8 +301,8 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
       prompt,
       config,
       mcpManager,
-      computerEnv,
       ocrService,
+      computerEnv: undefined,
       extensions,
       pluginManager,
       eventBus,
@@ -358,6 +311,8 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
       registerWebRoute: registerDeferredWebRoute,
     };
     await pluginManager.notifyReady(irisAPI);
+    // 同步插件在 onReady 中设置的 computerEnv
+    computerEnv = irisAPI.computerEnv;
   }
 
   return {

@@ -151,6 +151,16 @@ export interface PreBootstrapContext {
   getLogger(tag?: string): PluginLogger;
   /** 读取插件配置 */
   getPluginConfig<T = Record<string, unknown>>(): T | undefined;
+
+  /** 获取宿主配置目录的绝对路径 */
+  getConfigDir(): string;
+  /**
+   * 确保一个配置文件存在于宿主配置目录中。
+   * 文件已存在时返回 false；文件不存在时写入内容并返回 true。
+   */
+  ensureConfigFile(filename: string, content: string): boolean;
+  /** 从宿主配置目录读取指定 YAML 配置段（不含 .yaml 后缀） */
+  readConfigSection(section: string): Record<string, unknown> | undefined;
 }
 
 // ============ 插件上下文 ============
@@ -228,6 +238,14 @@ export interface PluginContext {
   getLogger(tag?: string): PluginLogger;
   /** 读取插件配置（插件目录 config.yaml + plugins.yaml 中 config 字段的合并结果） */
   getPluginConfig<T = Record<string, unknown>>(): T | undefined;
+  /** 获取当前扩展的根目录绝对路径（仅扩展插件有效，内联插件返回 undefined） */
+  getExtensionRootDir(): string | undefined;
+  /** 获取宿主配置目录的绝对路径 */
+  getConfigDir(): string;
+  /** 确保一个配置文件存在于宿主配置目录中 */
+  ensureConfigFile(filename: string, content: string): boolean;
+  /** 从宿主配置目录读取指定 YAML 配置段 */
+  readConfigSection(section: string): Record<string, unknown> | undefined;
 }
 
 // ============ 工具拦截 ============
@@ -321,6 +339,14 @@ export interface PluginHook {
   onSessionClear?(params: {
     sessionId: string;
   }): Promise<void> | void;
+
+  /**
+   * 配置文件变化时调用。
+   * 插件可在此钩子中读取新配置并重新初始化资源。
+   * @param params.config 重载后的最新 AppConfig（只读）
+   * @param params.rawMergedConfig 合并后的原始配置数据（未经类型解析）
+   */
+  onConfigReload?(params: { config: Readonly<AppConfig>; rawMergedConfig: Record<string, unknown> }): Promise<void> | void;
 }
 
 /** 工具执行拦截结果 */

@@ -1,4 +1,11 @@
-# Computer Use 配置
+/**
+ * Computer Use 默认配置模板
+ *
+ * 当宿主配置目录中不存在 computer_use.yaml 时，
+ * 插件通过 ensureConfigFile() 将该模板写入。
+ */
+
+export const DEFAULT_CONFIG_TEMPLATE = `# Computer Use 配置
 #
 # 启用后，LLM 可通过一组预定义工具操控浏览器或桌面。
 # 工具包括 get_screenshot、click_at、type_text_at、scroll_document 等，
@@ -88,77 +95,19 @@ headless: false
 # 默认为全屏模式（截取整个桌面，操作范围不受限制）。
 # 如需限定在某个应用窗口内，设置 targetWindow 即可。
 #
-# targetWindow 仅作为启动时首次绑定的条件。
-# 找到窗口后会锁定到该窗口的原生句柄（HWND），后续操作不依赖标题。
-# 运行时可通过 /window 指令切换绑定到其他窗口。
-#
-# ── 字符串形式 ──
-#
-# 填一个字符串，按标题子串匹配，取第一个匹配的窗口。
-# 大部分场景用这个就够了。
-#
-# 设置后：
+# 目标窗口标题（子串匹配）。设置后：
 #   - 截屏只截取该窗口区域
 #   - 鼠标坐标自动偏移到窗口位置
 #   - 操作前自动将窗口置于前台（后台模式除外）
 #   - screenSize 返回窗口尺寸（LLM 的坐标归一化基于窗口尺寸）
+# 不设置则为全屏模式。
 #
 # 示例：
 #   targetWindow: "记事本"       # 匹配标题包含"记事本"的窗口
 #   targetWindow: "Chrome"       # 匹配标题包含 Chrome 的窗口
 #   targetWindow: "Visual Studio Code"
-#
-# ── 对象形式 ──
-#
-# 字符串形式不够精确时，改用对象形式。
-#
-# hwnd 优先级最高：填了 hwnd 就直接用它定位，忽略其他所有字段。
-# 其他字段填了多个时，必须全部满足才算匹配。
-# 如果匹配到多个窗口，自动选第一个。
-#
-# 字段说明：
-#
-#   hwnd          窗口句柄，如 "0x00120ABC"。最精确，填了就忽略其他字段。
-#                 可通过 /window 指令查看。注意 HWND 在窗口关闭后会变。
-#   title         标题包含这个文字就算匹配（不区分大小写）
-#   exactTitle    标题必须完全一致才算匹配（区分大小写）
-#   processName   进程名（不带 .exe），比如 WindowsTerminal、notepad
-#   processId     进程 PID，比如 1232。注意 PID 在进程重启后会变。
-#   className     窗口类名，比如 CASCADIA_HOSTING_WINDOW_CLASS
-#
-# 怎么查看这些值：
-#   运行时在 TUI 里输入 /window，列表会显示每个窗口的标题、进程名、PID、HWND。
-#
-# 示例：
-#
-#   # 最精确：直接用 HWND（通过 /window 查看后填入）
-#   targetWindow:
-#     hwnd: "0x00120ABC"
-#
-#   # 按标题 + 进程名匹配
-#   targetWindow:
-#     title: "PowerShell"
-#     processName: "WindowsTerminal"
-#
-#   # 按 PID 指定
-#   targetWindow:
-#     processId: 1232
-#
-# 多个窗口匹配时（比如同一个 WindowsTerminal 下开了三个标签页，
-# title、processName、processId 全一样），自动绑定第一个。
-# 如果绑错了，有两种办法：
-#   - 在配置里填 hwnd，精确指定（通过 /window 查看后填入）
-#   - 启动后用 /window 手动切换
-#
 # targetWindow:
-
-
-# 运行时切换窗口：
-#   在 TUI 中输入 /window 打开当前可见窗口列表，选择后绑定。
-#   输入 /window <关键词> 可预填搜索文本，按标题或进程名过滤。
-#   绑定时直接用窗口的 HWND 精确定位，不受标题重复影响。
 #
-# 不设置 targetWindow 则为全屏模式。
 # 注意：全屏模式下 AI 的操作范围不受限制，请谨慎使用。
 # 建议将 key_combination 等高风险工具设为 autoApprove: false（在 tools.yaml 中配置）。
 
@@ -194,3 +143,4 @@ headless: false
 # 设为 0 表示不保留任何截图（仅保留 URL 等文本信息）。
 # 不设置或注释掉则使用默认值 3。
 maxRecentScreenshots: 3
+`;

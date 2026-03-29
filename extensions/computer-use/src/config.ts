@@ -1,10 +1,11 @@
 /**
  * Computer Use 配置解析
  *
- * @deprecated 该模块已迁移至 extensions/computer-use 扩展插件。宿主侧保留用于向后兼容。
+ * 从宿主 src/config/computer-use.ts 迁移。
+ * 类型定义已内化到 ./types.ts。
  */
 
-import { ComputerUseConfig, CUToolPolicy, WindowSelector } from './types';
+import type { ComputerUseConfig, CUToolPolicy, WindowSelector } from './types';
 
 function parseStringArray(arr: unknown): string[] | undefined {
   if (!Array.isArray(arr)) return undefined;
@@ -31,7 +32,6 @@ function parseTargetWindow(raw: unknown): string | WindowSelector | undefined {
     if (typeof obj.processName === 'string') selector.processName = obj.processName;
     if (typeof obj.processId === 'number') selector.processId = obj.processId;
     if (typeof obj.className === 'string') selector.className = obj.className;
-    // 至少有一个有效字段才视为合法选择器
     if (Object.keys(selector).length === 0) return undefined;
     return selector;
   }
@@ -42,7 +42,6 @@ export function parseComputerUseConfig(raw: any): ComputerUseConfig | undefined 
   if (!raw || typeof raw !== 'object') return undefined;
   if (!raw.enabled) return undefined;
 
-  // 解析 environmentTools
   let environmentTools: ComputerUseConfig['environmentTools'];
   if (raw.environmentTools && typeof raw.environmentTools === 'object') {
     const et = raw.environmentTools;

@@ -96,6 +96,29 @@ export interface PreBootstrapContext {
   getExtensions(): BootstrapExtensionRegistryLike;
   getLogger(tag?: string): PluginLogger;
   getPluginConfig<T = Record<string, unknown>>(): T | undefined;
+
+  /**
+   * 获取宿主配置目录的绝对路径。
+   * 例如 ~/.iris/configs/ 或 Agent 专属的配置目录。
+   */
+  getConfigDir(): string;
+
+  /**
+   * 确保一个配置文件存在于宿主配置目录中。
+   * 文件已存在时不做任何修改，返回 false。
+   * 文件不存在时写入提供的内容，返回 true。
+   * 用于扩展在首次运行时安装默认配置模板。
+   * @param filename 文件名（含扩展名），如 'computer_use.yaml'
+   * @param content 默认 YAML 内容字符串
+   */
+  ensureConfigFile(filename: string, content: string): boolean;
+
+  /**
+   * 从宿主配置目录读取指定 YAML 配置段。
+   * @param section 配置段名称（不含 .yaml 后缀），如 'computer_use'
+   * @returns 解析后的对象，文件不存在时返回 undefined
+   */
+  readConfigSection(section: string): Record<string, unknown> | undefined;
 }
 
 export type ToolWrapper = (
@@ -119,6 +142,14 @@ export interface PluginHook {
   onAfterLLMCall?(params: { content: Content; round: number }): Promise<{ content: Content } | undefined> | { content: Content } | undefined;
   onSessionCreate?(params: { sessionId: string }): Promise<void> | void;
   onSessionClear?(params: { sessionId: string }): Promise<void> | void;
+
+  /**
+   * 配置文件变化时调用。
+   * 插件可在此钩子中读取新配置并重新初始化资源。
+   * @param params.config 重载后的最新 AppConfig
+   * @param params.rawMergedConfig 合并后的原始配置数据（未经类型解析）
+   */
+  onConfigReload?(params: { config: Readonly<Record<string, unknown>>; rawMergedConfig: Record<string, unknown> }): Promise<void> | void;
 }
 
 export interface PluginContext {
@@ -137,6 +168,17 @@ export interface PluginContext {
   getConfig(): Readonly<Record<string, unknown>>;
   getLogger(tag?: string): PluginLogger;
   getPluginConfig<T = Record<string, unknown>>(): T | undefined;
+  /** 获取当前扩展的根目录绝对路径（仅扩展插件有效，内联插件返回 undefined） */
+  getExtensionRootDir(): string | undefined;
+  /** 获取宿主配置目录的绝对路径 */
+  getConfigDir(): string;
+  /**
+   * 确保一个配置文件存在于宿主配置目录中。
+   * 文件已存在时返回 false；文件不存在时写入内容并返回 true。
+   */
+  ensureConfigFile(filename: string, content: string): boolean;
+  /** 从宿主配置目录读取指定 YAML 配置段（不含 .yaml 后缀） */
+  readConfigSection(section: string): Record<string, unknown> | undefined;
 }
 
 export interface IrisPlugin {

@@ -29,6 +29,7 @@ const logger = createLogger('PluginManager');
 interface PreparedPlugin {
   entry: PluginEntry;
   plugin: IrisPlugin;
+  extensionRootDir?: string;
   pluginConfig?: Record<string, unknown>;
 }
 
@@ -41,6 +42,11 @@ export class PluginManager {
   private prepared: PreparedPlugin[] = [];
   /** 在 notifyReady 中缓存 IrisAPI 引用，供 notifyPlatformsReady 使用 */
   private _api?: IrisAPI;
+  /** 宿主配置目录（由 bootstrap 设置） */
+  private _configDir?: string;
+
+  /** 设置宿主配置目录（供 bootstrap 调用） */
+  setConfigDir(dir: string): void { this._configDir = dir; }
 
   /**
    * 预加载所有配置中启用的插件。
@@ -58,7 +64,8 @@ export class PluginManager {
       try {
         const resolved = await this.resolvePlugin(entry);
         const pluginConfig = this.loadPluginConfig(entry, resolved.localSource);
-        this.prepared.push({ entry, plugin: resolved.plugin, pluginConfig });
+        const extensionRootDir = resolved.localSource?.rootDir;
+        this.prepared.push({ entry, plugin: resolved.plugin, pluginConfig, extensionRootDir });
       } catch (err) {
         logger.error(`插件 "${entry.name}" 预加载失败:`, err);
       }
@@ -105,6 +112,7 @@ export class PluginManager {
           appConfig,
           extensions,
           prepared.pluginConfig,
+          this._configDir,
         );
         await prepared.plugin.preBootstrap(context);
         logger.info(`插件 "${prepared.plugin.name}@${prepared.plugin.version}" 已完成 preBootstrap`);
@@ -227,6 +235,22 @@ export class PluginManager {
     return this.plugins.size;
   }
 
+  /**
+   * 触发所有已注册的 onConfigReload 钩子。
+   * 在 applyRuntimeConfigReload 末尾调用。
+   */
+  async invokeConfigReloadHooks(appConfig: Readonly<AppConfig>, rawMergedConfig: Record<string, unknown>): Promise<void> {
+    const hooks = this.getHooks();
+    for (const hook of hooks) {
+      if (typeof hook.onConfigReload !== 'function') continue;
+      try {
+        await hook.onConfigReload({ config: appConfig, rawMergedConfig });
+      } catch (err) {
+        logger.error(`插件钩子 "${hook.name}" onConfigReload 执行失败:`, err);
+      }
+    }
+  }
+
   // ============ 私有方法 ============
 
   private async activatePrepared(
@@ -247,6 +271,8 @@ export class PluginManager {
       appConfig,
       internals.prompt,
       prepared.pluginConfig,
+      prepared.extensionRootDir,
+      this._configDir,
     );
 
     await prepared.plugin.activate(context);

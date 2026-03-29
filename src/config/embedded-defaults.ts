@@ -130,15 +130,6 @@ types:
 # model: gpt-4o-mini
 `,
 
-  'computer_use.yaml': `# Computer Use 配置
-enabled: false
-environment: browser
-screenWidth: 1440
-screenHeight: 900
-headless: false
-maxRecentScreenshots: 3
-`,
-
   'plugins.yaml': `# 插件配置
 # plugins:
 #   - name: my-tool

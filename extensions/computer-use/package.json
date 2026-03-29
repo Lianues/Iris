@@ -1,0 +1,17 @@
+{
+  "name": "@iris-extension/computer-use",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run build:plugin && bun run build:sidecar:browser && bun run build:sidecar:screen",
+    "build:plugin": "bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --external=playwright",
+    "build:sidecar:browser": "bun build ./src/browser-sidecar.ts --outfile ./dist/browser-sidecar.mjs --target=node --format=esm --external=playwright",
+    "build:sidecar:screen": "bun build ./src/screen-sidecar.ts --outfile ./dist/screen-sidecar.mjs --target=node --format=esm"
+  },
+  "dependencies": {
+    "@irises/extension-sdk": "file:../../packages/extension-sdk"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.52.0"
+  }
+}

@@ -243,6 +243,7 @@ export interface MCPConfig {
   servers: Record<string, MCPServerConfig>;
 }
 
+/** @deprecated 已迁移至 extensions/computer-use 扩展插件，宿主侧保留用于向后兼容 */
 export interface ComputerUseConfig {
   /** 是否启用 Computer Use，默认 false */
   enabled: boolean;
