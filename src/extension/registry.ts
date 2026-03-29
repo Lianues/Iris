@@ -23,23 +23,15 @@ import type {
   ExtensionSource,
   ResolvedLocalPlugin,
 } from './types';
+import { isDirectory, MANIFEST_FILE, resolveSafeRelativePath } from './utils';
 
 const logger = createLogger('ExtensionRegistry');
 const DEFAULT_PLUGIN_ENTRY_CANDIDATES = ['index.ts', 'index.js', 'index.mjs'];
-const MANIFEST_FILE = 'manifest.json';
 const DISABLED_MARKER_FILE = '.disabled';
 
 interface ExtensionSearchDirectory {
   dir: string;
   source: ExtensionSource;
-}
-
-function isDirectory(dirPath: string): boolean {
-  try {
-    return fs.statSync(dirPath).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 function getExtensionSearchDirectories(): ExtensionSearchDirectory[] {
@@ -54,18 +46,6 @@ function getExtensionSearchDirectories(): ExtensionSearchDirectory[] {
   }
 
   return dirs;
-}
-
-function resolveSafeRelativePath(rootDir: string, relativePath: string): string {
-  const normalizedRoot = path.resolve(rootDir);
-  const resolvedPath = path.resolve(normalizedRoot, relativePath);
-  const rel = path.relative(normalizedRoot, resolvedPath);
-
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error(`路径越界: ${relativePath}`);
-  }
-
-  return resolvedPath;
 }
 
 function resolveOptionalFile(rootDir: string, relativePath: string | undefined, strict = false): string | undefined {

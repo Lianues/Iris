@@ -9,12 +9,12 @@ import type {
   ExtensionInstallFallbackReason,
   InstalledExtensionResult,
 } from './types';
+import { isDirectory, MANIFEST_FILE, parseExtensionManifest, readManifestFromDir, resolveSafeRelativePath } from './utils';
 
 const logger = createLogger('ExtensionInstaller');
 const DEFAULT_REMOTE_EXTENSION_INDEX_URL = 'https://raw.githubusercontent.com/Lianues/Iris/main/extensions/index.json';
 const DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL = 'https://raw.githubusercontent.com/Lianues/Iris/main';
 const DEFAULT_REMOTE_EXTENSIONS_SUBDIR = 'extensions';
-const MANIFEST_FILE = 'manifest.json';
 
 interface RemoteIndexLike {
   extensions?: string[];
@@ -107,24 +107,6 @@ function normalizeRequestedExtensionPath(requested: string, label: string): stri
   return normalizeRelativeFilePath(normalized, label);
 }
 
-function isDirectory(dirPath: string): boolean {
-  try {
-    return fs.statSync(dirPath).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function resolveSafeRelativePath(rootDir: string, relativePath: string): string {
-  const normalizedRoot = path.resolve(rootDir);
-  const resolvedPath = path.resolve(normalizedRoot, relativePath);
-  const rel = path.relative(normalizedRoot, resolvedPath);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error(`路径越界: ${relativePath}`);
-  }
-  return resolvedPath;
-}
-
 function ensureDirectory(dirPath: string): void {
   fs.mkdirSync(dirPath, { recursive: true });
 }
@@ -175,32 +157,6 @@ function finalizeInstall(
     fallbackReason: extras.fallbackReason,
     fallbackDetail: extras.fallbackDetail,
   };
-}
-
-function parseExtensionManifest(raw: unknown, sourceLabel: string): ExtensionManifest {
-  if (!raw || typeof raw !== 'object') {
-    throw new Error(`extension manifest 格式无效，应为对象: ${sourceLabel}`);
-  }
-  const manifest = raw as Record<string, unknown>;
-  if (typeof manifest.name !== 'string' || !manifest.name.trim()) {
-    throw new Error(`extension manifest 缺少 name: ${sourceLabel}`);
-  }
-  if (typeof manifest.version !== 'string' || !manifest.version.trim()) {
-    throw new Error(`extension manifest 缺少 version: ${sourceLabel}`);
-  }
-  return manifest as unknown as ExtensionManifest;
-}
-
-function readManifestFromDir(rootDir: string): ExtensionManifest | undefined {
-  const manifestPath = path.join(rootDir, MANIFEST_FILE);
-  if (!fs.existsSync(manifestPath)) return undefined;
-  try {
-    const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-    return parseExtensionManifest(raw, manifestPath);
-  } catch (err) {
-    logger.warn(`extension manifest 读取失败: ${manifestPath}`, err);
-    return undefined;
-  }
 }
 
 function isPathLike(requested: string): boolean {

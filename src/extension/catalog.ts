@@ -2,8 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { assertInstallableExtensionPackage } from './dependencies';
 import type { ExtensionManifest } from './types';
+import { MANIFEST_FILE, readManifestFromDirStrict } from './utils';
 
-const MANIFEST_FILE = 'manifest.json';
 const INDEX_FILE = 'index.json';
 const LEGACY_CATALOG_FILE = 'catalog.json';
 const EXCLUDED_DIRECTORY_NAMES = new Set(['src', 'node_modules', '.git']);
@@ -33,35 +33,6 @@ export interface SyncExtensionMetadataResult {
 
 function normalizeRelativePath(filePath: string): string {
   return filePath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
-}
-
-function parseExtensionManifest(raw: unknown, sourceLabel: string): ExtensionManifest {
-  if (!raw || typeof raw !== 'object') {
-    throw new Error(`extension manifest 格式无效，应为对象: ${sourceLabel}`);
-  }
-
-  const manifest = raw as Record<string, unknown>;
-  if (typeof manifest.name !== 'string' || !manifest.name.trim()) {
-    throw new Error(`extension manifest 缺少 name: ${sourceLabel}`);
-  }
-  if (typeof manifest.version !== 'string' || !manifest.version.trim()) {
-    throw new Error(`extension manifest 缺少 version: ${sourceLabel}`);
-  }
-
-  return manifest as unknown as ExtensionManifest;
-}
-
-function readManifestJson(manifestPath: string): ExtensionManifest {
-  return parseExtensionManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf8')), manifestPath);
-}
-
-function readManifestFromDir(rootDir: string): ExtensionManifest {
-  const manifestPath = path.join(rootDir, MANIFEST_FILE);
-  if (!fs.existsSync(manifestPath)) {
-    throw new Error(`extension 缺少 manifest.json: ${rootDir}`);
-  }
-
-  return readManifestJson(manifestPath);
 }
 
 function shouldExcludeFile(relativePath: string): boolean {
@@ -143,7 +114,7 @@ function writeFileIfChanged(filePath: string, content: string): boolean {
 }
 
 export function buildExtensionManifestWithDistribution(extensionDir: string): ExtensionManifest {
-  const manifest = readManifestFromDir(extensionDir);
+  const manifest = readManifestFromDirStrict(extensionDir);
   assertInstallableExtensionPackage(extensionDir, manifest);
 
   return {
