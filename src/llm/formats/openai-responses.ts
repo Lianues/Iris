@@ -175,11 +175,17 @@ export class OpenAIResponsesFormat implements FormatAdapter {
 
     return {
       content: { role: 'model', parts },
-      usageMetadata: data.usage ? {
-        promptTokenCount: data.usage.input_tokens,
-        candidatesTokenCount: data.usage.output_tokens,
-        totalTokenCount: data.usage.total_tokens,
-      } : undefined,
+      usageMetadata: data.usage
+        ? (() => {
+            const cached = data.usage.input_tokens_details?.cached_tokens ?? 0;
+            return {
+              promptTokenCount: data.usage.input_tokens,
+              ...(cached > 0 ? { cachedContentTokenCount: cached } : {}),
+              candidatesTokenCount: data.usage.output_tokens,
+              totalTokenCount: data.usage.total_tokens,
+            };
+          })()
+        : undefined,
     };
   }
 
@@ -241,6 +247,9 @@ export class OpenAIResponsesFormat implements FormatAdapter {
       if (usage) {
         chunk.usageMetadata = {
           promptTokenCount: usage.input_tokens,
+          ...((usage.input_tokens_details?.cached_tokens ?? 0) > 0
+            ? { cachedContentTokenCount: usage.input_tokens_details.cached_tokens }
+            : {}),
           candidatesTokenCount: usage.output_tokens,
           totalTokenCount: usage.total_tokens,
         };

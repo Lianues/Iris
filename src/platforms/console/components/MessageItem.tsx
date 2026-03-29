@@ -68,6 +68,7 @@ export interface ChatMessage {
   isCommand?: boolean;
   parts: MessagePart[];
   tokenIn?: number;
+  cachedTokenIn?: number;
   tokenOut?: number;
   durationMs?: number;
   streamOutputDurationMs?: number;
@@ -240,7 +241,7 @@ export const MessageItem = React.memo(function MessageItem(
           <box marginTop={hasAnyContent ? 1 : 0}>
             <text fg={C.dim}>
               {msg.createdAt != null ? formatTime(msg.createdAt) : ''}
-              {msg.tokenIn != null ? `  \u2191${msg.tokenIn.toLocaleString()}` : ''}
+              {msg.tokenIn != null ? `  \u2191${msg.tokenIn.toLocaleString()}${msg.cachedTokenIn ? `(${msg.cachedTokenIn.toLocaleString()})` : ''}` : ''}
             </text>
           </box>
         )}
@@ -251,7 +252,7 @@ export const MessageItem = React.memo(function MessageItem(
             <text fg={C.dim}>
               {msg.createdAt != null ? formatTime(msg.createdAt) : ''}
               {msg.durationMs != null ? `  ${(msg.durationMs / 1000).toFixed(1)}s` : ''}
-              {msg.tokenIn != null ? `  \u2191${msg.tokenIn.toLocaleString()}` : ''}
+              {msg.tokenIn != null ? `  \u2191${msg.tokenIn.toLocaleString()}${msg.cachedTokenIn ? `(${msg.cachedTokenIn.toLocaleString()})` : ''}` : ''}
               {msg.tokenOut != null ? `  \u2193${msg.tokenOut.toLocaleString()}` : ''}
               {msg.tokenOut != null && msg.streamOutputDurationMs != null
                 ? `   ${formatTokenSpeed(msg.tokenOut, msg.streamOutputDurationMs)}`

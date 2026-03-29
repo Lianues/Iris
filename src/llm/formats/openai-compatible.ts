@@ -198,11 +198,15 @@ export class OpenAICompatibleFormat implements FormatAdapter {
       content: { role: 'model', parts },
       finishReason: choice.finish_reason,
       usageMetadata: data.usage
-        ? {
+        ? (() => {
+            const cached = data.usage.prompt_tokens_details?.cached_tokens ?? 0;
+            return {
             promptTokenCount: data.usage.prompt_tokens,
+            ...(cached > 0 ? { cachedContentTokenCount: cached } : {}),
             candidatesTokenCount: data.usage.completion_tokens,
             totalTokenCount: data.usage.total_tokens,
-          }
+            };
+          })()
         : undefined,
     };
   }
@@ -258,6 +262,9 @@ export class OpenAICompatibleFormat implements FormatAdapter {
     if (data.usage) {
       chunk.usageMetadata = {
         promptTokenCount: data.usage.prompt_tokens,
+        ...((data.usage.prompt_tokens_details?.cached_tokens ?? 0) > 0
+          ? { cachedContentTokenCount: data.usage.prompt_tokens_details.cached_tokens }
+          : {}),
         candidatesTokenCount: data.usage.completion_tokens,
         totalTokenCount: data.usage.total_tokens,
       };

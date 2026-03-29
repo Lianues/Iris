@@ -248,6 +248,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
           copy[copy.length - 1] = {
             ...last,
             tokenIn: usage?.promptTokenCount,
+            cachedTokenIn: usage?.cachedContentTokenCount,
             tokenOut: usage?.candidatesTokenCount,
             durationMs,
           };
