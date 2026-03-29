@@ -3,7 +3,22 @@
  */
 
 import type { OCRConfig } from './ocr';
-import type { PairingConfig } from '@irises/extension-sdk/pairing';
+
+/**
+ * 对码（Pairing）配置。
+ *
+ * 原先从 @irises/extension-sdk/pairing 导入，但该 SDK 包需要先构建才能被 TS 解析。
+ * 为避免宿主对未构建的 SDK 包产生硬依赖，将此类型内联到宿主代码中。
+ * 语义与 packages/extension-sdk/src/pairing/types.ts 中的 PairingConfig 保持一致。
+ */
+export interface PairingConfig {
+  /** DM 策略：pairing = 需要对码（默认）| allowlist = 仅白名单 | open = 任何人 */
+  dmPolicy: 'pairing' | 'allowlist' | 'open';
+  /** 管理员 ID，格式 <platform>:<userId>（可选，直接指定则跳过首次对码） */
+  admin?: string;
+  /** 预设白名单，格式 <platform>:<userId>（可选） */
+  allowFrom?: string[];
+}
 
 export interface LLMConfig {
   provider: string;
