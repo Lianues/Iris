@@ -5,17 +5,14 @@
  */
 
 import { LLMProvider } from './base';
+import type { LLMConfig } from '../../config/types';
 import { OpenAIResponsesFormat } from '../formats/openai-responses';
 
-export interface OpenAIResponsesProviderConfig {
-  apiKey: string;
-  model: string;
-  baseUrl?: string;
-  headers?: Record<string, string>;
-  requestBody?: Record<string, unknown>;
-}
-
-export function createOpenAIResponsesProvider(config: OpenAIResponsesProviderConfig): LLMProvider {
+/**
+ * 创建 OpenAI Responses Provider。
+ * 修改原因：直接接收 LLMConfig，消除手动字段映射，实现单一信息源。
+ */
+export function createOpenAIResponsesProvider(config: LLMConfig): LLMProvider {
   const baseUrl = (config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
   // OpenAI Responses API 路径
   const url = `${baseUrl}/responses`;

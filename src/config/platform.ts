@@ -61,22 +61,12 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
     };
   };
 
-  return {
-    ...source,
+  // 保留字段名，不作为扩展平台配置
+  const RESERVED_KEYS = new Set(['type', 'pairing', 'web']);
+
+  const result: Record<string, unknown> = {
     types: parseTypes(source.type),
     pairing: globalPairing,
-    discord: {
-      token: source.discord?.token ?? '',
-      lastModel: source.discord?.lastModel,
-      pairing: parsePairingOverride(source.discord?.pairing),
-    },
-    telegram: {
-      token: source.telegram?.token ?? '',
-      lastModel: source.telegram?.lastModel,
-      showToolStatus: source.telegram?.showToolStatus !== false,
-      groupMentionRequired: source.telegram?.groupMentionRequired !== false,
-      pairing: parsePairingOverride(source.telegram?.pairing),
-    },
     web: {
       port: source.web?.port ?? 8192,
       host: source.web?.host ?? '127.0.0.1',
@@ -84,39 +74,30 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
       authToken: source.web?.authToken,
       managementToken: source.web?.managementToken,
     },
-    wxwork: {
-      botId: source.wxwork?.botId ?? '',
-      secret: source.wxwork?.secret ?? '',
-      lastModel: source.wxwork?.lastModel,
-      showToolStatus: source.wxwork?.showToolStatus !== false,
-      pairing: parsePairingOverride(source.wxwork?.pairing),
-    },
-    lark: {
-      appId: source.lark?.appId ?? '',
-      appSecret: source.lark?.appSecret ?? '',
-      lastModel: source.lark?.lastModel,
-      verificationToken: source.lark?.verificationToken,
-      encryptKey: source.lark?.encryptKey,
-      showToolStatus: source.lark?.showToolStatus !== false,
-      pairing: parsePairingOverride(source.lark?.pairing),
-    },
-    weixin: {
-      botToken: source.weixin?.botToken ?? '',
-      lastModel: source.weixin?.lastModel,
-      baseUrl: source.weixin?.baseUrl,
-      showToolStatus: source.weixin?.showToolStatus !== false,
-      pairing: parsePairingOverride(source.weixin?.pairing),
-    },
-    qq: {
-      wsUrl: source.qq?.wsUrl ?? 'ws://127.0.0.1:3001',
-      lastModel: source.qq?.lastModel,
-      accessToken: source.qq?.accessToken,
-      selfId: source.qq?.selfId ?? '',
-      groupMode: source.qq?.groupMode ?? 'at',
-      showToolStatus: source.qq?.showToolStatus !== false,
-      pairing: parsePairingOverride(source.qq?.pairing),
-    },
-  } as PlatformConfig;
+  };
+
+  // 动态透传扩展平台配置
+  // 修改原因：平台已迁移到扩展系统，宿主不再为每个扩展平台硬编码默认值。
+  // 用户在 platform.yaml 中配置的任何平台节点都会被原样透传。
+  // 扩展运行时通过 getPlatformConfig(context, name) 获取并自行解析。
+  for (const [key, value] of Object.entries(source)) {
+    if (RESERVED_KEYS.has(key)) continue;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const platformSection = { ...value as Record<string, unknown> };
+      // 自动合并 pairing 配置：扩展平台如果声明了 pairing 子字段，与全局 pairing 合并
+      if ('pairing' in platformSection) {
+        platformSection.pairing = parsePairingOverride(platformSection.pairing);
+      } else {
+        platformSection.pairing = globalPairing;
+      }
+      result[key] = platformSection;
+    } else {
+      // 非对象值原样保留（虽然通常不会出现）
+      result[key] = value;
+    }
+  }
+
+  return result as PlatformConfig;
 }
 
 

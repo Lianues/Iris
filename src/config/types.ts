@@ -3,7 +3,22 @@
  */
 
 import type { OCRConfig } from './ocr';
-import type { PairingConfig } from '@irises/extension-sdk/pairing';
+
+/**
+ * 对码（Pairing）配置。
+ *
+ * 原先从 @irises/extension-sdk/pairing 导入，但该 SDK 包需要先构建才能被 TS 解析。
+ * 为避免宿主对未构建的 SDK 包产生硬依赖，将此类型内联到宿主代码中。
+ * 语义与 packages/extension-sdk/src/pairing/types.ts 中的 PairingConfig 保持一致。
+ */
+export interface PairingConfig {
+  /** DM 策略：pairing = 需要对码（默认）| allowlist = 仅白名单 | open = 任何人 */
+  dmPolicy: 'pairing' | 'allowlist' | 'open';
+  /** 管理员 ID，格式 <platform>:<userId>（可选，直接指定则跳过首次对码） */
+  admin?: string;
+  /** 预设白名单，格式 <platform>:<userId>（可选） */
+  allowFrom?: string[];
+}
 
 export interface LLMConfig {
   provider: string;
@@ -74,99 +89,31 @@ export interface LLMRegistryConfig {
   models: LLMModelDef[];
 }
 
+export interface WebPlatformConfig {
+  port: number;
+  host: string;
+  /** 上次使用的模型名称（自动管理） */
+  lastModel?: string;
+  /** 全局 API 认证令牌（可选） */
+  authToken?: string;
+  /** 管理面令牌（可选，启用后 /api/config 需 X-Management-Token） */
+  managementToken?: string;
+}
+
 export interface PlatformConfig {
   /** 启动的平台类型列表（兼容单字符串和数组写法；支持插件平台注册的自定义平台） */
   types: string[];
   /** 全局对码配置 */
   pairing?: PairingConfig;
-  discord: {
-    token: string;
-    /** 上次使用的模型名称（自动管理，rememberPlatformModel 启用时写入） */
-    lastModel?: string;
-    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
-    pairing?: PairingConfig;
-  };
-  telegram: {
-    token: string;
-    /** 上次使用的模型名称（自动管理） */
-    lastModel?: string;
-    /**
-     * 是否在 Telegram 输出中展示工具状态。
-     * 目的：为后续与飞书对齐的流式 / 审批 / MCP 状态展示预留统一开关。
-     */
-    showToolStatus?: boolean;
-    /** 群聊中是否必须显式 @ 机器人后才响应，默认 true。 */
-    groupMentionRequired?: boolean;
-    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
-    pairing?: PairingConfig;
-  };
-  web: {
-    port: number;
-    host: string;
-    /** 上次使用的模型名称（自动管理） */
-    lastModel?: string;
-    /** 全局 API 认证令牌（可选） */
-    authToken?: string;
-    /** 管理面令牌（可选，启用后 /api/config 需 X-Management-Token） */
-    managementToken?: string;
-  };
-  wxwork: {
-    botId: string;
-    secret: string;
-    /** 上次使用的模型名称（自动管理） */
-    lastModel?: string;
-    /** 是否在流式回复中展示工具执行状态（默认 true） */
-    showToolStatus?: boolean;
-    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
-    pairing?: PairingConfig;
-  };
-  lark: {
-    /**
-     * 飞书自建应用 App ID。
-     * 目的：后续 Phase 1 会用它初始化官方 SDK 的 API Client 和 WebSocket Client。
-     */
-    appId: string;
-    /** 飞书自建应用 App Secret，用于调用 OpenAPI 和建立长连接。 */
-    appSecret: string;
-    /** 上次使用的模型名称（自动管理） */
-    lastModel?: string;
-    /** 可选：Webhook 模式验签 token；当前预留字段，便于后续扩展。 */
-    verificationToken?: string;
-    /** 可选：Webhook 模式消息解密 key；当前预留字段，便于后续扩展。 */
-    encryptKey?: string;
-    /** 是否在流式回复中展示工具执行状态（默认 true）。 */
-    showToolStatus?: boolean;
-    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
-    pairing?: PairingConfig;
-  };
-  weixin: {
-    /** ilink Bot Token（扫码登录后获取） */
-    botToken?: string;
-    /** 上次使用的模型名称（自动管理） */
-    lastModel?: string;
-    /** 可选：覆盖 API 基地址（默认 https://ilinkai.weixin.qq.com） */
-    baseUrl?: string;
-    /** 是否在回复中展示工具执行状态（默认 true） */
-    showToolStatus?: boolean;
-    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
-    pairing?: PairingConfig;
-  };
-  qq: {
-    /** NapCat OneBot v11 正向 WebSocket 地址 */
-    wsUrl: string;
-    /** 上次使用的模型名称（自动管理） */
-    lastModel?: string;
-    /** OneBot access_token（可选，用于鉴权） */
-    accessToken?: string;
-    /** 机器人自身 QQ 号（用于群聊 @ 判断） */
-    selfId: string;
-    /** 群聊响应模式：'at' = 只响应 @机器人（默认），'all' = 响应所有消息，'off' = 不响应群聊 */
-    groupMode?: 'at' | 'all' | 'off';
-    /** 是否在回复中展示工具执行状态（默认 true） */
-    showToolStatus?: boolean;
-    /** 对码配置（已与全局合并，由 parsePlatformConfig 填充默认值） */
-    pairing?: PairingConfig;
-  };
+  /** 内置 Web 平台配置 */
+  web: WebPlatformConfig;
+  /** 
+   * 扩展平台配置（动态索引）。
+   * 
+   * 修改原因：平台已迁移到扩展系统，宿主不再为每个扩展平台硬编码类型定义。
+   * 扩展运行时通过 context.config.platform[platformName] 获取配置，
+   * 由扩展自身负责解析和设置默认值。
+   */
   [key: string]: unknown;
 }
 
@@ -386,7 +333,7 @@ export interface WindowSelector {
 }
 
 /**
- * Computer Use 单环境工具策略。
+ * Computer Use 单环境工具策略.
  * exclude 和 include 互斥，同时配置时 include 优先。
  */
 export interface CUToolPolicy {

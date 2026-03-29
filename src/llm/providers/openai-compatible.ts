@@ -5,17 +5,14 @@
  */
 
 import { LLMProvider } from './base';
+import type { LLMConfig } from '../../config/types';
 import { OpenAICompatibleFormat } from '../formats/openai-compatible';
 
-export interface OpenAICompatibleProviderConfig {
-  apiKey: string;
-  model?: string;
-  baseUrl?: string;
-  headers?: Record<string, string>;
-  requestBody?: Record<string, unknown>;
-}
-
-export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderConfig): LLMProvider {
+/**
+ * 创建 OpenAI 兼容 Provider。
+ * 修改原因：直接接收 LLMConfig，消除手动字段映射，实现单一信息源。
+ */
+export function createOpenAICompatibleProvider(config: LLMConfig): LLMProvider {
   const model = config.model || 'gpt-4o';
   const baseUrl = (config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
 

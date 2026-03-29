@@ -64,45 +64,16 @@ export interface BootstrapExtensionRegistry {
 }
 
 /** 创建并注册内置扩展 */
-//
-// ⚠️  注意：此处注册的工厂函数才是运行时实际执行的代码路径。
-//    factory.ts 中的 switch-case 仅在 registry 中无对应条目时作为 fallback。
-//    新增 provider 配置字段时，必须同时更新：
-//      1. 本文件 (extensions.ts) — 注册的工厂函数
-//      2. factory.ts — switch-case fallback
-//
 export function createBootstrapExtensionRegistry(): BootstrapExtensionRegistry {
   const llmProviders = new LLMProviderFactoryRegistry();
-  llmProviders.register('gemini', (config) => createGeminiProvider({
-    apiKey: config.apiKey,
-    model: config.model,
-    baseUrl: config.baseUrl,
-    headers: config.headers,
-    requestBody: config.requestBody,
-  }));
-  llmProviders.register('openai-compatible', (config) => createOpenAICompatibleProvider({
-    apiKey: config.apiKey,
-    model: config.model,
-    baseUrl: config.baseUrl,
-    headers: config.headers,
-    requestBody: config.requestBody,
-  }));
-  llmProviders.register('claude', (config) => createClaudeProvider({
-    apiKey: config.apiKey,
-    model: config.model,
-    baseUrl: config.baseUrl,
-    headers: config.headers,
-    requestBody: config.requestBody,
-    promptCaching: config.promptCaching === true,
-    autoCaching: config.autoCaching === true,
-  }));
-  llmProviders.register('openai-responses', (config) => createOpenAIResponsesProvider({
-    apiKey: config.apiKey,
-    model: config.model,
-    baseUrl: config.baseUrl,
-    headers: config.headers,
-    requestBody: config.requestBody,
-  }));
+
+  // 注册内置 LLM Provider
+  // 修改原因：改为透传整个 config 对象，消除手动同步字段的负担。
+  // 字段解构现在由各个 Provider 的 create 函数自行处理。
+  llmProviders.register('gemini', (config) => createGeminiProvider(config));
+  llmProviders.register('openai-compatible', (config) => createOpenAICompatibleProvider(config));
+  llmProviders.register('claude', (config) => createClaudeProvider(config));
+  llmProviders.register('openai-responses', (config) => createOpenAIResponsesProvider(config));
 
   const storageProviders = new StorageFactoryRegistry();
   storageProviders.register('json-file', (config) => new JsonFileStorage(config.dir));
