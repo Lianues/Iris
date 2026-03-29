@@ -23,7 +23,8 @@ describe('Lark Phase 0: parsePlatformConfig', () => {
     expect(config.types).toEqual(['lark']);
     expect(config.lark.appId).toBe('cli_xxx');
     expect(config.lark.appSecret).toBe('secret_xxx');
-    expect(config.lark.showToolStatus).toBe(true);
+    // showToolStatus 默认值由扩展运行时自行处理，parsePlatformConfig 原样透传
+    expect(config.lark.showToolStatus).toBeUndefined();
   });
 });
 

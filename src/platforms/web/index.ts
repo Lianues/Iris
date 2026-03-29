@@ -374,7 +374,7 @@ export class WebPlatform extends PlatformAdapter {
           || pathname.startsWith('/api/config/')
           || pathname.startsWith('/api/deploy/')
           || pathname.startsWith('/api/cloudflare/')
-          || (pathname.startsWith('/api/extensions/') && method !== 'GET')
+          || (pathname.startsWith('/api/extensions/') && req.method !== 'GET')
         ) {
           if (!assertManagementToken(req, res, this.config.managementToken)) {
             return;

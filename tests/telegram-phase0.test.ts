@@ -27,8 +27,9 @@ describe('Telegram Phase 0: parsePlatformConfig', () => {
     });
 
     expect(config.telegram.token).toBe('bot-token');
-    expect(config.telegram.showToolStatus).toBe(true);
-    expect(config.telegram.groupMentionRequired).toBe(true);
+    // showToolStatus / groupMentionRequired 默认值由扩展运行时自行处理，parsePlatformConfig 原样透传
+    expect(config.telegram.showToolStatus).toBeUndefined();
+    expect(config.telegram.groupMentionRequired).toBeUndefined();
   });
 });
 

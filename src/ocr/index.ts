@@ -21,6 +21,7 @@ export class OCRService implements OCRProvider {
 
   constructor(private config: OCRConfig) {
     this.provider = createOpenAICompatibleProvider({
+      provider: this.config.provider,
       apiKey: this.config.apiKey,
       model: this.config.model,
       baseUrl: this.config.baseUrl,
