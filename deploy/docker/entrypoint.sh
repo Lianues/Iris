@@ -43,5 +43,5 @@ fi
 if echo "$IRIS_PLATFORM" | grep -qw "console"; then
   exec /app/bin/iris "$@"
 else
-  exec node dist/index.js "$@"
+  exec node --import ./esm-fix.mjs dist/index.js "$@"
 fi

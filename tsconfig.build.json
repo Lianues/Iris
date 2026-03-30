@@ -2,7 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
-    "allowImportingTsExtensions": false
+    "allowImportingTsExtensions": false,
+    "rootDir": "src"
   },
   "exclude": ["node_modules", "dist", "extensions", "src/platforms/web/web-ui", "src/platforms/console"]
 }
