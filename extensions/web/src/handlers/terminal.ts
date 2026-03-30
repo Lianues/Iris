@@ -12,10 +12,9 @@ import { execSync } from 'child_process';
 import type { Duplex } from 'stream';
 import * as http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createLogger } from '../../../logger';
-import { isCompiledBinary, projectRoot } from '../../../paths';
+import { createExtensionLogger } from '@irises/extension-sdk';
 
-const logger = createLogger('Terminal');
+const logger = createExtensionLogger('Terminal');
 
 let pty: typeof import('node-pty') | null = null;
 try {
@@ -39,7 +38,12 @@ export interface TerminalHandler {
   available: boolean;
 }
 
-export function createTerminalHandler(): TerminalHandler {
+/**
+ * 创建终端处理器
+ * @param isCompiledBinary 是否编译后的二进制发行版
+ * @param projectRoot 项目根目录
+ */
+export function createTerminalHandler(isCompiledBinary = false, projectRoot = process.cwd()): TerminalHandler {
   const sessions = new Map<string, TerminalSession>();
   const wss = new WebSocketServer({ noServer: true });
   let nextId = 1;
@@ -104,8 +108,6 @@ export function createTerminalHandler(): TerminalHandler {
         // 没有 bun：在 PTY 内用 PowerShell 官方脚本安装后启动
         logger.info('未检测到 Bun 运行时，将在终端内自动安装后启动 TUI。');
         if (os.platform() === 'win32') {
-          // 使用 PowerShell + 官方安装脚本，安装到 ~/.bun，然后用完整路径启动
-          // PowerShell 单引号字符串中反斜杠是字面量，不需要转义
           const bunTarget = path.join(os.homedir(), '.bun', 'bin', 'bun.exe');
           spawnCmd = 'powershell.exe';
           spawnArgs = ['-NoProfile', '-Command',
@@ -115,7 +117,6 @@ export function createTerminalHandler(): TerminalHandler {
             `else { Write-Host '[Iris] Bun 安装失败。请手动安装: https://bun.sh'; Read-Host '按 Enter 关闭' }`,
           ];
         } else {
-          // Unix: 使用官方安装脚本
           spawnCmd = process.env.SHELL || '/bin/bash';
           spawnArgs = ['-c',
             `echo '[Iris] 正在安装 Bun 运行时...' && curl -fsSL https://bun.sh/install | bash && echo '[Iris] 安装完成，正在启动 TUI...' && ~/.bun/bin/bun run "${entryFile}" || echo '[Iris] Bun 安装失败，请手动安装: https://bun.sh'`,
@@ -153,7 +154,6 @@ export function createTerminalHandler(): TerminalHandler {
     proc.onExit(({ exitCode }) => {
       logger.info(`终端进程退出: ${id} (code=${exitCode})`);
       if (ws.readyState === WebSocket.OPEN) {
-        // 使用 \x00 前缀区分控制消息和终端数据，避免与正常输出混淆
         ws.send(`\x00${JSON.stringify({ type: 'exit', code: exitCode })}`);
         ws.close(1000, '终端进程已退出');
       }
@@ -164,7 +164,6 @@ export function createTerminalHandler(): TerminalHandler {
     ws.on('message', (data: Buffer | string) => {
       const msg = typeof data === 'string' ? data : data.toString('utf8');
 
-      // 尝试解析 JSON 控制消息
       if (msg.startsWith('{')) {
         try {
           const parsed = JSON.parse(msg);

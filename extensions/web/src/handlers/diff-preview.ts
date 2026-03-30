@@ -2,23 +2,23 @@
  * Diff 预览 API 处理器
  *
  * 为 awaiting_apply 状态的工具调用生成 diff 预览。
- * 从 TUI DiffApprovalView 移植核心逻辑。
+ * 通过 IrisAPI.toolPreviewUtils 获取工具函数，不直接引用 src/ 内部模块。
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import type { IncomingMessage, ServerResponse } from 'http';
-import { Backend } from '../../../core/backend';
+import type { IrisBackendLike, ToolPreviewUtilsLike } from '@irises/extension-sdk';
 import { sendJSON } from '../router';
-import { parseUnifiedDiff } from '../../../tools/internal/apply_diff/unified_diff';
-import { buildSearchRegex, decodeText, globToRegExp, isLikelyBinary, toPosix, walkFiles } from '../../../tools/internal/search_in_files';
-import { normalizeWriteArgs } from '../../../tools/internal/write_file';
-import { normalizeInsertArgs } from '../../../tools/internal/insert_code';
-import { normalizeDeleteCodeArgs } from '../../../tools/internal/delete_code';
-import { resolveProjectPath } from '../../../tools/utils';
-import type { ToolInvocation } from '../../../types';
 
 // ---- 类型 ----
+
+interface ToolInvocationLike {
+  id: string;
+  toolName: string;
+  status: string;
+  args: Record<string, unknown>;
+}
 
 interface DiffPreviewItem {
   filePath: string;
@@ -73,35 +73,6 @@ function toDiffLinePrefix(type: 'context' | 'add' | 'del'): string {
   return ' ';
 }
 
-function buildDisplayDiff(filePath: string, patch: string): string {
-  const cleaned = sanitizePatchText(patch);
-  if (!cleaned) return '';
-  try {
-    const parsed = parseUnifiedDiff(cleaned);
-    const fallbackOld = `a/${filePath || 'file'}`;
-    const fallbackNew = `b/${filePath || 'file'}`;
-    const body = parsed.hunks
-      .map(hunk => {
-        const lines = hunk.lines.map(line => `${toDiffLinePrefix(line.type)}${line.content}`);
-        // Recalculate correct line counts from actual parsed lines
-        const oldCount = hunk.lines.filter(l => l.type === 'context' || l.type === 'del').length;
-        const newCount = hunk.lines.filter(l => l.type === 'context' || l.type === 'add').length;
-        const header = `@@ -${hunk.oldStart},${oldCount} +${hunk.newStart},${newCount} @@`;
-        return [header, ...lines].join('\n');
-      })
-      .join('\n');
-    return [`--- ${parsed.oldFile ?? fallbackOld}`, `+++ ${parsed.newFile ?? fallbackNew}`, body]
-      .filter(Boolean).join('\n');
-  } catch {
-    if (/^(diff --git |--- |\+\+\+ )/m.test(cleaned)) return cleaned;
-    if (/^@@/m.test(cleaned)) {
-      const p = filePath || 'file';
-      return `--- a/${p}\n+++ b/${p}\n${cleaned}`;
-    }
-    return cleaned;
-  }
-}
-
 function toWholeFileDiffLines(text: string): string[] {
   if (!text) return [];
   const lines = normalizeLineEndings(text).split('\n');
@@ -153,10 +124,38 @@ function makeMsg(filePath: string, label: string, message: string): DiffPreviewI
 
 // ---- 各工具预览生成 ----
 
-function buildApplyDiffPreview(inv: ToolInvocation): DiffPreviewResponse {
+function buildApplyDiffPreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {
   const filePath = typeof inv.args.path === 'string' ? inv.args.path : '';
   const rawPatch = getSafePatch(inv.args.patch);
-  const diff = buildDisplayDiff(filePath, rawPatch);
+
+  // 使用 utils.parseUnifiedDiff 构建显示 diff
+  const cleaned = sanitizePatchText(rawPatch);
+  let diff = '';
+  if (cleaned) {
+    try {
+      const parsed = utils.parseUnifiedDiff(cleaned);
+      const fallbackOld = `a/${filePath || 'file'}`;
+      const fallbackNew = `b/${filePath || 'file'}`;
+      const body = parsed.hunks
+        .map(hunk => {
+          const lines = hunk.lines.map(line => `${toDiffLinePrefix(line.type)}${line.content}`);
+          const oldCount = hunk.lines.filter(l => l.type === 'context' || l.type === 'del').length;
+          const newCount = hunk.lines.filter(l => l.type === 'context' || l.type === 'add').length;
+          const header = `@@ -${hunk.oldStart},${oldCount} +${hunk.newStart},${newCount} @@`;
+          return [header, ...lines].join('\n');
+        })
+        .join('\n');
+      diff = [`--- ${parsed.oldFile ?? fallbackOld}`, `+++ ${parsed.newFile ?? fallbackNew}`, body]
+        .filter(Boolean).join('\n');
+    } catch {
+      if (/^(diff --git |--- |\+\+\+ )/m.test(cleaned)) diff = cleaned;
+      else if (/^@@/m.test(cleaned)) {
+        const p = filePath || 'file';
+        diff = `--- a/${p}\n+++ b/${p}\n${cleaned}`;
+      } else diff = cleaned;
+    }
+  }
+
   return {
     toolName: 'apply_diff', title: 'Diff 审批',
     summary: [filePath ? `目标文件：${filePath}` : '目标文件：未提供'],
@@ -164,8 +163,8 @@ function buildApplyDiffPreview(inv: ToolInvocation): DiffPreviewResponse {
   };
 }
 
-function buildWriteFilePreview(inv: ToolInvocation): DiffPreviewResponse {
-  const fileList = normalizeWriteArgs(inv.args);
+function buildWriteFilePreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {
+  const fileList = utils.normalizeWriteArgs(inv.args);
   if (!fileList || fileList.length === 0) {
     return { toolName: 'write_file', title: 'Diff 审批', summary: ['参数无效。'], items: [makeMsg('', 'write_file', 'files 参数无效。')] };
   }
@@ -173,7 +172,7 @@ function buildWriteFilePreview(inv: ToolInvocation): DiffPreviewResponse {
   let created = 0, modified = 0, unchanged = 0;
   for (const entry of fileList) {
     try {
-      const resolved = resolveProjectPath(entry.path);
+      const resolved = utils.resolveProjectPath(entry.path);
       let existed = false, before = '';
       if (fs.existsSync(resolved)) { before = fs.readFileSync(resolved, 'utf-8'); existed = true; }
       if (existed && before === entry.content) { unchanged++; continue; }
@@ -190,15 +189,15 @@ function buildWriteFilePreview(inv: ToolInvocation): DiffPreviewResponse {
   return { toolName: 'write_file', title: 'Diff 审批', summary, items };
 }
 
-function buildInsertCodePreview(inv: ToolInvocation): DiffPreviewResponse {
-  const fileList = normalizeInsertArgs(inv.args);
+function buildInsertCodePreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {
+  const fileList = utils.normalizeInsertArgs(inv.args);
   if (!fileList || fileList.length === 0) {
     return { toolName: 'insert_code', title: 'Diff 审批', summary: ['参数无效。'], items: [makeMsg('', 'insert_code', 'files 参数无效。')] };
   }
   const items: DiffPreviewItem[] = [];
   for (const entry of fileList) {
     try {
-      const resolved = resolveProjectPath(entry.path);
+      const resolved = utils.resolveProjectPath(entry.path);
       const before = fs.readFileSync(resolved, 'utf-8');
       const lines = before.split('\n');
       const insertLines = entry.content.split('\n');
@@ -214,15 +213,15 @@ function buildInsertCodePreview(inv: ToolInvocation): DiffPreviewResponse {
   return { toolName: 'insert_code', title: 'Diff 审批', summary: [`共 ${fileList.length} 个操作`], items };
 }
 
-function buildDeleteCodePreview(inv: ToolInvocation): DiffPreviewResponse {
-  const fileList = normalizeDeleteCodeArgs(inv.args);
+function buildDeleteCodePreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {
+  const fileList = utils.normalizeDeleteCodeArgs(inv.args);
   if (!fileList || fileList.length === 0) {
     return { toolName: 'delete_code', title: 'Diff 审批', summary: ['参数无效。'], items: [makeMsg('', 'delete_code', 'files 参数无效。')] };
   }
   const items: DiffPreviewItem[] = [];
   for (const entry of fileList) {
     try {
-      const resolved = resolveProjectPath(entry.path);
+      const resolved = utils.resolveProjectPath(entry.path);
       const before = fs.readFileSync(resolved, 'utf-8');
       const lines = before.split('\n');
       const after = [...lines.slice(0, entry.start_line - 1), ...lines.slice(entry.end_line)].join('\n');
@@ -236,7 +235,7 @@ function buildDeleteCodePreview(inv: ToolInvocation): DiffPreviewResponse {
   return { toolName: 'delete_code', title: 'Diff 审批', summary: [`共 ${fileList.length} 个操作`], items };
 }
 
-function buildSearchReplacePreview(inv: ToolInvocation): DiffPreviewResponse {
+function buildSearchReplacePreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {
   const inputPath = typeof inv.args.path === 'string' ? inv.args.path : '.';
   const pattern = typeof inv.args.pattern === 'string' ? inv.args.pattern : '**/*';
   const isRegex = inv.args.isRegex === true;
@@ -250,10 +249,10 @@ function buildSearchReplacePreview(inv: ToolInvocation): DiffPreviewResponse {
   }
 
   try {
-    const regex = buildSearchRegex(query, isRegex);
-    const rootAbs = resolveProjectPath(inputPath);
+    const regex = utils.buildSearchRegex(query, isRegex);
+    const rootAbs = utils.resolveProjectPath(inputPath);
     const stat = fs.statSync(rootAbs);
-    const patternRe = globToRegExp(pattern);
+    const patternRe = utils.globToRegExp(pattern);
 
     const items: DiffPreviewItem[] = [];
     let processedFiles = 0, totalReplacements = 0;
@@ -263,16 +262,15 @@ function buildSearchReplacePreview(inv: ToolInvocation): DiffPreviewResponse {
       if (shouldStop()) return;
       if (stat.isDirectory() && !patternRe.test(relPosix)) return;
       processedFiles++;
-      const displayPath = stat.isDirectory() ? toPosix(path.join(inputPath, relPosix)) : toPosix(inputPath);
+      const displayPath = stat.isDirectory() ? utils.toPosix(path.join(inputPath, relPosix)) : utils.toPosix(inputPath);
       const buf = fs.readFileSync(fileAbs);
-      if (buf.length > maxFileSizeBytes || isLikelyBinary(buf)) return;
+      if (buf.length > maxFileSizeBytes || utils.isLikelyBinary(buf)) return;
 
-      const decoded = decodeText(buf);
+      const decoded = utils.decodeText(buf);
       const replaceRegex = new RegExp(regex.source, regex.flags);
       const newText = decoded.text.replace(replaceRegex, replace);
       if (newText === decoded.text) return;
 
-      // 统计替换次数
       const countRegex = new RegExp(regex.source, regex.flags);
       let replacements = 0;
       for (;;) {
@@ -289,8 +287,8 @@ function buildSearchReplacePreview(inv: ToolInvocation): DiffPreviewResponse {
       }
     };
 
-    if (stat.isFile()) processFile(rootAbs, toPosix(path.basename(rootAbs)));
-    else walkFiles(rootAbs, processFile, shouldStop);
+    if (stat.isFile()) processFile(rootAbs, utils.toPosix(path.basename(rootAbs)));
+    else utils.walkFiles(rootAbs, processFile, shouldStop);
 
     const summary = [`路径 ${inputPath}`, `共 ${totalReplacements} 处替换，${items.length} 个文件变更`];
     if (items.length === 0) items.push(makeMsg(inputPath, 'search_in_files', '不会修改任何文件。'));
@@ -300,15 +298,15 @@ function buildSearchReplacePreview(inv: ToolInvocation): DiffPreviewResponse {
   }
 }
 
-function buildPreview(inv: ToolInvocation): DiffPreviewResponse {
+function buildPreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {
   switch (inv.toolName) {
-    case 'apply_diff': return buildApplyDiffPreview(inv);
-    case 'write_file': return buildWriteFilePreview(inv);
-    case 'insert_code': return buildInsertCodePreview(inv);
-    case 'delete_code': return buildDeleteCodePreview(inv);
+    case 'apply_diff': return buildApplyDiffPreview(inv, utils);
+    case 'write_file': return buildWriteFilePreview(inv, utils);
+    case 'insert_code': return buildInsertCodePreview(inv, utils);
+    case 'delete_code': return buildDeleteCodePreview(inv, utils);
     case 'search_in_files':
       if (((inv.args.mode as string | undefined) ?? 'search') === 'replace') {
-        return buildSearchReplacePreview(inv);
+        return buildSearchReplacePreview(inv, utils);
       }
       break;
   }
@@ -317,7 +315,7 @@ function buildPreview(inv: ToolInvocation): DiffPreviewResponse {
 
 // ---- HTTP Handler ----
 
-export function createDiffPreviewHandler(backend: Backend) {
+export function createDiffPreviewHandler(backend: IrisBackendLike, utils: ToolPreviewUtilsLike) {
   return async (_req: IncomingMessage, res: ServerResponse, params: Record<string, string>) => {
     const toolId = params.id;
     if (!toolId) {
@@ -325,14 +323,14 @@ export function createDiffPreviewHandler(backend: Backend) {
       return;
     }
 
-    const inv = backend.getToolState().get(toolId);
+    const inv = (backend as any).getToolState?.()?.get?.(toolId) as ToolInvocationLike | undefined;
     if (!inv) {
       sendJSON(res, 404, { error: '未找到工具调用' });
       return;
     }
 
     try {
-      const preview = buildPreview(inv);
+      const preview = buildPreview(inv, utils);
       sendJSON(res, 200, preview);
     } catch (err: unknown) {
       sendJSON(res, 500, { error: err instanceof Error ? err.message : '生成 diff 预览失败' });

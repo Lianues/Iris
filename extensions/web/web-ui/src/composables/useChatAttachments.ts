@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, ref, type Ref } from 'vue'
 import type { ChatDocumentAttachment, ChatImageAttachment } from '../api/types'
-import { CHAT_ATTACHMENT_LIMITS, formatAttachmentBytes } from '../../../chat-attachments'
+import { CHAT_ATTACHMENT_LIMITS, formatAttachmentBytes } from '@web-shared/chat-attachments'
 
 const SUPPORTED_DOC_EXTENSIONS = ['.pdf', '.docx', '.pptx', '.xlsx', '.xls']
 const SUPPORTED_TEXT_EXTENSIONS = [

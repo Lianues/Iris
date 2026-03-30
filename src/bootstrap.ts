@@ -42,7 +42,7 @@ import { Backend } from './core/backend';
 import type { StorageProvider } from './storage/base';
 import { PluginManager } from './extension';
 import { createBootstrapExtensionRegistry, type BootstrapExtensionRegistry } from './bootstrap/extensions';
-import type { PlatformRegistry } from './platforms/registry';
+import type { PlatformRegistry } from './core/platform-registry';
 import { PluginEventBus } from './extension/event-bus';
 import { patchMethod, patchPrototype } from './extension/patch';
 import { registerExtensionPlatforms } from './extension';
@@ -337,6 +337,37 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
       parseToolsConfig: (raw?: Record<string, unknown>) => parseToolsConfig(raw as any) as unknown as Record<string, unknown>,
     },
     isCompiledBinary,
+    projectRoot: (await import('./paths')).projectRoot,
+    dataDir: agentPaths?.dataDir || globalDataDir,
+    fetchAvailableModels: async (input: { provider: string; apiKey: string; baseUrl?: string }) => {
+      const { listAvailableModels } = await import('./llm/model-catalog');
+      return await listAvailableModels(input as any);
+    },
+    agentManager: {
+      getStatus: () => { const { getAgentStatus } = require('./agents'); return getAgentStatus(); },
+      setEnabled: (enabled: boolean) => { const { setAgentEnabled } = require('./agents'); return setAgentEnabled(enabled); },
+      createManifest: () => { const { createManifestIfNotExists } = require('./agents'); return createManifestIfNotExists(); },
+      create: (name: string, description?: string) => { const { createAgent } = require('./agents'); return createAgent(name, description); },
+      update: (name: string, fields: any) => { const { updateAgent } = require('./agents'); return updateAgent(name, fields); },
+      delete: (name: string) => { const { deleteAgent } = require('./agents'); return deleteAgent(name); },
+      resetCache: () => { const { resetCache } = require('./agents'); resetCache(); },
+    },
+    toolPreviewUtils: (() => {
+      // 懒加载工具预览工具集
+      let _utils: any;
+      const getUtils = () => {
+        if (_utils) return _utils;
+        const { parseUnifiedDiff } = require('./tools/internal/apply_diff/unified_diff');
+        const { buildSearchRegex, decodeText, globToRegExp, isLikelyBinary, toPosix, walkFiles } = require('./tools/internal/search_in_files');
+        const { normalizeWriteArgs } = require('./tools/internal/write_file');
+        const { normalizeInsertArgs } = require('./tools/internal/insert_code');
+        const { normalizeDeleteCodeArgs } = require('./tools/internal/delete_code');
+        const { resolveProjectPath } = require('./tools/utils');
+        _utils = { parseUnifiedDiff, normalizeWriteArgs, normalizeInsertArgs, normalizeDeleteCodeArgs, resolveProjectPath, buildSearchRegex, decodeText, globToRegExp, isLikelyBinary, toPosix, walkFiles };
+        return _utils;
+      };
+      return new Proxy({} as any, { get: (_t, p) => (getUtils() as any)[p] });
+    })(),
     setLogLevel: (level: number) => setGlobalLogLevel(level as LogLevel),
     getLogLevel: () => getGlobalLogLevel() as number,
     pluginManager: pluginManager!,

@@ -10,8 +10,8 @@ import {
   clearRedo,
   MAX_STACK_SIZE,
   UndoRedoStack,
-} from '../src/platforms/console/undo-redo';
-import type { ChatMessage } from '../src/platforms/console/components/MessageItem';
+} from '../extensions/console/src/undo-redo';
+import type { ChatMessage } from '../extensions/console/src/components/MessageItem';
 
 function msg(id: string, role: 'user' | 'assistant', text: string): ChatMessage {
   return { id, role, parts: [{ type: 'text', text }] };

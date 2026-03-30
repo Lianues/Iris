@@ -6,12 +6,56 @@
 
 import * as http from 'http';
 import * as crypto from 'crypto';
-import type { ImageInput } from '../../../core/backend';
-import type { DocumentInput } from '../../../media/document-extract.js';
-import { isSupportedDocumentMime } from '../../../media/document-extract.js';
+import type { ImageInput, DocumentInput } from '@irises/extension-sdk';
 import { CHAT_ATTACHMENT_LIMITS, formatAttachmentBytes } from '../chat-attachments';
 import { readBody, readRawBody, sendJSON } from '../router';
-import type { WebPlatform } from '../index';
+import type { WebPlatform } from '../web-platform';
+
+// ── 内联自 src/media/document-extract.ts（避免耦合内部模块）──
+const SUPPORTED_BINARY_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+]);
+const SUPPORTED_TEXT_MIME_TYPES = new Set([
+  'text/markdown', 'text/x-markdown', 'application/json', 'application/ld+json',
+  'application/xml', 'image/svg+xml', 'application/x-yaml', 'text/yaml',
+  'text/x-yaml', 'application/toml', 'text/x-toml', 'application/javascript',
+  'text/javascript', 'application/x-javascript', 'application/x-sh',
+  'application/x-shellscript', 'application/sql',
+]);
+const EXTENSION_TO_MIME: Record<string, string> = {
+  '.md': 'text/markdown', '.json': 'application/json', '.xml': 'application/xml',
+  '.yaml': 'application/x-yaml', '.yml': 'application/x-yaml', '.toml': 'application/toml',
+  '.csv': 'text/csv', '.tsv': 'text/tab-separated-values',
+  '.js': 'application/javascript', '.mjs': 'application/javascript', '.cjs': 'application/javascript',
+  '.ts': 'text/x-typescript', '.tsx': 'text/x-typescript', '.jsx': 'application/javascript',
+  '.py': 'text/x-python', '.rb': 'text/x-ruby', '.rs': 'text/x-rust',
+  '.go': 'text/x-go', '.java': 'text/x-java', '.kt': 'text/x-kotlin',
+  '.c': 'text/x-c', '.cpp': 'text/x-c++', '.h': 'text/x-c', '.hpp': 'text/x-c++',
+  '.cs': 'text/x-csharp', '.swift': 'text/x-swift', '.php': 'text/x-php',
+  '.sh': 'application/x-sh', '.bash': 'application/x-sh', '.zsh': 'application/x-sh',
+  '.sql': 'application/sql', '.html': 'text/html', '.htm': 'text/html', '.css': 'text/css',
+  '.svg': 'image/svg+xml', '.txt': 'text/plain', '.log': 'text/plain', '.cfg': 'text/plain',
+  '.ini': 'text/plain', '.env': 'text/plain', '.conf': 'text/plain',
+  '.pdf': 'application/pdf',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xls': 'application/vnd.ms-excel',
+};
+function isSupportedTextMime(mimeType: string): boolean {
+  return mimeType.startsWith('text/') || SUPPORTED_TEXT_MIME_TYPES.has(mimeType);
+}
+function isSupportedDocumentMime(mimeType: string, fileName?: string): boolean {
+  const normalized = mimeType.split(';', 1)[0].trim().toLowerCase();
+  if (SUPPORTED_BINARY_MIME_TYPES.has(normalized) || isSupportedTextMime(normalized)) return true;
+  const ext = fileName?.toLowerCase().match(/\.[^.]+$/)?.[0] ?? '';
+  if (!ext) return false;
+  return !!EXTENSION_TO_MIME[ext];
+}
 
 class ChatRequestError extends Error {
   status: number;

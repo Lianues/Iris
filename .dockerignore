@@ -5,8 +5,8 @@
 # Build output (rebuilt inside Docker)
 dist/
 node_modules/
-src/platforms/web/web-ui/dist/
-src/platforms/web/web-ui/node_modules/
+extensions/web/web-ui/dist/
+extensions/web/web-ui/node_modules/
 
 # Windows portable Node.js
 node/

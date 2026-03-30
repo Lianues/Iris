@@ -4,21 +4,24 @@
  * GET /api/config — 读取配置（敏感字段脱敏）
  * PUT /api/config — 更新配置并尝试热重载
  * POST /api/config/models — 使用当前 provider/baseUrl/apiKey 拉取模型列表
+ *
+ * 通过注入的 ConfigManagerLike 接口访问配置，不直接引用 src/ 内部模块。
  */
 
 import * as http from 'http';
 import { readBody, sendJSON } from '../router';
-import { isMasked, readEditableConfig, updateEditableConfig } from '../../../config/manage';
-import { loadRawConfigDir } from '../../../config/raw';
-import { listAvailableModels } from '../../../llm/model-catalog';
-import type { LLMConfig } from '../../../config/types';
+import type { ConfigManagerLike, IrisAPI } from '@irises/extension-sdk';
 
-const SUPPORTED_PROVIDERS = new Set<LLMConfig['provider']>([
+const SUPPORTED_PROVIDERS = new Set([
   'gemini',
   'openai-compatible',
   'openai-responses',
   'claude',
 ]);
+
+function isMasked(value: string): boolean {
+  return typeof value === 'string' && value.startsWith('****');
+}
 
 function resolveStoredModelConfig(rawLLM: any, modelName?: string): any {
   if (rawLLM?.models && typeof rawLLM.models === 'object' && !Array.isArray(rawLLM.models)) {
@@ -42,8 +45,8 @@ function resolveStoredModelConfig(rawLLM: any, modelName?: string): any {
   return {};
 }
 
-function resolveModelLookupInput(configDir: string, body: any): {
-  provider: LLMConfig['provider'];
+function resolveModelLookupInput(cm: ConfigManagerLike, body: any): {
+  provider: string;
   apiKey: string;
   baseUrl: string;
   usedStoredApiKey: boolean;
@@ -51,15 +54,15 @@ function resolveModelLookupInput(configDir: string, body: any): {
   const requestedModelName = typeof body?.modelName === 'string' && body.modelName.trim()
     ? body.modelName.trim()
     : undefined;
-  const rawConfig = loadRawConfigDir(configDir);
-  const rawLLM = rawConfig.llm ?? {};
+  const rawConfig = cm.readEditableConfig();
+  const rawLLM = (rawConfig as any).llm ?? {};
   const storedModel = resolveStoredModelConfig(rawLLM, requestedModelName);
 
   const providerValue = typeof body?.provider === 'string' && body.provider.trim()
     ? body.provider.trim()
     : String(storedModel?.provider ?? 'gemini').trim();
 
-  if (!SUPPORTED_PROVIDERS.has(providerValue as LLMConfig['provider'])) {
+  if (!SUPPORTED_PROVIDERS.has(providerValue)) {
     throw new Error(`不支持的提供商: ${providerValue || '(空)'}`);
   }
 
@@ -78,19 +81,20 @@ function resolveModelLookupInput(configDir: string, body: any): {
   }
 
   return {
-    provider: providerValue as LLMConfig['provider'],
+    provider: providerValue,
     apiKey,
     baseUrl,
     usedStoredApiKey,
   };
 }
 
-export function createConfigHandlers(configDir: string, onReload?: (mergedConfig: any) => void | Promise<void>) {
+export function createConfigHandlers(api: IrisAPI, onReload?: (mergedConfig: any) => void | Promise<void>) {
+  const cm = api.configManager!;
   return {
     /** GET /api/config */
     async get(_req: http.IncomingMessage, res: http.ServerResponse) {
       try {
-        sendJSON(res, 200, readEditableConfig(configDir));
+        sendJSON(res, 200, cm.readEditableConfig());
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         sendJSON(res, 500, { error: `读取配置失败: ${msg}` });
@@ -101,7 +105,7 @@ export function createConfigHandlers(configDir: string, onReload?: (mergedConfig
     async update(req: http.IncomingMessage, res: http.ServerResponse) {
       try {
         const updates = await readBody(req);
-        const { mergedRaw } = updateEditableConfig(configDir, updates);
+        const { mergedRaw } = cm.updateEditableConfig(updates);
 
         let reloaded = false;
         if (onReload) {
@@ -124,8 +128,12 @@ export function createConfigHandlers(configDir: string, onReload?: (mergedConfig
     async listModels(req: http.IncomingMessage, res: http.ServerResponse) {
       try {
         const body = await readBody(req);
-        const input = resolveModelLookupInput(configDir, body);
-        const result = await listAvailableModels(input);
+        const input = resolveModelLookupInput(cm, body);
+        if (!api.fetchAvailableModels) {
+          sendJSON(res, 501, { error: '模型列表拉取未实现' });
+          return;
+        }
+        const result = await api.fetchAvailableModels(input);
         sendJSON(res, 200, {
           provider: result.provider,
           baseUrl: result.baseUrl,

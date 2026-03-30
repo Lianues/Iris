@@ -9,10 +9,11 @@
 
 import * as http from 'http';
 import { RouteParams, sendJSON } from '../router';
-import { StorageProvider } from '../../../storage/base';
+import type { StorageLike } from '@irises/extension-sdk';
 import { formatMessages } from '../message-format';
+import type { Content } from '@irises/extension-sdk';
 
-export function createSessionsHandlers(storage: StorageProvider) {
+export function createSessionsHandlers(storage: StorageLike) {
   return {
     /** GET /api/sessions */
     async list(_req: http.IncomingMessage, res: http.ServerResponse) {
@@ -29,8 +30,8 @@ export function createSessionsHandlers(storage: StorageProvider) {
           updatedAt: '',
         })),
       ].sort((left, right) => {
-        const leftTime = left.updatedAt ? new Date(left.updatedAt).getTime() : 0;
-        const rightTime = right.updatedAt ? new Date(right.updatedAt).getTime() : 0;
+        const leftTime = left.updatedAt ? new Date(String(left.updatedAt)).getTime() : 0;
+        const rightTime = right.updatedAt ? new Date(String(right.updatedAt)).getTime() : 0;
         return rightTime - leftTime;
       });
 
@@ -39,7 +40,7 @@ export function createSessionsHandlers(storage: StorageProvider) {
 
     /** GET /api/sessions/:id/messages */
     async getMessages(_req: http.IncomingMessage, res: http.ServerResponse, params: RouteParams) {
-      const history = await storage.getHistory(params.id);
+      const history = await storage.getHistory(params.id) as Content[];
       sendJSON(res, 200, { messages: formatMessages(history) });
     },
 

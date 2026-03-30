@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { registerExtensionPlatforms } from '../src/extension/index';
 import { parsePlatformConfig } from '../src/config/platform';
-import { createDefaultPlatformRegistry } from '../src/platforms/registry';
+import { PlatformRegistry } from '../src/core/platform-registry';
 import { TelegramClient } from '../extensions/telegram/src/client';
 import {
   TelegramMessageHandler,
@@ -35,7 +35,7 @@ describe('Telegram Phase 0: parsePlatformConfig', () => {
 
 describe('Telegram Phase 0: extension registration', () => {
   it('不再内置注册 telegram，而是由内嵌 extension 注册', async () => {
-    const registry = createDefaultPlatformRegistry();
+    const registry = new PlatformRegistry();
     expect(registry.has('telegram')).toBe(false);
 
     const registered = registerExtensionPlatforms(registry);

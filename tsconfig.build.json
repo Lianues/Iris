@@ -4,5 +4,5 @@
     "noEmit": false,
     "allowImportingTsExtensions": false
   },
-  "exclude": ["node_modules", "dist", "extensions", "src/platforms/web/web-ui", "src/platforms/console"]
+  "exclude": ["node_modules", "dist", "extensions"]
 }

@@ -14,7 +14,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { createLogger } from '../logger';
 import { extensionsDir, workspaceExtensionsDir } from '../paths';
-import type { PlatformFactory, PlatformRegistry } from '../platforms/registry';
+import type { PlatformFactory, PlatformRegistry } from '../core/platform-registry';
 import type {
   ExtensionManifest,
   ExtensionPackage,

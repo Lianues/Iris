@@ -18,7 +18,7 @@ import type { MemoryProvider } from '../memory/base';
 import { SqliteMemory } from '../memory/sqlite';
 import type { OCRProvider } from '../ocr';
 import { OCRService } from '../ocr';
-import { PlatformRegistry, createDefaultPlatformRegistry } from '../platforms/registry';
+import { PlatformRegistry } from '../core/platform-registry';
 
 /** 通用命名工厂注册表 */
 export class NamedFactoryRegistry<TFactory> {
@@ -90,6 +90,6 @@ export function createBootstrapExtensionRegistry(): BootstrapExtensionRegistry {
     storageProviders,
     memoryProviders,
     ocrProviders,
-    platforms: createDefaultPlatformRegistry(),
+    platforms: new PlatformRegistry(),
   };
 }

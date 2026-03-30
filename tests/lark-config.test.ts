@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { registerExtensionPlatforms } from '../src/extension/index';
 import { parsePlatformConfig } from '../src/config/platform';
-import { createDefaultPlatformRegistry } from '../src/platforms/registry';
+import { PlatformRegistry } from '../src/core/platform-registry';
 import { LarkPlatform } from '../extensions/lark/src';
 
 describe('Lark Phase 0: parsePlatformConfig', () => {
@@ -39,7 +39,7 @@ describe('Lark Phase 0: platform skeleton', () => {
   });
 
   it('不再内置注册 lark，而是由 extension 清单注册', async () => {
-    const registry = createDefaultPlatformRegistry();
+    const registry = new PlatformRegistry();
     expect(registry.has('lark')).toBe(false);
 
     const registered = registerExtensionPlatforms(registry);

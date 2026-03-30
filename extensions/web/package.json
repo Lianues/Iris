@@ -1,0 +1,12 @@
+{
+  "name": "@iris-extension/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --external ws --external node-pty",
+    "build:ui": "cd web-ui && npm run build"
+  },
+  "dependencies": {
+    "@irises/extension-sdk": "file:../../packages/extension-sdk"
+  }
+}

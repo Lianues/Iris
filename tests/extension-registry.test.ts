@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PluginManager } from '../src/plugins/manager.js';
-import { PlatformRegistry } from '../src/platforms/registry.js';
+import { PlatformRegistry } from '../src/core/platform-registry.js';
 import { PromptAssembler } from '../src/prompt/assembler.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { ModeRegistry } from '../src/modes/registry.js';

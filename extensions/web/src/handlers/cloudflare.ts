@@ -41,8 +41,7 @@ export function createCloudflareHandlers(configDir: string) {
         const result = await getCloudflareStatus(configDir)
         sendJSON(res, 200, result)
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        sendJSON(res, 500, { error: detail })
+        sendJSON(res, 500, { error: error instanceof Error ? error.message : String(error) })
       }
     },
 
@@ -54,7 +53,6 @@ export function createCloudflareHandlers(configDir: string) {
           sendJSON(res, 400, { ok: false, error: '请输入 Cloudflare API Token' })
           return
         }
-
         const zones = await listCloudflareZones(apiToken)
         saveCloudflareConfig(configDir, {
           apiToken,
@@ -62,14 +60,12 @@ export function createCloudflareHandlers(configDir: string) {
           apiTokenFile: null,
           zoneId: zones.length === 1 ? zones[0].id : 'auto',
         })
-
         sendJSON(res, 200, {
           ok: true,
           zones: zones.map((zone) => ({ id: zone.id, name: zone.name })),
         })
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        sendJSON(res, 500, { ok: false, error: detail, zones: [] })
+        sendJSON(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error), zones: [] })
       }
     },
 
@@ -80,8 +76,7 @@ export function createCloudflareHandlers(configDir: string) {
         const records = await listCloudflareDnsRecords(token, zoneId)
         sendJSON(res, 200, { records })
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        sendJSON(res, 500, { error: detail })
+        sendJSON(res, 500, { error: error instanceof Error ? error.message : String(error) })
       }
     },
 
@@ -100,8 +95,7 @@ export function createCloudflareHandlers(configDir: string) {
         })
         sendJSON(res, 200, { ok: true })
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        sendJSON(res, 500, { error: detail })
+        sendJSON(res, 500, { error: error instanceof Error ? error.message : String(error) })
       }
     },
 
@@ -112,8 +106,7 @@ export function createCloudflareHandlers(configDir: string) {
         await removeCloudflareDnsRecord(token, zoneId, params.id)
         sendJSON(res, 200, { ok: true })
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        sendJSON(res, 500, { error: detail })
+        sendJSON(res, 500, { error: error instanceof Error ? error.message : String(error) })
       }
     },
 
@@ -124,8 +117,7 @@ export function createCloudflareHandlers(configDir: string) {
         const mode = await getCloudflareSslMode(token, zoneId)
         sendJSON(res, 200, { mode })
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        sendJSON(res, 500, { error: detail })
+        sendJSON(res, 500, { error: error instanceof Error ? error.message : String(error) })
       }
     },
 
@@ -137,15 +129,13 @@ export function createCloudflareHandlers(configDir: string) {
           sendJSON(res, 400, { error: '无效的 SSL 模式' })
           return
         }
-
         const token = await resolveApiToken(configDir)
         const zoneIdInput = typeof body.zoneId === 'string' ? body.zoneId.trim() : ''
         const zoneId = await resolveZoneId(configDir, zoneIdInput || null)
         const appliedMode = await setCloudflareSslMode(token, zoneId, mode)
         sendJSON(res, 200, { ok: true, mode: appliedMode })
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        sendJSON(res, 500, { error: detail })
+        sendJSON(res, 500, { error: error instanceof Error ? error.message : String(error) })
       }
     },
   }

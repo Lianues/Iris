@@ -1,7 +1,7 @@
 node_modules/
 /dist/
-src/platforms/web/web-ui/dist/
-src/platforms/web/web-ui/node_modules/
+extensions/web/web-ui/dist/
+extensions/web/web-ui/node_modules/
 *.log
 logs/
 limcode/

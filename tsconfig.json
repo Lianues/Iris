@@ -22,5 +22,5 @@
     }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/platforms/web/web-ui"]
+  "exclude": ["node_modules", "dist", "extensions"]
 }

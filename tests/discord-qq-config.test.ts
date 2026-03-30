@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { registerExtensionPlatforms } from '../src/extension/index';
 import { parsePlatformConfig } from '../src/config/platform';
-import { createDefaultPlatformRegistry } from '../src/platforms/registry';
+import { PlatformRegistry } from '../src/core/platform-registry';
 
 describe('Discord / QQ: parsePlatformConfig', () => {
   it('解析 discord 配置并提供默认值', () => {
@@ -41,7 +41,7 @@ describe('Discord / QQ: parsePlatformConfig', () => {
 
 describe('Discord / QQ: extension registration', () => {
   it('不再内置注册 discord 和 qq，而是由 extension 清单注册', async () => {
-    const registry = createDefaultPlatformRegistry();
+    const registry = new PlatformRegistry();
     expect(registry.has('discord')).toBe(false);
     expect(registry.has('qq')).toBe(false);
 

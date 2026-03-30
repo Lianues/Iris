@@ -2,11 +2,29 @@
  * Web 平台消息格式化工具
  *
  * 将内部 Content / Part 结构转换为前端可直接消费的消息格式。
+ * 已从 src/platforms/web/ 迁移，所有类型从 @irises/extension-sdk 导入。
  */
 
-import { isOCRTextPart } from '../../ocr';
-import { Content, isTextPart, isThoughtTextPart, isInlineDataPart, isFunctionCallPart, isFunctionResponsePart } from '../../types';
-import { isDocumentMimeType } from '../../llm/vision';
+import type { Content, Part, TextPart } from '@irises/extension-sdk';
+import { isTextPart, isThoughtTextPart, isInlineDataPart, isFunctionCallPart, isFunctionResponsePart } from '@irises/extension-sdk';
+
+// ── 内联自 src/ocr（避免耦合内部模块）──
+const OCR_TEXT_MARKER_RE = /^\[\[IRIS_OCR_IMAGE_(\d+)\]\]\n/;
+function isOCRTextPart(part: Part): part is TextPart & { text: string } {
+  return isTextPart(part) && typeof part.text === 'string' && OCR_TEXT_MARKER_RE.test(part.text);
+}
+
+// ── 内联自 src/llm/vision（避免耦合内部模块）──
+const DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+]);
+function isDocumentMimeType(mimeType: string): boolean {
+  return DOCUMENT_MIME_TYPES.has(mimeType);
+}
 
 export interface WebMessagePart {
   type: 'text' | 'thought' | 'image' | 'document' | 'function_call' | 'function_response'
@@ -39,7 +57,6 @@ function extractDocumentMarkerFileName(text?: string): string | null {
   const normalized = text?.trim() ?? ''
   if (!normalized.startsWith('[Document: ')) return null
 
-  // 匹配 [Document: file.json] 后跟换行/空格/行尾（兼容提取失败/处理异常等后缀）
   const match = normalized.match(/^\[Document: ([^\]\r\n]+)\]/)
   return match?.[1]?.trim() || null
 }
@@ -68,25 +85,21 @@ export function formatContent(content: Content): WebMessage {
 
     if (isThoughtTextPart(part)) {
       if (part.text?.trim()) {
-        formatted.parts.push({ type: 'thought', text: part.text, durationMs: part.thoughtDurationMs })
+        formatted.parts.push({ type: 'thought', text: part.text, durationMs: (part as any).thoughtDurationMs })
       }
       continue
     }
 
     if (isTextPart(part)) {
-      // 过滤图片尺寸标记（仅供 LLM 坐标映射，不需要展示给用户）
       if (isImageDimensionNote(part.text)) continue
 
       const fileName = extractDocumentMarkerFileName(part.text)
       if (fileName && pendingDocumentIndices.length > 0) {
-        // 有对应的 inlineData document part，回填文件名
         const targetIndex = pendingDocumentIndices.shift()
         if (typeof targetIndex === 'number' && formatted.parts[targetIndex]?.type === 'document') {
           formatted.parts[targetIndex].fileName = fileName
         }
       } else if (fileName) {
-        // 后端将文本格式文档（JSON/TXT/CSV 等）存储为纯文本 part，
-        // 刷新后需要还原为 document 类型以渲染 DocumentBubble
         const ext = fileName.split('.').pop()?.toLowerCase() ?? ''
         const mimeMap: Record<string, string> = {
           json: 'application/json', txt: 'text/plain', csv: 'text/csv',
@@ -129,7 +142,7 @@ export function formatContent(content: Content): WebMessage {
         type: 'function_call',
         name: part.functionCall.name,
         args: part.functionCall.args,
-        callId: part.functionCall.callId,
+        callId: (part.functionCall as any).callId,
       })
       continue
     }
@@ -139,7 +152,7 @@ export function formatContent(content: Content): WebMessage {
         type: 'function_response',
         name: part.functionResponse.name,
         response: part.functionResponse.response,
-        callId: part.functionResponse.callId,
+        callId: (part.functionResponse as any).callId,
       })
     }
   }

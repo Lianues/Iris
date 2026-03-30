@@ -1,8 +1,14 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import path from 'path'
 
 export default defineConfig({
   plugins: [vue()],
+  resolve: {
+    alias: {
+      '@web-shared': path.resolve(__dirname, '../src'),
+    },
+  },
   server: {
     // 开发时代理 API 请求到后端
     proxy: {

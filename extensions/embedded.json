@@ -1,6 +1,9 @@
 {
   "extensions": [
     {
+      "name": "web"
+    },
+    {
       "name": "lark"
     },
     {

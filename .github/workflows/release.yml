@@ -111,7 +111,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install Web UI dependencies
-        working-directory: src/platforms/web/web-ui
+        working-directory: extensions/web/web-ui
         run: npm ci
 
       - name: Build Web UI

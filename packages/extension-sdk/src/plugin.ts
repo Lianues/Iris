@@ -68,7 +68,7 @@ export interface PluginManagerLike {
 export interface IrisAPI {
   backend: IrisBackendLike;
   router: LLMRouterLike;
-  storage: unknown;
+  storage: StorageLike;
   memory?: unknown;
   tools: ToolRegistryLike;
   modes: ModeRegistryLike;
@@ -91,6 +91,11 @@ export interface IrisAPI {
   setLogLevel?(level: LogLevel): void;
   getLogLevel?(): LogLevel;
   listAgents?(): AgentDefinitionLike[];
+  projectRoot?: string;
+  dataDir?: string;
+  fetchAvailableModels?(config: { provider: string; apiKey: string; baseUrl?: string }): Promise<ModelCatalogResultLike>;
+  extensionManager?: ExtensionManagerLike;
+  agentManager?: AgentManagerLike;
 }
 
 /** 扩展面板定义（由插件通过 registerWebPanel 注册，宿主 Web UI 动态渲染） */
@@ -139,6 +144,58 @@ export interface AgentDefinitionLike {
   description?: string;
   dataDir?: string;
 }
+
+// ── Web 平台迁移所需的额外接口 ──
+
+/** Session 信息（StorageLike.listSessions 返回） */
+export interface SessionInfoLike {
+  id: string;
+  title?: string;
+  cwd?: string;
+  updatedAt?: string | number;
+  createdAt?: string | number;
+  platforms?: string[];
+}
+
+/** 类型化存储接口（替代 IrisAPI.storage 的 unknown） */
+export interface StorageLike {
+  getHistory(sessionId: string): Promise<unknown[]>;
+  clearHistory(sessionId: string): Promise<void>;
+  truncateHistory(sessionId: string, keepCount: number): Promise<void>;
+  listSessions(): Promise<string[]>;
+  listSessionMetas(): Promise<SessionInfoLike[]>;
+}
+
+/** 可用模型信息 */
+export interface ModelCatalogResultLike {
+  provider: string;
+  baseUrl: string;
+  models: { id: string; displayName?: string }[];
+}
+
+/** 扩展管理接口（安装/启用/禁用/删除） */
+export interface ExtensionManagerLike {
+  listInstalled(): unknown[];
+  listRemote(): Promise<unknown[]>;
+  install(url: string, options?: Record<string, unknown>): Promise<unknown>;
+  enable(name: string): Promise<unknown>;
+  disable(name: string): Promise<unknown>;
+  remove(name: string): Promise<unknown>;
+  collectPasswordFields?(): string[];
+  listPlatformCatalog?(): unknown[];
+}
+
+/** Agent 管理接口（CRUD 操作 agents.yaml） */
+export interface AgentManagerLike {
+  getStatus(): { exists: boolean; enabled: boolean; agents: AgentDefinitionLike[]; manifestPath: string };
+  setEnabled(enabled: boolean): { success: boolean; message: string };
+  createManifest(): { success: boolean; message: string };
+  create(name: string, description?: string): { success: boolean; message: string };
+  update(name: string, fields: { description?: string; dataDir?: string }): { success: boolean; message: string };
+  delete(name: string): { success: boolean; message: string };
+  resetCache(): void;
+}
+
 
 export interface ParsedUnifiedDiffLike {
   oldFile?: string;

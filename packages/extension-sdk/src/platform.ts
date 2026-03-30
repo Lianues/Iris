@@ -169,3 +169,42 @@ export abstract class PlatformAdapter {
     return this.constructor.name;
   }
 }
+
+
+// ── Multi-Agent 支持 ──
+
+/** Agent 上下文（由核心层创建，传递给支持多 Agent 的平台） */
+export interface AgentContextLike {
+  name: string;
+  description?: string;
+  backend: IrisBackendLike;
+  config: Record<string, unknown>;
+  getMCPManager?: () => unknown;
+  setMCPManager?: (mgr?: unknown) => void;
+  dataDir?: string;
+  extensions?: Record<string, unknown>;
+}
+
+/**
+ * 支持多 Agent 管理的平台适配器接口。
+ * 核心层在多 Agent 模式下，检测平台是否实现此接口来决定共享策略。
+ */
+export interface MultiAgentCapable {
+  /** 添加 Agent 上下文 */
+  addAgent(name: string, backend: IrisBackendLike, config: Record<string, unknown>, description?: string, getMCPManager?: () => unknown, setMCPManager?: (mgr?: unknown) => void, extensions?: Record<string, unknown>): void;
+  /** 热重载 Agent 列表 */
+  reloadAgents?(): Promise<unknown>;
+  /** 设置 Agent 热重载回调 */
+  setReloadHandler?(handler: (...args: unknown[]) => Promise<unknown>): void;
+  /** 设置平台配置热重载回调 */
+  setPlatformReloadHandler?(handler: (...args: unknown[]) => Promise<void>): void;
+  /** 注册外部路由到此平台的 HTTP 服务器 */
+  registerRoute?(method: string, path: string, handler: (...args: unknown[]) => Promise<void>): void;
+  /** 获取 MCP 管理器 */
+  getMCPManager?(agentName?: string): unknown;
+}
+
+/** 检测平台是否实现了 MultiAgentCapable 接口 */
+export function isMultiAgentCapable(platform: PlatformAdapter): platform is PlatformAdapter & MultiAgentCapable {
+  return typeof (platform as any).addAgent === 'function';
+}

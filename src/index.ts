@@ -10,8 +10,8 @@
  */
 
 import { bootstrap, BootstrapResult } from './bootstrap';
-import { PlatformAdapter } from '@irises/extension-sdk';
-import type { WebPlatform as WebPlatformType } from './platforms/web';
+import { PlatformAdapter, isMultiAgentCapable } from '@irises/extension-sdk';
+import type { MultiAgentCapable } from '@irises/extension-sdk';
 import type { MCPManager } from './mcp';
 import { isMultiAgentEnabled, loadAgentDefinitions, resolveAgentPaths } from './agents';
 import type { AgentDefinition } from './agents';
@@ -33,12 +33,12 @@ interface CreatePlatformsOptions {
 async function createPlatforms(
   result: BootstrapResult,
   options?: CreatePlatformsOptions,
-): Promise<{ platforms: PlatformAdapter[]; platformMap: Map<string, PlatformAdapter>; webPlatformRef?: WebPlatformType }> {
+): Promise<{ platforms: PlatformAdapter[]; platformMap: Map<string, PlatformAdapter>; multiAgentPlatformRef?: PlatformAdapter & MultiAgentCapable }> {
   const { backend, config, configDir, router, getMCPManager, setMCPManager, initWarnings, platformRegistry, agentName, eventBus } = result;
 
   const platforms: PlatformAdapter[] = [];
   const platformMap = new Map<string, PlatformAdapter>();
-  let webPlatformRef: WebPlatformType | undefined;
+  let multiAgentPlatformRef: (PlatformAdapter & MultiAgentCapable) | undefined;
 
   for (const platformType of config.platform.types) {
     if (options?.excludeConsole && platformType === 'console') continue;
@@ -75,18 +75,18 @@ async function createPlatforms(
       isCompiledBinary,
     });
 
-    if (platformType === 'web') {
-      webPlatformRef = platform as WebPlatformType;
-    }
-    if (platformType === 'web' && webPlatformRef) {
-      // 将 WebPlatform.registerRoute 绑定到 IrisAPI.registerWebRoute
-      result.bindWebRouteRegistration(webPlatformRef.registerRoute.bind(webPlatformRef));
+    // 检测支持多 Agent 的平台（如 web），绑定路由注册
+    if (isMultiAgentCapable(platform) && !multiAgentPlatformRef) {
+      multiAgentPlatformRef = platform;
+      if (platform.registerRoute) {
+        result.bindWebRouteRegistration(platform.registerRoute.bind(platform));
+      }
     }
     platforms.push(platform);
     platformMap.set(platformType, platform);
   }
 
-  return { platforms, platformMap, webPlatformRef };
+  return { platforms, platformMap, multiAgentPlatformRef };
 }
 
 // ============ 单 Agent 模式（原有逻辑） ============
@@ -95,7 +95,7 @@ async function runSingleAgent(): Promise<void> {
   const result = await bootstrap();
   const { getMCPManager } = result;
 
-  let { platforms, platformMap, webPlatformRef } = await createPlatforms(result);
+  let { platforms, platformMap, multiAgentPlatformRef } = await createPlatforms(result);
   let activePlatforms = platforms;
 
   if (activePlatforms.length === 0) {
@@ -104,8 +104,8 @@ async function runSingleAgent(): Promise<void> {
   }
 
   // 注入 Agent 热重载能力
-  if (webPlatformRef) {
-    webPlatformRef.setReloadHandler(async (agent) => {
+  if (multiAgentPlatformRef?.setReloadHandler) {
+    multiAgentPlatformRef.setReloadHandler(async (agent: any) => {
       if (agent === '__default__' || (typeof agent === 'object' && agent.name === '__global__')) {
         return bootstrap();
       }
@@ -116,13 +116,13 @@ async function runSingleAgent(): Promise<void> {
   }
 
   // 注入平台配置热重载能力
-  if (webPlatformRef) {
+  if (multiAgentPlatformRef?.setPlatformReloadHandler) {
     const { parsePlatformConfig } = await import('./config/platform');
-    webPlatformRef.setPlatformReloadHandler(async (mergedConfig: any) => {
+    multiAgentPlatformRef.setPlatformReloadHandler(async (mergedConfig: any) => {
       const newPlatformConfig = parsePlatformConfig(mergedConfig.platform);
 
       // 停止所有非 web 平台
-      const nonWebPlatforms = activePlatforms.filter(p => p !== webPlatformRef);
+      const nonWebPlatforms = activePlatforms.filter(p => p !== multiAgentPlatformRef);
       await Promise.all(nonWebPlatforms.map(p => p.stop()));
 
       // 用新配置重建非 web 平台
@@ -132,7 +132,7 @@ async function runSingleAgent(): Promise<void> {
       await Promise.all(rebuilt.platforms.map(p => p.start()));
 
       // 更新活跃平台列表（保留 web 平台 + 新的非 web 平台）
-      activePlatforms = [webPlatformRef!, ...rebuilt.platforms];
+      activePlatforms = [multiAgentPlatformRef!, ...rebuilt.platforms];
     });
   }
 
@@ -148,8 +148,8 @@ async function runSingleAgent(): Promise<void> {
     if (cleaning) return;
     cleaning = true;
     try {
-      const activeMcp = webPlatformRef ? webPlatformRef.getMCPManager() : getMCPManager();
-      if (activeMcp) await activeMcp.disconnectAll();
+      const activeMcp = multiAgentPlatformRef?.getMCPManager ? multiAgentPlatformRef.getMCPManager() : getMCPManager();
+      if (activeMcp) await (activeMcp as any).disconnectAll();
       await Promise.all(activePlatforms.map(p => p.stop()));
     } catch (err) {
       console.error('清理时出错:', err);
@@ -185,38 +185,41 @@ async function runMultiAgent(): Promise<void> {
     bootstrapCache.set(def.name, result);
   }
 
-  // 2. 创建共享 WebPlatform（所有 agent 共用一个 HTTP 端口）+ 其他非 Console 平台
+  // 2. 创建共享多 Agent 平台（所有 agent 共用一个 HTTP 端口）+ 其他非 Console 平台
   const allNonConsolePlatforms: PlatformAdapter[] = [];
-  let sharedWebPlatform: WebPlatformType | undefined;
+  let sharedMultiAgentPlatform: (PlatformAdapter & MultiAgentCapable) | undefined;
 
-  // 找到第一个配置了 web 平台的 agent，用其端口/认证配置创建共享 WebPlatform
+  // 找到第一个配置了 web 平台的 agent，通过注册表创建共享平台
   for (const [name, result] of bootstrapCache) {
     if (result.config.platform.types.includes('web')) {
-      const { WebPlatform } = await import('./platforms/web');
-      const currentModel = result.router.getCurrentModelInfo();
-      sharedWebPlatform = new WebPlatform(result.backend, {
-        port: result.config.platform.web.port,
-        host: result.config.platform.web.host,
-        authToken: result.config.platform.web.authToken,
-        managementToken: result.config.platform.web.managementToken,
-        configPath: result.configDir,
-        provider: currentModel.provider,
-        modelId: currentModel.modelId,
-        streamEnabled: result.config.system.stream,
-      }, { llmProviders: result.extensions.llmProviders, ocrProviders: result.extensions.ocrProviders });
+      const platform = await result.platformRegistry.create('web', {
+        backend: result.backend,
+        config: result.config,
+        configDir: result.configDir,
+        router: result.router,
+        getMCPManager: result.getMCPManager,
+        setMCPManager: result.setMCPManager,
+        extensions: result.extensions,
+        initWarnings: result.initWarnings,
+        eventBus: result.eventBus,
+        api: result.irisAPI,
+        isCompiledBinary,
+      });
+      if (isMultiAgentCapable(platform)) {
+        sharedMultiAgentPlatform = platform;
+      }
       break;
     }
   }
 
-  // 将所有 agent 注册到共享 WebPlatform
-  if (sharedWebPlatform) {
-    // 先清空默认的 'default' agent（构造函数创建的）
-    const registerSharedWebRoute = sharedWebPlatform.registerRoute.bind(sharedWebPlatform);
+  // 将所有 agent 注册到共享平台
+  if (sharedMultiAgentPlatform) {
+    const registerSharedWebRoute = sharedMultiAgentPlatform.registerRoute?.bind(sharedMultiAgentPlatform);
     // 然后逐个添加真正的 agent
     for (const [name, result] of bootstrapCache) {
       const currentModel = result.router.getCurrentModelInfo();
       const displayName = name === '__global__' ? '全局 AI' : (agentDefs.find(d => d.name === name)?.description);
-      sharedWebPlatform.addAgent(name, result.backend, {
+      sharedMultiAgentPlatform.addAgent(name, result.backend, {
         port: result.config.platform.web.port,
         host: result.config.platform.web.host,
         authToken: result.config.platform.web.authToken,
@@ -231,12 +234,12 @@ async function runMultiAgent(): Promise<void> {
       (mgr?) => result.setMCPManager(mgr),
       { llmProviders: result.extensions.llmProviders, ocrProviders: result.extensions.ocrProviders },
       );
-      result.bindWebRouteRegistration(registerSharedWebRoute);
+      if (registerSharedWebRoute) result.bindWebRouteRegistration(registerSharedWebRoute);
     }
-    allNonConsolePlatforms.push(sharedWebPlatform);
+    allNonConsolePlatforms.push(sharedMultiAgentPlatform);
 
     // 注入 Agent 热重载能力
-    sharedWebPlatform.setReloadHandler(async (agent) => {
+    sharedMultiAgentPlatform.setReloadHandler?.(async (agent: any) => {
       if (agent === '__default__' || (typeof agent === 'object' && agent.name === '__global__')) {
         return bootstrap();
       }
@@ -248,8 +251,8 @@ async function runMultiAgent(): Promise<void> {
   // 创建其他非 Console/非 Web 平台
   for (const [name, result] of bootstrapCache) {
     const platformMap = new Map<string, PlatformAdapter>();
-    if (sharedWebPlatform) {
-      platformMap.set('web', sharedWebPlatform);
+    if (sharedMultiAgentPlatform) {
+      platformMap.set('web', sharedMultiAgentPlatform);
     }
     if (name !== '__global__') {
       const created = await createPlatforms(result, { excludeConsole: true, excludeWeb: true });

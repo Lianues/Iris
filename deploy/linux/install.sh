@@ -359,8 +359,8 @@ fallback_build() {
 
     info "安装依赖..."
     bun install 2>&1 | tail -5
-    if [ -d src/platforms/web/web-ui ]; then
-        cd src/platforms/web/web-ui && npm install 2>&1 | tail -5 && cd "$tmp_dir"
+    if [ -d extensions/web/web-ui ]; then
+        cd extensions/web/web-ui && npm install 2>&1 | tail -5 && cd "$tmp_dir"
     fi
 
     info "构建 Web UI..."

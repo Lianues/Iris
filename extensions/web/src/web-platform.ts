@@ -1,8 +1,8 @@
 /**
- * Web GUI 平台适配器
+ * Web GUI 平台适配器（扩展版本）
  *
  * 提供基于 SSE 的 HTTP API 和静态文件服务。
- * 通过 Backend API 与核心逻辑交互。
+ * 通过 IrisAPI 与核心逻辑交互。
  */
 
 import * as crypto from 'crypto';
@@ -10,33 +10,36 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { PlatformAdapter } from '@irises/extension-sdk';
+import {
+  PlatformAdapter,
+  createExtensionLogger,
+  isThoughtTextPart,
+} from '@irises/extension-sdk';
+import type {
+  IrisBackendLike,
+  ImageInput,
+  DocumentInput,
+  Content,
+  Part,
+  IrisAPI,
+  AgentDefinitionLike,
+  MultiAgentCapable,
+} from '@irises/extension-sdk';
 import { createCloudflareHandlers } from './handlers/cloudflare';
 import { createDeployHandlers } from './handlers/deploy';
-import { Backend } from '../../core/backend';
-import type { ImageInput } from '../../core/backend';
-import type { DocumentInput } from '../../media/document-extract.js';
 import { Router, sendJSON, readBody } from './router';
 import { createChatHandler } from './handlers/chat';
 import { createSessionsHandlers } from './handlers/sessions';
 import { createConfigHandlers } from './handlers/config';
 import { createDiffPreviewHandler } from './handlers/diff-preview';
 import { createExtensionHandlers } from './handlers/extensions';
-import { createLogger } from '../../logger';
-import { MCPManager } from '../../mcp';
 import { assertManagementToken } from './security/management';
-import { applyRuntimeConfigReload } from '../../config/runtime';
-import { projectRoot, dataDir, configDir, isCompiledBinary } from '../../paths';
-import type { BootstrapResult } from '../../bootstrap';
-import type { AgentDefinition } from '../../agents';
-import { Content, Part, isThoughtTextPart } from '../../types';
 import { formatContent, formatMessages } from './message-format';
 import { createTerminalHandler, type TerminalHandler } from './handlers/terminal';
-import type { BootstrapExtensionRegistry } from '../../bootstrap/extensions';
 
-const logger = createLogger('WebPlatform');
+const logger = createExtensionLogger('WebPlatform');
 
-type RuntimeReloadExtensions = Pick<BootstrapExtensionRegistry, 'llmProviders' | 'ocrProviders'>;
+type RuntimeReloadExtensions = Record<string, unknown>;
 
 export interface WebPlatformConfig {
   port: number;
@@ -54,11 +57,11 @@ export interface WebPlatformConfig {
 export interface AgentContext {
   name: string;
   description?: string;
-  backend: Backend;
+  backend: IrisBackendLike;
   config: WebPlatformConfig;
   /** MCP 管理器 getter（延迟求值，热重载后自动获取最新引用） */
-  getMCPManager: () => MCPManager | undefined;
-  setMCPManager: (mgr?: MCPManager) => void;
+  getMCPManager: () => any | undefined;
+  setMCPManager: (mgr?: any) => void;
   /** 当前 Agent 对应的数据目录，用于热重载时扫描正确的 skills 目录 */
   dataDir?: string;
   extensions?: RuntimeReloadExtensions;
@@ -84,30 +87,20 @@ const MIME_TYPES: Record<string, string> = {
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-function resolvePublicDir(): string {
-  const candidates = [
-    path.join(projectRoot, 'web-ui', 'dist'),
-    path.join(MODULE_DIR, 'web-ui/dist'),
-    path.resolve(process.cwd(), 'src/platforms/web/web-ui/dist'),
-    path.resolve(process.cwd(), 'dist/platforms/web/web-ui/dist'),
-    path.join(projectRoot, 'public'),
-    path.join(MODULE_DIR, 'public'),
-    path.resolve(process.cwd(), 'src/platforms/web/public'),
-    path.resolve(process.cwd(), 'dist/platforms/web/public'),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-
-  return candidates[0];
+export interface WebPlatformDeps {
+  api?: IrisAPI;
+  projectRoot?: string;
+  dataDir?: string;
+  configDir?: string;
+  isCompiledBinary?: boolean;
 }
 
-export class WebPlatform extends PlatformAdapter {
+export class WebPlatform extends PlatformAdapter implements MultiAgentCapable {
   private server?: http.Server;
   private router: Router;
   private config: WebPlatformConfig;
   private publicDir: string;
+  private deps: WebPlatformDeps;
 
   /** Agent 上下文 Map（单 Agent 模式下只有一个 'default' 条目） */
   private agents = new Map<string, AgentContext>();
@@ -123,7 +116,7 @@ export class WebPlatform extends PlatformAdapter {
   private terminalHandler: TerminalHandler;
 
   /** Agent 热重载回调：给定 agent 定义，返回 bootstrap 结果 */
-  private reloadHandler?: (agent: AgentDefinition | '__default__') => Promise<BootstrapResult>;
+  private reloadHandler?: (agent: AgentDefinitionLike | '__default__') => Promise<any>;
 
   /** 平台配置热重载回调 */
   private platformReloadHandler?: (mergedConfig: any) => Promise<void>;
@@ -134,29 +127,49 @@ export class WebPlatform extends PlatformAdapter {
   /** 追踪 wireBackendEvents 绑定的监听器，以便精确移除而不影响其他平台 */
   private backendListenerCleanups = new Map<string, () => void>();
 
-  constructor(backend: Backend, config: WebPlatformConfig, extensions?: RuntimeReloadExtensions) {
+  constructor(backend: IrisBackendLike, config: WebPlatformConfig, deps: WebPlatformDeps = {}) {
     super();
     this.config = config;
+    this.deps = deps;
     this.router = new Router();
-    this.publicDir = resolvePublicDir();
+    this.publicDir = this.resolvePublicDir();
     // 单 Agent 模式：创建默认 agent 上下文
-    let _mcpManager: MCPManager | undefined;
+    let _mcpManager: any | undefined;
     this.agents.set('default', {
       name: 'default', backend, config,
       getMCPManager: () => _mcpManager,
       setMCPManager: (mgr?) => { _mcpManager = mgr; },
       dataDir: path.dirname(config.configPath),
-      extensions,
+      extensions: undefined,
     });
     this.setupRoutes();
     this.deployToken = crypto.randomBytes(16).toString('hex');
-    this.terminalHandler = createTerminalHandler();
+    this.terminalHandler = createTerminalHandler(this.deps.isCompiledBinary, this.deps.projectRoot);
   }
+
+  /** 解析 public 目录路径 */
+  private resolvePublicDir(): string {
+    const root = this.deps.projectRoot ?? process.cwd();
+    const candidates = [
+      path.join(root, 'web-ui', 'dist'),
+      path.join(MODULE_DIR, 'web-ui/dist'),
+      path.join(MODULE_DIR, '../web-ui/dist'),
+      path.join(root, 'public'),
+      path.join(MODULE_DIR, 'public'),
+    ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+
+    return candidates[0];
+  }
+
   /** 添加 Agent（多 Agent 模式使用）。首次调用时移除构造函数创建的 'default' 占位 */
   addAgent(
-    name: string, backend: Backend, config: WebPlatformConfig, description?: string,
-    getMCPManager?: () => MCPManager | undefined,
-    setMCPManager?: (mgr?: MCPManager) => void,
+    name: string, backend: IrisBackendLike, config: WebPlatformConfig | Record<string, unknown>, description?: string,
+    getMCPManager?: () => any | undefined,
+    setMCPManager?: (mgr?: any) => void,
     extensions?: RuntimeReloadExtensions,
   ): void {
     // 移除构造函数创建的占位 default agent
@@ -164,11 +177,12 @@ export class WebPlatform extends PlatformAdapter {
       this.agents.delete('default');
       this.defaultAgentName = name;
     }
+    const cfg = config as WebPlatformConfig;
     this.agents.set(name, {
-      name, description, backend, config,
+      name, description, backend, config: cfg,
       getMCPManager: getMCPManager ?? (() => undefined),
       setMCPManager: setMCPManager ?? (() => {}),
-      dataDir: path.dirname(config.configPath),
+      dataDir: cfg.configPath ? path.dirname(cfg.configPath) : undefined,
       extensions,
     });
   }
@@ -177,7 +191,7 @@ export class WebPlatform extends PlatformAdapter {
    * 注入热重载回调。由 index.ts 在启动时调用，
    * 提供按 agent 名称执行 bootstrap 的能力。
    */
-  setReloadHandler(handler: (agent: AgentDefinition | '__default__') => Promise<BootstrapResult>): void {
+  setReloadHandler(handler: (agent: AgentDefinitionLike | '__default__') => Promise<any>): void {
     this.reloadHandler = handler;
   }
 
@@ -187,7 +201,7 @@ export class WebPlatform extends PlatformAdapter {
   }
 
   /**
-   * 热重载 Agent ��表：重新读取 agents.yaml，对比运行中的 agents，
+   * 热重载 Agent 列表：重新读取 agents.yaml，对比运行中的 agents，
    * 新增/删除 agent 而不影响未变更的 agent。
    */
   async reloadAgents(): Promise<{ added: string[]; removed: string[]; kept: string[]; message: string }> {
@@ -195,11 +209,16 @@ export class WebPlatform extends PlatformAdapter {
       return { added: [], removed: [], kept: [], message: '未注入 reload handler，无法热重载。' };
     }
 
-    const { resetCache, isMultiAgentEnabled, loadAgentDefinitions } = await import('../../agents');
-    resetCache();
+    const agentManager = this.deps.api?.agentManager;
+    if (!agentManager) {
+      return { added: [], removed: [], kept: [], message: 'agentManager 不可用，无法热重载。' };
+    }
 
-    const enabled = isMultiAgentEnabled();
-    const newDefs = enabled ? loadAgentDefinitions() : [];
+    agentManager.resetCache();
+
+    const status = agentManager.getStatus();
+    const enabled = status.enabled;
+    const newDefs = enabled ? status.agents : [];
     // 多 agent 模式下还有一个 __global__ 全局 AI
     const newNames = new Set(newDefs.map(d => d.name));
     if (enabled) newNames.add('__global__');
@@ -227,16 +246,16 @@ export class WebPlatform extends PlatformAdapter {
     };
 
     /** 为 agent 创建上下文并绑定事件 */
-    const bootstrapAgent = async (def: AgentDefinition | '__default__'): Promise<void> => {
+    const bootstrapAgent = async (def: AgentDefinitionLike | '__default__'): Promise<void> => {
       const result = await this.reloadHandler!(def);
-      const name = def === '__default__' ? 'default' : def.name;
+      const name = def === '__default__' ? 'default' : (def as AgentDefinitionLike).name;
       const currentModel = result.router.getCurrentModelInfo();
       let _mcpManager = result.getMCPManager();
       this.agents.set(name, {
         name,
         description: def === '__default__' ? undefined
           : name === '__global__' ? '全局 AI'
-          : (def as AgentDefinition).description,
+          : (def as AgentDefinitionLike).description,
         backend: result.backend,
         config: {
           ...this.config,
@@ -293,7 +312,7 @@ export class WebPlatform extends PlatformAdapter {
       if (!currentNames.has(name) || currentNames.has('default')) {
         try {
           const def = name === '__global__'
-            ? { name: '__global__' } as AgentDefinition
+            ? { name: '__global__' } as AgentDefinitionLike
             : newDefs.find(d => d.name === name);
           if (!def) {
             logger.warn(`Agent「${name}」在定义列表中未找到，跳过。`);
@@ -471,14 +490,14 @@ export class WebPlatform extends PlatformAdapter {
   }
 
   /** 注入 MCP 管理器引用（单 Agent 兼容 / 指定 agent） */
-  setMCPManager(mgr: MCPManager, agentName?: string): void {
+  setMCPManager(mgr: any, agentName?: string): void {
     const name = agentName ?? this.defaultAgentName;
     const agent = this.agents.get(name);
     if (agent) agent.setMCPManager(mgr);
   }
 
   /** 获取 MCP 管理器（单 Agent 兼容 / 指定 agent） */
-  getMCPManager(agentName?: string): MCPManager | undefined {
+  getMCPManager(agentName?: string): any | undefined {
     const name = agentName ?? this.defaultAgentName;
     return this.agents.get(name)?.getMCPManager();
   }
@@ -486,7 +505,7 @@ export class WebPlatform extends PlatformAdapter {
   // ============ 内部方法 ============
 
   /** 为一个 Backend 绑定 SSE 事件转发，并追踪监听器以便后续精确移除 */
-  private wireBackendEvents(backend: Backend, agentName?: string): void {
+  private wireBackendEvents(backend: IrisBackendLike, agentName?: string): void {
     const onResponse = (sid: string, text: string) => {
       this.writeSSE(sid, { type: 'message', text });
     };
@@ -508,7 +527,7 @@ export class WebPlatform extends PlatformAdapter {
           this.writeSSE(sid, {
             type: 'thought_delta',
             text: part.text,
-            durationMs: part.thoughtDurationMs,
+            durationMs: (part as any).thoughtDurationMs,
           });
         }
       }
@@ -552,19 +571,19 @@ export class WebPlatform extends PlatformAdapter {
     // 记录清理函数，热重载时精确移除这些监听器而不影响其他平台
     if (agentName) {
       this.backendListenerCleanups.set(agentName, () => {
-        backend.off('response', onResponse);
-        backend.off('stream:start', onStreamStart);
-        backend.off('stream:chunk', onStreamChunk);
-        backend.off('error', onError);
-        backend.off('assistant:content', onAssistantContent);
-        backend.off('stream:parts', onStreamParts);
-        backend.off('stream:end', onStreamEnd);
-        backend.off('done', onDone);
-        backend.off('tool:update', onToolUpdate);
-        backend.off('usage', onUsage);
-        backend.off('retry', onRetry);
-        backend.off('auto-compact', onAutoCompact);
-        backend.off('user:token', onUserToken);
+        backend.off!('response', onResponse);
+        backend.off!('stream:start', onStreamStart);
+        backend.off!('stream:chunk', onStreamChunk);
+        backend.off!('error', onError);
+        backend.off!('assistant:content', onAssistantContent);
+        backend.off!('stream:parts', onStreamParts);
+        backend.off!('stream:end', onStreamEnd);
+        backend.off!('done', onDone);
+        backend.off!('tool:update', onToolUpdate);
+        backend.off!('usage', onUsage);
+        backend.off!('retry', onRetry);
+        backend.off!('auto-compact', onAutoCompact);
+        backend.off!('user:token', onUserToken);
       });
     }
   }
@@ -603,8 +622,9 @@ export class WebPlatform extends PlatformAdapter {
 
     // Agent 管理 API（读取 agents.yaml 完整状态，含未启用的 agent）
     this.router.get('/api/agents/status', async (_req, res) => {
-      const { getAgentStatus } = await import('../../agents');
-      sendJSON(res, 200, getAgentStatus());
+      const agentManager = this.deps.api?.agentManager;
+      if (!agentManager) { sendJSON(res, 503, { error: 'agentManager 不可用' }); return; }
+      sendJSON(res, 200, agentManager.getStatus());
     });
 
     // Agent 热重载（手动触发）
@@ -620,8 +640,9 @@ export class WebPlatform extends PlatformAdapter {
         sendJSON(res, 400, { error: '缺少 enabled 参数' });
         return;
       }
-      const { setAgentEnabled } = await import('../../agents');
-      const result = setAgentEnabled(body.enabled);
+      const agentManager = this.deps.api?.agentManager;
+      if (!agentManager) { sendJSON(res, 503, { error: 'agentManager 不可用' }); return; }
+      const result = agentManager.setEnabled(body.enabled);
       if (result.success) {
         const reload = await this.reloadAgents();
         sendJSON(res, 200, { ...result, reload });
@@ -632,8 +653,9 @@ export class WebPlatform extends PlatformAdapter {
 
     // Agent CRUD API
     this.router.post('/api/agents/init', async (_req, res) => {
-      const { createManifestIfNotExists } = await import('../../agents');
-      const result = createManifestIfNotExists();
+      const agentManager = this.deps.api?.agentManager;
+      if (!agentManager) { sendJSON(res, 503, { error: 'agentManager 不可用' }); return; }
+      const result = agentManager.createManifest();
       sendJSON(res, result.success ? 200 : 500, result);
     });
 
@@ -643,8 +665,9 @@ export class WebPlatform extends PlatformAdapter {
         sendJSON(res, 400, { success: false, message: '缺少 name 参数' });
         return;
       }
-      const { createAgent } = await import('../../agents');
-      const result = createAgent(body.name.trim(), body.description);
+      const agentManager = this.deps.api?.agentManager;
+      if (!agentManager) { sendJSON(res, 503, { error: 'agentManager 不可用' }); return; }
+      const result = agentManager.create(body.name.trim(), body.description);
       if (result.success) {
         const reload = await this.reloadAgents();
         sendJSON(res, 200, { ...result, reload });
@@ -659,8 +682,9 @@ export class WebPlatform extends PlatformAdapter {
         sendJSON(res, 400, { success: false, message: '缺少 name 参数' });
         return;
       }
-      const { updateAgent } = await import('../../agents');
-      const result = updateAgent(body.name.trim(), {
+      const agentManager = this.deps.api?.agentManager;
+      if (!agentManager) { sendJSON(res, 503, { error: 'agentManager 不可用' }); return; }
+      const result = agentManager.update(body.name.trim(), {
         description: body.description,
         dataDir: body.dataDir,
       });
@@ -673,8 +697,9 @@ export class WebPlatform extends PlatformAdapter {
         sendJSON(res, 400, { success: false, message: '缺少 name 参数' });
         return;
       }
-      const { deleteAgent } = await import('../../agents');
-      const result = deleteAgent(body.name.trim());
+      const agentManager = this.deps.api?.agentManager;
+      if (!agentManager) { sendJSON(res, 503, { error: 'agentManager 不可用' }); return; }
+      const result = agentManager.delete(body.name.trim());
       if (result.success) {
         const reload = await this.reloadAgents();
         sendJSON(res, 200, { ...result, reload });
@@ -686,22 +711,26 @@ export class WebPlatform extends PlatformAdapter {
     // 聊天 API
     this.router.post('/api/chat', createChatHandler(this));
 
-    // 会话管理 API（按 agent 隔离 storage）
+    // 会话管理 API（通过 IrisAPI.storage 访问）
     this.router.get('/api/sessions', async (req, res) => {
-      const { backend } = this.resolveAgent(req);
-      return createSessionsHandlers(backend.getStorage()).list(req, res);
+      const storage = this.deps.api?.storage;
+      if (!storage) { sendJSON(res, 503, { error: 'storage 不可用' }); return; }
+      return createSessionsHandlers(storage).list(req, res);
     });
     this.router.get('/api/sessions/:id/messages', async (req, res, params) => {
-      const { backend } = this.resolveAgent(req);
-      return createSessionsHandlers(backend.getStorage()).getMessages(req, res, params);
+      const storage = this.deps.api?.storage;
+      if (!storage) { sendJSON(res, 503, { error: 'storage 不可用' }); return; }
+      return createSessionsHandlers(storage).getMessages(req, res, params);
     });
     this.router.delete('/api/sessions/:id/messages', async (req, res, params) => {
-      const { backend } = this.resolveAgent(req);
-      return createSessionsHandlers(backend.getStorage()).truncateMessages(req, res, params);
+      const storage = this.deps.api?.storage;
+      if (!storage) { sendJSON(res, 503, { error: 'storage 不可用' }); return; }
+      return createSessionsHandlers(storage).truncateMessages(req, res, params);
     });
     this.router.delete('/api/sessions/:id', async (req, res, params) => {
-      const { backend } = this.resolveAgent(req);
-      return createSessionsHandlers(backend.getStorage()).remove(req, res, params);
+      const storage = this.deps.api?.storage;
+      if (!storage) { sendJSON(res, 503, { error: 'storage 不可用' }); return; }
+      return createSessionsHandlers(storage).remove(req, res, params);
     });
 
     // 部署管理 API（全局，不区分 agent）
@@ -724,7 +753,7 @@ export class WebPlatform extends PlatformAdapter {
     this.router.put('/api/cloudflare/ssl', cloudflare.setSsl);
 
     // 扩展管理 + 平台目录 API（全局，不区分 agent）
-    const extensions = createExtensionHandlers(projectRoot);
+    const extensions = createExtensionHandlers(this.deps.projectRoot ?? process.cwd());
     this.router.get('/api/extensions', extensions.list);
     this.router.get('/api/extensions/remote', extensions.remote);
     this.router.post('/api/extensions/install', extensions.install);
@@ -733,46 +762,44 @@ export class WebPlatform extends PlatformAdapter {
     this.router.delete('/api/extensions/:name', extensions.remove);
     this.router.get('/api/platforms', extensions.platforms);
 
-    // 配置管理 API（使用请求对应 agent 的 backend）
+    // 配置管理 API（通过 IrisAPI 访问）
     this.router.get('/api/config', async (req, res) => {
-      const agent = this.resolveAgent(req);
-      return createConfigHandlers(agent.config.configPath, async () => {}).get(req, res);
+      if (!this.deps.api) { sendJSON(res, 503, { error: 'API 不可用' }); return; }
+      return createConfigHandlers(this.deps.api).get(req, res);
     });
     this.router.put('/api/config', async (req, res) => {
+      if (!this.deps.api) { sendJSON(res, 503, { error: 'API 不可用' }); return; }
       const agent = this.resolveAgent(req);
-      const configHandlers = createConfigHandlers(agent.config.configPath, async (mergedConfig) => {
-        const summary = await applyRuntimeConfigReload(
-          {
-            backend: agent.backend,
-            getMCPManager: agent.getMCPManager,
-            setMCPManager: agent.setMCPManager,
-            dataDir: agent.dataDir,
-            extensions: agent.extensions,
-          },
-          mergedConfig,
-        );
-        agent.config.provider = summary.provider;
-        agent.config.modelId = summary.modelId;
-        agent.config.streamEnabled = summary.streamEnabled;
+      const configHandlers = createConfigHandlers(this.deps.api, async (mergedConfig) => {
+        const result = await this.deps.api?.configManager?.applyRuntimeConfigReload(mergedConfig);
+        if (result && !result.error) {
+          // 尝试从 backend 获取最新模型信息更新 agent config
+          const modelInfo = (agent.backend as any).getCurrentModelInfo?.();
+          if (modelInfo) {
+            agent.config.provider = modelInfo.provider ?? agent.config.provider;
+            agent.config.modelId = modelInfo.modelId ?? agent.config.modelId;
+          }
+          agent.config.streamEnabled = (mergedConfig as any)?.system?.stream ?? agent.config.streamEnabled;
+        }
 
         // 平台配置热重载
-        if (this.platformReloadHandler && mergedConfig.platform) {
+        if (this.platformReloadHandler && (mergedConfig as any)?.platform) {
           await this.platformReloadHandler(mergedConfig);
         }
       });
       return configHandlers.update(req, res);
     });
     this.router.post('/api/config/models', async (req, res) => {
-      const agent = this.resolveAgent(req);
-      return createConfigHandlers(agent.config.configPath, async () => {}).listModels(req, res);
+      if (!this.deps.api) { sendJSON(res, 503, { error: 'API 不可用' }); return; }
+      return createConfigHandlers(this.deps.api).listModels(req, res);
     });
 
     // 重置配置 API
     this.router.post('/api/config/reset', async (req, res) => {
       try {
         const { backend } = this.resolveAgent(req);
-        const result = backend.resetConfigToDefaults();
-        sendJSON(res, result.success ? 200 : 500, result);
+        const result = backend.resetConfigToDefaults?.();
+        sendJSON(res, result && (result as any).success ? 200 : 500, result ?? { success: false, message: '不支持的操作' });
       } catch (err: unknown) {
         sendJSON(res, 500, { success: false, message: err instanceof Error ? err.message : '重置失败' });
       }
@@ -782,7 +809,7 @@ export class WebPlatform extends PlatformAdapter {
     this.router.get('/api/models', async (req, res) => {
       try {
         const { backend } = this.resolveAgent(req);
-        sendJSON(res, 200, { models: backend.listModels() });
+        sendJSON(res, 200, { models: backend.listModels?.() ?? [] });
       } catch (err: unknown) {
         sendJSON(res, 500, { error: err instanceof Error ? err.message : '获取模型列表失败' });
       }
@@ -791,25 +818,26 @@ export class WebPlatform extends PlatformAdapter {
     // 状态 API
     this.router.get('/api/status', async (req, res) => {
       const agent = this.resolveAgent(req);
-      const modelInfo = agent.backend.getCurrentModelInfo();
-      const disabledTools = agent.backend.getDisabledTools();
+      const modelInfo = (agent.backend as any).getCurrentModelInfo?.() ?? {};
+      const disabledTools = (agent.backend as any).getDisabledTools?.() ?? [];
+      const pRoot = this.deps.projectRoot ?? process.cwd();
       sendJSON(res, 200, {
         provider: agent.config.provider,
         model: agent.config.modelId,
-        tools: agent.backend.getToolNames(),
+        tools: agent.backend.getToolNames?.() ?? [],
         ...(disabledTools.length > 0 ? { disabledTools } : {}),
         stream: agent.config.streamEnabled,
         authProtected: !!this.config.authToken,
         managementProtected: !!this.config.managementToken,
         platform: 'web',
         contextWindow: modelInfo.contextWindow,
-        mcpStatus: agent.getMCPManager()?.getServerInfo() ?? [],
+        mcpStatus: agent.getMCPManager()?.getServerInfo?.() ?? [],
         runtime: {
-          projectRoot,
-          dataDir,
-          configDir,
-          isCompiledBinary,
-          configSource: fs.existsSync(path.join(projectRoot, 'data/configs.example')) ? 'template' : 'embedded',
+          projectRoot: this.deps.projectRoot,
+          dataDir: this.deps.dataDir,
+          configDir: this.deps.configDir,
+          isCompiledBinary: this.deps.isCompiledBinary,
+          configSource: fs.existsSync(path.join(pRoot, 'data/configs.example')) ? 'template' : 'embedded',
         },
       });
     });
@@ -817,7 +845,9 @@ export class WebPlatform extends PlatformAdapter {
     // Diff 预览 API
     this.router.get('/api/tools/:id/diff', async (req, res, params) => {
       const { backend } = this.resolveAgent(req);
-      return createDiffPreviewHandler(backend)(req, res, params);
+      const utils = this.deps.api?.toolPreviewUtils;
+      if (!utils) { sendJSON(res, 503, { error: 'toolPreviewUtils 不可用' }); return; }
+      return createDiffPreviewHandler(backend, utils)(req, res, params);
     });
 
     // 工具审批 API
@@ -825,7 +855,7 @@ export class WebPlatform extends PlatformAdapter {
       try {
         const { backend } = this.resolveAgent(req);
         const body = await readBody(req);
-        backend.approveTool(params.id, body.approved);
+        backend.approveTool?.(params.id, body.approved);
         sendJSON(res, 200, { ok: true });
       } catch (err: unknown) {
         sendJSON(res, 400, { error: err instanceof Error ? err.message : '操作失败' });
@@ -836,7 +866,7 @@ export class WebPlatform extends PlatformAdapter {
       try {
         const { backend } = this.resolveAgent(req);
         const body = await readBody(req);
-        backend.applyTool(params.id, body.applied);
+        backend.applyTool?.(params.id, body.applied);
         sendJSON(res, 200, { ok: true });
       } catch (err: unknown) {
         sendJSON(res, 400, { error: err instanceof Error ? err.message : '操作失败' });
@@ -852,12 +882,12 @@ export class WebPlatform extends PlatformAdapter {
         return;
       }
       try {
-        const result = await backend.undo(sessionId, 'last-visible-message');
+        const result = await backend.undo?.(sessionId, 'last-visible-message');
         if (!result) {
           sendJSON(res, 200, { ok: true, changed: false });
           return;
         }
-        const history = await backend.getHistory(sessionId);
+        const history = await backend.getHistory?.(sessionId) ?? [];
         sendJSON(res, 200, { ok: true, changed: true, messages: formatMessages(history) });
       } catch (err: unknown) {
         sendJSON(res, 500, { error: err instanceof Error ? err.message : '撤销失败' });
@@ -872,12 +902,12 @@ export class WebPlatform extends PlatformAdapter {
         return;
       }
       try {
-        const result = await backend.redo(sessionId);
+        const result = await backend.redo?.(sessionId);
         if (!result) {
           sendJSON(res, 200, { ok: true, changed: false });
           return;
         }
-        const history = await backend.getHistory(sessionId);
+        const history = await backend.getHistory?.(sessionId) ?? [];
         sendJSON(res, 200, { ok: true, changed: true, messages: formatMessages(history) });
       } catch (err: unknown) {
         sendJSON(res, 500, { error: err instanceof Error ? err.message : '重做失败' });
@@ -893,8 +923,8 @@ export class WebPlatform extends PlatformAdapter {
           sendJSON(res, 400, { error: '缺少 command 参数' });
           return;
         }
-        const result = backend.runCommand(body.command);
-        sendJSON(res, 200, result);
+        const result = backend.runCommand?.(body.command);
+        sendJSON(res, 200, result ?? { error: '不支持的操作' });
       } catch (err: unknown) {
         sendJSON(res, 500, { error: err instanceof Error ? err.message : '命令执行失败' });
       }
@@ -910,7 +940,7 @@ export class WebPlatform extends PlatformAdapter {
           sendJSON(res, 400, { error: '缺少 sessionId 参数' });
           return;
         }
-        const summary = await backend.summarize(sessionId);
+        const summary = await backend.summarize?.(sessionId);
         sendJSON(res, 200, { ok: true, summary });
       } catch (err: unknown) {
         sendJSON(res, 500, { error: err instanceof Error ? err.message : '压缩失败' });
@@ -926,9 +956,13 @@ export class WebPlatform extends PlatformAdapter {
           sendJSON(res, 400, { error: '缺少 modelName 参数' });
           return;
         }
-        const info = agent.backend.switchModel(body.modelName, 'web');
+        const info = agent.backend.switchModel?.(body.modelName, 'web');
+        if (!info) {
+          sendJSON(res, 500, { error: '模型切换不可用' });
+          return;
+        }
         agent.config.modelId = info.modelId;
-        agent.config.provider = info.provider;
+        agent.config.provider = (info as any).provider ?? agent.config.provider;
         sendJSON(res, 200, info);
       } catch (err: unknown) {
         sendJSON(res, 400, { error: err instanceof Error ? err.message : '切换模型失败' });

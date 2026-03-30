@@ -5,8 +5,6 @@ import * as os from 'os'
 import * as path from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { loadRawConfigDir } from '../../../config/raw'
-import { parsePlatformConfig } from '../../../config/platform'
 import {
   CloudflareSslMode,
   getCloudflareDeployContext,
@@ -15,6 +13,46 @@ import {
   setCloudflareSslMode,
 } from '../cloudflare'
 import { readBody, sendJSON } from '../router'
+
+// ── 配置读写通过直接 YAML I/O 实现（避免耦合 src/ 内部模块）──
+import * as yaml from 'yaml'
+
+function loadRawConfigDir(configDir: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  const sections = ['llm', 'ocr', 'platform', 'storage', 'tools', 'system', 'memory', 'cloudflare', 'mcp', 'modes', 'sub_agents', 'summary', 'plugins'];
+  for (const key of sections) {
+    const filePath = path.join(configDir, `${key}.yaml`);
+    if (fs.existsSync(filePath)) {
+      try { result[key] = yaml.parse(fs.readFileSync(filePath, 'utf-8')); } catch {}
+    }
+  }
+  return result;
+}
+
+function parsePlatformConfig(raw: any = {}): any {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const types: string[] = (() => {
+    const envPlatform = process.env.IRIS_PLATFORM;
+    if (envPlatform) return envPlatform.split(',').map(s => s.trim()).filter(Boolean);
+    const rawType = source.type;
+    if (typeof rawType === 'string') return rawType.split(',').map(s => s.trim()).filter(Boolean);
+    if (Array.isArray(rawType)) return rawType.filter(t => typeof t === 'string').map(s => s.trim()).filter(Boolean);
+    return ['web'];
+  })();
+  return {
+    types,
+    web: {
+      port: source.web?.port ?? 8192,
+      host: source.web?.host ?? '127.0.0.1',
+      lastModel: source.web?.lastModel,
+      authToken: source.web?.authToken,
+      managementToken: source.web?.managementToken,
+    },
+    ...(Object.fromEntries(
+      Object.entries(source).filter(([k]) => k !== 'type' && k !== 'pairing' && k !== 'web')
+    )),
+  };
+}
 
 const execFileAsync = promisify(execFile)
 const NGINX_TARGET_PATH = '/etc/nginx/sites-available/iris'

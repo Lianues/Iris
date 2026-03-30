@@ -2,6 +2,7 @@
  * 平台注册表
  *
  * 用于内置平台与插件平台的统一创建。
+ * 从 src/platforms/registry.ts 迁移而来，不再包含任何内置平台工厂。
  */
 
 import type { AppConfig } from '../config/types';
@@ -65,29 +66,4 @@ export class PlatformRegistry {
     }
     return await factory(context);
   }
-}
-
-/** 注册内置平台工厂 */
-export function createDefaultPlatformRegistry(): PlatformRegistry {
-  const registry = new PlatformRegistry();
-
-  registry.register('web', async ({ backend, config, configDir, router, getMCPManager, extensions }) => {
-    const { WebPlatform } = await import('./web');
-    const currentModel = router.getCurrentModelInfo();
-    const webPlatform = new WebPlatform(backend, {
-      port: config.platform.web.port,
-      host: config.platform.web.host,
-      authToken: config.platform.web.authToken,
-      managementToken: config.platform.web.managementToken,
-      configPath: configDir,
-      provider: currentModel.provider,
-      modelId: currentModel.modelId,
-      streamEnabled: config.system.stream,
-    }, { llmProviders: extensions.llmProviders, ocrProviders: extensions.ocrProviders });
-    const mcpMgr = getMCPManager();
-    if (mcpMgr) webPlatform.setMCPManager(mcpMgr);
-    return webPlatform;
-  });
-
-  return registry;
 }

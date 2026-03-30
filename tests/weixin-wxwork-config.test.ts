@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { registerExtensionPlatforms } from '../src/extension/index';
 import { parsePlatformConfig } from '../src/config/platform';
-import { createDefaultPlatformRegistry } from '../src/platforms/registry';
+import { PlatformRegistry } from '../src/core/platform-registry';
 
 describe('Weixin / WXWork: parsePlatformConfig', () => {
   it('解析 wxwork 配置并提供默认值', () => {
@@ -44,7 +44,7 @@ describe('Weixin / WXWork: parsePlatformConfig', () => {
 
 describe('Weixin / WXWork: extension registration', () => {
   it('不再内置注册 wxwork 和 weixin，而是由 extension 清单注册', async () => {
-    const registry = createDefaultPlatformRegistry();
+    const registry = new PlatformRegistry();
     expect(registry.has('wxwork')).toBe(false);
     expect(registry.has('weixin')).toBe(false);
 

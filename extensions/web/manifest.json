@@ -1,0 +1,25 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "description": "Web GUI platform with management dashboard for Iris",
+  "platforms": [
+    {
+      "name": "web",
+      "label": "Web GUI",
+      "entry": "dist/index.mjs",
+      "description": "Web 管理界面，支持聊天、配置管理、一键部署、终端等功能。",
+      "panel": {
+        "description": "Web 服务器配置",
+        "fields": [
+          { "key": "port", "type": "number", "label": "监听端口", "required": false },
+          { "key": "host", "type": "text", "label": "监听地址", "required": false },
+          { "key": "authToken", "type": "password", "label": "API 访问令牌", "required": false },
+          { "key": "managementToken", "type": "password", "label": "管理令牌", "required": false }
+        ]
+      }
+    }
+  ],
+  "distribution": {
+    "files": ["dist/index.mjs", "web-ui/dist/**", "package.json"]
+  }
+}

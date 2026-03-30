@@ -19,11 +19,14 @@ export {
   getPlatformConfig,
   PlatformAdapter,
   splitText,
+  isMultiAgentCapable,
 } from './platform.js';
 
 export type {
   DocumentInput,
   ImageInput,
+  AgentContextLike,
+  MultiAgentCapable,
   IrisBackendLike,
   IrisModeInfoLike,
   IrisModelInfoLike,
@@ -98,9 +101,11 @@ export {
 
 export type {
   AgentDefinitionLike,
+  AgentManagerLike,
   BootstrapExtensionRegistryLike,
   ConfigManagerLike,
   DeleteCodeEntryLike,
+  ExtensionManagerLike,
   InlinePluginEntry,
   InsertEntryLike,
   IrisAPI,
@@ -110,6 +115,7 @@ export type {
   MCPManagerLike,
   MCPServerInfoLike,
   MemoryFactory,
+  ModelCatalogResultLike,
   ModeRegistryLike,
   NamedFactoryRegistryLike,
   OCRFactory,
@@ -126,7 +132,9 @@ export type {
   PluginManagerLike,
   PreBootstrapContext,
   PromptAssemblerLike,
+  SessionInfoLike,
   StorageFactory,
+  StorageLike,
   ToolExecInterception,
   ToolPreviewUtilsLike,
   ToolRegistryLike,
