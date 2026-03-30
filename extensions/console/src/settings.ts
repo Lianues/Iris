@@ -383,7 +383,7 @@ export class ConsoleSettingsController {
         timeout: typeof cfg?.timeout === 'number' ? cfg.timeout : 30000,
         enabled: cfg?.enabled !== false,
       })),
-      mcpStatus: this.mcpManager?.listServers?.() ?? [],
+      mcpStatus: (this.mcpManager?.listServers?.() ?? []) as MCPServerInfoLike[],
       mcpOriginalNames: Object.keys(rawMcpServers),
     };
   }

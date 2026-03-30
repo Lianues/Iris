@@ -77,7 +77,7 @@ export interface IrisBackendLike {
   listModels?(): IrisModelInfoLike[];
   listSessionMetas?(): Promise<IrisSessionMetaLike[]>;
   abortChat?(sessionId: string): void;
-  undo?(sessionId: string, scope: string): Promise<{ assistantText?: string } | null>;
+  undo?(sessionId: string, scope?: string): Promise<{ assistantText?: string } | null>;
   redo?(sessionId: string): Promise<{ assistantText?: string } | null>;
   listSkills?(): IrisSkillInfoLike[];
   listModes?(): IrisModeInfoLike[];
@@ -85,9 +85,9 @@ export interface IrisBackendLike {
   clearRedo?(sessionId: string): void;
   applyTool?(toolId: string, applied: boolean): void;
   getHistory?(sessionId: string): Promise<Content[]>;
-  runCommand?(cmd: string): Promise<unknown>;
-  summarize?(sessionId: string): Promise<void>;
-  resetConfigToDefaults?(): Promise<void>;
+  runCommand?(cmd: string): unknown;
+  summarize?(sessionId: string): Promise<unknown>;
+  resetConfigToDefaults?(): unknown;
   getToolNames?(): string[];
 }
 

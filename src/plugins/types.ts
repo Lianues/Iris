@@ -6,6 +6,7 @@
  */
 
 import type { ToolDefinition, ToolHandler, Part, Content, LLMRequest } from '../types';
+import type { IrisAPI as IrisAPIBase } from '@irises/extension-sdk';
 import type { ModeDefinition } from '../modes/types';
 import type { AppConfig } from '../config/types';
 import type { PatchDisposer } from './patch';
@@ -68,80 +69,28 @@ export interface IrisPlugin {
  * Iris 内部 API
  *
  * 在 Backend 创建完成后通过 onReady 回调传递给插件。
- * 提供对所有核心组件的直接访问，不做任何限制。
+ * 继承 SDK 的 IrisAPI 接口，用宿主具体类型覆盖泛化的 *Like 接口。
  */
-export interface IrisAPI {
-  /** Backend 实例（EventEmitter，可监听所有内部事件、调用所有方法） */
+export interface IrisAPI extends Omit<IrisAPIBase,
+  'backend' | 'router' | 'storage' | 'memory' | 'tools' | 'modes' | 'prompt' | 'config' | 'mcpManager' | 'ocrService' | 'extensions' | 'pluginManager' | 'eventBus' | 'patchMethod' | 'patchPrototype'> {
   backend: Backend;
-  /** LLM 路由器（切换模型、获取模型信息、动态注册/移除模型） */
   router: LLMRouter;
-  /** 存储层（会话历史、元数据） */
   storage: StorageProvider;
-  /** 记忆层（可选） */
   memory?: MemoryProvider;
-  /** 工具注册表 */
   tools: ToolRegistry;
-  /** 模式注册表 */
   modes: ModeRegistry;
-  /** 提示词装配器（可直接修改系统提示词） */
   prompt: PromptAssembler;
-  /** 当前应用配置（只读） */
   config: Readonly<AppConfig>;
-  /** MCP 管理器（可选，未配置 MCP 时为 undefined） */
   mcpManager?: MCPManager;
-  /** OCR 服务（可选，未配置时为 undefined） */
   ocrService?: OCRProvider;
-  /** 启动扩展注册表（Provider / Platform 工厂） */
   extensions: BootstrapExtensionRegistry;
-
-  // ---- 插件高级能力 ----
-
-  /** 插件管理器（可查询其他插件信息） */
   pluginManager: PluginManager;
-  /** 插件间共享事件总线 */
   eventBus: PluginEventBus;
-
-  /**
-   * 安全地替换任意对象上的方法。返回 dispose 函数，调用后恢复原始方法。
-   * 支持链式叠加，多个插件可以对同一方法依次 patch。
-   *
-   * @example
-   *   const dispose = api.patchMethod(api.backend, 'chat', async (original, sid, text) => {
-   *     console.log('before chat');
-   *     return original(sid, text);
-   *   });
-   */
   patchMethod: typeof import('./patch').patchMethod;
-  /** 替换类原型上的方法，影响所有实例 */
   patchPrototype: typeof import('./patch').patchPrototype;
-  /** 向 Web 平台注册自定义 HTTP 路由。若 Web 平台尚未创建，将在绑定后自动补注册。 */
-  registerWebRoute?: (method: string, path: string, handler: (req: any, res: any, params: Record<string, string>) => Promise<void>) => void;
-  /** 向 Web 平台注册扩展面板页面。宿主侧边栏会动态展示已注册的面板。 */
-  registerWebPanel?: (panel: WebPanelDefinition) => void;
-
-  // ---- 宿主级通用能力（所有扩展可用）----
-
-  /** 配置管理器 */
-  configManager?: Record<string, unknown>;
-  /** 是否编译后的二进制发行版 */
-  isCompiledBinary?: boolean;
-  /** 设置全局日志级别 */
-  setLogLevel?(level: number): void;
-  /** 获取全局日志级别 */
-  getLogLevel?(): number;
 }
 
-/** 扩展面板定义（由插件通过 registerWebPanel 注册，宿主 Web UI 动态渲染） */
-export interface WebPanelDefinition {
-  /** 面板唯一标识 */
-  id: string;
-  /** 面板显示标题 */
-  title: string;
-  /** 面板图标名称（Material Symbols 图标名，如 'mouse'），缺省使用 'extension' */
-  icon?: string;
-  /** 面板内容 URL 路径（由扩展通过 registerWebRoute 提供，宿主用 iframe 加载） */
-  contentPath: string;
-}
+export type { WebPanelDefinition } from '@irises/extension-sdk';
 
 // ============ 预启动上下文 ============
 

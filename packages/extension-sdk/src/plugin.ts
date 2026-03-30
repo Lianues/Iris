@@ -44,8 +44,8 @@ export interface ModeRegistryLike {
 }
 
 export interface LLMRouterLike {
-  getCurrentModelInfo?(): Record<string, unknown>;
-  listModels?(): Array<Record<string, unknown>>;
+  getCurrentModelInfo?(): unknown;
+  listModels?(): unknown[];
   resolve?(modelName: string): unknown;
 }
 
@@ -117,8 +117,8 @@ export interface MCPServerInfoLike {
 }
 
 export interface MCPManagerLike {
-  getServerInfo?(name: string): MCPServerInfoLike | undefined;
-  listServers?(): MCPServerInfoLike[];
+  getServerInfo?(...args: unknown[]): unknown;
+  listServers?(): unknown[];
   getConfig?(): Record<string, unknown>;
   connectAll?(): Promise<void>;
 }
