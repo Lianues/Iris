@@ -1,4 +1,5 @@
 export type {
+  ExtensionDistributionContribution,
   ExtensionManifest,
   ExtensionPackage,
   ExtensionPlatformContribution,
