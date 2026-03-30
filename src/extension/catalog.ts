@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { assertInstallableExtensionPackage } from './dependencies';
-import type { ExtensionManifest } from './manifest-types';
+import type { ExtensionManifest } from '@irises/extension-sdk';
 import { MANIFEST_FILE, readManifestFromDirStrict } from './utils';
 
 const INDEX_FILE = 'index.json';

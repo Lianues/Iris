@@ -15,7 +15,7 @@ import { parse as parseYAML } from 'yaml';
 import type { ModeRegistry } from '../modes/registry';
 import type { PromptAssembler } from '../prompt/assembler';
 import type { LLMRouter } from '../llm/router';
-import type { PluginContext, PluginHook, PluginLogger, ToolWrapper, IrisAPI } from './types';
+import type { PluginContext, PluginHook, PluginLogger, ToolWrapper, IrisAPI } from '@irises/extension-sdk';
 import { createLogger } from '../logger';
 import type { PlatformAdapter } from '@irises/extension-sdk';
 

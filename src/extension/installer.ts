@@ -8,7 +8,7 @@ import type {
   ExtensionDistributionMode,
   ExtensionInstallFallbackReason,
   InstalledExtensionResult,
-} from './manifest-types';
+} from '@irises/extension-sdk';
 import { readManifestFromDir } from './utils';
 import {
   normalizeRelativeFilePath,

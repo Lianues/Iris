@@ -20,7 +20,7 @@ import type { SummaryConfig } from '../../config/types';
 import { updatePlatformLastModel } from '../../config/platform';
 import { LLMRouter } from '../../llm/router';
 import { isDocumentMimeType } from '../../llm/vision';
-import type { PluginHook } from '../../extension/types';
+import type { PluginHook } from '../../extension';
 import { StorageProvider, SessionMeta } from '../../storage/base';
 import { ToolRegistry } from '../../tools/registry';
 import { ToolStateManager } from '../../tools/state';

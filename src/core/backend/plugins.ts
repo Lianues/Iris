@@ -2,7 +2,7 @@
  * 插件钩子到 ToolLoopConfig 的装配
  */
 
-import type { PluginHook } from '../../extension/types';
+import type { PluginHook } from '../../extension';
 import type { ToolLoopConfig } from '../tool-loop';
 import { createLogger } from '../../logger';
 

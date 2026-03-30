@@ -1,22 +1,8 @@
 /**
  * 扩展系统统一导出
- *
- * 合并了原 extension/ 和 plugins/ 的全部导出。
  */
 
 // ── 扩展发现 / 安装 / 注册 ─────────────────────────────────────
-
-export type {
-  ExtensionManifest,
-  ExtensionPackage,
-  ExtensionPlatformContribution,
-  ExtensionPluginContribution,
-  ExtensionSource,
-  ResolvedLocalPlugin,
-  ExtensionInstallFallbackReason,
-  ExtensionDistributionMode,
-  InstalledExtensionResult,
-} from './manifest-types';
 
 export {
   discoverLocalExtensions,
@@ -33,7 +19,24 @@ export {
 
 export type { ExtensionInstallOptions } from './installer';
 
-// ── 插件系统 ───────────────────────────────────────────────────
+// ── 插件系统实现 ───────────────────────────────────────────
+
+export { PluginManager } from './manager';
+export { PluginEventBus } from './event-bus';
+export { patchMethod, patchPrototype } from './patch';
+
+// ── 宿主内部类型 ─────────────────────────────────────────────
+
+export type {
+  LoadedPlugin,
+  PluginInfo,
+  BeforeToolExecInterceptor,
+  AfterToolExecInterceptor,
+  BeforeLLMCallInterceptor,
+  AfterLLMCallInterceptor,
+} from './types';
+
+// ── SDK 类型便捷 re-export（让宿主其他模块 from './extension' 也能拿到）
 
 export type {
   IrisPlugin,
@@ -44,14 +47,20 @@ export type {
   PluginLogger,
   InlinePluginEntry,
   PluginEntry,
-  PluginInfo,
   ToolExecInterception,
   ToolWrapper,
-  BeforeToolExecInterceptor,
-  AfterToolExecInterceptor,
-  BeforeLLMCallInterceptor,
-  AfterLLMCallInterceptor,
-} from './types';
+  WebPanelDefinition,
+  PatchDisposer,
+  ExtensionManifest,
+  ExtensionPackage,
+  ExtensionPlatformContribution,
+  ExtensionPluginContribution,
+  ExtensionSource,
+  ResolvedLocalPlugin,
+  ExtensionInstallFallbackReason,
+  ExtensionDistributionMode,
+  InstalledExtensionResult,
+} from '@irises/extension-sdk';
 
 export type {
   BootstrapExtensionRegistry,
@@ -60,8 +69,3 @@ export type {
   MemoryFactory,
   OCRFactory,
 } from '../bootstrap/extensions';
-
-export { PluginManager } from './manager';
-export { PluginEventBus } from './event-bus';
-export { patchMethod, patchPrototype } from './patch';
-export type { PatchDisposer } from './patch';

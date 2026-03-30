@@ -6,7 +6,7 @@
  */
 
 import { createLogger } from '../logger';
-import type { ExtensionManifest } from './manifest-types';
+import type { ExtensionManifest } from '@irises/extension-sdk';
 
 // 从 SDK 共享工具 re-export 基础工具
 export { MANIFEST_FILE } from '@irises/extension-sdk/utils';

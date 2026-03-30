@@ -2,7 +2,7 @@ import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createLogger } from '../logger';
-import type { ExtensionManifest } from './manifest-types';
+import type { ExtensionManifest } from '@irises/extension-sdk';
 import {
   analyzeRuntimeEntries as analyzeRuntimeEntriesShared,
   describeRuntimeIssues,

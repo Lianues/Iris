@@ -46,7 +46,7 @@ import type { PlatformRegistry } from './platforms/registry';
 import { PluginEventBus } from './extension/event-bus';
 import { patchMethod, patchPrototype } from './extension/patch';
 import { registerExtensionPlatforms } from './extension';
-import type { IrisAPI, InlinePluginEntry, WebPanelDefinition } from './extension/types';
+import type { IrisAPI, InlinePluginEntry, WebPanelDefinition } from '@irises/extension-sdk';
 import { readEditableConfig, updateEditableConfig } from './config/manage';
 import { applyRuntimeConfigReload, type RuntimeConfigReloadContext } from './config/runtime';
 import { DEFAULTS, parseLLMConfig } from './config/llm';
