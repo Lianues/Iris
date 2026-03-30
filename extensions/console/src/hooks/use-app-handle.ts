@@ -1,0 +1,282 @@
+import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import type { ToolInvocation, UsageMetadata } from '@irises/extension-sdk';
+import type { ChatMessage, MessagePart } from '../components/MessageItem';
+import type { RetryInfo } from '../components/GeneratingTimer';
+import type { MessageMeta } from '../app-types';
+import {
+  appendAssistantParts,
+  appendMergedMessagePart,
+  applyToolInvocationsToParts,
+  mergeMessageParts,
+  nextMsgId,
+} from '../message-utils';
+import { clearRedo, type UndoRedoStack } from '../undo-redo';
+
+export interface AppHandle {
+  addMessage(role: 'user' | 'assistant', content: string, meta?: MessageMeta): void;
+  addStructuredMessage(role: 'user' | 'assistant', parts: MessagePart[], meta?: MessageMeta): void;
+  addErrorMessage(text: string): void;
+  startStream(): void;
+  pushStreamParts(parts: MessagePart[]): void;
+  endStream(): void;
+  finalizeAssistantParts(parts: MessagePart[], meta?: MessageMeta): void;
+  setToolInvocations(invocations: ToolInvocation[]): void;
+  setGenerating(generating: boolean): void;
+  clearMessages(): void;
+  setUserTokens(tokenCount: number): void;
+  addSummaryMessage(summaryText: string, tokenCount?: number): void;
+  commitTools(): void;
+  setUsage(usage: UsageMetadata): void;
+  setRetryInfo(info: RetryInfo | null): void;
+  finalizeResponse(durationMs: number): void;
+  /**
+   * 从消息队列中出队下一条消息。
+   * 由 App 组件通过 drainCallbackRef 注册实际实现。
+   * 返回下一条消息的文本，队列为空时返回 undefined。
+   */
+  drainQueue(): string | undefined;
+}
+
+interface UseAppHandleOptions {
+  onReady: (handle: AppHandle) => void;
+  undoRedoRef: MutableRefObject<UndoRedoStack>;
+  /** App 组件设置的队列出队回调，drainQueue 时调用 */
+  drainCallbackRef: MutableRefObject<(() => string | undefined) | null>;
+}
+
+export interface UseAppHandleReturn {
+  messages: ChatMessage[];
+  streamingParts: MessagePart[];
+  isStreaming: boolean;
+  isGenerating: boolean;
+  contextTokens: number;
+  retryInfo: RetryInfo | null;
+  pendingApprovals: ToolInvocation[];
+  pendingApplies: ToolInvocation[];
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  commitTools: () => void;
+}
+
+export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppHandleOptions): UseAppHandleReturn {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [streamingParts, setStreamingParts] = useState<MessagePart[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [contextTokens, setContextTokens] = useState(0);
+  const [retryInfo, setRetryInfo] = useState<RetryInfo | null>(null);
+  const [pendingApprovals, setPendingApprovals] = useState<ToolInvocation[]>([]);
+  const [pendingApplies, setPendingApplies] = useState<ToolInvocation[]>([]);
+
+  const streamPartsRef = useRef<MessagePart[]>([]);
+  const toolInvocationsRef = useRef<ToolInvocation[]>([]);
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uncommittedStreamPartsRef = useRef<MessagePart[]>([]);
+  const lastUsageRef = useRef<UsageMetadata | null>(null);
+
+  const commitTools = useCallback(() => {
+    toolInvocationsRef.current = [];
+    setPendingApprovals([]);
+    setPendingApplies([]);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (throttleTimerRef.current) clearTimeout(throttleTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handle: AppHandle = {
+      addMessage(role, content, meta) {
+        clearRedo(undoRedoRef.current);
+        const textPart: MessagePart = { type: 'text', text: content };
+        if (role === 'assistant') {
+          setMessages((prev) => appendAssistantParts(prev, [textPart], meta));
+          return;
+        }
+        // 发送新用户消息时，清除错误消息、命令消息、以及残留的空 assistant 占位消息
+        setMessages((prev) => [
+          ...prev.filter((m) => !m.isError && !m.isCommand && !(m.role === 'assistant' && m.parts.length === 0)),
+          { id: nextMsgId(), role, parts: [textPart], createdAt: Date.now(), ...meta },
+        ]);
+      },
+      addErrorMessage(text) {
+        // 添加错误消息前，先移除可能存在的空 assistant 占位消息
+        setMessages((prev) => [
+          ...prev.filter((m) => !(m.role === 'assistant' && m.parts.length === 0)),
+          { id: nextMsgId(), role: 'assistant', parts: [{ type: 'text', text }], isError: true },
+        ]);
+      },
+      addStructuredMessage(role, parts, meta) {
+        clearRedo(undoRedoRef.current);
+        const normalizedParts = mergeMessageParts(parts);
+        if (normalizedParts.length === 0) return;
+        if (role === 'assistant') {
+          setMessages((prev) => appendAssistantParts(prev, normalizedParts, meta));
+          return;
+        }
+        setMessages((prev) => [...prev, { id: nextMsgId(), role, parts: normalizedParts, ...meta }]);
+      },
+      startStream() {
+        if (toolInvocationsRef.current.length > 0) commitTools();
+        setIsStreaming(true);
+        uncommittedStreamPartsRef.current = [];
+        streamPartsRef.current = [];
+        setStreamingParts([]);
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === 'assistant') return prev;
+          return [...prev, { id: nextMsgId(), role: 'assistant', parts: [] }];
+        });
+      },
+      pushStreamParts(parts) {
+        for (const part of parts) appendMergedMessagePart(streamPartsRef.current, { ...part } as MessagePart);
+        if (!throttleTimerRef.current) {
+          throttleTimerRef.current = setTimeout(() => {
+            throttleTimerRef.current = null;
+            setStreamingParts([...streamPartsRef.current]);
+          }, 60);
+        }
+      },
+      endStream() {
+        if (throttleTimerRef.current) {
+          clearTimeout(throttleTimerRef.current);
+          throttleTimerRef.current = null;
+        }
+        uncommittedStreamPartsRef.current = [...streamPartsRef.current];
+        streamPartsRef.current = [];
+        setStreamingParts([...uncommittedStreamPartsRef.current]);
+      },
+      finalizeAssistantParts(parts, meta) {
+        const normalizedParts = mergeMessageParts(parts);
+        uncommittedStreamPartsRef.current = [];
+        setStreamingParts([]);
+        setIsStreaming(false);
+        setMessages((prev) => {
+          if (normalizedParts.length === 0 && !meta) return prev;
+          const last = prev[prev.length - 1];
+          if (normalizedParts.length === 0) {
+            if (!last || last.role !== 'assistant') return prev;
+            const copy = [...prev];
+            copy[copy.length - 1] = { ...last, ...meta };
+            return copy;
+          }
+          if (prev.length === 0) return [{ id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta }];
+          if (last.role !== 'assistant') return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta }];
+          const copy = [...prev];
+          copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...last.parts, ...normalizedParts]), ...meta };
+          return copy;
+        });
+      },
+      setToolInvocations(invocations) {
+        const copy = [...invocations];
+        toolInvocationsRef.current = copy;
+        setPendingApprovals(copy.filter((invocation) => invocation.status === 'awaiting_approval'));
+        setPendingApplies(copy.filter((invocation) => invocation.status === 'awaiting_apply'));
+        setMessages((prev) => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          if (last.role !== 'assistant') return prev;
+          const nextParts = applyToolInvocationsToParts(last.parts, copy);
+          const copyMessages = [...prev];
+          copyMessages[copyMessages.length - 1] = { ...last, parts: mergeMessageParts(nextParts) };
+          return copyMessages;
+        });
+      },
+      setGenerating(generating) {
+        if (!generating) {
+          const uncommitted = uncommittedStreamPartsRef.current;
+          if (uncommitted.length > 0) {
+            setMessages((prev) => appendAssistantParts(prev, uncommitted));
+            uncommittedStreamPartsRef.current = [];
+          }
+          setStreamingParts([]);
+          streamPartsRef.current = [];
+          setIsStreaming(false);
+          setMessages((prev) => {
+            if (prev.length === 0) return prev;
+            const last = prev[prev.length - 1];
+            if (last.role === 'assistant' && last.parts.length === 0) return prev.slice(0, -1);
+            return prev;
+          });
+        }
+        setIsGenerating(generating);
+        setRetryInfo(null);
+      },
+      clearMessages() {
+        setMessages([]);
+        setStreamingParts([]);
+        streamPartsRef.current = [];
+        uncommittedStreamPartsRef.current = [];
+      },
+      commitTools,
+      setUserTokens(tokenCount: number) {
+        setMessages((prev) => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].role === 'user') {
+              const copy = [...prev];
+              copy[i] = { ...copy[i], tokenIn: tokenCount };
+              return copy;
+            }
+          }
+          return prev;
+        });
+      },
+      addSummaryMessage(summaryText: string, tokenCount?: number) {
+        setMessages((prev) => [
+          ...prev.filter((m) => !m.isCommand),
+          {
+            id: nextMsgId(),
+            role: 'user',
+            parts: [{ type: 'text', text: summaryText }],
+            isSummary: true,
+            tokenIn: tokenCount,
+          },
+        ]);
+      },
+      setUsage(usage) {
+        setContextTokens(usage.totalTokenCount ?? 0);
+        lastUsageRef.current = usage;
+      },
+      finalizeResponse(durationMs) {
+        const usage = lastUsageRef.current;
+        setMessages((prev) => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          if (last.role !== 'assistant') return prev;
+          const copy = [...prev];
+          copy[copy.length - 1] = {
+            ...last,
+            tokenIn: usage?.promptTokenCount,
+            cachedTokenIn: usage?.cachedContentTokenCount,
+            tokenOut: usage?.candidatesTokenCount,
+            durationMs,
+          };
+          return copy;
+        });
+        lastUsageRef.current = null;
+      },
+      setRetryInfo(info) {
+        setRetryInfo(info);
+      },
+      drainQueue() {
+        return drainCallbackRef.current?.() ?? undefined;
+      },
+    };
+
+    onReady(handle);
+  }, [commitTools, drainCallbackRef, onReady, undoRedoRef]);
+
+  return {
+    messages,
+    streamingParts,
+    isStreaming,
+    isGenerating,
+    contextTokens,
+    retryInfo,
+    pendingApprovals,
+    pendingApplies,
+    setMessages,
+    commitTools,
+  };
+}

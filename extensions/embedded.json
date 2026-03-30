@@ -4,6 +4,9 @@
       "name": "lark"
     },
     {
+      "name": "console"
+    },
+    {
       "name": "telegram"
     }
   ]

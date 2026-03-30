@@ -1,3 +1,5 @@
+import type { Content } from './message.js';
+
 export type ImageInput = {
   mimeType: string;
   data: string;
@@ -23,6 +25,9 @@ export interface IrisModelInfoLike {
   current?: boolean;
   modelName: string;
   modelId: string;
+  provider?: string;
+  contextWindow?: number;
+  supportsVision?: boolean;
 }
 
 export interface IrisModeInfoLike {
@@ -41,6 +46,9 @@ export interface IrisSessionMetaLike {
   id: string;
   title?: string;
   updatedAt?: string | number | Date;
+  cwd?: string;
+  createdAt?: string | number | Date;
+  platforms?: string[];
 }
 
 export interface IrisToolInvocationLike {
@@ -74,6 +82,13 @@ export interface IrisBackendLike {
   listSkills?(): IrisSkillInfoLike[];
   listModes?(): IrisModeInfoLike[];
   switchMode?(modeName: string): boolean;
+  clearRedo?(sessionId: string): void;
+  applyTool?(toolId: string, applied: boolean): void;
+  getHistory?(sessionId: string): Promise<Content[]>;
+  runCommand?(cmd: string): Promise<unknown>;
+  summarize?(sessionId: string): Promise<void>;
+  resetConfigToDefaults?(): Promise<void>;
+  getToolNames?(): string[];
 }
 
 export interface IrisPlatformFactoryContextLike {

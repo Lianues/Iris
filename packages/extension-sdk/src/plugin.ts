@@ -74,7 +74,7 @@ export interface IrisAPI {
   modes: ModeRegistryLike;
   prompt: PromptAssemblerLike;
   config: Readonly<Record<string, unknown>>;
-  mcpManager?: unknown;
+  mcpManager?: MCPManagerLike;
   ocrService?: unknown;
   extensions: BootstrapExtensionRegistryLike;
   pluginManager: PluginManagerLike;
@@ -84,6 +84,13 @@ export interface IrisAPI {
   registerWebRoute?: (method: string, path: string, handler: (req: any, res: any, params: Record<string, string>) => Promise<void>) => void;
   /** 向 Web 平台注册扩展面板页面。宿主侧边栏会动态展示已注册的面板。 */
   registerWebPanel?: (panel: WebPanelDefinition) => void;
+  configManager?: ConfigManagerLike;
+  toolPreviewUtils?: ToolPreviewUtilsLike;
+  estimateTokenCount?(text: string): number;
+  isCompiledBinary?: boolean;
+  setLogLevel?(level: LogLevel): void;
+  getLogLevel?(): LogLevel;
+  listAgents?(): AgentDefinitionLike[];
 }
 
 /** 扩展面板定义（由插件通过 registerWebPanel 注册，宿主 Web UI 动态渲染） */
@@ -96,6 +103,80 @@ export interface WebPanelDefinition {
   icon?: string;
   /** 面板内容 URL 路径（由扩展通过 registerWebRoute 提供，宿主用 iframe 加载） */
   contentPath: string;
+}
+
+// ── Host-level interfaces (for advanced platforms like Console) ──
+
+export enum LogLevel { DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3, SILENT = 4 }
+
+export interface MCPServerInfoLike {
+  name: string;
+  status: string;
+  toolCount: number;
+  error?: string;
+}
+
+export interface MCPManagerLike {
+  getServerInfo?(name: string): MCPServerInfoLike | undefined;
+  listServers?(): MCPServerInfoLike[];
+  getConfig?(): Record<string, unknown>;
+  connectAll?(): Promise<void>;
+}
+
+export interface ConfigManagerLike {
+  getConfigDir(): string;
+  readEditableConfig(): Record<string, unknown>;
+  updateEditableConfig(updates: Record<string, unknown>): { mergedRaw: Record<string, unknown>; sanitized?: Record<string, unknown> };
+  applyRuntimeConfigReload(mergedConfig: Record<string, unknown>): Promise<{ success: boolean; error?: string }>;
+  getLLMDefaults(): Record<string, Record<string, unknown>>;
+  parseLLMConfig(raw?: Record<string, unknown>): Record<string, unknown>;
+  parseSystemConfig(raw?: Record<string, unknown>): Record<string, unknown>;
+  parseToolsConfig(raw?: Record<string, unknown>): Record<string, unknown>;
+}
+
+export interface AgentDefinitionLike {
+  name: string;
+  description?: string;
+  dataDir?: string;
+}
+
+export interface ParsedUnifiedDiffLike {
+  oldFile?: string;
+  newFile?: string;
+  hunks: UnifiedDiffHunkLike[];
+}
+
+export interface UnifiedDiffHunkLike {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  header: string;
+  lines: UnifiedDiffLineLike[];
+}
+
+export interface UnifiedDiffLineLike {
+  type: 'context' | 'add' | 'del';
+  content: string;
+  raw: string;
+}
+
+export interface WriteEntryLike { path: string; content: string }
+export interface InsertEntryLike { path: string; line: number; content: string }
+export interface DeleteCodeEntryLike { path: string; start_line: number; end_line: number }
+
+export interface ToolPreviewUtilsLike {
+  parseUnifiedDiff(patch: string): ParsedUnifiedDiffLike;
+  normalizeWriteArgs(args: Record<string, unknown>): WriteEntryLike[] | undefined;
+  normalizeInsertArgs(args: Record<string, unknown>): InsertEntryLike[] | undefined;
+  normalizeDeleteCodeArgs(args: Record<string, unknown>): DeleteCodeEntryLike[] | undefined;
+  resolveProjectPath(inputPath: string): string;
+  walkFiles(rootAbs: string, onFile: (fileAbs: string, relPosix: string) => void, shouldStop: () => boolean): void;
+  buildSearchRegex(query: string, isRegex: boolean): RegExp;
+  decodeText(buf: Buffer): { text: string; encoding: string; hasBom: boolean; hasCRLF: boolean };
+  globToRegExp(glob: string): RegExp;
+  isLikelyBinary(buf: Buffer): boolean;
+  toPosix(p: string): string;
 }
 
 export interface PreBootstrapContext {

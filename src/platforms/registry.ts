@@ -25,6 +25,10 @@ export interface PlatformFactoryContext {
   onSwitchAgent?: () => void;
   /** 插件间共享事件总线 */
   eventBus?: PluginEventBus;
+  /** 完整 API（供 console 等高级平台使用） */
+  api?: Record<string, unknown>;
+  /** 是否编译后的二进制发行版 */
+  isCompiledBinary?: boolean;
 }
 
 export type PlatformFactory = (
@@ -83,36 +87,6 @@ export function createDefaultPlatformRegistry(): PlatformRegistry {
     const mcpMgr = getMCPManager();
     if (mcpMgr) webPlatform.setMCPManager(mcpMgr);
     return webPlatform;
-  });
-
-  registry.register('console', async ({ backend, config, configDir, router, getMCPManager, setMCPManager, initWarnings, agentName, onSwitchAgent, extensions }) => {
-    if (typeof (globalThis as { Bun?: unknown }).Bun === 'undefined') {
-      console.error(
-        '[Iris] Console 平台需要 Bun 运行时。\n'
-        + '  - 请优先使用: bun run dev\n'
-        + '  - 或直接执行: bun src/index.ts\n'
-        + '  - 或切换到其他平台（如 web）'
-      );
-      process.exit(1);
-    }
-
-    const { ConsolePlatform } = await import('./console');
-    const currentModel = router.getCurrentModelInfo();
-    const defaultMode = config.system.defaultMode ?? 'default';
-
-    return new ConsolePlatform(backend, {
-      modeName: defaultMode,
-      modelName: currentModel.modelName,
-      modelId: currentModel.modelId,
-      contextWindow: currentModel.contextWindow,
-      configDir,
-      getMCPManager,
-      setMCPManager,
-      initWarnings,
-      agentName,
-      onSwitchAgent,
-      extensions: { llmProviders: extensions.llmProviders, ocrProviders: extensions.ocrProviders },
-    });
   });
 
   return registry;

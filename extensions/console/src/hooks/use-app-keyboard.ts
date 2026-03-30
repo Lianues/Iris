@@ -1,0 +1,372 @@
+import { useKeyboard } from '@opentui/react';
+import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolInvocation } from '@irises/extension-sdk';
+import type { TextInputState, TextInputActions } from './use-text-input';
+import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import type { ApprovalChoice, ConfirmChoice, PendingConfirm, SwitchModelResult, ViewMode } from '../app-types';
+import type { ChatMessage } from '../components/MessageItem';
+import { clearRedo, type UndoRedoStack } from '../undo-redo';
+import type { UseModelStateReturn } from './use-model-state';
+import { appendCommandMessage } from '../message-utils';
+import type { QueuedMessage } from './use-message-queue';
+
+type SetState<T> = Dispatch<SetStateAction<T>>;
+
+interface ApprovalController {
+  approvalChoice: ApprovalChoice;
+  setPreviewIndex: SetState<number>;
+  resetChoice: () => void;
+  toggleChoice: () => void;
+  toggleDiffView: () => void;
+  toggleLineNumbers: () => void;
+  toggleWrapMode: () => void;
+}
+
+interface ExitConfirmController {
+  exitConfirmArmed: boolean;
+  clearExitConfirm: () => void;
+  armExitConfirm: () => void;
+}
+
+interface UseAppKeyboardOptions {
+  viewMode: ViewMode;
+  setViewMode: SetState<ViewMode>;
+  setCopyMode: SetState<boolean>;
+  pendingConfirm: PendingConfirm | null;
+  confirmChoice: ConfirmChoice;
+  setPendingConfirm: SetState<PendingConfirm | null>;
+  setConfirmChoice: SetState<ConfirmChoice>;
+  exitConfirm: ExitConfirmController;
+  isGenerating: boolean;
+  pendingApplies: ToolInvocation[];
+  pendingApprovals: ToolInvocation[];
+  approval: ApprovalController;
+  onExit: () => void;
+  onAbort: () => void;
+  onToolApply: (toolId: string, applied: boolean) => void;
+  onToolApproval: (toolId: string, approved: boolean) => void;
+  sessionList: SessionMeta[];
+  modelList: LLMModelInfo[];
+  selectedIndex: number;
+  setSelectedIndex: SetState<number>;
+  undoRedoRef: MutableRefObject<UndoRedoStack>;
+  onClearRedoStack: () => void;
+  setMessages: SetState<ChatMessage[]>;
+  commitTools: () => void;
+  onLoadSession: (id: string) => Promise<void>;
+  onSwitchModel: (modelName: string) => SwitchModelResult;
+  modelState: Pick<UseModelStateReturn, 'updateModel'>;
+  // 队列管理
+  queue: QueuedMessage[];
+  queueRemove: (id: string) => boolean;
+  queueMoveUp: (id: string) => boolean;
+  queueMoveDown: (id: string) => boolean;
+  queueEdit: (id: string, newText: string) => boolean;
+  queueClear: () => void;
+  queueEditingId: string | null;
+  setQueueEditingId: SetState<string | null>;
+  queueEditState: TextInputState;
+  queueEditActions: TextInputActions;
+}
+
+function closeConfirm(
+  setPendingConfirm: SetState<PendingConfirm | null>,
+  setConfirmChoice: SetState<ConfirmChoice>,
+): void {
+  setPendingConfirm(null);
+  setConfirmChoice('confirm');
+}
+
+export function useAppKeyboard({
+  viewMode,
+  setViewMode,
+  setCopyMode,
+  pendingConfirm,
+  confirmChoice,
+  setPendingConfirm,
+  setConfirmChoice,
+  exitConfirm,
+  isGenerating,
+  pendingApplies,
+  pendingApprovals,
+  approval,
+  onExit,
+  onAbort,
+  onToolApply,
+  onToolApproval,
+  sessionList,
+  modelList,
+  selectedIndex,
+  setSelectedIndex,
+  undoRedoRef,
+  onClearRedoStack,
+  setMessages,
+  commitTools,
+  onLoadSession,
+  onSwitchModel,
+  modelState,
+  queue,
+  queueRemove,
+  queueMoveUp,
+  queueMoveDown,
+  queueEdit,
+  queueClear,
+  queueEditingId,
+  setQueueEditingId,
+  queueEditState,
+  queueEditActions,
+}: UseAppKeyboardOptions) {
+  useKeyboard((key) => {
+    if (key.ctrl && key.name === 'c') {
+      if (exitConfirm.exitConfirmArmed) {
+        exitConfirm.clearExitConfirm();
+        onExit();
+      } else {
+        exitConfirm.armExitConfirm();
+      }
+      return;
+    }
+
+    if (key.name === 'f6') {
+      setCopyMode((prev) => !prev);
+      return;
+    }
+
+    if (viewMode === 'settings') return;
+
+    if (pendingConfirm && key.name === 'escape') {
+      closeConfirm(setPendingConfirm, setConfirmChoice);
+      return;
+    }
+
+    if (key.name === 'escape') {
+      if (viewMode === 'queue-list') {
+        // 如果正在编辑，先取消编辑
+        if (queueEditingId) {
+          setQueueEditingId(null);
+          queueEditActions.setValue('');
+          return;
+        }
+        setViewMode('chat');
+        return;
+      }
+      if (isGenerating) {
+        onAbort();
+        return;
+      }
+      if (viewMode === 'session-list' || viewMode === 'model-list') {
+        setViewMode('chat');
+        return;
+      }
+      return;
+    }
+
+    // ── 队列列表视图键盘处理 ──────────────────────────
+    if (viewMode === 'queue-list') {
+      // 队列已空，任意键返回
+      if (queue.length === 0) {
+        setViewMode('chat');
+        return;
+      }
+
+      // 编辑模式
+      if (queueEditingId) {
+        // Ctrl+J / Ctrl+Enter → 插入换行
+        if (key.ctrl && (key.name === 'j' || key.name === 'return' || key.name === 'enter')) {
+          queueEditActions.insert('\n');
+          return;
+        }
+        // Enter → 确认编辑
+        if (!key.ctrl && (key.name === 'enter' || key.name === 'return')) {
+          const trimmed = queueEditState.value.trim();
+          if (trimmed) {
+            queueEdit(queueEditingId, trimmed);
+          }
+          setQueueEditingId(null);
+          queueEditActions.setValue('');
+          return;
+        }
+        // 其余按键全部委托给 useTextInput（光标移动、删除、字符输入等）
+        queueEditActions.handleKey(key);
+        return;
+      }
+
+      // 非编辑模式的键盘处理
+
+      // ↑/↓ 导航选择
+      if (!key.shift && !key.ctrl && key.name === 'up') {
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+        return;
+      }
+      if (!key.shift && !key.ctrl && key.name === 'down') {
+        setSelectedIndex((prev) => Math.min(queue.length - 1, prev + 1));
+        return;
+      }
+
+      // Ctrl/Shift+↑/↓ 移动消息位置
+      if ((key.shift || key.ctrl) && key.name === 'up') {
+        const selected = queue[selectedIndex];
+        if (selected && queueMoveUp(selected.id)) {
+          setSelectedIndex((prev) => Math.max(0, prev - 1));
+        }
+        return;
+      }
+      if ((key.shift || key.ctrl) && key.name === 'down') {
+        const selected = queue[selectedIndex];
+        if (selected && queueMoveDown(selected.id)) {
+          setSelectedIndex((prev) => Math.min(queue.length - 1, prev + 1));
+        }
+        return;
+      }
+
+      // e 编辑
+      if (key.name === 'e') {
+        const selected = queue[selectedIndex];
+        if (selected) {
+          setQueueEditingId(selected.id);
+          // 初始化文本输入，光标置于末尾
+          queueEditActions.setValue(selected.text);
+        }
+        return;
+      }
+
+      // d / Delete 删除
+      if (key.name === 'd' || key.name === 'delete') {
+        const selected = queue[selectedIndex];
+        if (selected) {
+          queueRemove(selected.id);
+          setSelectedIndex((prev) => Math.min(prev, queue.length - 2));
+          if (queue.length <= 1) {
+            setViewMode('chat');
+          }
+        }
+        return;
+      }
+
+      // c 清空全部
+      if (key.name === 'c') {
+        queueClear();
+        setViewMode('chat');
+        appendCommandMessage(setMessages, '队列已清空。');
+        return;
+      }
+
+      return;
+    }
+
+    if (isGenerating && pendingApplies.length > 0) {
+      const current = pendingApplies[0];
+      if (key.name === 'up' || key.name === 'down') {
+        approval.setPreviewIndex((prev) => key.name === 'up' ? prev - 1 : prev + 1);
+        return;
+      }
+      if (key.name === 'tab' || key.name === 'left' || key.name === 'right') {
+        approval.toggleChoice();
+        return;
+      }
+      if (key.name === 'v') {
+        approval.toggleDiffView();
+        return;
+      }
+      if (key.name === 'l') {
+        approval.toggleLineNumbers();
+        return;
+      }
+      if (key.name === 'w') {
+        approval.toggleWrapMode();
+        return;
+      }
+      if (key.name === 'enter' || key.name === 'return') {
+        onToolApply(current.id, approval.approvalChoice === 'approve');
+        approval.resetChoice();
+        return;
+      }
+      if (key.name === 'y') {
+        onToolApply(current.id, true);
+        approval.resetChoice();
+        return;
+      }
+      if (key.name === 'n') {
+        onToolApply(current.id, false);
+        approval.resetChoice();
+        return;
+      }
+      return;
+    }
+
+    if (isGenerating && pendingApprovals.length > 0) {
+      if (key.name === 'left' || key.name === 'up' || key.name === 'right' || key.name === 'down') {
+        approval.toggleChoice();
+        return;
+      }
+      if (key.name === 'enter' || key.name === 'return') {
+        onToolApproval(pendingApprovals[0].id, approval.approvalChoice === 'approve');
+        approval.resetChoice();
+        return;
+      }
+      if (key.name === 'y') {
+        onToolApproval(pendingApprovals[0].id, true);
+        approval.resetChoice();
+        return;
+      }
+      if (key.name === 'n') {
+        onToolApproval(pendingApprovals[0].id, false);
+        approval.resetChoice();
+        return;
+      }
+      return;
+    }
+
+    if (pendingConfirm) {
+      if (key.name === 'left' || key.name === 'up' || key.name === 'right' || key.name === 'down') {
+        setConfirmChoice((prev) => prev === 'confirm' ? 'cancel' : 'confirm');
+        return;
+      }
+      if (key.name === 'enter' || key.name === 'return') {
+        if (confirmChoice === 'confirm') pendingConfirm.action();
+        closeConfirm(setPendingConfirm, setConfirmChoice);
+        return;
+      }
+      if (key.name === 'y') {
+        pendingConfirm.action();
+        closeConfirm(setPendingConfirm, setConfirmChoice);
+        return;
+      }
+      if (key.name === 'n') {
+        closeConfirm(setPendingConfirm, setConfirmChoice);
+        return;
+      }
+      return;
+    }
+
+    if (viewMode === 'session-list') {
+      if (key.name === 'up') setSelectedIndex((prev) => Math.max(0, prev - 1));
+      else if (key.name === 'down') setSelectedIndex((prev) => Math.min(sessionList.length - 1, prev + 1));
+      else if (key.name === 'enter' || key.name === 'return') {
+        const selected = sessionList[selectedIndex];
+        if (selected) {
+          clearRedo(undoRedoRef.current);
+          onClearRedoStack();
+          setMessages([]);
+          commitTools();
+          setViewMode('chat');
+          onLoadSession(selected.id).catch(() => {});
+        }
+      }
+      return;
+    }
+
+    if (viewMode === 'model-list') {
+      if (key.name === 'up') setSelectedIndex((prev) => Math.max(0, prev - 1));
+      else if (key.name === 'down') setSelectedIndex((prev) => Math.min(modelList.length - 1, prev + 1));
+      else if (key.name === 'enter' || key.name === 'return') {
+        const selected = modelList[selectedIndex];
+        if (selected) {
+          const result = onSwitchModel(selected.modelName);
+          modelState.updateModel(result);
+          setViewMode('chat');
+        }
+      }
+      return;
+    }
+  });
+}

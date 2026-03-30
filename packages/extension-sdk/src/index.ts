@@ -46,6 +46,16 @@ export type {
   UsageMetadata,
 } from './message.js';
 
+export {
+  isTextPart,
+  isThoughtTextPart,
+  isVisibleTextPart,
+  isInlineDataPart,
+  isFunctionCallPart,
+  isFunctionResponsePart,
+  extractText,
+} from './message.js';
+
 export type {
   LLMGenerationConfig,
   LLMRequest,
@@ -81,17 +91,28 @@ export {
   definePlugin,
 } from './plugin.js';
 
+export {
+  LogLevel,
+} from './plugin.js';
+
 export type {
+  AgentDefinitionLike,
   BootstrapExtensionRegistryLike,
+  ConfigManagerLike,
+  DeleteCodeEntryLike,
   InlinePluginEntry,
+  InsertEntryLike,
   IrisAPI,
   IrisPlugin,
   LLMProviderFactory,
   LLMRouterLike,
+  MCPManagerLike,
+  MCPServerInfoLike,
   MemoryFactory,
   ModeRegistryLike,
   NamedFactoryRegistryLike,
   OCRFactory,
+  ParsedUnifiedDiffLike,
   PatchDisposer,
   PatchMethod,
   PatchPrototype,
@@ -106,9 +127,13 @@ export type {
   PromptAssemblerLike,
   StorageFactory,
   ToolExecInterception,
+  ToolPreviewUtilsLike,
   ToolRegistryLike,
   ToolWrapper,
+  UnifiedDiffHunkLike,
+  UnifiedDiffLineLike,
   WebPanelDefinition,
+  WriteEntryLike,
 } from './plugin.js';
 
 export {

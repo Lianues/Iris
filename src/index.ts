@@ -15,6 +15,7 @@ import type { WebPlatform as WebPlatformType } from './platforms/web';
 import type { MCPManager } from './mcp';
 import { isMultiAgentEnabled, loadAgentDefinitions, resolveAgentPaths } from './agents';
 import type { AgentDefinition } from './agents';
+import { createConsoleHostAPIFields, isCompiledBinary } from './platforms/console-host-adapters';
 
 // ============ 平台创建（从原 main 中抽取） ============
 
@@ -70,6 +71,10 @@ async function createPlatforms(
       extensions: result.extensions,
       initWarnings,
       eventBus,
+      api: createConsoleHostAPIFields(configDir, getMCPManager, () => ({
+        backend, getMCPManager, setMCPManager, extensions: result.extensions
+      })),
+      isCompiledBinary,
     });
 
     if (platformType === 'web') {
@@ -352,6 +357,10 @@ async function startConsoleForAgent(
     extensions: result.extensions,
     agentName,
     initWarnings,
+    api: createConsoleHostAPIFields(configDir, getMCPManager, () => ({
+      backend, getMCPManager, setMCPManager, extensions: result.extensions
+    })),
+    isCompiledBinary,
     onSwitchAgent: () => {
       resolved = true;
       consolePlatform.stop();

@@ -62,3 +62,37 @@ export interface Content {
   createdAt?: number;
   isSummary?: boolean;
 }
+
+
+// ── Type Guards ─────────────────────────────────────────────────
+
+export function isTextPart(part: Part): part is TextPart {
+  return 'text' in part;
+}
+
+export function isThoughtTextPart(part: Part): part is TextPart {
+  return 'text' in part && (part as TextPart).thought === true;
+}
+
+export function isVisibleTextPart(part: Part): part is TextPart {
+  return 'text' in part && (part as TextPart).thought !== true;
+}
+
+export function isInlineDataPart(part: Part): part is InlineDataPart {
+  return 'inlineData' in part;
+}
+
+export function isFunctionCallPart(part: Part): part is FunctionCallPart {
+  return 'functionCall' in part;
+}
+
+export function isFunctionResponsePart(part: Part): part is FunctionResponsePart {
+  return 'functionResponse' in part;
+}
+
+export function extractText(content: Content): string {
+  return content.parts
+    .filter((p): p is TextPart => 'text' in p && (p as TextPart).thought !== true)
+    .map((p) => p.text ?? '')
+    .join('');
+}
