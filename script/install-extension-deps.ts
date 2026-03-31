@@ -56,18 +56,33 @@ async function main(): Promise<void> {
 
   console.log(`准备安装 ${extensionDirs.length} 个 extension 的依赖${options.embeddedOnly ? '（仅 embedded）' : ''}...`);
 
+  const failedExtensions: string[] = [];
+
   for (const extensionDir of extensionDirs) {
     const packageJsonPath = path.join(extensionDir, 'package.json');
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { name?: string };
     const displayName = packageJson.name || path.basename(extensionDir);
     const manager = detectExtensionPackageManager(extensionDir);
     console.log(`- ${displayName} | manager=${manager.name}${manager.lockfile ? ` | lockfile=${manager.lockfile}` : ''}`);
-    await installExtensionDependencies(extensionDir, {
-      frozenLockfile: options.frozenLockfile,
-    });
+    try {
+      await installExtensionDependencies(extensionDir, {
+        frozenLockfile: options.frozenLockfile,
+      });
+    } catch (error) {
+      console.warn(`[警告] Extension "${displayName}" 安装失败，跳过。错误: ${error instanceof Error ? error.message : String(error)}`);
+      failedExtensions.push(displayName);
+    }
   }
 
-  console.log('extension 依赖安装完成');
+  if (failedExtensions.length > 0) {
+    console.log('\n安装完成，但以下 extension 安装失败：');
+    failedExtensions.forEach((name) => console.log(`- ${name}`));
+    if (failedExtensions.length === extensionDirs.length) {
+      process.exit(1);
+    }
+  } else {
+    console.log('extension 依赖安装完成');
+  }
 }
 
 main().catch((error) => {

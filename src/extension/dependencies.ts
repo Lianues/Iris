@@ -161,14 +161,32 @@ export async function installExtensionDependencies(
   const runner = options.commandRunner ?? defaultCommandRunner;
 
   logger.info(`安装 extension 依赖: ${extensionDir} | manager=${manager.name}${manager.lockfile ? ` | lockfile=${manager.lockfile}` : ''}${frozenLockfile ? ' | frozen=true' : ''}`);
-  await runner(installCommand.command, installCommand.args, extensionDir);
-
-  return {
-    installed: true,
-    packageManager: manager.name,
-    lockfile: manager.lockfile,
-    frozenLockfile,
-  };
+  try {
+    await runner(installCommand.command, installCommand.args, extensionDir);
+    return {
+      installed: true,
+      packageManager: manager.name,
+      lockfile: manager.lockfile,
+      frozenLockfile,
+    };
+  } catch (err) {
+    if (process.platform === 'win32' && manager.name === 'bun') {
+      logger.warn(`Bun 在 Windows 上处理 file: 本地依赖存在已知 EPERM 问题 (oven-sh/bun#13379)。尝试回退到 npm install...`);
+      try {
+        await runner('npm', ['install'], extensionDir);
+        return {
+          installed: true,
+          packageManager: 'npm',
+          lockfile: 'package-lock.json',
+          frozenLockfile: false,
+        };
+      } catch (npmErr) {
+        logger.error(`回退到 npm install 失败: ${npmErr instanceof Error ? npmErr.message : String(npmErr)}`);
+        throw err;
+      }
+    }
+    throw err;
+  }
 }
 
 export function assertInstallableExtensionPackage(
