@@ -1,4 +1,4 @@
-# 平台配置
+# 平台配置（Agent: my-agent）
 
 # 类型: console | discord | telegram | web | weixin | wxwork | lark | qq
 # 注意：lark / telegram 由随仓库提供的 extensions 注册；discord / qq / wxwork / weixin 为可选 extension，使用前需先安装。
@@ -6,6 +6,16 @@
 #   type: console            # 单平台
 #   type: [console, web]     # 多平台同时启动
 type: console
+
+# 对码系统配置（可选，平台层访问控制）
+# dmPolicy: 
+#   pairing   = 需对码验证（默认，通过 /invite 生成码）
+#   allowlist = 仅配置的 allowFrom 成员可用
+#   open      = 任何人均可私聊
+pairing:
+  dmPolicy: pairing
+  # admin: "telegram:123456"       # 可直接指定管理员（跳过首次对码）
+  # allowFrom: ["telegram:123"]    # 预设白名单
 
 discord:
   # 该平台由可选 extension extensions/discord/ 提供；发行包默认不内嵌，使用前先执行 iris ext install discord
@@ -63,6 +73,7 @@ weixin:
   # botToken: your-bot-token
   # 可选：覆盖 API 基地址
   # baseUrl: https://ilinkai.weixin.qq.com
+  # 是否在回复中展示工具执行状态（默认 true）
   # showToolStatus: false
 
 qq:

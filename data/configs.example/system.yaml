@@ -28,6 +28,11 @@ maxRetries: 3
 #   response_<timestamp>.txt   — 流式响应原文（SSE）
 # logRequests: true
 
+# 异步子代理开关（默认关闭）
+# 启用后，子代理可在后台异步执行，主对话不阻塞等待子代理完成。
+# 需同时在 sub_agents.yaml 中定义至少一个子代理类型才会真正生效。
+# asyncSubAgents: true
+
 # 兼容旧配置：skillPreamble 仍可被读取，但当前版本已不再使用。
 # 说明：Skill 已改为通过 read_skill 工具按需读取，不再拼接到用户消息末尾。
 

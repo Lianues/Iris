@@ -11,11 +11,12 @@ export const EMBEDDED_CONFIG_DEFAULTS: Record<string, string> = {
   'llm.yaml': `# LLM 配置（模型池）
 # defaultModel: 启动时默认使用的模型名称
 # rememberPlatformModel: 记住各平台上次使用的模型
+# summaryModel: 用于 /compact 上下文压缩的模型名称
 # models:       可用模型列表，键名就是模型名称
 
 defaultModel: gemini_flash
 rememberPlatformModel: true
-
+# summaryModel: gemini_flash
 
 models:
   gemini_flash:
@@ -24,23 +25,51 @@ models:
     model: gemini-2.0-flash
     baseUrl: https://generativelanguage.googleapis.com/v1beta
     supportsVision: true
+    # contextWindow: 1048576
+    # autoSummaryThreshold: "80%"
+    # headers:
+    #   x-custom-header: hello
+    # requestBody:
+    #   generationConfig:
+    #     maxOutputTokens: 32000
 
   # gpt4o_mini:
   #   provider: openai-compatible
   #   apiKey: your-api-key-here
   #   model: gpt-4o-mini
   #   baseUrl: https://api.openai.com/v1
+
+  # claude_sonnet:
+  #   provider: claude
+  #   apiKey: your-api-key-here
+  #   model: claude-sonnet-4-6
+  #   baseUrl: https://api.anthropic.com/v1
+  #   promptCaching: true
+  #   autoCaching: true
 `,
 
   'platform.yaml': `# 平台配置
 # 类型: console | discord | telegram | web | weixin | wxwork | lark | qq
 # 注意：lark / telegram 由随包附带的 extensions 注册；discord / qq / wxwork / weixin 为可选 extension，使用前需先安装。
 type: console
+
+pairing:
+  dmPolicy: pairing
+  # admin: "telegram:123456"
+  # allowFrom: ["telegram:123"]
+
+web:
+  port: 8192
+  host: 127.0.0.1
+  # authToken: your-secret-token-here
+  # managementToken: your-management-token-here
 `,
 
   'storage.yaml': `# 存储配置
 # 类型: json-file | sqlite
 type: json-file
+# dir: ~/.iris/sessions
+# dbPath: ~/.iris/iris.db
 `,
 
   'system.yaml': `# 系统配置
@@ -49,6 +78,10 @@ maxToolRounds: 200
 stream: true
 retryOnError: true
 maxRetries: 3
+# maxAgentDepth: 3
+# defaultMode: code
+# logRequests: true
+# asyncSubAgents: true
 `,
 
   'tools.yaml': `# 工具配置
@@ -60,6 +93,8 @@ search_in_files:
 find_files:
   autoApprove: true
 list_files:
+  autoApprove: true
+read_skill:
   autoApprove: true
 write_file:
   autoApprove: false
@@ -81,8 +116,11 @@ shell:
   autoApprove: false
 sub_agent:
   autoApprove: false
-read_skill:
-  autoApprove: true
+# autoApproveAll: true
+# autoApproveConfirmation: true
+# autoApproveDiff: true
+# disabledTools:
+#   - memory_search
 `,
 
   'memory.yaml': `# 记忆配置
@@ -101,6 +139,7 @@ types:
       - sub_agent
     stream: true
     parallel: false
+    # background: false
     maxToolRounds: 200
   explore:
     enabled: true
@@ -114,6 +153,7 @@ types:
       - shell
     stream: true
     parallel: true
+    # background: false
     maxToolRounds: 200
 `,
 

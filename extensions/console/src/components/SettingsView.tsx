@@ -2,6 +2,15 @@
 
 /**
  * TUI 设置中心 (OpenTUI React)
+ *
+ * TODO: settings 界面的 editable 功能尚未完成，待补充：
+ *   - 各字段的行内编辑交互（Enter 进入编辑、Esc 取消）仍需逐项验证
+ *   - 编辑模式下的输入校验与错误提示
+ *   - 新增/删除后的焦点管理与状态同步
+ *
+ * 已修复：
+ *   - Unicode 转义在 JSX 文本节点中未被解析的问题（改为 JS 表达式）
+ *   - Enter 键名兼容：OpenTUI 中 key.name 可能为 'return'，需同时匹配 'enter' 和 'return'
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -577,7 +586,9 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         setEditorValue('');
         setStatus('已取消编辑', 'warning');
       }
-      if (key.name === 'enter') {
+      // 修复：OpenTUI 中 Enter 键的 key.name 可能是 'return'（取决于终端键盘协议），
+      // 与 use-app-keyboard.ts / InputBar.tsx 保持一致，同时兼容两种名称。
+      if (key.name === 'enter' || key.name === 'return') {
         submitEditor();
       }
       return;
@@ -646,7 +657,9 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       }
       return;
     }
-    if (key.name === 'enter' && selectedRow?.target) {
+    // 修复：OpenTUI 中 Enter 键的 key.name 可能是 'return'（取决于终端键盘协议），
+    // 与 use-app-keyboard.ts / InputBar.tsx 保持一致，同时兼容两种名称。
+    if ((key.name === 'enter' || key.name === 'return') && selectedRow?.target) {
       if (selectedRow.target.kind === 'action') {
         if (selectedRow.target.action === 'addMcp') handleAddMcpServer();
         else handleAddModel();
@@ -703,7 +716,8 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       </text>
 
       <scrollbox flexGrow={1} marginTop={1}>
-        {windowStart > 0 && <text fg="#888">\u2026</text>}
+        {/* 原先 \u2026 直接写在 JSX 文本节点中不会被解析为 Unicode 字符，改为 JS 表达式 */}
+        {windowStart > 0 && <text fg="#888">{'\u2026'}</text>}
         {visibleRows.map((row: SettingsRow) => {
           const isSelected = row.id === selectedRowId && !!row.target;
           const prefix = row.kind === 'section'
@@ -738,7 +752,8 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
             </box>
           );
         })}
-        {windowEnd < rows.length && <text fg="#888">\u2026</text>}
+        {/* 同上，JSX 文本节点中的 \u 转义不会被解析，改为 JS 表达式 */}
+        {windowEnd < rows.length && <text fg="#888">{'\u2026'}</text>}
       </scrollbox>
 
       <box marginTop={1} paddingX={1}>
@@ -765,11 +780,13 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
               focused
             />
           </box>
-          <text fg="#888">Enter 保存 \u00b7 Esc 取消</text>
+          {/* JSX 文本节点中 \u00b7 不会被解析为 · 符号，改为 JS 表达式 */}
+          <text fg="#888">{'Enter 保存 \u00b7 Esc 取消'}</text>
         </box>
       ) : (
         <text fg="#888">
-          \u2191\u2193 选择  \u2190\u2192 切换枚举  Space 切换布尔  Enter 编辑  A 新增  D 删除  S 保存  R 重载  Esc 返回
+          {/* JSX 文本节点中 \uXXXX 不会被解析为箭头符号，改为 JS 表达式 */}
+          {'\u2191\u2193 选择  \u2190\u2192 切换枚举  Space 切换布尔  Enter 编辑  A 新增  D 删除  S 保存  R 重载  Esc 返回'}
         </text>
       )}
     </box>
