@@ -138,6 +138,13 @@ export class Backend extends EventEmitter {
   /** setAgentTaskRegistry 注册的监听器清理函数（防止热重载泄漏） */
   private agentTaskRegistryCleanup?: () => void;
 
+  /**
+   * 待合并的异步子代理通知（per-session）。
+   * 当存在多个并行异步任务时，先完成的任务通知暂存于此，
+   * 等全部任务完成后合并为一条消息统一交给 LLM 处理。
+   */
+  private pendingNotifications = new Map<string, string[]>();
+
   constructor(
     router: LLMRouter,
     storage: StorageProvider,
@@ -334,6 +341,8 @@ export class Backend extends EventEmitter {
     this.lastSessionTokens.delete(sessionId);
     // 清空该会话在队列中的残留消息（如未处理的异步子代理通知）
     this.messageQueue.clearSession(sessionId);
+    // 清空该会话暂存的待合并通知
+    this.pendingNotifications.delete(sessionId);
     // 清除该会话的 turn 锁记录
     this.turnLock.clear(sessionId);
 
@@ -791,6 +800,11 @@ export class Backend extends EventEmitter {
    * 包装原有 handleMessage() 逻辑，在 finally 中释放 turn 锁。
    * 锁释放后 turnLock emit 'released' 事件，触发 drainQueue()
    * 检查该 session 是否有更多待处理消息。
+   *
+   * 通知批量合并：
+   *   当存在多个并行异步子代理时，先完成的任务通知被暂存（pendingNotifications），
+   *   不触发 LLM 调用。直到该 session 所有异步任务都完成后，将所有通知合并为
+   *   一条 user 消息，只调用一次 LLM。
    */
   private async executeTurn(msg: QueuedMessage): Promise<void> {
     const startTime = Date.now();
@@ -798,18 +812,49 @@ export class Backend extends EventEmitter {
     this.activeAbortControllers.set(msg.sessionId, abortController);
 
     try {
+      // ---- 通知批量合并逻辑 ----
+      // 当该 session 有多个并行异步子代理时，先完成的通知暂存，
+      // 等全部任务完成后合并为一条消息统一交给 LLM。
+      let mergedNotificationText: string | undefined;
+      if (msg.mode === 'task-notification') {
+        // 1. 将当前通知追加到暂存列表
+        const pending = this.pendingNotifications.get(msg.sessionId) ?? [];
+        pending.push(msg.text);
+        this.pendingNotifications.set(msg.sessionId, pending);
+
+        // 2. 检查该 session 是否还有运行中的异步任务
+        const running = this.agentTaskRegistry?.getRunningBySession(msg.sessionId) ?? [];
+        if (running.length > 0) {
+          // 还有任务在跑 → 暂存通知，释放锁，等下一个通知到来时再检查
+          logger.info(
+            `通知已暂存 (${pending.length} 条)，等待剩余 ${running.length} 个任务完成: session=${msg.sessionId}`,
+          );
+          return; // finally 释放锁 → turnLock 'released' → drainQueue
+        }
+
+        // 3. 所有任务已完成 → 从队列中提取可能还积压的通知（多个任务几乎同时完成时）
+        const queuedNotifications = this.messageQueue.drainSessionNotifications(msg.sessionId);
+        for (const qm of queuedNotifications) {
+          pending.push(qm.text);
+        }
+
+        // 4. 清空暂存，合并所有通知文本
+        this.pendingNotifications.delete(msg.sessionId);
+        mergedNotificationText = pending.join('\n\n');
+        logger.info(`合并 ${pending.length} 条通知，统一处理: session=${msg.sessionId}`);
+      }
+
       // 通知平台层本轮 turn 的类型（chat / task-notification），
       // 平台可据此对后续流式事件做差异化渲染。
       this.emit('turn:start', msg.sessionId, msg.turnId, msg.mode);
 
       if (msg.mode === 'task-notification') {
         // ---- task-notification 路径（异步子代理完成通知） ----
-        // 不走用户消息的完整流程，直接以 user-role message 注入 LLM 对话历史。
         // 注入 agentContext='main'，使主 LLM turn 内的工具执行日志
         // 都带 [Module|main] 前缀，与子代理的 [Module|taskId] 区分。
         await sessionContext.run(msg.sessionId, () =>
           agentContext.run('main', () =>
-            this.handleNotificationTurn(msg.sessionId, msg.text, msg.turnId, abortController.signal)
+            this.handleNotificationTurn(msg.sessionId, mergedNotificationText!, msg.turnId, abortController.signal)
           )
         );
       } else {
@@ -859,10 +904,12 @@ export class Backend extends EventEmitter {
   }
 
   /**
-   * 处理 task-notification 消息（异步子代理完成通知）的精简路径。
+   * 处理 task-notification 消息（异步子代理完成通知，可能已合并多条）的精简路径。
    *
    * 跳过用户消息专有步骤（sanitize、auto-compact、undo/redo、token 统计、
    * meta 更新、插件钩子），直接以 user-role Content 注入 LLM 历史触发 ToolLoop。
+   *
+   * @param notificationText 通知文本，可能包含多个 <task-notification> XML（由 executeTurn 合并）
    */
   private async handleNotificationTurn(sessionId: string, notificationText: string, turnId: string, signal?: AbortSignal): Promise<void> {
     this.toolState.clearSession(sessionId);
@@ -872,7 +919,11 @@ export class Backend extends EventEmitter {
 
     // 将通知作为 user-role message 加入历史并持久化（不占用 undo 栈、不计 token）。
     // 在原始 XML 前追加引导前缀，告诉主 LLM 这不是用户说的话，而是后台任务完成的通知。
-    const wrappedText = `后台子代理完成了一个任务：\n${notificationText}`;
+    const count = (notificationText.match(/<task-notification>/g) || []).length;
+    const prefix = count > 1
+      ? `后台子代理完成了 ${count} 个任务：\n`
+      : `后台子代理完成了一个任务：\n`;
+    const wrappedText = prefix + notificationText;
     const notificationContent: Content = {
       role: 'user',
       parts: [{ text: wrappedText }],

@@ -234,6 +234,25 @@ export class MessageQueue extends EventEmitter {
   }
 
   /**
+   * 提取并移除指定会话的所有 task-notification 消息。
+   *
+   * 用于通知批量合并：当所有异步子代理完成时，将队列中积压的通知
+   * 一次性取出，与 pendingNotifications 中已暂存的合并后统一处理。
+   * 仅移除 mode='task-notification' 的消息，不影响用户消息。
+   */
+  drainSessionNotifications(sessionId: string): QueuedMessage[] {
+    const drained: QueuedMessage[] = [];
+    this.queue = this.queue.filter(m => {
+      if (m.sessionId === sessionId && m.mode === 'task-notification') {
+        drained.push(m);
+        return false;
+      }
+      return true;
+    });
+    return drained;
+  }
+
+  /**
    * 清空所有待处理消息。
    */
   clearAll(): void {
