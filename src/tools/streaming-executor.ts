@@ -90,13 +90,26 @@ export class StreamingToolExecutor {
   /**
    * 等待所有已添加的工具执行完毕，按原始顺序返回结果。
    * 由 ToolLoop 在流式结束后调用。
+   *
+   * tryStartAll 遵守并发规则（non-parallel 工具串行），所以可能不会一次性
+   * 启动所有工具。通过循环等待，每轮等当前已启动的 promise 完成，
+   * 完成后 startTool 的 .then() 回调会调 tryStartNext 解锁后续工具，
+   * 然后下一轮循环继续等。直到所有 tracked 工具都有 result 为止。
    */
   async waitForAll(): Promise<FunctionResponsePart[]> {
-    // 启动所有尚未启动的工具（流结束后不会再有新工具添加，可以放心启动）
+    // 初始启动：尽可能多地启动工具（遵守并发规则）
     this.tryStartAll();
 
-    // 等待所有 promise
-    await Promise.all(this.tracked.map(t => t.promise).filter(Boolean));
+    // 循环等待：non-parallel 工具需要等前序完成才能启动，
+    // 所以不能一次 Promise.all 就结束。每轮等当前已启动的完成，
+    // 完成后 startTool 的 .then() 回调触发 tryStartNext 解锁后续，
+    // 然后本循环再启动新一批。
+    while (this.tracked.some(t => !t.result)) {
+      const pending = this.tracked.map(t => t.promise).filter(Boolean);
+      if (pending.length === 0) break; // 安全守卫：不应发生
+      await Promise.all(pending);
+      this.tryStartAll();
+    }
 
     // 按原始顺序返回
     return this.tracked.map(t => t.result!).filter(Boolean);
@@ -136,11 +149,23 @@ export class StreamingToolExecutor {
   /**
    * 启动所有尚未启动的工具（流结束后调用）。
    * 流结束后不会再有新工具添加，所以可以放心启动剩余的。
-   * 仍然遵守并发规则：non-parallel 工具会串行等待前面的完成。
+   * 仍然遵守并发规则：non-parallel 工具串行等待前面的完成。
+   *
+   * 修复：原实现无条件调用 startTool，违反了 parallel 调度规则。
+   * 现在复用 tryStartNext 的并发检查逻辑。
    */
   private tryStartAll(): void {
     for (const tool of this.tracked) {
       if (tool.promise) continue;
+
+      // 复用 tryStartNext 的并发守卫逻辑：
+      // non-parallel 工具不能和其他工具并行执行
+      const executing = this.tracked.filter(t => t.promise && !t.result);
+      const hasNonParallelExecuting = executing.some(t => !t.isParallel);
+
+      if (hasNonParallelExecuting) break;
+      if (!tool.isParallel && executing.length > 0) break;
+
       this.startTool(tool);
     }
   }
