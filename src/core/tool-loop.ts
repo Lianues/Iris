@@ -20,6 +20,7 @@
 import { ToolRegistry } from '../tools/registry';
 import { ToolStateManager } from '../tools/state';
 import { buildExecutionPlan, executePlan } from '../tools/scheduler';
+import type { StreamingToolExecutor } from '../tools/streaming-executor';
 import { ToolsConfig } from '../config';
 import { PromptAssembler } from '../prompt/assembler';
 import type {
@@ -94,6 +95,14 @@ export interface ToolLoopRunOptions {
   onRetry?: (attempt: number, maxRetries: number, error: string) => void;
   /** 关联的会话 ID（多会话并发时用于工具状态隔离） */
   sessionId?: string;
+  /**
+   * 流式工具执行器（可选）。
+   *
+   * 由 Backend 在流式模式下注入。当提供时，callLLMStream 会在流式输出过程中
+   * 通过 executor.addTool() 提前启动工具执行，ToolLoop 在 LLM 返回后
+   * 使用 executor.waitForAll() 获取结果，跳过自己的 executeTools。
+   */
+  streamingToolExecutor?: StreamingToolExecutor;
 }
 
 export class ToolLoop {
@@ -194,8 +203,19 @@ export class ToolLoop {
         return { text, history };
       }
 
-      // 执行工具（通过 scheduler 分批调度）
-      const responseParts = await this.executeTools(functionCalls, signal, options?.onAttachments, options?.sessionId);
+      // 执行工具
+      let responseParts: FunctionResponsePart[];
+      const executor = options?.streamingToolExecutor;
+      if (executor && executor.size > 0) {
+        // 流式边执行模式：LLM 流式输出过程中已通过 executor.addTool() 提前启动了工具执行，
+        // 这里等待所有已启动的工具完成并收集结果。
+        // 比传统的 executeTools 少等一段时间（流式输出和工具执行重叠的部分）。
+        logger.info(`流式边执行: ${executor.size} 个工具已在流式期间启动，等待完成`);
+        responseParts = await executor.waitForAll();
+      } else {
+        // 传统模式：LLM 返回完整响应后才开始执行工具（非流式，或子代理场景）
+        responseParts = await this.executeTools(functionCalls, signal, options?.onAttachments, options?.sessionId);
+      }
 
       // 工具执行后再次检查 abort
       if (signal?.aborted) {

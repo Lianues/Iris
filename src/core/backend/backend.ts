@@ -48,6 +48,7 @@ import { resetConfigToDefaults as doResetConfigToDefaults } from '../../config/i
 import { MessageQueue } from '../message-queue';
 import type { QueuedMessage } from '../message-queue';
 import { TurnLock } from '../turn-lock';
+import { StreamingToolExecutor } from '../../tools/streaming-executor';
 
 import type { BackendConfig, ImageInput, DocumentInput, UndoScope, UndoOperationResult, RedoOperationResult } from './types';
 import { buildStoredUserParts } from './media';
@@ -957,10 +958,27 @@ export class Backend extends EventEmitter {
 
     // 2. 构建 LLM 调用函数
     let lastCallTotalTokens = 0;
+
+    // 流式模式下创建 StreamingToolExecutor，在 LLM 流式输出过程中
+    // 通过 onFunctionCallReady 回调提前启动工具执行。
+    // 每轮 ToolLoop 循环需要一个新的 executor（因为每轮的工具调用是独立的）。
+    let streamingExecutor: StreamingToolExecutor | undefined;
+
     const callLLM: LLMCaller = async (request, modelName, callSignal) => {
       let content: Content;
       if (this.stream) {
-        content = await callLLMStream(this.router, this, sessionId, request, modelName, callSignal);
+        // 每轮 LLM 调用创建新的 StreamingToolExecutor
+        streamingExecutor = new StreamingToolExecutor(
+          requestTools, this.toolState, this.toolLoopConfig.toolsConfig,
+          callSignal, this.toolLoopConfig.beforeToolExec, this.toolLoopConfig.afterToolExec,
+          (attachments) => { this.emit('attachments', sessionId, attachments); },
+          sessionId,
+        );
+
+        content = await callLLMStream(this.router, this, sessionId, request, modelName, callSignal,
+          // 流式中每产生一个完整的 functionCall 就通知 executor 提前启动
+          (call) => streamingExecutor!.addTool(call),
+        );
         if (content.usageMetadata?.totalTokenCount) lastCallTotalTokens = content.usageMetadata.totalTokenCount;
         await new Promise<void>(resolve => setTimeout(resolve, 0));
       } else {
@@ -993,6 +1011,9 @@ export class Backend extends EventEmitter {
     const result = await loop.run(history, callLLM, {
       sessionId,
       extraParts,
+      // 流式模式下注入 StreamingToolExecutor。
+      // callLLM 每次被调用时会创建新的 executor，这里通过 getter 获取最新的实例。
+      get streamingToolExecutor() { return streamingExecutor; },
       onMessageAppend: (content) => this.storage.addMessage(sessionId, content),
       onModelContent: (content) => { this.emit('assistant:content', sessionId, content); },
       onAttachments: (attachments) => {

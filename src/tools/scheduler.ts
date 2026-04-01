@@ -211,6 +211,10 @@ export function buildExecutionPlan(
  *
  * 支持 AbortSignal：执行前检查，已 abort 时直接返回错误。
  */
+// 导出为 executeSingleTool，供 StreamingToolExecutor 直接调用。
+// 函数名在模块内保持 executeSingle 以兼容现有 executePlan 的调用，
+// 通过 export { executeSingle as executeSingleTool } 对外暴露。
+export { executeSingle as executeSingleTool };
 async function executeSingle(
   call: FunctionCallPart,
   registry: ToolRegistry,

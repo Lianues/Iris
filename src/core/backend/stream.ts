@@ -87,6 +87,8 @@ export async function callLLMStream(
   request: LLMRequest,
   modelName?: string,
   signal?: AbortSignal,
+  /** 流式中每产生一个完整的 functionCall part 时回调，供 StreamingToolExecutor 提前启动工具执行 */
+  onFunctionCallReady?: (call: import('../../types').FunctionCallPart) => void,
 ): Promise<Content> {
   const parts: Part[] = [];
   let usageMetadata: UsageMetadata | undefined;
@@ -134,6 +136,18 @@ export async function callLLMStream(
         emittedParts.push(delta);
       }
       emitter.emit('stream:parts', sessionId, emittedParts);
+
+      // 流式边执行工具：每当一个完整的 functionCall part 出现在 deltaParts 中，
+      // 立即通知外部启动工具执行。functionCall part 不会被 appendMergedPart 合并
+      // （只有 text/thought 才合并），所以 deltaParts 里出现的每个 functionCall
+      // 都是一个完整的独立调用。
+      if (onFunctionCallReady) {
+        for (const part of deltaParts) {
+          if ('functionCall' in part) {
+            onFunctionCallReady(part as import('../../types').FunctionCallPart);
+          }
+        }
+      }
     }
 
     if (chunk.textDelta) {
