@@ -7,6 +7,11 @@
     "configFile": "config.yaml"
   },
   "distribution": {
-    "files": ["config.yaml", "dist/*.mjs", "package.json"]
+    "files": [
+      ".gitignore",
+      "config.yaml",
+      "dist/index.mjs",
+      "package.json"
+    ]
   }
 }

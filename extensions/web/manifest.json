@@ -11,15 +11,42 @@
       "panel": {
         "description": "Web 服务器配置",
         "fields": [
-          { "key": "port", "type": "number", "label": "监听端口", "required": false },
-          { "key": "host", "type": "text", "label": "监听地址", "required": false },
-          { "key": "authToken", "type": "password", "label": "API 访问令牌", "required": false },
-          { "key": "managementToken", "type": "password", "label": "管理令牌", "required": false }
+          {
+            "key": "port",
+            "type": "number",
+            "label": "监听端口",
+            "required": false
+          },
+          {
+            "key": "host",
+            "type": "text",
+            "label": "监听地址",
+            "required": false
+          },
+          {
+            "key": "authToken",
+            "type": "password",
+            "label": "API 访问令牌",
+            "required": false
+          },
+          {
+            "key": "managementToken",
+            "type": "password",
+            "label": "管理令牌",
+            "required": false
+          }
         ]
       }
     }
   ],
   "distribution": {
-    "files": ["dist/index.mjs", "web-ui/dist/**", "package.json"]
+    "files": [
+      "dist/index.mjs",
+      "package.json",
+      "web-ui/eslint.config.mjs",
+      "web-ui/index.html",
+      "web-ui/package.json",
+      "web-ui/vite.config.ts"
+    ]
   }
 }

@@ -12,7 +12,8 @@
   ],
   "distribution": {
     "files": [
-      "dist/index.mjs"
+      "dist/index.mjs",
+      "package.json"
     ]
   }
 }

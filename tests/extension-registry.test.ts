@@ -5,7 +5,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PluginManager } from '../src/plugins/manager.js';
+// PluginManager 已从 src/plugins/ 迁移到 src/extension/，更新导入路径
+import { PluginManager } from '../src/extension/manager.js';
 import { PlatformRegistry } from '../src/core/platform-registry.js';
 import { PromptAssembler } from '../src/prompt/assembler.js';
 import { ToolRegistry } from '../src/tools/registry.js';

@@ -9,6 +9,7 @@
   "dependencies": {
     "@irises/extension-sdk": "file:../../packages/extension-sdk",
     "ws": "^8.18.0",
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0",
+    "yaml": "^2.7.0"
   }
 }

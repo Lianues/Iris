@@ -1,9 +1,10 @@
 {
   "extensions": [
     "computer-use",
+    "console",
     "discord",
-    "memory",
     "lark",
+    "memory",
     "qq",
     "telegram",
     "web",
