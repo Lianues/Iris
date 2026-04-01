@@ -1,5 +1,8 @@
 # 子代理配置
 # 定义主 LLM 可委派的子代理类型。
+#
+# 此文件在首次运行时自动创建，包含开箱即用的默认子代理（general-purpose / explore）。
+# 可直接编辑修改、新增或禁用子代理类型。
 
 # ── 全局设置（优先级高于各类型的独立设置） ──
 #   enabled       - 子代理功能总开关（默认 true）；false 时一键禁用全部子代理
@@ -14,6 +17,7 @@
 #   excludedTools - 工具黑名单
 #   modelName     - 固定使用的模型名称；不写时跟随当前活动模型
 #   parallel      - 当前类型的 sub_agent 调用是否按 parallel 工具参与调度（默认 false）
+#   background    - 是否默认后台运行（默认 false），可被调用时的 run_in_background 参数覆盖
 #   maxToolRounds - 最大工具执行轮次
 
 enabled: true
@@ -28,6 +32,7 @@ types:
       - sub_agent
     stream: true
     parallel: false
+    # background: false
     # modelName: gemini_flash
     maxToolRounds: 200
 
@@ -43,5 +48,6 @@ types:
       - shell
     stream: true
     parallel: true
+    # background: false
     # modelName: gpt4o_mini
     maxToolRounds: 200

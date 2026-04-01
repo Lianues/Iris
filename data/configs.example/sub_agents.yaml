@@ -17,6 +17,7 @@
 #   excludedTools - 工具黑名单
 #   modelName     - 固定使用的模型名称；不写时跟随当前活动模型
 #   parallel      - 当前类型的 sub_agent 调用是否按 parallel 工具参与调度（默认 false）
+#   background    - 是否默认后台运行（默认 false），可被调用时的 run_in_background 参数覆盖
 #   maxToolRounds - 最大工具执行轮次
 
 enabled: true

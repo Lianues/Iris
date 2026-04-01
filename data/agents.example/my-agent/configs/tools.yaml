@@ -46,6 +46,13 @@ limits:
 # 仅跳过二类审批（diff 预览），一类审批（Y/N 确认）仍生效
 # autoApproveDiff: true
 #
+# ─── 禁用工具列表 ───
+#
+# 列出的工具不会发送给 LLM，LLM 无法调用这些工具。
+# disabledTools:
+#   - memory_search
+#   - memory_add
+#
 # ─── 按工具配置执行策略 ───
 #
 # 下方按工具名称配置执行策略。
@@ -64,6 +71,9 @@ search_in_files:
 find_files:
   autoApprove: true
 list_files:
+  autoApprove: true
+read_skill:
+  # Skill 读取工具是只读操作，建议默认直接执行
   autoApprove: true
 
 # 修改类工具：默认需要确认
