@@ -3,13 +3,13 @@ import React9 from "react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// ../../node_modules/@irises/extension-sdk/dist/platform.js
+// ../../packages/extension-sdk/dist/platform.js
 class PlatformAdapter {
   get name() {
     return this.constructor.name;
   }
 }
-// ../../node_modules/@irises/extension-sdk/dist/logger.js
+// ../../packages/extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -762,7 +762,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
 
 // src/components/StatusBar.tsx
 import { jsxDEV as jsxDEV6, Fragment as Fragment3 } from "@opentui/react/jsx-dev-runtime";
-function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize }) {
+function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, backgroundTaskCount, backgroundTaskTokens }) {
   const resolvedModeName = modeName ?? "normal";
   const modeNameCapitalized = resolvedModeName.charAt(0).toUpperCase() + resolvedModeName.slice(1);
   const contextStr = contextTokens > 0 ? contextTokens.toLocaleString() : "-";
@@ -818,6 +818,22 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                   ]
                 }, undefined, true, undefined, this)
               ]
+            }, undefined, true, undefined, this) : null,
+            backgroundTaskCount != null && backgroundTaskCount > 0 ? /* @__PURE__ */ jsxDEV6(Fragment3, {
+              children: [
+                /* @__PURE__ */ jsxDEV6("span", {
+                  fg: C.dim,
+                  children: " · "
+                }, undefined, false, undefined, this),
+                /* @__PURE__ */ jsxDEV6("span", {
+                  fg: C.accent,
+                  children: [
+                    backgroundTaskCount,
+                    " 个后台任务",
+                    backgroundTaskTokens != null && backgroundTaskTokens > 0 ? ` ↑${backgroundTaskTokens.toLocaleString()}tk` : ""
+                  ]
+                }, undefined, true, undefined, this)
+              ]
             }, undefined, true, undefined, this) : null
           ]
         }, undefined, true, undefined, this)
@@ -855,7 +871,9 @@ function BottomPanel({
   contextTokens,
   contextWindow,
   copyMode,
-  exitConfirmArmed
+  exitConfirmArmed,
+  backgroundTaskCount,
+  backgroundTaskTokens
 }) {
   const inputDisabled = !!(pendingConfirm || pendingApprovals.length > 0);
   return /* @__PURE__ */ jsxDEV7("box", {
@@ -892,7 +910,9 @@ function BottomPanel({
             modelName,
             contextTokens,
             contextWindow,
-            queueSize
+            queueSize,
+            backgroundTaskCount,
+            backgroundTaskTokens
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
@@ -1879,8 +1899,9 @@ var MessageItem = React5.memo(function MessageItem2({ msg, liveTools, liveParts,
       ]
     }, undefined, true, undefined, this);
   }
-  const labelName = isSummary ? "context" : isUser ? "you" : msg.isCommand ? "shell" : (msg.modelName || modelName || "iris").toLowerCase();
-  const labelColor = isSummary ? C.warn : isUser ? C.roleUser : msg.isError ? C.error : msg.isCommand ? C.command : C.roleAssistant;
+  const isNotification = msg.isNotification === true;
+  const labelName = isSummary ? "context" : isUser ? "you" : msg.isCommand ? "shell" : isNotification ? "bg-task" : (msg.modelName || modelName || "iris").toLowerCase();
+  const labelColor = isSummary ? C.warn : isUser ? C.roleUser : msg.isError ? C.error : msg.isCommand ? C.command : isNotification ? C.warn : C.roleAssistant;
   const headerText = `· ${labelName} `;
   const displayParts = [...msg.parts];
   if (liveParts && liveParts.length > 0)
@@ -2102,7 +2123,7 @@ import { useMemo as useMemo3 } from "react";
 import * as fs2 from "fs";
 import * as path2 from "path";
 
-// ../../node_modules/@irises/extension-sdk/dist/tool-utils.js
+// ../../packages/extension-sdk/dist/tool-utils.js
 import * as fs from "node:fs";
 import * as path from "node:path";
 function normalizeLineEndings(text) {
@@ -4580,11 +4601,15 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
   const [retryInfo, setRetryInfo] = useState7(null);
   const [pendingApprovals, setPendingApprovals] = useState7([]);
   const [pendingApplies, setPendingApplies] = useState7([]);
+  const [backgroundTaskCount, setBackgroundTaskCount] = useState7(0);
+  const backgroundTaskTokenMapRef = useRef5(new Map);
+  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState7(0);
   const streamPartsRef = useRef5([]);
   const toolInvocationsRef = useRef5([]);
   const throttleTimerRef = useRef5(null);
   const uncommittedStreamPartsRef = useRef5([]);
   const lastUsageRef = useRef5(null);
+  const notificationContextRef = useRef5({ active: false });
   const commitTools = useCallback4(() => {
     toolInvocationsRef.current = [];
     setPendingApprovals([]);
@@ -4634,11 +4659,18 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
         uncommittedStreamPartsRef.current = [];
         streamPartsRef.current = [];
         setStreamingParts([]);
+        const isNotif = notificationContextRef.current.active;
+        const notifDesc = notificationContextRef.current.description;
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant")
             return prev;
-          return [...prev, { id: nextMsgId(), role: "assistant", parts: [] }];
+          return [...prev, {
+            id: nextMsgId(),
+            role: "assistant",
+            parts: [],
+            ...isNotif ? { isNotification: true, notificationDescription: notifDesc } : {}
+          }];
         });
       },
       pushStreamParts(parts) {
@@ -4665,6 +4697,9 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
         uncommittedStreamPartsRef.current = [];
         setStreamingParts([]);
         setIsStreaming(false);
+        const isNotif = notificationContextRef.current.active;
+        const notifDesc = notificationContextRef.current.description;
+        const notifMeta = isNotif ? { isNotification: true, notificationDescription: notifDesc } : {};
         setMessages((prev) => {
           if (normalizedParts.length === 0 && !meta)
             return prev;
@@ -4673,15 +4708,15 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
             if (!last || last.role !== "assistant")
               return prev;
             const copy2 = [...prev];
-            copy2[copy2.length - 1] = { ...last, ...meta };
+            copy2[copy2.length - 1] = { ...last, ...meta, ...notifMeta };
             return copy2;
           }
           if (prev.length === 0)
-            return [{ id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta }];
+            return [{ id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
           if (last.role !== "assistant")
-            return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta }];
+            return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
           const copy = [...prev];
-          copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...last.parts, ...normalizedParts]), ...meta };
+          copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...last.parts, ...normalizedParts]), ...meta, ...notifMeta };
           return copy;
         });
       },
@@ -4782,6 +4817,32 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
       setRetryInfo(info) {
         setRetryInfo(info);
       },
+      setNotificationContext(description) {
+        notificationContextRef.current = {
+          active: true,
+          description: description ?? notificationContextRef.current.description
+        };
+      },
+      clearNotificationContext() {
+        notificationContextRef.current = { active: false };
+      },
+      updateBackgroundTaskCount(delta) {
+        setBackgroundTaskCount((prev) => Math.max(0, prev + delta));
+      },
+      updateBackgroundTaskTokens(taskId, tokens) {
+        backgroundTaskTokenMapRef.current.set(taskId, tokens);
+        let total = 0;
+        for (const v of backgroundTaskTokenMapRef.current.values())
+          total += v;
+        setBackgroundTaskTokens(total);
+      },
+      removeBackgroundTaskTokens(taskId) {
+        backgroundTaskTokenMapRef.current.delete(taskId);
+        let total = 0;
+        for (const v of backgroundTaskTokenMapRef.current.values())
+          total += v;
+        setBackgroundTaskTokens(total);
+      },
       drainQueue() {
         return drainCallbackRef.current?.() ?? undefined;
       }
@@ -4797,6 +4858,8 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
     retryInfo,
     pendingApprovals,
     pendingApplies,
+    backgroundTaskCount,
+    backgroundTaskTokens,
     setMessages,
     commitTools
   };
@@ -5696,7 +5759,9 @@ function App({
         contextTokens: appState.contextTokens,
         contextWindow: modelState.currentContextWindow,
         copyMode,
-        exitConfirmArmed: exitConfirm.exitConfirmArmed
+        exitConfirmArmed: exitConfirm.exitConfirmArmed,
+        backgroundTaskCount: appState.backgroundTaskCount,
+        backgroundTaskTokens: appState.backgroundTaskTokens
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -6090,6 +6155,32 @@ class ConsolePlatform extends PlatformAdapter {
     this.backend.on("done", (sid, durationMs) => {
       if (sid === this.sessionId) {
         this.appHandle?.finalizeResponse(durationMs);
+        this.appHandle?.clearNotificationContext();
+      }
+    });
+    this.backend.on("turn:start", (sid, _turnId, mode) => {
+      if (sid === this.sessionId) {
+        if (mode === "task-notification") {
+          this.appHandle?.setNotificationContext();
+        } else {
+          this.appHandle?.clearNotificationContext();
+        }
+      }
+    });
+    this.backend.on("agent:notification", (sid, _taskId, status, summary) => {
+      if (sid === this.sessionId) {
+        if (status === "registered") {
+          this.appHandle?.updateBackgroundTaskCount(1);
+        } else if (status === "completed" || status === "failed" || status === "killed") {
+          this.appHandle?.updateBackgroundTaskCount(-1);
+          this.appHandle?.removeBackgroundTaskTokens(_taskId);
+          this.appHandle?.setNotificationContext(summary);
+        } else if (status === "token-update") {
+          const tokens = parseInt(summary, 10);
+          if (!isNaN(tokens)) {
+            this.appHandle?.updateBackgroundTaskTokens(_taskId, tokens);
+          }
+        }
       }
     });
     this.backend.on("auto-compact", (sid, summaryText) => {
