@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { C } from '../theme';
 
 interface StatusBarProps {
@@ -16,7 +16,24 @@ interface StatusBarProps {
   backgroundTaskTokens?: number;
 }
 
+// Braille spinner 帧序列：用于后台任务活跃指示。
+// 每 120ms 切换一帧，让用户直观感知子代理仍在运行中。
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+/** 当有后台任务运行时，返回循环的 spinner 字符；否则返回空字符串 */
+function useSpinner(active: boolean): string {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setFrame((f) => (f + 1) % SPINNER_FRAMES.length), 120);
+    return () => clearInterval(timer);
+  }, [active]);
+  return active ? SPINNER_FRAMES[frame] : '';
+}
+
 export function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, backgroundTaskCount, backgroundTaskTokens }: StatusBarProps) {
+  const hasBackgroundTasks = (backgroundTaskCount ?? 0) > 0;
+  const spinner = useSpinner(hasBackgroundTasks);
   const resolvedModeName = modeName ?? 'normal';
   const modeNameCapitalized = resolvedModeName.charAt(0).toUpperCase() + resolvedModeName.slice(1);
   const contextStr = contextTokens > 0 ? contextTokens.toLocaleString() : '-';
@@ -45,7 +62,7 @@ export function StatusBar({ agentName, modeName, modelName, contextTokens, conte
             <>
               <span fg={C.dim}> · </span>
               <span fg={C.accent}>
-                {backgroundTaskCount} 个后台任务{backgroundTaskTokens != null && backgroundTaskTokens > 0 ? ` ↑${backgroundTaskTokens.toLocaleString()}tk` : ''}
+                {spinner} {backgroundTaskCount} 个后台任务{backgroundTaskTokens != null && backgroundTaskTokens > 0 ? ` ↑${backgroundTaskTokens.toLocaleString()}tk` : ''}
               </span>
             </>
           ) : null}

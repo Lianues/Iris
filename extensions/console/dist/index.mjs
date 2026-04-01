@@ -1,5 +1,5 @@
 // src/index.ts
-import React9 from "react";
+import React10 from "react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
@@ -23,7 +23,7 @@ var _logLevel = LogLevel.INFO;
 import { estimateTokenCount } from "tokenx";
 
 // src/App.tsx
-import { useCallback as useCallback10, useEffect as useEffect10, useRef as useRef8, useState as useState12 } from "react";
+import { useCallback as useCallback10, useEffect as useEffect11, useRef as useRef8, useState as useState13 } from "react";
 import { useRenderer } from "@opentui/react";
 
 // src/theme.ts
@@ -761,8 +761,22 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
 }
 
 // src/components/StatusBar.tsx
+import { useEffect as useEffect4, useState as useState4 } from "react";
 import { jsxDEV as jsxDEV6, Fragment as Fragment3 } from "@opentui/react/jsx-dev-runtime";
+var SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+function useSpinner(active) {
+  const [frame, setFrame] = useState4(0);
+  useEffect4(() => {
+    if (!active)
+      return;
+    const timer = setInterval(() => setFrame((f) => (f + 1) % SPINNER_FRAMES.length), 120);
+    return () => clearInterval(timer);
+  }, [active]);
+  return active ? SPINNER_FRAMES[frame] : "";
+}
 function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, backgroundTaskCount, backgroundTaskTokens }) {
+  const hasBackgroundTasks = (backgroundTaskCount ?? 0) > 0;
+  const spinner = useSpinner(hasBackgroundTasks);
   const resolvedModeName = modeName ?? "normal";
   const modeNameCapitalized = resolvedModeName.charAt(0).toUpperCase() + resolvedModeName.slice(1);
   const contextStr = contextTokens > 0 ? contextTokens.toLocaleString() : "-";
@@ -828,6 +842,8 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                 /* @__PURE__ */ jsxDEV6("span", {
                   fg: C.accent,
                   children: [
+                    spinner,
+                    " ",
                     backgroundTaskCount,
                     " 个后台任务",
                     backgroundTaskTokens != null && backgroundTaskTokens > 0 ? ` ↑${backgroundTaskTokens.toLocaleString()}tk` : ""
@@ -927,17 +943,17 @@ function BottomPanel({
 }
 
 // src/components/GeneratingTimer.tsx
-import { useState as useState5, useEffect as useEffect5, useRef as useRef4 } from "react";
+import { useState as useState6, useEffect as useEffect6, useRef as useRef4 } from "react";
 
 // src/components/Spinner.tsx
-import { useState as useState4, useEffect as useEffect4, useRef as useRef3 } from "react";
+import { useState as useState5, useEffect as useEffect5, useRef as useRef3 } from "react";
 import { jsxDEV as jsxDEV8 } from "@opentui/react/jsx-dev-runtime";
 var FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 var INTERVAL = 80;
 function Spinner() {
-  const [frame, setFrame] = useState4(0);
+  const [frame, setFrame] = useState5(0);
   const mountedRef = useRef3(true);
-  useEffect4(() => {
+  useEffect5(() => {
     const timer = setInterval(() => {
       if (mountedRef.current) {
         setFrame((f) => (f + 1) % FRAMES.length);
@@ -957,9 +973,9 @@ function Spinner() {
 // src/components/GeneratingTimer.tsx
 import { jsxDEV as jsxDEV9 } from "@opentui/react/jsx-dev-runtime";
 function GeneratingTimer({ isGenerating, retryInfo }) {
-  const [time, setTime] = useState5(0);
+  const [time, setTime] = useState6(0);
   const timerRef = useRef4(null);
-  useEffect5(() => {
+  useEffect6(() => {
     if (isGenerating) {
       setTime(0);
       timerRef.current = setInterval(() => {
@@ -1018,7 +1034,7 @@ function GeneratingTimer({ isGenerating, retryInfo }) {
 }
 
 // src/components/MessageItem.tsx
-import React5 from "react";
+import React6 from "react";
 import { useTerminalDimensions as useTerminalDimensions2 } from "@opentui/react";
 
 // src/components/MarkdownText.tsx
@@ -1852,7 +1868,7 @@ function groupParts(parts) {
   }
   return groups;
 }
-var MessageItem = React5.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName }) {
+var MessageItem = React6.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName }) {
   const { width: termWidth } = useTerminalDimensions2();
   const isUser = msg.role === "user";
   const isSummary = msg.isSummary === true;
@@ -3328,7 +3344,7 @@ function SessionListView({ sessions, selectedIndex }) {
 }
 
 // src/components/SettingsView.tsx
-import { useCallback as useCallback3, useEffect as useEffect6, useMemo as useMemo4, useState as useState6 } from "react";
+import { useCallback as useCallback3, useEffect as useEffect7, useMemo as useMemo4, useState as useState7 } from "react";
 import { useKeyboard as useKeyboard2, useTerminalDimensions as useTerminalDimensions3 } from "@opentui/react";
 
 // src/diff-approval.ts
@@ -3863,16 +3879,16 @@ function buildRows(snapshot, termWidth) {
 }
 function SettingsView({ initialSection = "general", onBack, onLoad, onSave }) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions3();
-  const [loading, setLoading] = useState6(true);
-  const [saving, setSaving] = useState6(false);
-  const [draft, setDraft] = useState6(null);
-  const [baseline, setBaseline] = useState6(null);
-  const [selectedRowId, setSelectedRowId] = useState6("");
-  const [editor, setEditor] = useState6(null);
-  const [editorValue, setEditorValue] = useState6("");
-  const [statusText, setStatusText] = useState6("");
-  const [statusKind, setStatusKind] = useState6("info");
-  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState6(false);
+  const [loading, setLoading] = useState7(true);
+  const [saving, setSaving] = useState7(false);
+  const [draft, setDraft] = useState7(null);
+  const [baseline, setBaseline] = useState7(null);
+  const [selectedRowId, setSelectedRowId] = useState7("");
+  const [editor, setEditor] = useState7(null);
+  const [editorValue, setEditorValue] = useState7("");
+  const [statusText, setStatusText] = useState7("");
+  const [statusKind, setStatusKind] = useState7("info");
+  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState7(false);
   const setStatus = useCallback3((text, kind = "info") => {
     setStatusText(text);
     setStatusKind(kind);
@@ -3890,7 +3906,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave }) {
   const selectedSelectableIndex = useMemo4(() => {
     return selectableRows.findIndex((row) => row.id === selectedRowId);
   }, [selectableRows, selectedRowId]);
-  useEffect6(() => {
+  useEffect7(() => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -3917,7 +3933,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave }) {
       cancelled = true;
     };
   }, [onLoad, setStatus]);
-  useEffect6(() => {
+  useEffect7(() => {
     if (rows.length === 0)
       return;
     if (selectedRowId && rows.some((row) => row.id === selectedRowId && row.target))
@@ -4491,7 +4507,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave }) {
 }
 
 // src/hooks/use-app-handle.ts
-import { useCallback as useCallback4, useEffect as useEffect7, useRef as useRef5, useState as useState7 } from "react";
+import { useCallback as useCallback4, useEffect as useEffect8, useRef as useRef5, useState as useState8 } from "react";
 
 // src/message-utils.ts
 var msgIdCounter = 0;
@@ -4593,17 +4609,17 @@ function clearRedo(stack) {
 
 // src/hooks/use-app-handle.ts
 function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
-  const [messages, setMessages] = useState7([]);
-  const [streamingParts, setStreamingParts] = useState7([]);
-  const [isStreaming, setIsStreaming] = useState7(false);
-  const [isGenerating, setIsGenerating] = useState7(false);
-  const [contextTokens, setContextTokens] = useState7(0);
-  const [retryInfo, setRetryInfo] = useState7(null);
-  const [pendingApprovals, setPendingApprovals] = useState7([]);
-  const [pendingApplies, setPendingApplies] = useState7([]);
-  const [backgroundTaskCount, setBackgroundTaskCount] = useState7(0);
+  const [messages, setMessages] = useState8([]);
+  const [streamingParts, setStreamingParts] = useState8([]);
+  const [isStreaming, setIsStreaming] = useState8(false);
+  const [isGenerating, setIsGenerating] = useState8(false);
+  const [contextTokens, setContextTokens] = useState8(0);
+  const [retryInfo, setRetryInfo] = useState8(null);
+  const [pendingApprovals, setPendingApprovals] = useState8([]);
+  const [pendingApplies, setPendingApplies] = useState8([]);
+  const [backgroundTaskCount, setBackgroundTaskCount] = useState8(0);
   const backgroundTaskTokenMapRef = useRef5(new Map);
-  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState7(0);
+  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState8(0);
   const streamPartsRef = useRef5([]);
   const toolInvocationsRef = useRef5([]);
   const throttleTimerRef = useRef5(null);
@@ -4615,13 +4631,13 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
     setPendingApprovals([]);
     setPendingApplies([]);
   }, []);
-  useEffect7(() => {
+  useEffect8(() => {
     return () => {
       if (throttleTimerRef.current)
         clearTimeout(throttleTimerRef.current);
     };
   }, []);
-  useEffect7(() => {
+  useEffect8(() => {
     const handle = {
       addMessage(role, content, meta) {
         clearRedo(undoRedoRef.current);
@@ -5142,17 +5158,17 @@ function useAppKeyboard({
 }
 
 // src/hooks/use-approval.ts
-import { useCallback as useCallback5, useEffect as useEffect8, useState as useState8 } from "react";
+import { useCallback as useCallback5, useEffect as useEffect9, useState as useState9 } from "react";
 function useApproval(pendingApprovals, pendingApplies) {
-  const [approvalChoice, setApprovalChoice] = useState8("approve");
-  const [diffView, setDiffView] = useState8("unified");
-  const [showLineNumbers, setShowLineNumbers] = useState8(true);
-  const [wrapMode, setWrapMode] = useState8("word");
-  const [previewIndex, setPreviewIndex] = useState8(0);
-  useEffect8(() => {
+  const [approvalChoice, setApprovalChoice] = useState9("approve");
+  const [diffView, setDiffView] = useState9("unified");
+  const [showLineNumbers, setShowLineNumbers] = useState9(true);
+  const [wrapMode, setWrapMode] = useState9("word");
+  const [previewIndex, setPreviewIndex] = useState9(0);
+  useEffect9(() => {
     setApprovalChoice("approve");
   }, [pendingApprovals[0]?.id]);
-  useEffect8(() => {
+  useEffect9(() => {
     setApprovalChoice("approve");
     setDiffView("unified");
     setShowLineNumbers(true);
@@ -5383,9 +5399,9 @@ function useCommandDispatch({
 }
 
 // src/hooks/use-exit-confirm.ts
-import { useCallback as useCallback7, useEffect as useEffect9, useRef as useRef6, useState as useState9 } from "react";
+import { useCallback as useCallback7, useEffect as useEffect10, useRef as useRef6, useState as useState10 } from "react";
 function useExitConfirm({ timeoutMs = 1500 } = {}) {
-  const [exitConfirmArmed, setExitConfirmArmed] = useState9(false);
+  const [exitConfirmArmed, setExitConfirmArmed] = useState10(false);
   const exitConfirmTimerRef = useRef6(null);
   const clearExitConfirm = useCallback7(() => {
     if (exitConfirmTimerRef.current) {
@@ -5403,7 +5419,7 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
       setExitConfirmArmed(false);
     }, timeoutMs);
   }, [timeoutMs]);
-  useEffect9(() => {
+  useEffect10(() => {
     return () => {
       if (exitConfirmTimerRef.current)
         clearTimeout(exitConfirmTimerRef.current);
@@ -5417,10 +5433,10 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
 }
 
 // src/hooks/use-message-queue.ts
-import { useCallback as useCallback8, useRef as useRef7, useState as useState10 } from "react";
+import { useCallback as useCallback8, useRef as useRef7, useState as useState11 } from "react";
 var queueIdCounter = 0;
 function useMessageQueue() {
-  const [queue, setQueue] = useState10([]);
+  const [queue, setQueue] = useState11([]);
   const queueRef = useRef7([]);
   const sync = useCallback8((next) => {
     queueRef.current = next;
@@ -5515,11 +5531,11 @@ function useMessageQueue() {
 }
 
 // src/hooks/use-model-state.ts
-import { useCallback as useCallback9, useState as useState11 } from "react";
+import { useCallback as useCallback9, useState as useState12 } from "react";
 function useModelState({ modelId, modelName, contextWindow }) {
-  const [currentModelId, setCurrentModelId] = useState11(modelId);
-  const [currentModelName, setCurrentModelName] = useState11(modelName);
-  const [currentContextWindow, setCurrentContextWindow] = useState11(contextWindow);
+  const [currentModelId, setCurrentModelId] = useState12(modelId);
+  const [currentModelName, setCurrentModelName] = useState12(modelName);
+  const [currentContextWindow, setCurrentContextWindow] = useState12(contextWindow);
   const updateModel = useCallback9((result) => {
     if (result.modelId)
       setCurrentModelId(result.modelId);
@@ -5566,15 +5582,15 @@ function App({
   modelName,
   contextWindow
 }) {
-  const [viewMode, setViewMode] = useState12("chat");
-  const [sessionList, setSessionList] = useState12([]);
-  const [selectedIndex, setSelectedIndex] = useState12(0);
-  const [settingsInitialSection, setSettingsInitialSection] = useState12("general");
-  const [modelList, setModelList] = useState12([]);
-  const [copyMode, setCopyMode] = useState12(false);
-  const [pendingConfirm, setPendingConfirm] = useState12(null);
-  const [confirmChoice, setConfirmChoice] = useState12("confirm");
-  const [queueEditingId, setQueueEditingId] = useState12(null);
+  const [viewMode, setViewMode] = useState13("chat");
+  const [sessionList, setSessionList] = useState13([]);
+  const [selectedIndex, setSelectedIndex] = useState13(0);
+  const [settingsInitialSection, setSettingsInitialSection] = useState13("general");
+  const [modelList, setModelList] = useState13([]);
+  const [copyMode, setCopyMode] = useState13(false);
+  const [pendingConfirm, setPendingConfirm] = useState13(null);
+  const [confirmChoice, setConfirmChoice] = useState13("confirm");
+  const [queueEditingId, setQueueEditingId] = useState13(null);
   const [queueEditState, queueEditActions] = useTextInput("");
   const renderer = useRenderer();
   const undoRedoRef = useRef8(createUndoRedoStack());
@@ -5629,13 +5645,13 @@ function App({
     queueClear: messageQueue.clear,
     queueSize: messageQueue.size
   });
-  useEffect10(() => {
+  useEffect11(() => {
     if (!renderer)
       return;
     renderer.useMouse = !copyMode;
   }, [renderer, copyMode]);
   const prevViewModeRef = useRef8(viewMode);
-  useEffect10(() => {
+  useEffect11(() => {
     const prev = prevViewModeRef.current;
     prevViewModeRef.current = viewMode;
     if (prev === "queue-list" && viewMode === "chat" && !appState.isGenerating && messageQueue.size > 0) {
@@ -6208,7 +6224,7 @@ ${summaryText}`;
         return;
       }
       this.disposeResizeWatcher = attachCompiledResizeWatcher(this.renderer, this.isCompiledBinary);
-      const element = React9.createElement(App, {
+      const element = React10.createElement(App, {
         onReady: (handle) => {
           this.appHandle = handle;
           resolve3();
