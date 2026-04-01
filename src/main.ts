@@ -17,8 +17,6 @@
  *   iris "prompt"               → CLI 模式
  *   iris --help                 → 显示帮助
  *   iris --version              → 显示版本
- *   iris --sidecar screen       → 内部：运行 screen sidecar 子进程
- *   iris --sidecar browser      → 内部：运行 browser sidecar 子进程
  */
 
 import * as childProcess from 'child_process';
@@ -82,14 +80,7 @@ if (args[0] === 'extension' || args[0] === 'extensions' || args[0] === 'ext') {
   }
 }
 
-const sidecarIndex = args.indexOf('--sidecar');
-if (sidecarIndex >= 0) {
-  const sidecarType = args[sidecarIndex + 1];
-  if (!sidecarType) {
-    console.error('--sidecar 需要指定类型');
-    process.exit(1);
-  }
-} else {
+{
   const CLI_FLAGS = new Set([
     '-p', '--prompt',
     '-s', '--session',
