@@ -2,6 +2,7 @@ import extensionCommand from "./extension/index.js"
 import modelsCommand from "./models/index.js"
 import onboardCommand from "./onboard/index.js"
 import platformsCommand from "./platforms/index.js"
+import settingsCommand from "./settings/index.js"
 import type { TerminalCommandDefinition } from "./types.js"
 
 const commandList: TerminalCommandDefinition[] = [
@@ -9,6 +10,7 @@ const commandList: TerminalCommandDefinition[] = [
   platformsCommand,
   modelsCommand,
   extensionCommand,
+  settingsCommand,
 ]
 
 const commandMap = new Map(commandList.map((command) => [command.name, command]))

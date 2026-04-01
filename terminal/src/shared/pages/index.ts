@@ -8,6 +8,8 @@ export type {
 } from "./SuggestableInputPage.js"
 export { OptionSelectPage } from "./OptionSelectPage.js"
 export type { OptionSelectItem } from "./OptionSelectPage.js"
+export { ConfigEditorPage } from "./ConfigEditorPage.js"
+export type { ConfigEditorPageProps } from "./ConfigEditorPage.js"
 export { InfoConfirmPage } from "./InfoConfirmPage.js"
 export type {
   InfoConfirmNotice,

@@ -4,10 +4,9 @@
  * 将 Iris 核心层暴露为命令行接口，支持外部传入提示词执行完整 Agent 循环。
  *
  * 用法：
- *   iris -p "分析这个项目"
- *   iris --prompt "重构代码" --session my-task
- *   echo "帮我找 bug" | iris
- *   iris "直接作为位置参数"
+ *   iris chat "分析这个项目"
+ *   iris chat -p "重构代码" --session my-task
+ *   echo "帮我找 bug" | iris chat
  *
  * 每次调用使用独立的 sessionId，天然支持多进程并行调用。
  */
@@ -35,20 +34,12 @@ interface CLIOptions {
 }
 
 const HELP_TEXT = `
-Iris CLI - AI Agent 命令行接口
+iris chat - AI Agent 命令行接口
 
 用法:
-  iris -p <prompt>              执行提示词
-  iris "<prompt>"               位置参数传入提示词
-  echo "<prompt>" | iris        管道传入提示词
-  iris start                    启动平台服务（serve 别名）
-  iris serve                    启动平台服务（Web/Telegram 等）
-  iris extension                打开插件安装与管理界面
-  iris extension install <path> 从远程仓库的 extensions/<path>/ 安装 extension
-  iris ext install-local <name> 仅从本地 extension 目录安装
-  iris onboard                  启动交互式配置引导
-  iris platforms                打开平台配置界面
-  iris models                   打开模型配置界面
+  iris chat <prompt>              位置参数传入提示词
+  iris chat -p <prompt>           指定提示词
+  echo "<prompt>" | iris chat     管道传入提示词
 
 参数:
   -p, --prompt <text>           提示词文本
@@ -64,10 +55,10 @@ Iris CLI - AI Agent 命令行接口
   -v, --version                 显示版本
 
 示例:
-  iris -p "分析项目目录结构"
-  iris -p "找出所有 TODO" --output json
-  iris -p "继续优化" -s my-task
-  iris -p "写个 HTTP 服务器" --stream --print-tools
+  iris chat "分析项目目录结构"
+  iris chat -p "找出所有 TODO" --output json
+  iris chat -p "继续优化" -s my-task
+  iris chat -p "写个 HTTP 服务器" --stream --print-tools
 `.trim();
 
 function generateSessionId(): string {
@@ -201,8 +192,9 @@ async function main() {
   }
 
   if (!options.prompt) {
-    console.error('错误: 未提供提示词。用法: iris -p "<prompt>"');
-    console.error('运行 iris --help 查看帮助。');
+    console.error('错误: 未提供提示词。');
+    console.error('用法: iris chat "你的提示词"');
+    console.error('运行 iris chat --help 查看详细帮助。');
     process.exit(1);
   }
 
