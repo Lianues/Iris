@@ -3,13 +3,13 @@ import React9 from "react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// ../../packages/extension-sdk/dist/platform.js
+// ../../node_modules/@irises/extension-sdk/dist/platform.js
 class PlatformAdapter {
   get name() {
     return this.constructor.name;
   }
 }
-// ../../packages/extension-sdk/dist/plugin.js
+// ../../node_modules/@irises/extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -18,6 +18,7 @@ var LogLevel;
   LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
   LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
 })(LogLevel || (LogLevel = {}));
+var _logLevel = LogLevel.INFO;
 // src/index.ts
 import { estimateTokenCount } from "tokenx";
 
@@ -2101,7 +2102,7 @@ import { useMemo as useMemo3 } from "react";
 import * as fs2 from "fs";
 import * as path2 from "path";
 
-// ../../packages/extension-sdk/dist/tool-utils.js
+// ../../node_modules/@irises/extension-sdk/dist/tool-utils.js
 import * as fs from "node:fs";
 import * as path from "node:path";
 function normalizeLineEndings(text) {
@@ -4179,7 +4180,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave }) {
         setEditorValue("");
         setStatus("已取消编辑", "warning");
       }
-      if (key.name === "enter") {
+      if (key.name === "enter" || key.name === "return") {
         submitEditor();
       }
       return;
@@ -4257,7 +4258,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave }) {
       }
       return;
     }
-    if (key.name === "enter" && selectedRow?.target) {
+    if ((key.name === "enter" || key.name === "return") && selectedRow?.target) {
       if (selectedRow.target.kind === "action") {
         if (selectedRow.target.action === "addMcp")
           handleAddMcpServer();
@@ -4355,7 +4356,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave }) {
         children: [
           windowStart > 0 && /* @__PURE__ */ jsxDEV30("text", {
             fg: "#888",
-            children: "\\u2026"
+            children: "…"
           }, undefined, false, undefined, this),
           visibleRows.map((row) => {
             const isSelected = row.id === selectedRowId && !!row.target;
@@ -4405,7 +4406,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave }) {
           }),
           windowEnd < rows.length && /* @__PURE__ */ jsxDEV30("text", {
             fg: "#888",
-            children: "\\u2026"
+            children: "…"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
@@ -4457,12 +4458,12 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave }) {
           }, undefined, true, undefined, this),
           /* @__PURE__ */ jsxDEV30("text", {
             fg: "#888",
-            children: "Enter 保存 \\u00b7 Esc 取消"
+            children: "Enter 保存 · Esc 取消"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV30("text", {
         fg: "#888",
-        children: "\\u2191\\u2193 选择  \\u2190\\u2192 切换枚举  Space 切换布尔  Enter 编辑  A 新增  D 删除  S 保存  R 重载  Esc 返回"
+        children: "↑↓ 选择  ←→ 切换枚举  Space 切换布尔  Enter 编辑  A 新增  D 删除  S 保存  R 重载  Esc 返回"
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
