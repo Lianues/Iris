@@ -204,7 +204,15 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
           if (prev.length === 0) return [{ id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta, ...notifMeta }];
           if (last.role !== 'assistant') return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta, ...notifMeta }];
           const copy = [...prev];
-          copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...last.parts, ...normalizedParts]), ...meta, ...notifMeta };
+          let finalParts = mergeMessageParts([...last.parts, ...normalizedParts]);
+          // 流式阶段 setToolInvocations 可能因 parts 为空而被跳过，
+          // 此时 toolInvocationsRef 中已暂存了工具执行状态。
+          // 在 parts 定序完成后补充应用，确保工具状态（✓/✗/结果）正确显示。
+          const pending = toolInvocationsRef.current;
+          if (pending.length > 0 && finalParts.some(p => p.type === 'tool_use')) {
+            finalParts = mergeMessageParts(applyToolInvocationsToParts(finalParts, pending));
+          }
+          copy[copy.length - 1] = { ...last, parts: finalParts, ...meta, ...notifMeta };
           return copy;
         });
       },
@@ -217,7 +225,14 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
           if (prev.length === 0) return prev;
           const last = prev[prev.length - 1];
           if (last.role !== 'assistant') return prev;
-          const nextParts = applyToolInvocationsToParts(last.parts, copy);
+          // 如果 parts 为空（startStream 刚创建的占位消息，finalize 尚未完成），
+          // 跳过本次更新——避免将 tool_use 插入空数组导致工具显示在 thinking 上方。
+          // invocations 已保存在 toolInvocationsRef，将在 finalizeAssistantParts 中补充应用。
+          if (last.parts.length === 0) return prev;
+          // 不追加 leftover：多轮 ToolLoop 中新一轮的 invocations 应等待
+          // finalizeAssistantParts 创建对应 tool_use 槽位后再映射，
+          // 避免在旧轮内容和新轮内容之间错误地插入工具。
+          const nextParts = applyToolInvocationsToParts(last.parts, copy, false);
           const copyMessages = [...prev];
           copyMessages[copyMessages.length - 1] = { ...last, parts: mergeMessageParts(nextParts) };
           return copyMessages;

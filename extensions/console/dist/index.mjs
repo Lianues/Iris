@@ -9,7 +9,7 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// ../../packages/extension-sdk/dist/logger.js
+// ../../packages/extension-sdk/dist/plugin.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -18,7 +18,6 @@ var LogLevel;
   LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
   LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
 })(LogLevel || (LogLevel = {}));
-var _logLevel = LogLevel.INFO;
 // src/index.ts
 import { estimateTokenCount } from "tokenx";
 
@@ -4529,7 +4528,7 @@ function mergeMessageParts(parts) {
     appendMergedMessagePart(merged, { ...part });
   return merged;
 }
-function applyToolInvocationsToParts(parts, invocations) {
+function applyToolInvocationsToParts(parts, invocations, appendLeftover = true) {
   const nextParts = [];
   let cursor = 0;
   for (const part of parts) {
@@ -4542,7 +4541,7 @@ function applyToolInvocationsToParts(parts, invocations) {
     cursor += assigned.length;
     nextParts.push({ type: "tool_use", tools: assigned.length > 0 ? assigned : part.tools });
   }
-  if (cursor < invocations.length)
+  if (appendLeftover && cursor < invocations.length)
     nextParts.push({ type: "tool_use", tools: invocations.slice(cursor) });
   return nextParts;
 }
@@ -4725,7 +4724,12 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
           if (last.role !== "assistant")
             return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
           const copy = [...prev];
-          copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...last.parts, ...normalizedParts]), ...meta, ...notifMeta };
+          let finalParts = mergeMessageParts([...last.parts, ...normalizedParts]);
+          const pending = toolInvocationsRef.current;
+          if (pending.length > 0 && finalParts.some((p) => p.type === "tool_use")) {
+            finalParts = mergeMessageParts(applyToolInvocationsToParts(finalParts, pending));
+          }
+          copy[copy.length - 1] = { ...last, parts: finalParts, ...meta, ...notifMeta };
           return copy;
         });
       },
@@ -4740,7 +4744,9 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
           const last = prev[prev.length - 1];
           if (last.role !== "assistant")
             return prev;
-          const nextParts = applyToolInvocationsToParts(last.parts, copy);
+          if (last.parts.length === 0)
+            return prev;
+          const nextParts = applyToolInvocationsToParts(last.parts, copy, false);
           const copyMessages = [...prev];
           copyMessages[copyMessages.length - 1] = { ...last, parts: mergeMessageParts(nextParts) };
           return copyMessages;

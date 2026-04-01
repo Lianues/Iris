@@ -33,7 +33,12 @@ export function mergeMessageParts(parts: MessagePart[]): MessagePart[] {
   return merged;
 }
 
-export function applyToolInvocationsToParts(parts: MessagePart[], invocations: ToolInvocation[]): MessagePart[] {
+/**
+ * 将 tool invocations 映射到 parts 中已有的 tool_use 槽位。
+ * appendLeftover=true（默认）时，多余的 invocations 追加为新 tool_use part；
+ * appendLeftover=false 时，多余的 invocations 被忽略（避免在流式阶段插入尚未定位的工具）。
+ */
+export function applyToolInvocationsToParts(parts: MessagePart[], invocations: ToolInvocation[], appendLeftover = true): MessagePart[] {
   const nextParts: MessagePart[] = [];
   let cursor = 0;
   for (const part of parts) {
@@ -46,7 +51,7 @@ export function applyToolInvocationsToParts(parts: MessagePart[], invocations: T
     cursor += assigned.length;
     nextParts.push({ type: 'tool_use', tools: assigned.length > 0 ? assigned : part.tools });
   }
-  if (cursor < invocations.length) nextParts.push({ type: 'tool_use', tools: invocations.slice(cursor) });
+  if (appendLeftover && cursor < invocations.length) nextParts.push({ type: 'tool_use', tools: invocations.slice(cursor) });
   return nextParts;
 }
 
