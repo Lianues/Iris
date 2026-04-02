@@ -112,6 +112,60 @@ function buildNotificationXML(opts: {
 <summary>${opts.description}</summary>${resultSection}${errorSection}${usageSection}
 </task-notification>`;
 }
+
+/**
+ * 创建带有可选实时反馈的流式 LLMCaller。
+ *
+ * 同步和异步子代理共用此函数。通过 onChunk / onTokens 回调抽象：
+ * - 异步子代理：回调指向 AgentTaskRegistry（驱动 StatusBar）
+ * - 同步子代理：回调指向 ToolStateManager.updateProgress（驱动 ToolCall 框内进度）
+ * - 两个回调均为空时跳过事件发射（兼容无监控场景）
+ */
+function createStreamingLLMCaller(
+  deps: SubAgentToolDeps,
+  typeConfig: SubAgentTypeConfig,
+  onChunk?: () => void,
+  onTokens?: (tokens: number) => void,
+): LLMCaller {
+  return async (request, modelName, signal) => {
+    const router = deps.getRouter();
+
+    if (typeConfig.stream) {
+      const parts: Part[] = [];
+      let usageMetadata: UsageMetadata | undefined;
+      for await (const chunk of router.chatStream(request, modelName, signal)) {
+        // chunk 心跳回调：驱动 spinner 动画（只有真正有数据流动时才触发）
+        onChunk?.();
+        if (chunk.partsDelta && chunk.partsDelta.length > 0) {
+          for (const part of chunk.partsDelta) {
+            appendMergedPart(parts, part, Date.now());
+          }
+        } else {
+          if (chunk.textDelta) appendMergedPart(parts, { text: chunk.textDelta }, Date.now());
+          if (chunk.functionCalls) {
+            for (const fc of chunk.functionCalls) appendMergedPart(parts, fc, Date.now());
+          }
+        }
+        if (chunk.usageMetadata) {
+          usageMetadata = chunk.usageMetadata;
+          // token 更新回调：实时推送 token 计数
+          const tokens = usageMetadata.totalTokenCount ?? usageMetadata.candidatesTokenCount ?? 0;
+          if (tokens > 0) {
+            onTokens?.(tokens);
+          }
+        }
+      }
+      if (parts.length === 0) parts.push({ text: '' });
+      const content: Content = { role: 'model', parts, createdAt: Date.now() };
+      if (usageMetadata) content.usageMetadata = usageMetadata;
+      return content;
+    }
+
+    const response = await router.chat(request, modelName, signal);
+    return response.content;
+  };
+}
+
 /**
  * 创建 sub_agent 工具。
  *
@@ -173,6 +227,8 @@ ${typeDescriptions}
       parameters: { type: 'object', properties, required: ['prompt'] },
     },
     parallel: (args) => deps.subAgentTypes.get(getSubAgentTypeName(args))?.parallel === true,
+    // handler 返回 Promise（异步路径）或 AsyncIterable（同步路径）。
+    // scheduler 自动检测返回类型，AsyncIterable 走 generator 迭代路径。
     handler: async (args) => {
       const prompt = args.prompt as string;
       const typeName = getSubAgentTypeName(args);
@@ -255,72 +311,86 @@ ${typeDescriptions}
         };
       }
 
-      // ---- 同步路径（保持原有逻辑不变） ----
-      // 同步子代理也注入 agent context，使其内部所有工具执行的日志
-      // 都能通过 [Module|sync_typeName] 前缀区分来源。
+      // ---- 同步路径 ----
+      // 返回 AsyncIterable（generator），yield 中间进度值，
+      // scheduler 自动检测并迭代消费，推送到 ToolStateManager.progress。
       const syncLabel = `sync_${typeName}`;
       logger.info(`创建子代理: type=${typeName} depth=${currentDepth + 1}/${deps.maxDepth} 工具数=${subTools.size}`);
 
-      return agentContext.run(syncLabel, async () => {
-        const subPrompt = new PromptAssembler();
-        subPrompt.setSystemPrompt(typeConfig.systemPrompt);
+      // 返回 async generator：yield 进度 → scheduler 推送到 ToolStateManager.progress → 前端渲染
+      // 采用「回调更新共享状态 + 定时 yield」模式：
+      //   1. createStreamingLLMCaller 的 onChunk/onTokens 回调更新 frame/tokens 计数器
+      //   2. generator 每 500ms yield 一次进度快照 { tokens, frame }
+      //   3. ToolLoop.run 完成后 yield 最终结果 { result: text }
+      //   4. scheduler 的 for-await-of 每次 yield 都把中间值写入 ToolStateManager.progress
+      async function* runSyncSubAgent(): AsyncIterable<unknown> {
+        let frame = 0;
+        let tokens = 0;
 
+        // typeConfig 在 handler 顶部已做 if (!typeConfig) return error 检查，
+        // 但 TypeScript 的类型缩窄不跨越函数边界，此处用 ! 断言安全。
+        const tc = typeConfig!;
+        const subPrompt = new PromptAssembler();
+        subPrompt.setSystemPrompt(tc.systemPrompt);
         const loop = new ToolLoop(subTools, subPrompt, {
-          maxRounds: typeConfig.maxToolRounds,
+          maxRounds: tc.maxToolRounds,
           toolsConfig: { permissions: deps.getToolPolicies() },
           retryOnError: deps.retryOnError,
           maxRetries: deps.maxRetries,
         });
 
-        const callLLM: LLMCaller = async (request, modelName, signal) => {
-          const router = deps.getRouter();
+        // 回调只更新共享计数器，不直接 yield（回调不在 generator 上下文中）
+        const callLLM = createStreamingLLMCaller(
+          deps, tc,
+          () => { frame++; },
+          (t) => { tokens = t; },
+        );
 
-          if (typeConfig.stream) {
-            const parts: Part[] = [];
-            let usageMetadata: UsageMetadata | undefined;
-            for await (const chunk of router.chatStream(request, modelName, signal)) {
-              if (chunk.partsDelta && chunk.partsDelta.length > 0) {
-                for (const part of chunk.partsDelta) {
-                  appendMergedPart(parts, part, Date.now());
-                }
-              } else {
-                if (chunk.textDelta) appendMergedPart(parts, { text: chunk.textDelta }, Date.now());
-                if (chunk.functionCalls) {
-                  for (const fc of chunk.functionCalls) appendMergedPart(parts, fc, Date.now());
-                }
-              }
-              if (chunk.usageMetadata) usageMetadata = chunk.usageMetadata;
-            }
-            if (parts.length === 0) parts.push({ text: '' });
-            const content: Content = { role: 'model', parts, createdAt: Date.now() };
-            if (usageMetadata) content.usageMetadata = usageMetadata;
-            return content;
+        // 启动 ToolLoop（不 await，让 generator 可以同时 yield 进度）
+        const runPromise = loop.run(
+          [{ role: 'user', parts: [{ text: fullPrompt }] }],
+          callLLM,
+          { modelName: tc.modelName },
+        );
+
+        // 定期 yield 进度，直到 run 完成
+        let done = false;
+        let runResult: Awaited<ReturnType<typeof loop.run>> | undefined;
+        let runError: unknown;
+
+        runPromise.then(
+          (r) => { runResult = r; done = true; },
+          (e) => { runError = e; done = true; },
+        );
+
+        // 每 500ms yield 一次进度快照
+        while (!done) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          if (!done) {
+            yield { tokens, frame };
           }
-
-          const response = await router.chat(request, modelName, signal);
-          return response.content;
-        };
-
-        try {
-          const result = await loop.run(
-            // 使用 fullPrompt（含 context 前缀），而非原始 prompt
-            [{ role: 'user', parts: [{ text: fullPrompt }] }],
-            callLLM,
-            { modelName: typeConfig.modelName },
-          );
-
-          if (result.error) {
-            throw new Error(result.error);
-          }
-
-          logger.info(`子代理完成: type=${typeName}`);
-          return { result: result.text };
-        } catch (err: unknown) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          logger.error(`子代理执行失败: ${errorMsg}`);
-          throw err instanceof Error ? err : new Error(errorMsg);
         }
-      });
+
+        // 最终 yield（确保最后的 token 数被记录）
+        yield { tokens, frame };
+
+        if (runError) {
+          throw runError instanceof Error ? runError : new Error(String(runError));
+        }
+
+        if (runResult!.error) {
+          throw new Error(runResult!.error);
+        }
+
+        logger.info(`子代理完成: type=${typeName}`);
+        // 最后一个 yield 的值是最终结果（scheduler 取最后一个值作为 result）
+        yield { result: runResult!.text };
+      }
+
+      // 在 agentContext 内启动 generator，确保日志前缀正确
+      return agentContext.run(syncLabel, () => {
+        return runSyncSubAgent();
+      }) as unknown;
     },
   };
 }
@@ -358,44 +428,12 @@ async function runSubAgentAsync(
     maxRetries: deps.maxRetries,
   });
 
-  const callLLM: LLMCaller = async (request, modelName, callSignal) => {
-    const router = deps.getRouter();
-
-    if (typeConfig.stream) {
-      const parts: Part[] = [];
-      let usageMetadata: UsageMetadata | undefined;
-      for await (const chunk of router.chatStream(request, modelName, callSignal)) {
-        // 每收到一个 chunk 就发心跳，驱动平台层 StatusBar 的 spinner 动画。
-        // 只有真正有数据流动时 spinner 才转，停止流动时 spinner 静止。
-        deps.agentTaskRegistry?.emitChunkHeartbeat(taskId);
-        if (chunk.partsDelta && chunk.partsDelta.length > 0) {
-          for (const part of chunk.partsDelta) {
-            appendMergedPart(parts, part, Date.now());
-          }
-        } else {
-          if (chunk.textDelta) appendMergedPart(parts, { text: chunk.textDelta }, Date.now());
-          if (chunk.functionCalls) {
-            for (const fc of chunk.functionCalls) appendMergedPart(parts, fc, Date.now());
-          }
-        }
-        if (chunk.usageMetadata) {
-          usageMetadata = chunk.usageMetadata;
-          // 实时更新后台任务的 token 计数，供平台层 StatusBar 展示
-          const tokens = usageMetadata.totalTokenCount ?? usageMetadata.candidatesTokenCount ?? 0;
-          if (tokens > 0) {
-            deps.agentTaskRegistry?.updateTokens(taskId, tokens);
-          }
-        }
-      }
-      if (parts.length === 0) parts.push({ text: '' });
-      const content: Content = { role: 'model', parts, createdAt: Date.now() };
-      if (usageMetadata) content.usageMetadata = usageMetadata;
-      return content;
-    }
-
-    const response = await router.chat(request, modelName, callSignal);
-    return response.content;
-  };
+  // 使用共用的流式 LLM 调用器，回调指向 AgentTaskRegistry（驱动 StatusBar）
+  const callLLM = createStreamingLLMCaller(
+    deps, typeConfig,
+    () => deps.agentTaskRegistry?.emitChunkHeartbeat(taskId),
+    (tokens) => deps.agentTaskRegistry?.updateTokens(taskId, tokens),
+  );
 
   try {
     const result = await loop.run(

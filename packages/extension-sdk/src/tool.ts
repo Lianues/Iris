@@ -29,9 +29,15 @@ export interface ToolInvocation {
   updatedAt: number;
   /** 关联的会话 ID（多会话并发时用于事件路由） */
   sessionId?: string;
+  /**
+   * 执行中的实时进度信息（由 handler yield 的中间值填充）。
+   * 通用结构，各工具自行定义内容。
+   * 例如 sub_agent: { tokens: number, frame: number }
+   */
+  progress?: Record<string, unknown>;
 }
 
-export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
+export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown> | AsyncIterable<unknown>;
 export type ToolParallelResolver = (args: Record<string, unknown>) => boolean;
 export type ToolParallelPolicy = boolean | ToolParallelResolver;
 

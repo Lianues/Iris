@@ -16,6 +16,9 @@ interface ToolCallProps {
 
 const TERMINAL_STATUSES = new Set<ToolStatus>(['success', 'warning', 'error']);
 
+// 数据驱动的 spinner 帧序列（用于工具执行中的 chunk 心跳进度展示）
+const SPINNER_FRAMES = ['\u280B', '\u2819', '\u2839', '\u2838', '\u283C', '\u2834', '\u2826', '\u2827', '\u2807', '\u280F'];
+
 function getArgsSummary(toolName: string, args: Record<string, unknown>): string {
   switch (toolName) {
     case 'shell': {
@@ -81,6 +84,14 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
 
 export function ToolCall({ invocation }: ToolCallProps) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
+
+  // 通用进度字段（由 handler yield 的中间值填充，scheduler 推送到 ToolStateManager.progress）
+  // 各工具自行定义结构，如 sub_agent: { tokens: number, frame: number }
+  const progress = invocation.progress as Record<string, unknown> | undefined;
+  const progressTokens = typeof progress?.tokens === 'number' ? progress.tokens : undefined;
+  const progressFrame = typeof progress?.frame === 'number' ? progress.frame : undefined;
+  const hasProgress = progress != null;
+
   const isFinal = TERMINAL_STATUSES.has(status);
   const isExecuting = status === 'executing';
   const isAwaitingApproval = status === 'awaiting_approval';
@@ -104,8 +115,17 @@ export function ToolCall({ invocation }: ToolCallProps) {
           {isAwaitingApproval ? <span fg={C.warn}> [待确认]</span> : null}
           {!isFinal && !isExecuting && !isAwaitingApproval ? <span fg={C.dim}> [{status}]</span> : null}
           {duration ? <span fg={C.dim}> {duration}</span> : null}
+          {/* 工具执行中进度：实时 token 计数 */}
+          {isExecuting && progressTokens != null && progressTokens > 0 ? (
+            <span fg={C.dim}> {'\u2191'}{progressTokens.toLocaleString()}tk</span>
+          ) : null}
         </text>
-        {isExecuting && <text><Spinner /></text>}
+        {/* executing 状态的 spinner：有进度数据时用数据驱动帧，否则用定时器驱动 */}
+        {isExecuting && hasProgress ? (
+          <text><span fg={C.accent}>{SPINNER_FRAMES[(progressFrame ?? 0) % SPINNER_FRAMES.length]}</span></text>
+        ) : isExecuting ? (
+          <text><Spinner /></text>
+        ) : null}
       </box>
       {status === 'error' && error && (
         <text fg={C.error}><em>  {error}</em></text>

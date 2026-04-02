@@ -3,13 +3,13 @@ import React9 from "react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// ../../packages/extension-sdk/dist/platform.js
+// ../../node_modules/@irises/extension-sdk/dist/platform.js
 class PlatformAdapter {
   get name() {
     return this.constructor.name;
   }
 }
-// ../../packages/extension-sdk/dist/logger.js
+// ../../node_modules/@irises/extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -1636,6 +1636,7 @@ function getToolRenderer(toolName) {
 // src/components/ToolCall.tsx
 import { jsxDEV as jsxDEV21 } from "@opentui/react/jsx-dev-runtime";
 var TERMINAL_STATUSES = new Set(["success", "warning", "error"]);
+var SPINNER_FRAMES2 = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 function getArgsSummary(toolName, args) {
   switch (toolName) {
     case "shell": {
@@ -1698,6 +1699,10 @@ function getArgsSummary(toolName, args) {
 }
 function ToolCall({ invocation }) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
+  const progress = invocation.progress;
+  const progressTokens = typeof progress?.tokens === "number" ? progress.tokens : undefined;
+  const progressFrame = typeof progress?.frame === "number" ? progress.frame : undefined;
+  const hasProgress = progress != null;
   const isFinal = TERMINAL_STATUSES.has(status);
   const isExecuting = status === "executing";
   const isAwaitingApproval = status === "awaiting_approval";
@@ -1762,12 +1767,26 @@ function ToolCall({ invocation }) {
                   " ",
                   duration
                 ]
+              }, undefined, true, undefined, this) : null,
+              isExecuting && progressTokens != null && progressTokens > 0 ? /* @__PURE__ */ jsxDEV21("span", {
+                fg: C.dim,
+                children: [
+                  " ",
+                  "↑",
+                  progressTokens.toLocaleString(),
+                  "tk"
+                ]
               }, undefined, true, undefined, this) : null
             ]
           }, undefined, true, undefined, this),
-          isExecuting && /* @__PURE__ */ jsxDEV21("text", {
+          isExecuting && hasProgress ? /* @__PURE__ */ jsxDEV21("text", {
+            children: /* @__PURE__ */ jsxDEV21("span", {
+              fg: C.accent,
+              children: SPINNER_FRAMES2[(progressFrame ?? 0) % SPINNER_FRAMES2.length]
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this) : isExecuting ? /* @__PURE__ */ jsxDEV21("text", {
             children: /* @__PURE__ */ jsxDEV21(Spinner, {}, undefined, false, undefined, this)
-          }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this) : null
         ]
       }, undefined, true, undefined, this),
       status === "error" && error && /* @__PURE__ */ jsxDEV21("text", {
@@ -2206,7 +2225,7 @@ import { useMemo as useMemo3 } from "react";
 import * as fs2 from "fs";
 import * as path2 from "path";
 
-// ../../packages/extension-sdk/dist/tool-utils.js
+// ../../node_modules/@irises/extension-sdk/dist/tool-utils.js
 import * as fs from "node:fs";
 import * as path from "node:path";
 function normalizeLineEndings(text) {
@@ -4283,11 +4302,9 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave }) {
         setEditor(null);
         setEditorValue("");
         setStatus("已取消编辑", "warning");
-        key.preventDefault();
       }
       if (key.name === "enter" || key.name === "return") {
         submitEditor();
-        key.preventDefault();
       }
       return;
     }

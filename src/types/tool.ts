@@ -53,6 +53,12 @@ export interface ToolInvocation {
   updatedAt: number;
   /** 关联的会话 ID（多会话并发时用于事件路由） */
   sessionId?: string;
+  /**
+   * 执行中的实时进度信息（由 handler yield 的中间值填充）。
+   * 通用结构，各工具自行定义内容。
+   * 例如 sub_agent: { tokens: number, frame: number }
+   */
+  progress?: Record<string, unknown>;
 }
 
 /** 状态变更事件载荷 */
@@ -61,8 +67,17 @@ export interface ToolStateChangeEvent {
   previousStatus: ToolStatus;
 }
 
-/** 工具执行器类型 */
-export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
+/**
+ * 工具执行器类型。
+ *
+ * handler 可以返回以下两种类型之一：
+ * - Promise<unknown>：普通一次性返回（现有所有工具的默认行为，完全向后兼容）
+ * - AsyncIterable<unknown>：generator 模式，yield 中间值作为进度更新，
+ *   最后一个 yield 的值作为最终结果。
+ *   中间值会被推送到 ToolStateManager 的 progress 字段，
+ *   通过 tool:update 事件实时转发到前端。
+ */
+export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown> | AsyncIterable<unknown>;
 
 /** 按本次调用参数判定工具是否可并行执行 */
 export type ToolParallelResolver = (args: Record<string, unknown>) => boolean;

@@ -11,5 +11,8 @@
     "@opentui/react": "*",
     "react": "*",
     "tokenx": "*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0"
   }
 }

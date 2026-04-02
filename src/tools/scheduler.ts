@@ -359,7 +359,39 @@ async function executeSingle(
 
   const execStart = Date.now();
   try {
-    let result = await registry.execute(toolName, effectiveArgs);
+    // 执行工具 handler，支持两种返回类型：
+    // - Promise<unknown>：普通一次性返回（现有所有工具的默认行为）
+    // - AsyncIterable<unknown>：generator 模式，yield 中间值作为进度更新，
+    //   最后一个 yield 的值作为最终结果。
+    //   中间值会通过 ToolStateManager.transition(executing, {progress}) 推送到前端。
+    // registry.execute 可能返回 Promise（async handler 包裹 generator 的情况）
+    // 或直接返回 AsyncIterable。先 await 解包可能的 Promise 层。
+    const rawReturn = await registry.execute(toolName, effectiveArgs);
+    let result: unknown;
+
+    // 检测 AsyncIterable（async handler 返回 generator 时，await 后得到 generator 对象）
+    if (rawReturn != null && typeof rawReturn === 'object' && Symbol.asyncIterator in rawReturn) {
+      // 迭代消费 generator 的所有 yield 值
+      let lastValue: unknown;
+      let frameCounter = 0;
+      for await (const intermediate of rawReturn as AsyncIterable<unknown>) {
+        lastValue = intermediate;
+        frameCounter++;
+        // 将 yield 的中间值作为 progress 推送到 ToolStateManager，
+        // 触发 tool:update 转发到前端 ToolCall 组件。
+        // 节流：每 4 个 yield 推送一次，避免高频渲染。
+        if (toolState && invocationId && frameCounter % 4 === 0) {
+          const progress = (typeof lastValue === 'object' && lastValue !== null)
+            ? lastValue as Record<string, unknown>
+            : { value: lastValue };
+          toolState.transition(invocationId, 'executing', { progress });
+        }
+      }
+      result = lastValue;
+    } else {
+      // 普通 Promise 返回：直接 await
+      result = await rawReturn;
+    }
     const durationMs = Date.now() - execStart;
 
     // 保存原始返回值，用于 MCP 附件识别兜底（afterToolExec 可能改变 result 的结构）

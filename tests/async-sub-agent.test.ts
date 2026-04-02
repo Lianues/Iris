@@ -120,6 +120,23 @@ describe('async-sub-agent: 异步路径', () => {
 
   // ---- 同步模式保持原有行为 ----
 
+  /**
+   * 辅助函数：消费 handler 返回值。
+   * 如果返回 AsyncIterable（generator），迭代取最后一个值作为结果。
+   * 如果返回 Promise，直接 await。
+   */
+  async function consumeHandler(returned: unknown): Promise<any> {
+    // handler 可能返回 Promise<AsyncIterable>（async 函数包裹 generator），
+    // 先 await 解包 Promise，再检查是否为 AsyncIterable。
+    const resolved = await returned;
+    if (resolved != null && typeof resolved === 'object' && Symbol.asyncIterator in (resolved as any)) {
+      let last: any;
+      for await (const v of resolved as AsyncIterable<unknown>) { last = v; }
+      return last;
+    }
+    return resolved;
+  }
+
   it('同步模式（run_in_background 不传或 false）保持原有行为', async () => {
     const tool = createSubAgentTool({
       getRouter: () => router,
@@ -133,12 +150,12 @@ describe('async-sub-agent: 异步路径', () => {
     });
 
     // 不传 run_in_background
-    const result1 = await tool.handler!({ prompt: '同步任务' }) as any;
+    const result1 = await consumeHandler(tool.handler!({ prompt: '同步任务' }));
     expect(result1.result).toBeDefined();
     expect(result1.status).toBeUndefined(); // 同步模式没有 status 字段
 
     // run_in_background=false
-    const result2 = await tool.handler!({ prompt: '同步任务2', run_in_background: false }) as any;
+    const result2 = await consumeHandler(tool.handler!({ prompt: '同步任务2', run_in_background: false }));
     expect(result2.result).toBeDefined();
     expect(result2.status).toBeUndefined();
   });
@@ -297,10 +314,9 @@ describe('async-sub-agent: 异步路径', () => {
       // 不提供 enqueueNotification / getSessionId
     });
 
-    // run_in_background=true 但无异步依赖，应走同步路径
-    const result = await tool.handler!({ prompt: '测试', run_in_background: true }) as any;
-    // 同步路径返回 result 而非 async_launched
-    expect(result.result).toBeDefined();
-    expect(result.status).toBeUndefined();
+    // run_in_background=true 但无异步依赖，应走同步路径（返回 AsyncIterable）
+    const lastValue = await consumeHandler(tool.handler!({ prompt: '测试', run_in_background: true }));
+    expect(lastValue.result).toBeDefined();
+    expect(lastValue.status).toBeUndefined();
   });
 });

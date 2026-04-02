@@ -27,7 +27,7 @@ const VALID_TRANSITIONS: Record<ToolStatus, ToolStatus[]> = {
   streaming:         ['queued', 'error'],
   queued:            ['awaiting_approval', 'awaiting_apply', 'executing', 'error'],
   awaiting_approval: ['awaiting_apply', 'executing', 'error'],
-  executing:         ['awaiting_apply', 'success', 'warning', 'error'],
+  executing:         ['executing', 'awaiting_apply', 'success', 'warning', 'error'],
   awaiting_apply:    ['executing', 'success', 'warning', 'error'],
   success:           [],
   warning:           [],
@@ -100,12 +100,12 @@ export class ToolStateManager extends EventEmitter {
    *
    * @param id        调用实例 ID
    * @param newStatus 目标状态
-   * @param payload   可选载荷：result / error / args（用于 streaming 阶段更新参数）
+   * @param payload   可选载荷：result / error / args / progress
    */
   transition(
     id: string,
     newStatus: ToolStatus,
-    payload?: { result?: unknown; error?: string; args?: Record<string, unknown> },
+    payload?: { result?: unknown; error?: string; args?: Record<string, unknown>; progress?: Record<string, unknown> },
   ): ToolInvocation {
     const invocation = this.invocations.get(id);
     if (!invocation) {
@@ -128,8 +128,13 @@ export class ToolStateManager extends EventEmitter {
     if (payload?.result !== undefined) invocation.result = payload.result;
     if (payload?.error !== undefined) invocation.error = payload.error;
     if (payload?.args !== undefined) invocation.args = payload.args;
+    // progress 字段：由 handler yield 的中间值填充，供前端展示实时进度
+    if (payload?.progress !== undefined) invocation.progress = payload.progress;
 
-    logger.debug(`转换: ${invocation.toolName}(${id}) ${previousStatus} → ${newStatus}`);
+    // executing → executing 自转换仅用于进度更新，不输出转换日志（降低噪音）
+    if (previousStatus !== newStatus) {
+      logger.debug(`转换: ${invocation.toolName}(${id}) ${previousStatus} → ${newStatus}`);
+    }
     this.emit('stateChange', { invocation, previousStatus } as ToolStateChangeEvent);
 
     // 终态额外事件

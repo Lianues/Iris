@@ -440,7 +440,9 @@ export class ConsolePlatform extends PlatformAdapter {
         initWarnings: this.initWarnings,
       });
 
-      createRoot(this.renderer).render(element);
+      // CliRenderer 在 console/node_modules 与 Iris/node_modules 中的私有字段声明不同，
+      // 导致 TS 认为类型不兼容。此处用 as any 绕过该跨 node_modules 的结构性类型差异。
+      createRoot(this.renderer as any).render(element);
     });
   }
 

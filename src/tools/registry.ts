@@ -38,8 +38,12 @@ export class ToolRegistry {
     return this.tools.get(name);
   }
 
-  /** 执行工具 */
-  async execute(name: string, args: Record<string, unknown>): Promise<unknown> {
+  /**
+   * 执行工具。
+   * 返回值可能是 Promise<unknown>（普通工具）或 AsyncIterable<unknown>（generator 工具）。
+   * 调用方（scheduler）负责检测并处理 AsyncIterable。
+   */
+  execute(name: string, args: Record<string, unknown>): Promise<unknown> | AsyncIterable<unknown> {
     const tool = this.tools.get(name);
     if (!tool) {
       throw new Error(`工具未找到: ${name}`);
