@@ -119,7 +119,11 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
   const configDir = findConfigFile(agentPaths?.configDir);
   const config = loadConfig(agentPaths?.configDir, agentPaths);
   const extensions = createBootstrapExtensionRegistry();
-  registerExtensionPlatforms(extensions.platforms);
+  registerExtensionPlatforms(extensions.platforms, undefined, config.system.devSourceExtensions);
+
+  if (config.system.devSourceExtensions?.length) {
+    console.log(`[Iris] DevSource 模式已启用，以下扩展将从源码加载: ${config.system.devSourceExtensions.join(', ')}`);
+  }
 
   // ---- 0. 预加载插件 + PreBootstrap 阶段 ----
   const inlinePlugins = options?.inlinePlugins ?? [];
@@ -127,6 +131,7 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
   if (config.plugins?.length || inlinePlugins.length > 0) {
     pluginManager = new PluginManager();
     pluginManager.setConfigDir(configDir);
+    pluginManager.setDevSourceExtensions(config.system.devSourceExtensions);
     await pluginManager.prepareAll(config.plugins ?? [], config, inlinePlugins);
     await pluginManager.runPreBootstrap(config, extensions);
   }

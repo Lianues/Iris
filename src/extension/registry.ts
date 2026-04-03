@@ -29,6 +29,8 @@ import { DISABLED_MARKER_FILE } from '@irises/extension-sdk/utils';
 const logger = createLogger('ExtensionRegistry');
 const DEFAULT_PLUGIN_ENTRY_CANDIDATES = ['index.ts', 'index.js', 'index.mjs'];
 
+const DEV_SOURCE_ENTRY = 'src/index.ts';
+
 interface ExtensionSearchDirectory {
   dir: string;
   source: ExtensionSource;
@@ -62,7 +64,18 @@ function resolveOptionalFile(rootDir: string, relativePath: string | undefined, 
   return resolvedPath;
 }
 
-function resolvePluginEntryFile(rootDir: string, contribution?: ExtensionPluginContribution): string | undefined {
+function resolveDevSourceEntryFile(rootDir: string): string | undefined {
+  const devEntry = path.join(rootDir, DEV_SOURCE_ENTRY);
+  return fs.existsSync(devEntry) ? devEntry : undefined;
+}
+
+function resolvePluginEntryFile(rootDir: string, contribution?: ExtensionPluginContribution, useDevSource = false): string | undefined {
+  if (useDevSource) {
+    const devEntry = resolveDevSourceEntryFile(rootDir);
+    if (devEntry) return devEntry;
+    logger.warn(`[DevSource] 源码入口 ${DEV_SOURCE_ENTRY} 不存在，回退到默认解析: ${rootDir}`);
+  }
+
   const explicitEntry = contribution?.entry?.trim();
   if (explicitEntry) {
     return resolveOptionalFile(rootDir, explicitEntry, true);
@@ -198,6 +211,7 @@ export function discoverLocalExtensions(): ExtensionPackage[] {
 export function resolveLocalPluginSource(
   name: string,
   extensionPackages: ExtensionPackage[] = discoverLocalExtensions(),
+  devSourceExtensions?: string[],
 ): ResolvedLocalPlugin {
   const extensionPackage = extensionPackages.find((item) => item.manifest.name === name);
   if (!extensionPackage) {
@@ -209,7 +223,10 @@ export function resolveLocalPluginSource(
     throw new Error(`extension "${name}" 未声明插件入口`);
   }
 
-  const entryFile = resolvePluginEntryFile(extensionPackage.rootDir, pluginContribution);
+  const useDevSource = devSourceExtensions?.includes(name) ?? false;
+  const entryFile = resolvePluginEntryFile(extensionPackage.rootDir, pluginContribution, useDevSource);
+  if (useDevSource && entryFile) logger.info(`[DevSource] 插件 "${name}" 使用源码入口: ${entryFile}`);
+
   if (!entryFile) {
     throw new Error(`extension "${name}" 缺少插件入口文件`);
   }
@@ -236,6 +253,7 @@ export async function importLocalExtensionModule(entryFile: string): Promise<Rec
 export function registerExtensionPlatforms(
   registry: PlatformRegistry,
   extensionPackages: ExtensionPackage[] = discoverLocalExtensions(),
+  devSourceExtensions?: string[],
 ): string[] {
   const registeredPlatforms: string[] = [];
 
@@ -249,12 +267,25 @@ export function registerExtensionPlatforms(
         continue;
       }
 
-      let entryFile: string;
-      try {
-        entryFile = resolveOptionalFile(extensionPackage.rootDir, contribution.entry, true)!;
-      } catch (err) {
-        logger.error(`extension "${extensionPackage.manifest.name}" 的平台入口无效:`, err);
-        continue;
+      const useDevSource = devSourceExtensions?.includes(extensionPackage.manifest.name) ?? false;
+      let entryFile: string | undefined;
+
+      if (useDevSource) {
+        entryFile = resolveDevSourceEntryFile(extensionPackage.rootDir);
+        if (entryFile) {
+          logger.info(`[DevSource] 平台 "${contribution.name}" (extension "${extensionPackage.manifest.name}") 使用源码入口: ${entryFile}`);
+        } else {
+          logger.warn(`[DevSource] extension "${extensionPackage.manifest.name}" 源码入口 ${DEV_SOURCE_ENTRY} 不存在，回退到 manifest 入口`);
+        }
+      }
+
+      if (!entryFile) {
+        try {
+          entryFile = resolveOptionalFile(extensionPackage.rootDir, contribution.entry, true)!;
+        } catch (err) {
+          logger.error(`extension "${extensionPackage.manifest.name}" 的平台入口无效:`, err);
+          continue;
+        }
       }
 
       registry.register(contribution.name, async (context) => {

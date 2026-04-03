@@ -60,3 +60,11 @@ maxRetries: 3
 #     content: |
 #       请将用户的内容翻译为对应的另一种语言（中→英 或 英→中）。
 #       保持原文的语气和风格。
+
+# 开发模式：源码加载的扩展白名单
+# 白名单中的扩展将从 src/index.ts 加载，而非使用 manifest 中指定的打包产物（dist/index.mjs）。
+# 适用于本地开发时使用 npm run dev 等热编译工具的场景。
+# 不在白名单中的扩展仍使用默认的打包产物入口。
+# devSourceExtensions:
+#   - cron
+#   - memory

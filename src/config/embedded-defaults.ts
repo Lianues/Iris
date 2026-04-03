@@ -82,6 +82,11 @@ maxRetries: 3
 # defaultMode: code
 # logRequests: true
 # asyncSubAgents: true
+
+# 开发模式：源码加载的扩展白名单
+# devSourceExtensions:
+#   - cron
+#   - memory
 `,
 
   'tools.yaml': `# 工具配置

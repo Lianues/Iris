@@ -236,6 +236,13 @@ export interface SystemConfig {
    * 读取旧配置时仍接受该字段，但运行时忽略。
    */
   skillPreamble?: string;
+
+  /**
+   * 开发模式：源码加载的扩展白名单。
+   * 白名单中的扩展将从 src/index.ts 加载，而非使用 manifest 中指定的打包产物（dist/index.mjs）。
+   * 适用于本地开发时使用 npm run dev 等热编译工具的场景。
+   */
+  devSourceExtensions?: string[];
 }
 
 export interface MCPServerConfig {

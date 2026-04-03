@@ -62,5 +62,8 @@ export function parseSystemConfig(raw: any = {}, dataDir?: string): SystemConfig
     logRequests: raw.logRequests ?? false,
     asyncSubAgents: raw.asyncSubAgents === true,
     skills,
+    devSourceExtensions: Array.isArray(raw.devSourceExtensions)
+      ? raw.devSourceExtensions.filter((s: unknown): s is string => typeof s === 'string' && s.trim().length > 0)
+      : undefined,
   };
 }

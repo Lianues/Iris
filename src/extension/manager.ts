@@ -45,9 +45,14 @@ export class PluginManager {
   private _api?: IrisAPI;
   /** 宿主配置目录（由 bootstrap 设置） */
   private _configDir?: string;
+  /** 开发模式：源码加载的扩展白名单 */
+  private _devSourceExtensions?: string[];
 
   /** 设置宿主配置目录（供 bootstrap 调用） */
   setConfigDir(dir: string): void { this._configDir = dir; }
+
+  /** 设置源码加载白名单（供 bootstrap 调用） */
+  setDevSourceExtensions(list?: string[]): void { this._devSourceExtensions = list; }
 
   /**
    * 预加载所有配置中启用的插件。
@@ -310,7 +315,7 @@ export class PluginManager {
   }
 
   private async loadLocalPlugin(name: string): Promise<{ plugin: IrisPlugin; localSource: ResolvedLocalPlugin }> {
-    const localSource = resolveLocalPluginSource(name);
+    const localSource = resolveLocalPluginSource(name, undefined, this._devSourceExtensions);
     const mod = await importLocalExtensionModule(localSource.entryFile);
     const plugin = mod.default ?? mod;
     this.validatePlugin(plugin, name);
