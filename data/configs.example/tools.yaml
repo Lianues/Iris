@@ -148,20 +148,20 @@ shell:
   # 当命令不在内置白名单/黑名单中时，调用 LLM 判断命令安全性。
   # 启用后，非白名单命令不再一律拒绝，而是由 AI 评估后决定。
   #
-  # classifier:
-  #   enabled: true                # 启用 AI 分类器
-  #   # model: null               # 分类器使用的模型（不填则跟随当前活跃模型）
-  #   # confidenceThreshold: 0.8  # 置信度阈值（低于此值视为"不确定"）
-  #   # fallbackPolicy: deny      # 不确定时的兜底策略：deny（拒绝）或 allow（放行）
-  #   # timeout: 8000             # 分类器调用超时（ms）
-  #   # autoLearn: true           # 安装依赖后自动评估新工具的安全子命令（默认跟随 enabled）
-  #
   # 注意：
   #   - 分类器每次调用会消耗少量 token（约 200 输入 + 50 输出）
   #   - 白名单命令（ls、git status 等只读操作）不会触发分类器
   #   - 黑名单命令（rm -rf /、Invoke-Expression 等）直接拒绝，也不触发分类器
   #   - 仅"不确定"的命令才会调用分类器
   #   - autoLearn 启用后，pip install / npm install -g 等安装命令成功后会自动学习新工具的安全子命令
+  #
+  classifier:
+    enabled: true                  # 启用 AI 分类器
+    # model: null                  # 分类器使用的模型（不填则跟随当前活跃模型）
+    # confidenceThreshold: 0.8    # 置信度阈值（低于此值视为"不确定"）
+    # fallbackPolicy: deny        # 不确定时的兜底策略：deny（拒绝）或 allow（放行）
+    # timeout: 8000               # 分类器调用超时（ms）
+    # autoLearn: true             # 安装依赖后自动评估新工具的安全子命令（默认���随 enabled）
   #
   # ── 白名单（取消注释以启用） ──
   allowPatterns:

@@ -27,12 +27,6 @@ function basename(p: string): string {
   return p.replace(/\\/g, '/').split('/').pop() || p
 }
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n}B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`
-  return `${(n / (1024 * 1024)).toFixed(1)}MB`
-}
-
 function countLines(content: unknown): number {
   if (typeof content !== 'string' || content.length === 0) return 0
   return content.endsWith('\n')
@@ -57,23 +51,37 @@ function buildSummary(segments: SummarySegment[]): ToolSummary {
 
 // ---- 各工具渲染器 ----
 
+function firstLine(text: string | undefined, max: number): string {
+  if (!text) return ''
+  const line = text.trimStart().split('\n')[0] ?? ''
+  return line.length > max ? line.slice(0, max) + '…' : line
+}
+
+function lineCount(text: string | undefined): number {
+  if (!text) return 0
+  return text.split('\n').filter(Boolean).length
+}
+
 function shellSummary(result: Record<string, unknown>): ToolSummary {
   const exitCode = (result.exitCode ?? 0) as number
   const killed = result.killed as boolean | undefined
-  const stdoutLen = typeof result.stdout === 'string' ? result.stdout.length : 0
-  const stderrLen = typeof result.stderr === 'string' ? result.stderr.length : 0
   const isError = exitCode !== 0
 
-  const parts: SummarySegment[] = []
-  if (isError) {
-    parts.push(seg(`✗ exit ${exitCode}`, 'red'))
-  } else {
-    parts.push(seg(`✓ exit ${exitCode}`, 'green'))
+  // 超时被杀
+  if (killed) {
+    return buildSummary([seg('✗ killed (timeout)', 'yellow')])
   }
-  if (killed) parts.push(seg(' (killed)', 'yellow'))
-  parts.push(seg(` · stdout ${formatBytes(stdoutLen)} · stderr ${formatBytes(stderrLen)}`, 'muted'))
 
-  return buildSummary(parts)
+  // 失败：显示 stderr 内容
+  if (isError) {
+    const reason = firstLine(result.stderr as string | undefined, 80) || `exit ${exitCode}`
+    return buildSummary([seg(`✗ ${reason}`, 'red')])
+  }
+
+  // 成功：显示输出行数
+  const lines = lineCount(result.stdout as string | undefined)
+  const summary = lines > 0 ? `${lines} lines output` : 'done (no output)'
+  return buildSummary([seg(`✓ ${summary}`, 'green')])
 }
 
 interface ReadResultItem {
@@ -343,7 +351,8 @@ function deleteCodeSummary(result: Record<string, unknown>): ToolSummary {
 
 function callSummary(toolName: string, args: Record<string, unknown>): ToolSummary | null {
   switch (toolName) {
-    case 'shell': {
+    case 'shell':
+    case 'bash': {
       const cmd = typeof args.command === 'string' ? truncStr(args.command, 60) : ''
       return cmd ? buildSummary([seg(cmd, 'muted')]) : null
     }
@@ -427,6 +436,7 @@ export function getToolSummary(
   // type === 'response'
   switch (toolName) {
     case 'shell': return shellSummary(d)
+    case 'bash': return shellSummary(d)
     case 'read_file': return readFileSummary(d)
     case 'write_file': return writeFileSummary(d, a)
     case 'apply_diff': return applyDiffSummary(d, a)
