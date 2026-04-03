@@ -63,7 +63,7 @@
         :to="`/ext/${panel.id}`"
         @click="emit('toggle')"
       >
-        <span class="sidebar-nav-icon"><AppIcon :name="panel.icon || 'extension'" /></span>
+        <span class="sidebar-nav-icon"><AppIcon :name="(panel.icon || 'extension') as IconName" /></span>
         <span class="sidebar-nav-copy">
           <span class="sidebar-nav-label">Extension</span>
           <strong>{{ panel.title }}</strong>
@@ -210,7 +210,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
-import { ICONS } from '../constants/icons'
+import { ICONS, type IconName } from '../constants/icons'
 import AgentSelector from './AgentSelector.vue'
 import { useAgents } from '../composables/useAgents'
 import { useSessions } from '../composables/useSessions'

@@ -145,6 +145,18 @@ export interface AgentManagerLike {
   getAllSessionTokens?(): Record<string, number>;
 }
 
+/** 跨 Agent 通信网络接口（多 Agent 模式下由 bootstrap 注入） */
+export interface AgentNetworkLike {
+  /** 当前 Agent 自身名称 */
+  selfName: string;
+  /** 列出所有可委派的 peer Agent 名称 */
+  listPeers(): string[];
+  /** 获取指定 peer Agent 的描述信息 */
+  getPeerDescription(name: string): string | undefined;
+  /** 获取指定 peer Agent 的 backend 实例引用 */
+  getPeerBackend(name: string): IrisBackendLike | undefined;
+}
+
 export interface IrisAPI {
   backend: IrisBackendLike;
   router: LLMRouterLike;
@@ -228,6 +240,9 @@ export interface IrisAPI {
    * [cron 重构] 新增字段，替代 cron 之前硬编码虚拟 sessionId 的做法。
    */
   agentName?: string;
+
+  /** 跨 Agent 通信网络（多 Agent 模式下由 bootstrap 注入） */
+  agentNetwork?: AgentNetworkLike;
 
   /**
    * 创建一个 ToolLoop 实例，用于插件后台执行带工具调用的 LLM 循环。
