@@ -27,7 +27,12 @@ const DEFAULTS: Required<Omit<ShellClassifierConfig, 'model'>> = {
  * 不给工具、不要多话，只返回结构化 JSON。
  * 用英文以确保所有模型都能理解。
  */
-const CLASSIFIER_SYSTEM_PROMPT = `You are a shell command safety classifier for Windows systems.
+/**
+ * 构建分类器系统提示词。
+ * shell 名称动态填入，与实际使用的 PowerShell 版本一致。
+ */
+function buildClassifierPrompt(shell: string, cwd: string): string {
+  return `You are a shell command safety classifier for Windows systems.
 Your ONLY job is to decide whether a command is safe to execute.
 
 Reply with ONLY a JSON object, no other text:
@@ -51,8 +56,9 @@ Dangerous patterns to watch for:
 
 Context:
 - Platform: Windows
-- Shell: cmd.exe
-- Working directory: {cwd}`;
+- Shell: ${shell}
+- Working directory: ${cwd}`;
+}
 
 /**
  * 解析分类器 LLM 响应。
@@ -114,15 +120,17 @@ function validateResult(parsed: unknown): ClassifierResult | null {
  * @param command  要判断的 shell 命令
  * @param router   LLM 路由器
  * @param config   分类器配置
+ * @param shell    当前使用的 shell 可执行名称
  * @returns 分类结果，超时/异常时返回 null
  */
 export async function classifyWithLLM(
   command: string,
   router: LLMRouter,
   config?: Partial<ShellClassifierConfig>,
+  shell?: string,
 ): Promise<ClassifierResult | null> {
   const cwd = process.cwd();
-  const systemPrompt = CLASSIFIER_SYSTEM_PROMPT.replace('{cwd}', cwd);
+  const systemPrompt = buildClassifierPrompt(shell ?? 'powershell.exe', cwd);
 
   const timeout = config?.timeout ?? DEFAULTS.timeout;
 

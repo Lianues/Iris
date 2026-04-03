@@ -10,7 +10,7 @@
  *   5. 安装命令成功后 → fire-and-forget 学习新工具
  */
 
-import { exec } from 'child_process';
+import { exec, execFileSync } from 'child_process';
 import { ToolDefinition } from '../../../types';
 import { resolveProjectPath } from '../../utils';
 import { getToolLimits } from '../../tool-limits';
@@ -21,6 +21,36 @@ import type { ShellToolDeps } from './types';
 import { createLogger } from '../../../logger';
 
 const logger = createLogger('ShellTool');
+
+/**
+ * PowerShell 编码前缀：强制所有输出为 UTF-8。
+ * 中文 Windows 默认使用 GBK (codepage 936)，不设置此项会导致中文乱码。
+ */
+const PS_UTF8_PREFIX = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ';
+
+/**
+ * 检测可用的 PowerShell 可执行路径。
+ * 优先使用 pwsh.exe (PowerShell 7+)，不可用时回退到 powershell.exe (5.1)。
+ */
+let _resolvedShell: string | undefined;
+function getShell(): string {
+  if (_resolvedShell) return _resolvedShell;
+
+  try {
+    execFileSync('pwsh.exe', ['-NoProfile', '-Command', 'exit 0'], {
+      stdio: 'ignore',
+      timeout: 5000,
+      windowsHide: true,
+    });
+    _resolvedShell = 'pwsh.exe';
+    logger.info('使用 PowerShell 7+ (pwsh.exe)');
+  } catch {
+    _resolvedShell = 'powershell.exe';
+    logger.info('pwsh.exe 不可用，回退到 Windows PowerShell 5.1 (powershell.exe)');
+  }
+
+  return _resolvedShell;
+}
 
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -49,14 +79,17 @@ function executeCommand(
   maxBuffer: number,
   maxOutputChars: number,
 ): Promise<ShellResult> {
+  const wrappedCommand = PS_UTF8_PREFIX + command;
+
   return new Promise<ShellResult>((resolve) => {
     exec(
-      command,
+      wrappedCommand,
       {
         cwd: workDir,
         timeout,
         maxBuffer,
-        shell: 'cmd.exe',
+        shell: getShell(),
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
       },
       (error, stdout, stderr) => {
         const exitCode = error ? (error as any).code ?? 1 : 0;
@@ -211,7 +244,7 @@ force 参数使用规则：
 
       // 调用 AI 分类器
       logger.info(`Shell 命令进入 AI 分类器: ${command.slice(0, 100)}`);
-      const classifierResult = await classifyWithLLM(command, deps.getRouter(), classifierConfig);
+      const classifierResult = await classifyWithLLM(command, deps.getRouter(), classifierConfig, getShell());
       const decision = resolveClassifierDecision(classifierResult, classifierConfig);
 
       if (decision.allow) {

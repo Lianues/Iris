@@ -1,9 +1,9 @@
 /**
- * Shell 命令白名单 —— Windows 平台
+ * Shell 命令白名单 —— Windows 平台 (PowerShell)
  *
  * 四层分类：
  *   1. DENY_PATTERNS  —— 绝对禁止的危险模式（正则匹配）
- *   2. SAFE_COMMANDS   —— 静态只读/安全命令白名单
+ *   2. SAFE_COMMANDS   —— 静态只读/安全命令白名单（涵盖 PowerShell cmdlets + 常用开发工具）
  *   3. RUNTIME_SAFE_COMMANDS —— 运行时动态白名单（安装依赖后 LLM 评估自动添加）
  *   4. 其余 → 'unknown'，交由 AI 分类器判定
  */
