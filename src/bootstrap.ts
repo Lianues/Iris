@@ -166,7 +166,8 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
   // 命令执行工具：根据平台选择 shell (Windows PowerShell) 或 bash (Linux/macOS)
   const isWindows = process.platform === 'win32';
   const commandToolName = isWindows ? 'shell' : 'bash';
-  const shellClassifierConfig = (config.tools.permissions[commandToolName] as any)?.classifier;
+  const shellClassifierConfig = (config.tools.permissions[commandToolName] as any)?.classifier
+    ?? { enabled: true };   // 默认启用 AI 安全分类器
   const commandToolDeps = {
     getRouter: () => router,
     classifierConfig: shellClassifierConfig,

@@ -114,8 +114,12 @@ create_directory:
   autoApprove: false
 shell:
   autoApprove: false
+  classifier:
+    enabled: true
 bash:
   autoApprove: false
+  classifier:
+    enabled: true
 sub_agent:
   autoApprove: false
 # autoApproveAll: true

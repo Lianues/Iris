@@ -2,24 +2,10 @@
 import React9 from "react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-
-// ../../packages/extension-sdk/dist/platform.js
-class PlatformAdapter {
-  get name() {
-    return this.constructor.name;
-  }
-}
-// ../../packages/extension-sdk/dist/logger.js
-var LogLevel;
-(function(LogLevel2) {
-  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
-  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
-  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
-  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
-  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
-})(LogLevel || (LogLevel = {}));
-var _logLevel = LogLevel.INFO;
-// src/index.ts
+import {
+  PlatformAdapter,
+  LogLevel
+} from "@irises/extension-sdk";
 import { estimateTokenCount } from "tokenx";
 
 // src/App.tsx
@@ -1121,17 +1107,50 @@ function DefaultRenderer({ result }) {
 
 // src/tool-renderers/shell.tsx
 import { jsxDEV as jsxDEV12 } from "@opentui/react/jsx-dev-runtime";
+function lineCount(text) {
+  if (!text)
+    return 0;
+  return text.split(`
+`).filter(Boolean).length;
+}
+function firstLine(text, max) {
+  if (!text)
+    return "";
+  const line = text.trimStart().split(`
+`)[0] ?? "";
+  return line.length > max ? line.slice(0, max) + "…" : line;
+}
 function ShellRenderer({ result }) {
   const r = result || {};
-  const isError = r.exitCode !== 0;
-  const stdoutLen = r.stdout?.length ?? 0;
-  const stderrLen = r.stderr?.length ?? 0;
-  let summary = `exited with ${r.exitCode}`;
-  if (r.killed)
-    summary += " (killed)";
-  summary += `, out: ${stdoutLen}b, err: ${stderrLen}b`;
+  const exitCode = r.exitCode ?? 0;
+  const isError = exitCode !== 0;
+  if (r.killed) {
+    return /* @__PURE__ */ jsxDEV12("text", {
+      fg: "#ff0000",
+      children: /* @__PURE__ */ jsxDEV12("em", {
+        children: [
+          " ↳ ",
+          "killed (timeout)"
+        ]
+      }, undefined, true, undefined, this)
+    }, undefined, false, undefined, this);
+  }
+  if (isError) {
+    const reason = firstLine(r.stderr, 100) || `exit ${exitCode}`;
+    return /* @__PURE__ */ jsxDEV12("text", {
+      fg: "#ff0000",
+      children: /* @__PURE__ */ jsxDEV12("em", {
+        children: [
+          " ↳ ",
+          reason
+        ]
+      }, undefined, true, undefined, this)
+    }, undefined, false, undefined, this);
+  }
+  const lines = lineCount(r.stdout);
+  const summary = lines > 0 ? `${lines} lines output` : "done (no output)";
   return /* @__PURE__ */ jsxDEV12("text", {
-    fg: isError ? "#ff0000" : "#888",
+    fg: "#888",
     children: /* @__PURE__ */ jsxDEV12("em", {
       children: [
         " ↳ ",
@@ -1639,6 +1658,7 @@ function InsertCodeRenderer({ result }) {
 // src/tool-renderers/index.ts
 var renderers = {
   shell: ShellRenderer,
+  bash: ShellRenderer,
   read_file: ReadFileRenderer,
   apply_diff: ApplyDiffRenderer,
   search_in_files: SearchInFilesRenderer,
@@ -1901,9 +1921,9 @@ function NotificationPayloadBlock({ payload }) {
   const icon = payload.status === "completed" ? "✓" : payload.status === "failed" ? "✗" : "⊘";
   const iconColor = payload.status === "completed" ? C.accent : C.error;
   const content = payload.result || payload.error || "";
-  const firstLine = content.split(`
+  const firstLine2 = content.split(`
 `).filter((l) => l.trim())[0] || "";
-  const preview = firstLine.length > 60 ? firstLine.slice(0, 57) + "..." : firstLine;
+  const preview = firstLine2.length > 60 ? firstLine2.slice(0, 57) + "..." : firstLine2;
   return /* @__PURE__ */ jsxDEV22("box", {
     children: /* @__PURE__ */ jsxDEV22("text", {
       children: [
@@ -2241,342 +2261,32 @@ function ChatMessageList({
 
 // src/components/DiffApprovalView.tsx
 import { useMemo as useMemo3 } from "react";
-import * as fs2 from "fs";
-import * as path2 from "path";
-
-// ../../packages/extension-sdk/dist/tool-utils.js
-import * as fs from "node:fs";
-import * as path from "node:path";
+import * as fs from "fs";
+import * as path from "path";
+import {
+  parseUnifiedDiff,
+  normalizeWriteArgs,
+  normalizeInsertArgs,
+  normalizeDeleteCodeArgs,
+  resolveProjectPath,
+  walkFiles,
+  buildSearchRegex,
+  decodeText,
+  globToRegExp,
+  isLikelyBinary,
+  toPosix
+} from "@irises/extension-sdk/tool-utils";
+import { jsxDEV as jsxDEV24 } from "@opentui/react/jsx-dev-runtime";
+var DEFAULT_SEARCH_PATTERN = "**/*";
+var DEFAULT_SEARCH_MAX_FILES = 50;
+var DEFAULT_SEARCH_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
 function normalizeLineEndings(text) {
   return text.replace(/\r\n/g, `
 `).replace(/\r/g, `
 `);
 }
-function sanitizeUnifiedDiffPatch(patch) {
-  const normalized = normalizeLineEndings(patch);
-  const lines = normalized.split(`
-`);
-  const out = [];
-  for (const line of lines) {
-    if (line.startsWith("```"))
-      continue;
-    if (line.startsWith("***")) {
-      if (line === "***" || line.startsWith("*** Begin Patch") || line.startsWith("*** End Patch") || line.startsWith("*** Update File:") || line.startsWith("*** Add File:") || line.startsWith("*** Delete File:") || line.startsWith("*** End of File")) {
-        continue;
-      }
-    }
-    out.push(line);
-  }
-  return out.join(`
-`);
-}
-function parseUnifiedDiff(patch) {
-  const normalized = sanitizeUnifiedDiffPatch(patch);
-  const lines = normalized.split(`
-`);
-  let oldFile;
-  let newFile;
-  const hunks = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.startsWith("diff --git ")) {
-      if (hunks.length > 0 || oldFile || newFile) {
-        throw new Error("Multi-file patch is not supported. Please split into one apply_diff call per file.");
-      }
-      i++;
-      continue;
-    }
-    if (line.startsWith("--- ")) {
-      if (oldFile && (hunks.length > 0 || newFile)) {
-        throw new Error("Multi-file patch is not supported.");
-      }
-      oldFile = line.slice(4).trim().split("\t")[0]?.trim() || "";
-      i++;
-      continue;
-    }
-    if (line.startsWith("+++ ")) {
-      if (newFile && hunks.length > 0) {
-        throw new Error("Multi-file patch is not supported.");
-      }
-      newFile = line.slice(4).trim().split("\t")[0]?.trim() || "";
-      i++;
-      continue;
-    }
-    if (line.startsWith("@@")) {
-      const header = line;
-      const m = header.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
-      if (!m) {
-        throw new Error(`Invalid hunk header: ${header}. ` + `Expected format: @@ -oldStart,oldCount +newStart,newCount @@`);
-      }
-      const oldStart = parseInt(m[1], 10);
-      const oldCount = m[2] ? parseInt(m[2], 10) : 1;
-      const newStart = parseInt(m[3], 10);
-      const newCount = m[4] ? parseInt(m[4], 10) : 1;
-      const hunkLines = [];
-      i++;
-      while (i < lines.length) {
-        const l = lines[i];
-        if (l.startsWith("@@") || l.startsWith("--- ") || l.startsWith("diff --git ") || l.startsWith("+++ "))
-          break;
-        if (l === "") {
-          i++;
-          continue;
-        }
-        if (l.startsWith("\\")) {
-          i++;
-          continue;
-        }
-        const prefix = l[0];
-        const content = l.length > 0 ? l.slice(1) : "";
-        if (prefix === " ") {
-          hunkLines.push({ type: "context", content, raw: l });
-        } else if (prefix === "+") {
-          hunkLines.push({ type: "add", content, raw: l });
-        } else if (prefix === "-") {
-          hunkLines.push({ type: "del", content, raw: l });
-        } else {
-          throw new Error(`Invalid hunk line prefix '${prefix}' in line: ${l}`);
-        }
-        i++;
-      }
-      hunks.push({ oldStart, oldLines: oldCount, newStart, newLines: newCount, header, lines: hunkLines });
-      continue;
-    }
-    i++;
-  }
-  if (hunks.length === 0) {
-    throw new Error("No hunks (@@ ... @@) found in patch.");
-  }
-  return { oldFile, newFile, hunks };
-}
-var DEFAULT_IGNORED_DIRS = new Set([
-  ".git",
-  "node_modules",
-  "dist",
-  "build",
-  ".next",
-  ".turbo",
-  ".limcode"
-]);
-var BINARY_DETECT_BYTES = 8 * 1024;
-function toPosix(p) {
-  return p.split(path.sep).join("/");
-}
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function globToRegExp(glob) {
-  const g = toPosix(glob.trim());
-  let re = "^";
-  for (let i = 0;i < g.length; i++) {
-    const ch = g[i];
-    if (ch === "*") {
-      const next = g[i + 1];
-      if (next === "*") {
-        i++;
-        if (g[i + 1] === "/") {
-          i++;
-          re += "(?:.*\\/)?";
-        } else {
-          re += ".*";
-        }
-      } else {
-        re += "[^/]*";
-      }
-      continue;
-    }
-    if (ch === "?") {
-      re += "[^/]";
-      continue;
-    }
-    if ("\\.^$+()[]{}|".includes(ch)) {
-      re += "\\" + ch;
-    } else {
-      re += ch;
-    }
-  }
-  re += "$";
-  return new RegExp(re);
-}
-function shouldIgnoreByPath(relativePosixPath) {
-  const parts = relativePosixPath.split("/");
-  return parts.some((p) => DEFAULT_IGNORED_DIRS.has(p));
-}
-function isLikelyBinary(buf) {
-  const n = Math.min(buf.length, BINARY_DETECT_BYTES);
-  if (n === 0)
-    return false;
-  let suspicious = 0;
-  for (let i = 0;i < n; i++) {
-    const b = buf[i];
-    if (b === 0)
-      return true;
-    const isAllowedWhitespace = b === 9 || b === 10 || b === 13;
-    const isControl = b < 32 && !isAllowedWhitespace || b === 127;
-    if (isControl)
-      suspicious++;
-  }
-  const ratio = suspicious / n;
-  return ratio > 0.3;
-}
-function swapByteOrder16(buf) {
-  const len = buf.length - buf.length % 2;
-  const out = Buffer.allocUnsafe(len);
-  for (let i = 0;i < len; i += 2) {
-    out[i] = buf[i + 1];
-    out[i + 1] = buf[i];
-  }
-  return out;
-}
-function decodeText(buf) {
-  const hasCRLF = buf.includes(Buffer.from(`\r
-`));
-  if (buf.length >= 3 && buf[0] === 239 && buf[1] === 187 && buf[2] === 191) {
-    return {
-      text: buf.subarray(3).toString("utf8"),
-      encoding: "utf-8",
-      hasBom: true,
-      hasCRLF
-    };
-  }
-  if (buf.length >= 2 && buf[0] === 255 && buf[1] === 254) {
-    return {
-      text: buf.subarray(2).toString("utf16le"),
-      encoding: "utf-16le",
-      hasBom: true,
-      hasCRLF
-    };
-  }
-  if (buf.length >= 2 && buf[0] === 254 && buf[1] === 255) {
-    const swapped = swapByteOrder16(buf.subarray(2));
-    return {
-      text: swapped.toString("utf16le"),
-      encoding: "utf-16be",
-      hasBom: true,
-      hasCRLF
-    };
-  }
-  return {
-    text: buf.toString("utf8"),
-    encoding: "utf-8",
-    hasBom: false,
-    hasCRLF
-  };
-}
-function buildSearchRegex(query, isRegex) {
-  if (!query || !query.trim()) {
-    throw new Error("query 不能为空");
-  }
-  return isRegex ? new RegExp(query, "g") : new RegExp(escapeRegex(query), "g");
-}
-function walkFiles(rootAbs, onFile, shouldStop, relPosixDir = "") {
-  if (shouldStop())
-    return;
-  const dirAbs = relPosixDir ? path.join(rootAbs, relPosixDir) : rootAbs;
-  const entries = fs.readdirSync(dirAbs, { withFileTypes: true });
-  for (const ent of entries) {
-    if (shouldStop())
-      return;
-    const relPosix = relPosixDir ? `${relPosixDir}/${ent.name}` : ent.name;
-    if (ent.isDirectory()) {
-      if (DEFAULT_IGNORED_DIRS.has(ent.name))
-        continue;
-      if (shouldIgnoreByPath(relPosix))
-        continue;
-      walkFiles(rootAbs, onFile, shouldStop, relPosix);
-      continue;
-    }
-    if (ent.isFile()) {
-      if (shouldIgnoreByPath(relPosix))
-        continue;
-      onFile(path.join(dirAbs, ent.name), relPosix);
-    }
-  }
-}
-function normalizeObjectArrayArg(args, options) {
-  const arrayValue = args[options.arrayKey];
-  if (Array.isArray(arrayValue) && arrayValue.length > 0) {
-    const normalized = arrayValue.filter(options.isEntry);
-    return normalized.length === arrayValue.length ? normalized : undefined;
-  }
-  if (options.isEntry(arrayValue)) {
-    return [arrayValue];
-  }
-  for (const key of options.singularKeys ?? []) {
-    const singularValue = args[key];
-    if (options.isEntry(singularValue)) {
-      return [singularValue];
-    }
-  }
-  if (options.isEntry(args)) {
-    return [args];
-  }
-  return;
-}
-function resolveProjectPath(inputPath) {
-  const resolved = path.resolve(inputPath);
-  const cwd = process.cwd();
-  if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) {
-    throw new Error(`路径超出项目目录: ${inputPath}`);
-  }
-  return resolved;
-}
-function isWriteEntry(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.path === "string" && typeof value.content === "string";
-}
-function normalizeWriteArgs(args) {
-  if (Array.isArray(args.files) && args.files.length > 0) {
-    const normalized = args.files.filter(isWriteEntry);
-    return normalized.length === args.files.length ? normalized : undefined;
-  }
-  if (isWriteEntry(args.files)) {
-    return [args.files];
-  }
-  if (isWriteEntry(args.file)) {
-    return [args.file];
-  }
-  if (isWriteEntry(args)) {
-    return [{
-      path: args.path,
-      content: args.content
-    }];
-  }
-  return;
-}
-function isInsertEntry(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.path === "string" && typeof value.line === "number" && typeof value.content === "string";
-}
-function normalizeInsertArgs(args) {
-  return normalizeObjectArrayArg(args, {
-    arrayKey: "files",
-    singularKeys: ["file"],
-    isEntry: isInsertEntry
-  });
-}
-function isDeleteCodeEntry(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.path === "string" && typeof value.start_line === "number" && typeof value.end_line === "number";
-}
-function normalizeDeleteCodeArgs(args) {
-  return normalizeObjectArrayArg(args, {
-    arrayKey: "files",
-    singularKeys: ["file"],
-    isEntry: isDeleteCodeEntry
-  });
-}
-
-// src/components/DiffApprovalView.tsx
-import { jsxDEV as jsxDEV24 } from "@opentui/react/jsx-dev-runtime";
-var DEFAULT_SEARCH_PATTERN = "**/*";
-var DEFAULT_SEARCH_MAX_FILES = 50;
-var DEFAULT_SEARCH_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
-function normalizeLineEndings2(text) {
-  return text.replace(/\r\n/g, `
-`).replace(/\r/g, `
-`);
-}
 function sanitizePatchText(patch) {
-  const lines = normalizeLineEndings2(patch).split(`
+  const lines = normalizeLineEndings(patch).split(`
 `);
   const out = [];
   for (const line of lines) {
@@ -2670,7 +2380,7 @@ function normalizePositiveInteger(value, fallback) {
 function toWholeFileDiffLines(text) {
   if (!text)
     return [];
-  const lines = normalizeLineEndings2(text).split(`
+  const lines = normalizeLineEndings(text).split(`
 `);
   if (lines.length > 0 && lines[lines.length - 1] === "")
     lines.pop();
@@ -2726,8 +2436,8 @@ function buildWriteFilePreview(inv) {
     try {
       const resolved = resolveProjectPath(entry.path);
       let existed = false, before = "";
-      if (fs2.existsSync(resolved)) {
-        before = fs2.readFileSync(resolved, "utf-8");
+      if (fs.existsSync(resolved)) {
+        before = fs.readFileSync(resolved, "utf-8");
         existed = true;
       }
       if (existed && before === entry.content) {
@@ -2768,7 +2478,7 @@ function buildInsertCodePreview(inv) {
   fileList.forEach((entry, i) => {
     try {
       const resolved = resolveProjectPath(entry.path);
-      const before = fs2.readFileSync(resolved, "utf-8");
+      const before = fs.readFileSync(resolved, "utf-8");
       const lines = before.split(`
 `);
       const insertLines = entry.content.split(`
@@ -2806,7 +2516,7 @@ function buildDeleteCodePreview(inv) {
   fileList.forEach((entry, i) => {
     try {
       const resolved = resolveProjectPath(entry.path);
-      const before = fs2.readFileSync(resolved, "utf-8");
+      const before = fs.readFileSync(resolved, "utf-8");
       const lines = before.split(`
 `);
       const after = [...lines.slice(0, entry.start_line - 1), ...lines.slice(entry.end_line)].join(`
@@ -2846,7 +2556,7 @@ function buildSearchReplacePreview(inv) {
   try {
     const regex = buildSearchRegex(query, isRegex);
     const rootAbs = resolveProjectPath(inputPath);
-    const stat = fs2.statSync(rootAbs);
+    const stat = fs.statSync(rootAbs);
     const patternRe = globToRegExp(pattern);
     const items = [];
     let processedFiles = 0, changedFiles = 0, unchangedFiles = 0;
@@ -2859,8 +2569,8 @@ function buildSearchReplacePreview(inv) {
       if (stat.isDirectory() && !patternRe.test(relPosix))
         return;
       processedFiles++;
-      const displayPath = stat.isDirectory() ? toPosix(path2.join(inputPath, relPosix)) : toPosix(inputPath);
-      const buf = fs2.readFileSync(fileAbs);
+      const displayPath = stat.isDirectory() ? toPosix(path.join(inputPath, relPosix)) : toPosix(inputPath);
+      const buf = fs.readFileSync(fileAbs);
       if (buf.length > maxFileSizeBytes) {
         skippedTooLarge++;
         return;
@@ -2898,7 +2608,7 @@ function buildSearchReplacePreview(inv) {
       totalReplacements += replacements;
     };
     if (stat.isFile())
-      processFile(rootAbs, toPosix(path2.basename(rootAbs)));
+      processFile(rootAbs, toPosix(path.basename(rootAbs)));
     else {
       walkFiles(rootAbs, processFile, shouldStop);
       if (processedFiles >= maxFiles)
@@ -3869,8 +3579,8 @@ function previewText(value, maxLength) {
 `);
   const lines = normalized.split(`
 `).filter(Boolean);
-  const firstLine = lines[0] ?? "";
-  const compact = firstLine.length > maxLength ? `${firstLine.slice(0, Math.max(1, maxLength - 1))}…` : firstLine;
+  const firstLine2 = lines[0] ?? "";
+  const compact = firstLine2.length > maxLength ? `${firstLine2.slice(0, Math.max(1, maxLength - 1))}…` : firstLine2;
   if (lines.length <= 1) {
     return compact || "(空)";
   }
@@ -6168,8 +5878,8 @@ function App({
 }
 
 // src/opentui-runtime.ts
-import * as fs3 from "node:fs";
-import * as path3 from "node:path";
+import * as fs2 from "node:fs";
+import * as path2 from "node:path";
 import { addDefaultParsers, clearEnvCache } from "@opentui/core";
 var OPENTUI_RUNTIME_DIR_NAME = "opentui";
 var REQUIRED_ASSET_FILES = [
@@ -6197,13 +5907,13 @@ function resolveBundledRuntimeDir(isCompiledBinary) {
   if (!isCompiledBinary)
     return null;
   try {
-    const execDir = path3.dirname(fs3.realpathSync(process.execPath));
+    const execDir = path2.dirname(fs2.realpathSync(process.execPath));
     const candidates = [
-      path3.join(execDir, OPENTUI_RUNTIME_DIR_NAME),
-      path3.join(path3.resolve(execDir, ".."), OPENTUI_RUNTIME_DIR_NAME)
+      path2.join(execDir, OPENTUI_RUNTIME_DIR_NAME),
+      path2.join(path2.resolve(execDir, ".."), OPENTUI_RUNTIME_DIR_NAME)
     ];
     for (const candidate of candidates) {
-      if (fs3.existsSync(path3.join(candidate, "parser.worker.js"))) {
+      if (fs2.existsSync(path2.join(candidate, "parser.worker.js"))) {
         return candidate;
       }
     }
@@ -6211,10 +5921,10 @@ function resolveBundledRuntimeDir(isCompiledBinary) {
   return null;
 }
 function hasBundledAssets(assetsRoot) {
-  return REQUIRED_ASSET_FILES.every((relativePath) => fs3.existsSync(path3.join(assetsRoot, relativePath)));
+  return REQUIRED_ASSET_FILES.every((relativePath) => fs2.existsSync(path2.join(assetsRoot, relativePath)));
 }
 function createBundledParsers(assetsRoot) {
-  const asset = (...segments) => path3.join(assetsRoot, ...segments);
+  const asset = (...segments) => path2.join(assetsRoot, ...segments);
   return [
     {
       filetype: "javascript",
@@ -6278,7 +5988,7 @@ function configureBundledOpenTuiTreeSitter(isCompiledBinary) {
   if (configured)
     return;
   const runtimeDir = resolveBundledRuntimeDir(isCompiledBinary);
-  const workerPath = process.env.OTUI_TREE_SITTER_WORKER_PATH?.trim() || (runtimeDir ? path3.join(runtimeDir, "parser.worker.js") : "");
+  const workerPath = process.env.OTUI_TREE_SITTER_WORKER_PATH?.trim() || (runtimeDir ? path2.join(runtimeDir, "parser.worker.js") : "");
   if (!workerPath) {
     if (isCompiledBinary) {
       warnRuntimeIssue("未找到 OpenTUI tree-sitter worker，Markdown 标题和加粗高亮可能不可用。");
@@ -6289,7 +5999,7 @@ function configureBundledOpenTuiTreeSitter(isCompiledBinary) {
   process.env.OTUI_TREE_SITTER_WORKER_PATH = workerPath;
   clearEnvCache();
   if (runtimeDir) {
-    const assetsRoot = path3.join(runtimeDir, "assets");
+    const assetsRoot = path2.join(runtimeDir, "assets");
     if (hasBundledAssets(assetsRoot)) {
       addDefaultParsers(createBundledParsers(assetsRoot));
     } else {
@@ -6640,7 +6350,7 @@ ${summaryText}`;
         this.appHandle?.addSummaryMessage(fullText, tokenCount > 0 ? tokenCount : undefined);
       }
     });
-    return new Promise(async (resolve3, reject) => {
+    return new Promise(async (resolve2, reject) => {
       try {
         this.renderer = await createCliRenderer({
           exitOnCtrlC: false,
@@ -6659,7 +6369,7 @@ ${summaryText}`;
       const element = React9.createElement(App, {
         onReady: (handle) => {
           this.appHandle = handle;
-          resolve3();
+          resolve2();
         },
         onSubmit: (text) => this.handleInput(text),
         onUndo: async () => {

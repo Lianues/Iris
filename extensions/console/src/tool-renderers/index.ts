@@ -20,6 +20,7 @@ import { InsertCodeRenderer } from './insert-code';
 
 const renderers: Record<string, FC<ToolRendererProps>> = {
   shell: ShellRenderer,
+  bash: ShellRenderer,
   read_file: ReadFileRenderer,
   apply_diff: ApplyDiffRenderer,
   search_in_files: SearchInFilesRenderer,
