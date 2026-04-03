@@ -35,6 +35,8 @@ export interface AppHandle {
   clearNotificationContext(): void;
   /** 更新后台运行中的异步子代理数量（由平台监听 agent:notification 事件后调用） */
   updateBackgroundTaskCount(delta: number): void;
+  /** 更新后台运行中的委派任务数量（delegate_to_agent），与子代理分开计数 */
+  updateDelegateTaskCount(delta: number): void;
   /**
    * 更新指定后台任务的 token 计数（由平台监听 agent:notification token-update 事件后调用）。
    * taskId=null 且 tokens=0 时表示清除已结束任务的记录。
@@ -72,6 +74,8 @@ export interface UseAppHandleReturn {
   pendingApplies: ToolInvocation[];
   /** 当前后台运行中的异步子代理数量 */
   backgroundTaskCount: number;
+  /** 当前后台运行中的委派任务数量（delegate_to_agent），与子代理分开计数 */
+  delegateTaskCount: number;
   /** 所有后台运行中的异步子代理的 token 总数 */
   backgroundTaskTokens: number;
   /** chunk 心跳驱动的 spinner 帧索引（只有数据流动时才递增） */
@@ -90,6 +94,8 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
   const [pendingApprovals, setPendingApprovals] = useState<ToolInvocation[]>([]);
   const [pendingApplies, setPendingApplies] = useState<ToolInvocation[]>([]);
   const [backgroundTaskCount, setBackgroundTaskCount] = useState(0);
+  // [职责分离] 委派任务独立计数，不与异步子代理的 spinner / token 混用
+  const [delegateTaskCount, setDelegateTaskCount] = useState(0);
   // 各后台任务的 token 计数（key=taskId, value=tokens），汇总后作为 backgroundTaskTokens 展示
   const backgroundTaskTokenMapRef = useRef<Map<string, number>>(new Map());
   const [backgroundTaskTokens, setBackgroundTaskTokens] = useState(0);
@@ -346,6 +352,10 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
         // delta > 0 表示新增后台任务（registered），delta < 0 表示任务结束（completed/failed/killed）
         setBackgroundTaskCount((prev) => Math.max(0, prev + delta));
       },
+      updateDelegateTaskCount(delta: number) {
+        // [职责分离] 委派任务独立计数，不影响子代理的 spinner / token 动画
+        setDelegateTaskCount((prev) => Math.max(0, prev + delta));
+      },
       updateBackgroundTaskTokens(taskId: string, tokens: number) {
         // 更新指定任务的 token 数，并重新汇总所有任务的总 token 数
         backgroundTaskTokenMapRef.current.set(taskId, tokens);
@@ -387,6 +397,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
     pendingApprovals,
     pendingApplies,
     backgroundTaskCount,
+    delegateTaskCount,
     backgroundTaskTokens,
     backgroundTaskSpinnerFrame,
     setMessages,

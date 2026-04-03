@@ -160,3 +160,126 @@ main() → runMultiAgent()
 ```
 
 多 Agent 模式下，所有 Agent 共享一个 WebPlatform HTTP 端口，通过 `X-Agent-Name` 请求头路由到不同 Agent 的 Backend。
+
+
+## 跨 Agent 通信与任务板
+
+### 架构概览
+
+多 Agent 模式下，Agent 之间可以通过 `delegate_to_agent` 工具进行跨 Agent 委派。
+所有异步任务（sub_agent 异步子代理 + delegate 跨 Agent 委派）统一由 `CrossAgentTaskBoard` 管理。
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   CrossAgentTaskBoard                       │
+│                     （全局单例）                              │
+│                                                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
+│  │ TaskRecord│  │ TaskRecord│  │ TaskRecord│  ...             │
+│  │ sub_agent│  │ delegate │  │ sub_agent│                   │
+│  └──────────┘  └──────────┘  └──────────┘                   │
+│                                                             │
+│  事件: registered / completed / failed / killed              │
+│        token-update / chunk-heartbeat                       │
+│                                                             │
+│  通知路由: 完成时自动构建 XML → 推送到 sourceAgent 的 backend  │
+└─────────────────────────────────────────────────────────────┘
+        ▲                    ▲                    ▲
+        │                    │                    │
+   setTaskBoard()       setTaskBoard()       setTaskBoard()
+        │                    │                    │
+ ┌──────┴──────┐    ┌────────┴────────┐    ┌──────┴──────┐
+ │  __global__ │    │     coder       │    │   writer    │
+ │   Backend   │    │    Backend      │    │   Backend   │
+ └─────────────┘    └─────────────────┘    └─────────────┘
+```
+
+### 任务类型与职责分离
+
+| | sub_agent | delegate |
+|---|---|---|
+| 执行位置 | 发起方 Agent 内部 | 目标 Agent 的独立 Backend |
+| 工具集 | 继承父级工具集（可过滤） | 使用目标 Agent 自己的工具集 |
+| 配置 | 继承父级 toolsConfig | 使用目标 Agent 的 tools.yaml |
+| 心跳/token | 有（驱动 StatusBar spinner） | 无（不传递心跳） |
+| 通知合并 | 参与（等全部完成后合并） | 不参与（不阻塞子代理通知） |
+| 前端显示 | 「N 个后台任务 ↑Ntk」（带 spinner） | 「⇢ N 个委派任务」（无 spinner） |
+
+### 源码结构
+
+```
+src/core/
+├── cross-agent-task-board.ts    全局任务板（生命周期、事件、通知路由）
+
+src/tools/internal/
+├── delegate-agent/
+│   └── index.ts                delegate_to_agent + query_delegated_task 工具
+├── sub-agent/
+│   └── index.ts                sub_agent 工具（同步/异步）
+```
+
+### 关键流程
+
+#### delegate_to_agent 委派流程
+
+```
+__global__ 调用 delegate_to_agent(agent="coder", prompt="写个文件")
+  │
+  ├── 1. 校验目标 Agent 存在
+  ├── 2. 在 taskBoard 注册任务（type=delegate）
+  ├── 3. 构建 targetSessionId = "cross-agent:__global__:taskId"
+  ├── 4. 立即返回 { status: "dispatched", taskId }
+  │
+  └── 5. fire-and-forget: runDelegatedTask()
+         │
+         ├── targetBackend.chat(targetSessionId, prompt)
+         │     └── coder 的 Backend 执行 ToolLoop
+         │         └── 使用 coder 自己的 tools.yaml 配置
+         │
+         ├── 监听 done → taskBoard.complete()
+         │                └── 自动构建通知 XML
+         │                └── 推送到 __global__ 的 backend
+         │
+         └── 监听 error → taskBoard.fail()
+```
+
+#### 通知合并逻辑（仅 sub_agent）
+
+当同一 session 有多个并行异步子代理时，先完成的通知被暂存，
+等该 session 所有 **sub_agent 类型**的 running 任务都完成后，
+将所有通知合并为一条 user 消息统一交给 LLM。
+
+delegate 类型的任务不参与此合并——因为 delegate 的完成通知
+推送到另一个 Agent 的 backend，不会回到本 session 的队列。
+
+### 工具审批与非交互上下文
+
+跨 Agent 委派和异步子代理运行在后台 session 中，没有前端审批 UI。
+调度层通过 `canUseInteractiveApproval()` 检测当前上下文是否可交互：
+
+- `cross-agent:*` 开头的 sessionId → 非交互（delegate 后台会话）
+- 无 ToolStateManager → 非交互（CLI / headless 场景）
+
+非交互上下文中：
+- `autoApprove: true` 的工具直接执行
+- `autoApprove: false` 的工具直接返回错误（不会卡死等待审批）
+- `showApprovalView: true` 被忽略（这是 Console TUI 专用的 diff 预览）
+
+因此，**目标 Agent 的 `tools.yaml` 必须为所有需要执行的工具设置 `autoApprove: true`**，
+或者使用全局 `autoApproveAll: true`。
+
+### agent:notification 事件格式
+
+Backend 转发 taskBoard 事件时携带 `taskType` 字段：
+
+```typescript
+this.emit('agent:notification',
+  task.sourceSessionId,  // 路由目标 session
+  task.taskId,           // 任务 ID
+  status,                // 'registered' | 'completed' | 'failed' | 'killed' | 'token-update' | 'chunk-heartbeat'
+  summary,               // 描述文本或 token 数值字符串
+  task.type,             // 'sub_agent' | 'delegate'（第 6 个参数）
+);
+```
+
+前端据此将两种任务类型分开计数和渲染，互不干扰。

@@ -34,7 +34,7 @@ import { deleteCode } from './tools/internal/delete_code';
 import { SubAgentTypeRegistry, createSubAgentTool } from './tools/internal/sub-agent';
 import { ModeRegistry, DEFAULT_MODE, DEFAULT_MODE_NAME } from './modes';
 import { PromptAssembler } from './prompt/assembler';
-import { AgentTaskRegistry } from './core/agent-task-registry';
+import { CrossAgentTaskBoard } from './core/cross-agent-task-board';
 import { ToolLoop } from './core/tool-loop';
 import { createHistorySearchTool } from './tools/internal/history_search';
 import { createReadSkillTool } from './tools/internal/read_skill';
@@ -107,6 +107,8 @@ export interface BootstrapOptions {
   agentPaths?: AgentPaths;
   /** 运行时直接注入的内联插件 */
   inlinePlugins?: InlinePluginEntry[];
+  /** 外部注入的全局任务板（多 Agent 模式下由 runMultiAgent 创建并共享） */
+  taskBoard?: CrossAgentTaskBoard;
 }
 
 export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapResult> {
@@ -228,7 +230,8 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
   // 判断异步子代理是否启用（需要配置开启 + 存在子代理类型定义）
   const asyncSubAgentsEnabled = config.system.asyncSubAgents === true && hasSubAgents;
 
-  const agentTaskRegistry = new AgentTaskRegistry();
+  // 使用外部注入的 taskBoard 或创建本地实例（单 Agent 模式兜底）
+  const taskBoard = options?.taskBoard ?? new CrossAgentTaskBoard();
   const backend = new Backend(router, storage, tools, toolState, prompt, {
     maxToolRounds: config.system.maxToolRounds,
     stream: config.system.stream,
@@ -246,25 +249,28 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
     asyncSubAgents: asyncSubAgentsEnabled,
   }, modeRegistry);
 
-  // 将任务注册表注入 Backend，使 registry 生命周期事件转发为 BackendEvents
-  backend.setAgentTaskRegistry(agentTaskRegistry);
+  // 将任务板注入 Backend，使 board 生命周期事件转发为 BackendEvents
+  backend.setTaskBoard(taskBoard);
 
   // 注册子代理工具（需要 backend 引用；无类型定义时跳过）
   if (hasSubAgents) {
     tools.register(createSubAgentTool({
       getRouter: () => backend.getRouter(),
-      getToolPolicies: () => backend.getToolPolicies(),
+      // [权限修复] 将完整 toolsConfig 传给 sub_agent。
+      // 目的：让子代理继承父级的全局审批开关（如 autoApproveAll / autoApproveDiff），
+      // 避免“前台已授权、子代理里却重新被拦截”的配置割裂。
+      getToolsConfig: () => backend.getToolsConfig(),
       retryOnError: config.system.retryOnError,
       maxRetries: config.system.maxRetries,
       tools,
       subAgentTypes,
       maxDepth: config.system.maxAgentDepth,
-      // ---- 异步子代理依赖注入（仅在 asyncSubAgents 启用时提供） ----
+      // ---- 异步子代理依赖注入（仅在 asyncSubAgents 启用时提供 taskBoard） ----
       // 不提供时子代理只能同步运行（向后兼容）。
       ...(asyncSubAgentsEnabled ? {
-        enqueueNotification: (sessionId: string, text: string) => backend.enqueueAgentNotification(sessionId, text),
         getSessionId: () => backend.getActiveSessionId(),
-        agentTaskRegistry,
+        taskBoard,
+        agentName: options?.agentName ?? '__global__',
       } : {}),
     }));
   }
@@ -406,8 +412,8 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
     getLogLevel: () => getGlobalLogLevel() as number,
     pluginManager: pluginManager!,
     eventBus,
-    // 暴露 agentTaskRegistry 供插件（如 cron）在后台执行任务时复用注册表
-    agentTaskRegistry,
+    // 暴露 taskBoard 供插件（如 cron）在后台执行任务时复用任务板
+    taskBoard,
     patchMethod,
     patchPrototype,
     // 暴露 ToolLoop 工厂方法，供插件（如 cron）创建后台工具循环。

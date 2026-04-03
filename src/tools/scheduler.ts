@@ -109,6 +109,61 @@ function shouldAutoApprove(
   return policy.autoApprove;
 }
 
+/**
+ * 判断当前工具调用是否处在真正可交互的审批上下文中。
+ *
+ * 为什么要单独判断：
+ * - Console 前台会话可以弹出 Y/N 与 diff 审批视图；
+ * - cross-agent:hidden session 虽然也有 ToolStateManager，但前端根本不会切到该 session，
+ *   因而任何 awaiting_approval / awaiting_apply 都会把后台任务卡死；
+ * - sub_agent 等无 ToolStateManager 的场景同样属于非交互上下文。
+ *
+ * 目前约定：sessionId 以 cross-agent: 开头的委派会话视为隐藏后台会话，不可做交互审批。
+ */
+function canUseInteractiveApproval(toolState?: ToolStateManager, invocationId?: string): boolean {
+  if (!toolState || !invocationId) return false;
+  const sessionId = toolState.get(invocationId)?.sessionId;
+  if (typeof sessionId === 'string' && sessionId.startsWith('cross-agent:')) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 从批量工具的结构化返回值中提取总体执行结果。
+ *
+ * 为什么要做这一步：
+ * read/write/insert/delete 等批量工具会把单项失败收敛为 failCount，
+ * handler 本身并不会 throw。调度层如果只看“有返回值”就一律判 success，
+ * 前端会出现绿色勾，但实际上业务可能 100% 失败。
+ */
+function analyzeStructuredToolResult(result: unknown): { status: 'success' | 'warning' | 'error'; error?: string } | undefined {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return undefined;
+  const record = result as Record<string, unknown>;
+  const successCount = typeof record.successCount === 'number' ? record.successCount : undefined;
+  const failCount = typeof record.failCount === 'number' ? record.failCount : undefined;
+  const totalCount = typeof record.totalCount === 'number' ? record.totalCount : undefined;
+  if (successCount == null || failCount == null || totalCount == null) return undefined;
+
+  if (failCount <= 0) return { status: 'success' };
+
+  const firstError = Array.isArray(record.results)
+    ? (record.results as Array<Record<string, unknown>>).find(item => typeof item?.error === 'string')?.error as string | undefined
+    : undefined;
+
+  if (successCount <= 0) {
+    return {
+      status: 'error',
+      error: firstError ?? `工具执行失败：${failCount}/${totalCount} 项失败。`,
+    };
+  }
+
+  return {
+    status: 'warning',
+    error: firstError ?? `工具部分失败：${failCount}/${totalCount} 项失败。`,
+  };
+}
+
 // ============ 类型 ============
 
 /** 一个执行批次 */
@@ -301,6 +356,8 @@ async function executeSingle(
   // 全局开关（最高优先级）
   const globalSkipConfirmation = toolsConfig.autoApproveAll === true || toolsConfig.autoApproveConfirmation === true;
   const globalSkipDiff = toolsConfig.autoApproveAll === true || toolsConfig.autoApproveDiff === true;
+  const autoApproved = globalSkipConfirmation || shouldAutoApprove(call, effectivePolicy);
+  const interactiveApproval = canUseInteractiveApproval(toolState, invocationId);
 
   // 追踪用户是否通过交互审批明确批准了此次调用（用于 shell 安全分类器覆盖）
   let userExplicitlyApproved = false;
@@ -309,14 +366,32 @@ async function executeSingle(
   // 对 shell 工具：不在这里设置。shell 的安全判定完全交给 handler 内层，
   // approvedByUser 只在用户真正通过 Y/N 弹窗确认时设置（denyPatterns 匹配后按 Y）。
   if (toolName !== 'shell') {
-    if (globalSkipConfirmation || shouldAutoApprove(call, effectivePolicy)) {
+    if (autoApproved) {
       userExplicitlyApproved = true;
     }
   }
 
-  if (toolState && invocationId) {
+  if (!autoApproved) {
+    // [安全修复] 非交互上下文不能等待人工确认，否则后台委派 / 子代理会永久卡死。
+    // 这里改为明确失败，让调用方知道需要在对应 agent 的 tools.yaml 中开启 autoApprove。
+    if (!interactiveApproval) {
+      const approvalError = `当前执行上下文无法进行人工确认，工具「${toolName}」被权限策略拦截。请在目标 Agent 的 tools.yaml 中为该工具开启 autoApprove。`;
+      if (toolState && invocationId) {
+        toolState.transition(invocationId, 'error', { error: approvalError });
+      }
+      return {
+        functionResponse: {
+          name: toolName,
+          callId: call.functionCall.callId,
+          response: { error: approvalError },
+        },
+      };
+    }
+  }
+
+  if (interactiveApproval && toolState && invocationId) {
     // ── 一类审批：autoApprove 控制，底部 Y/N ──
-    if (!globalSkipConfirmation && !shouldAutoApprove(call, effectivePolicy)) {
+    if (!autoApproved) {
       toolState.transition(invocationId, 'awaiting_approval');
       const approved = await toolState.waitForApproval(invocationId, signal);
       if (!approved) {
@@ -333,6 +408,8 @@ async function executeSingle(
     }
 
     // ── 二类审批：showApprovalView 控制，diff 预览视图（执行前） ──
+    // [行为修复] showApprovalView 是 Console TUI 专用交互视图。
+    // 对隐藏后台 session / 无 ToolState 的非交互场景，不再把它当作阻塞条件。
     if (!globalSkipDiff && shouldShowDiffPreview(call, effectivePolicy)) {
       toolState.transition(invocationId, 'awaiting_apply');
       const applied = await toolState.waitForApply(invocationId, signal);
@@ -346,10 +423,14 @@ async function executeSingle(
         };
       }
       // applied → 状态已被 applyTool 转为 executing
-    } else if (globalSkipConfirmation || shouldAutoApprove(call, effectivePolicy)) {
+    } else if (autoApproved) {
       // 两类审批都跳过时才需要手动设置 executing
       toolState.transition(invocationId, 'executing');
     }
+  } else if (toolState && invocationId) {
+    // [状态修复] 隐藏后台 session 虽然有 ToolState，但没有可见审批 UI。
+    // 当该上下文允许继续执行时，需要主动转为 executing，避免 queued → success 的非法跳转。
+    toolState.transition(invocationId, 'executing');
   }
   logger.info(`执行工具: ${call.functionCall.name}${invocationId ? ` (${invocationId})` : ''}`);
 
@@ -524,14 +605,32 @@ async function executeSingle(
       response = { result } as Record<string, unknown>;
     }
 
+    // [状态修复] 批量工具可能通过 failCount 表达业务失败而不 throw。
+    // 调度层必须把“全失败 / 部分失败”映射到 error / warning，避免 UI 出现假成功绿勾。
+    const analyzedOutcome = analyzeStructuredToolResult(result);
+    if (analyzedOutcome?.status === 'error') {
+      response = { error: analyzedOutcome.error ?? '工具执行失败', result };
+    }
+
     // 销毁进度上报：刷新最后一个待推送值，然后停止接受新调用。
     // 必须在 transition 到终态之前调用，否则 trailing timer 可能在终态后
     // 触发 executing → success/error 的非法状态转换。
     progressCtx?.dispose();
     if (toolState && invocationId) {
-      // 存储尽量轻量的结果。MCP 图片附件已经通过 onAttachments 旁路发送，
-      // 这里不保留 Buffer，避免状态对象被大块二进制拖重。
-      toolState.transition(invocationId, 'success', { result: stateResult });
+      // [状态修复] 根据结构化结果选择 success / warning / error，
+      // 避免批量工具全失败时仍落成 success。
+      if (analyzedOutcome?.status === 'error') {
+        toolState.transition(invocationId, 'error', { error: analyzedOutcome.error ?? '工具执行失败' });
+      } else if (analyzedOutcome?.status === 'warning') {
+        toolState.transition(invocationId, 'warning', {
+          result: stateResult,
+          error: analyzedOutcome.error,
+        });
+      } else {
+        // 存储尽量轻量的结果。MCP 图片附件已经通过 onAttachments 旁路发送，
+        // 这里不保留 Buffer，避免状态对象被大块二进制拖重。
+        toolState.transition(invocationId, 'success', { result: stateResult });
+      }
     }
     return {
       functionResponse: {

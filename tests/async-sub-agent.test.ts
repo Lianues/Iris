@@ -5,7 +5,7 @@
  *   - run_in_background=true 时 handler 立即返回 async_launched
  *   - 同步模式（run_in_background 不传或 false）保持原有行为
  *   - 并发异步子代理数超过 MAX_CONCURRENT_ASYNC_AGENTS 时拒绝创建
- *   - 子代理完成后调用 enqueueNotification 并写入正确的 XML
+ *   - 子代理完成后调用 enqueueSpy 并写入正确的 XML
  *   - 子代理失败后 notification XML 包含错误信息
  *   - 子代理被 abort 后 notification XML 状态为 killed
  *
@@ -18,7 +18,7 @@ import {
   SubAgentTypeRegistry,
 } from '../src/tools/internal/sub-agent/index.js';
 import type { SubAgentTypeConfig } from '../src/tools/internal/sub-agent/types.js';
-import { AgentTaskRegistry } from '../src/core/agent-task-registry.js';
+import { CrossAgentTaskBoard } from '../src/core/cross-agent-task-board.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import type { Content, Part } from '../src/types/index.js';
 
@@ -73,18 +73,22 @@ function createTools(): ToolRegistry {
 
 describe('async-sub-agent: 异步路径', () => {
   let router: ReturnType<typeof createMockRouter>;
-  let taskRegistry: AgentTaskRegistry;
+  let taskBoard: CrossAgentTaskBoard;
   let typeRegistry: SubAgentTypeRegistry;
   let tools: ToolRegistry;
-  let enqueueNotification: ReturnType<typeof vi.fn>;
+  let enqueueSpy: ReturnType<typeof vi.fn>;
   let getSessionId: () => string | undefined;
 
   beforeEach(() => {
     router = createMockRouter('sub result', 10);
-    taskRegistry = new AgentTaskRegistry();
+    taskBoard = new CrossAgentTaskBoard();
+    // 注册一个 mock backend 供 board 推送通知
+    enqueueSpy = vi.fn();
+    taskBoard.registerBackend('test-agent', {
+      enqueueAgentNotification: enqueueSpy,
+    } as any);
     typeRegistry = createTypeRegistry();
     tools = createTools();
-    enqueueNotification = vi.fn();
     getSessionId = () => 'test-session';
   });
 
@@ -97,9 +101,9 @@ describe('async-sub-agent: 异步路径', () => {
       subAgentTypes: typeRegistry,
       maxDepth: 3,
       getToolPolicies: () => ({}),
-      enqueueNotification,
       getSessionId,
-      agentTaskRegistry: taskRegistry,
+      taskBoard,
+      agentName: 'test-agent',
     });
 
     const startTime = Date.now();
@@ -113,7 +117,7 @@ describe('async-sub-agent: 异步路径', () => {
     expect(result.description).toBeDefined();
 
     // 任务已注册
-    const task = taskRegistry.get(result.taskId);
+    const task = taskBoard.get(result.taskId);
     expect(task).toBeDefined();
     expect(task!.status).toBe('running');
   });
@@ -144,9 +148,9 @@ describe('async-sub-agent: 异步路径', () => {
       subAgentTypes: typeRegistry,
       maxDepth: 3,
       getToolPolicies: () => ({}),
-      enqueueNotification,
       getSessionId,
-      agentTaskRegistry: taskRegistry,
+      taskBoard,
+      agentName: 'test-agent',
     });
 
     // 不传 run_in_background
@@ -169,9 +173,9 @@ describe('async-sub-agent: 异步路径', () => {
       subAgentTypes: typeRegistry,
       maxDepth: 3,
       getToolPolicies: () => ({}),
-      enqueueNotification,
       getSessionId,
-      agentTaskRegistry: taskRegistry,
+      taskBoard,
+      agentName: 'test-agent',
     });
 
     // MAX_CONCURRENT_ASYNC_AGENTS 默认为 5，启动 5 个
@@ -188,16 +192,16 @@ describe('async-sub-agent: 异步路径', () => {
 
   // ---- 完成后 notification ----
 
-  it('子代理完成后调用 enqueueNotification 并写入正确的 XML', async () => {
+  it('子代理完成后调用 enqueueSpy 并写入正确的 XML', async () => {
     const tool = createSubAgentTool({
       getRouter: () => router,
       tools,
       subAgentTypes: typeRegistry,
       maxDepth: 3,
       getToolPolicies: () => ({}),
-      enqueueNotification,
       getSessionId,
-      agentTaskRegistry: taskRegistry,
+      taskBoard,
+      agentName: 'test-agent',
     });
 
     const result = await tool.handler!({ prompt: '后台任务', run_in_background: true }) as any;
@@ -206,9 +210,9 @@ describe('async-sub-agent: 异步路径', () => {
     // 等待异步子代理完成
     await delay(100);
 
-    // enqueueNotification 应被调用
-    expect(enqueueNotification).toHaveBeenCalledTimes(1);
-    const [sid, xml] = enqueueNotification.mock.calls[0];
+    // enqueueSpy 应被调用
+    expect(enqueueSpy).toHaveBeenCalledTimes(1);
+    const [sid, xml] = enqueueSpy.mock.calls[0];
     expect(sid).toBe('test-session');
 
     // XML 格式验证
@@ -218,7 +222,7 @@ describe('async-sub-agent: 异步路径', () => {
     expect(xml).toContain('<result>');
 
     // 任务状态应为 completed
-    expect(taskRegistry.get(taskId)!.status).toBe('completed');
+    expect(taskBoard.get(taskId)!.status).toBe('completed');
   });
 
   // ---- 失败后 notification ----
@@ -239,9 +243,9 @@ describe('async-sub-agent: 异步路径', () => {
       subAgentTypes: typeRegistry,
       maxDepth: 3,
       getToolPolicies: () => ({}),
-      enqueueNotification,
       getSessionId,
-      agentTaskRegistry: taskRegistry,
+      taskBoard,
+      agentName: 'test-agent',
     });
 
     const result = await tool.handler!({ prompt: '会失败的任务', run_in_background: true }) as any;
@@ -250,8 +254,8 @@ describe('async-sub-agent: 异步路径', () => {
     // 等待异步子代理完成（失败）
     await delay(100);
 
-    expect(enqueueNotification).toHaveBeenCalledTimes(1);
-    const [, xml] = enqueueNotification.mock.calls[0];
+    expect(enqueueSpy).toHaveBeenCalledTimes(1);
+    const [, xml] = enqueueSpy.mock.calls[0];
 
     // XML 中应包含失败状态和错误信息
     expect(xml).toContain('<status>failed</status>');
@@ -259,7 +263,7 @@ describe('async-sub-agent: 异步路径', () => {
     expect(xml).toContain('LLM 服务不可用');
 
     // 任务状态应为 failed
-    expect(taskRegistry.get(taskId)!.status).toBe('failed');
+    expect(taskBoard.get(taskId)!.status).toBe('failed');
   });
 
   // ---- abort 后 notification ----
@@ -274,9 +278,9 @@ describe('async-sub-agent: 异步路径', () => {
       subAgentTypes: typeRegistry,
       maxDepth: 3,
       getToolPolicies: () => ({}),
-      enqueueNotification,
       getSessionId,
-      agentTaskRegistry: taskRegistry,
+      taskBoard,
+      agentName: 'test-agent',
     });
 
     const result = await tool.handler!({ prompt: '长时间任务', run_in_background: true }) as any;
@@ -285,33 +289,33 @@ describe('async-sub-agent: 异步路径', () => {
     // 等任务启动
     await delay(20);
 
-    // 通过 taskRegistry 中止任务
-    taskRegistry.kill(taskId);
+    // 通过 taskBoard 中止任务
+    taskBoard.kill(taskId);
 
     // 等待 abort 处理完成
     await delay(100);
 
-    // enqueueNotification 应被调用，XML 中状态为 killed
-    if (enqueueNotification.mock.calls.length > 0) {
-      const [, xml] = enqueueNotification.mock.calls[0];
+    // enqueueSpy 应被调用，XML 中状态为 killed
+    if (enqueueSpy.mock.calls.length > 0) {
+      const [, xml] = enqueueSpy.mock.calls[0];
       expect(xml).toContain('<status>killed</status>');
     }
 
     // 任务状态应为 killed
-    expect(taskRegistry.get(taskId)!.status).toBe('killed');
+    expect(taskBoard.get(taskId)!.status).toBe('killed');
   });
 
   // ---- 无异步依赖时不显示 run_in_background ----
 
-  it('无 enqueueNotification 时 handler 不支持异步路径', async () => {
-    // 不注入 enqueueNotification
+  it('无 enqueueSpy 时 handler 不支持异步路径', async () => {
+    // 不注入 enqueueSpy
     const tool = createSubAgentTool({
       getRouter: () => router,
       tools,
       subAgentTypes: typeRegistry,
       maxDepth: 3,
       getToolPolicies: () => ({}),
-      // 不提供 enqueueNotification / getSessionId
+      // 不提供 enqueueSpy / getSessionId
     });
 
     // run_in_background=true 但无异步依赖，应走同步路径（返回 AsyncIterable）

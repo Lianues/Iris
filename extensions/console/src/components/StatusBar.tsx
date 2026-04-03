@@ -18,13 +18,15 @@ interface StatusBarProps {
   queueSize?: number;
   /** 当前后台运行中的异步子代理数量 */
   backgroundTaskCount?: number;
+  /** 当前后台运行中的委派任务数量（delegate_to_agent），与子代理分开计数 */
+  delegateTaskCount?: number;
   /** 所有后台任务的累计 token 数 */
   backgroundTaskTokens?: number;
   /** chunk 心跳驱动的 spinner 帧索引 */
   backgroundTaskSpinnerFrame?: number;
 }
 
-export function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, backgroundTaskCount, backgroundTaskTokens, backgroundTaskSpinnerFrame }: StatusBarProps) {
+export function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, backgroundTaskCount, delegateTaskCount, backgroundTaskTokens, backgroundTaskSpinnerFrame }: StatusBarProps) {
   const resolvedModeName = modeName ?? 'normal';
   const modeNameCapitalized = resolvedModeName.charAt(0).toUpperCase() + resolvedModeName.slice(1);
   const contextStr = contextTokens > 0 ? contextTokens.toLocaleString() : '-';
@@ -34,6 +36,7 @@ export function StatusBar({ agentName, modeName, modelName, contextTokens, conte
     : '';
 
   const hasBackgroundTasks = (backgroundTaskCount ?? 0) > 0;
+  const hasDelegateTasks = (delegateTaskCount ?? 0) > 0;
   const spinner = hasBackgroundTasks
     ? SPINNER_FRAMES[(backgroundTaskSpinnerFrame ?? 0) % SPINNER_FRAMES.length]
     : '';
@@ -59,6 +62,15 @@ export function StatusBar({ agentName, modeName, modelName, contextTokens, conte
               <span fg={C.dim}> · </span>
               <span fg={C.accent}>
                 {spinner} {backgroundTaskCount} 个后台任务{backgroundTaskTokens != null && backgroundTaskTokens > 0 ? ` ↑${backgroundTaskTokens.toLocaleString()}tk` : ''}
+              </span>
+            </>
+          ) : null}
+          {/* [职责分离] 委派任务独立显示，不带 spinner 和 token（委派不传心跳） */}
+          {hasDelegateTasks ? (
+            <>
+              <span fg={C.dim}> · </span>
+              <span fg={C.warn}>
+                ⇢ {delegateTaskCount} 个委派任务
               </span>
             </>
           ) : null}

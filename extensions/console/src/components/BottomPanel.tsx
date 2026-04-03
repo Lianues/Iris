@@ -29,6 +29,8 @@ interface BottomPanelProps {
   exitConfirmArmed: boolean;
   /** 当前后台运行中的异步子代理数量 */
   backgroundTaskCount?: number;
+  /** 当前后台运行中的委派任务数量（delegate_to_agent） */
+  delegateTaskCount?: number;
   /** 所有后台任务的累计 token 数 */
   backgroundTaskTokens?: number;
   /** chunk 心跳驱动的 spinner 帧索引 */
@@ -53,6 +55,7 @@ export function BottomPanel({
   copyMode,
   exitConfirmArmed,
   backgroundTaskCount,
+  delegateTaskCount,
   backgroundTaskTokens,
   backgroundTaskSpinnerFrame,
 }: BottomPanelProps) {
@@ -92,6 +95,7 @@ export function BottomPanel({
             contextWindow={contextWindow}
             queueSize={queueSize}
             backgroundTaskCount={backgroundTaskCount}
+            delegateTaskCount={delegateTaskCount}
             backgroundTaskTokens={backgroundTaskTokens}
             backgroundTaskSpinnerFrame={backgroundTaskSpinnerFrame}
           />

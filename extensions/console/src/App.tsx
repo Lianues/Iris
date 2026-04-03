@@ -282,6 +282,7 @@ export function App({
         copyMode={copyMode}
         exitConfirmArmed={exitConfirm.exitConfirmArmed}
         backgroundTaskCount={appState.backgroundTaskCount}
+        delegateTaskCount={appState.delegateTaskCount}
         backgroundTaskTokens={appState.backgroundTaskTokens}
         backgroundTaskSpinnerFrame={appState.backgroundTaskSpinnerFrame}
       />

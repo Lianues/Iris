@@ -16,6 +16,8 @@ import type { MCPManager } from './mcp';
 import { isMultiAgentEnabled, loadAgentDefinitions, resolveAgentPaths } from './agents';
 import type { AgentDefinition } from './agents';
 import { isCompiledBinary } from './paths';
+import { CrossAgentTaskBoard } from './core/cross-agent-task-board';
+import { createDelegateToAgentTool, createQueryDelegatedTaskTool } from './tools/internal/delegate-agent';
 
 // ============ 平台创建（从原 main 中抽取） ============
 
@@ -173,19 +175,56 @@ async function runMultiAgent(): Promise<void> {
   // 1. 统一 bootstrap 所有 agent + 全局配置
   const bootstrapCache = new Map<string, BootstrapResult>();
 
-  // 全局 AI（使用 ~/.iris/configs/ 的配置）
+  // [跨 Agent 委派] 创建全局任务板（所有 Agent 共享）。
+  // sub_agent 异步任务和 delegate_to_agent 委派任务都注册到此 board。
+  const taskBoard = new CrossAgentTaskBoard();
+
+  // 全局 AI（使用 ~/.iris/configs/ 的配置），注入共享 taskBoard
   console.log('[Iris] 正在初始化全局 AI...');
-  const globalResult = await bootstrap();
+  const globalResult = await bootstrap({ taskBoard });
   bootstrapCache.set('__global__', globalResult);
 
   for (const def of agentDefs) {
     const paths = resolveAgentPaths(def);
     console.log(`[Iris] 正在初始化 Agent: ${def.name}...`);
-    const result = await bootstrap({ agentName: def.name, agentPaths: paths });
+    const result = await bootstrap({ agentName: def.name, agentPaths: paths, taskBoard });
     bootstrapCache.set(def.name, result);
   }
 
-  // 2. 创建共享多 Agent 平台（所有 agent 共用一个 HTTP 端口）+ 其他非 Console 平台
+  // 2. 注入 agentNetwork + 注册跨 Agent 通信工具
+  //    所有 Agent bootstrap 完成后，将每个 backend 注册到 taskBoard，
+  //    并为每个 Agent 注入 agentNetwork 和 delegate 工具。
+  for (const [name, result] of bootstrapCache) {
+    taskBoard.registerBackend(name, result.backend);
+  }
+  for (const [name, result] of bootstrapCache) {
+    const api = result.irisAPI as any;
+    // 注入 agentNetwork：提供 peer 发现和 backend 引用获取能力
+    api.agentNetwork = {
+      selfName: name,
+      listPeers: () => [...bootstrapCache.keys()].filter(k => k !== name),
+      getPeerDescription: (t: string) => {
+        if (t === '__global__') return '全局 AI';
+        return agentDefs.find(d => d.name === t)?.description;
+      },
+      getPeerBackend: (t: string) => bootstrapCache.get(t)?.backend,
+    };
+    api.taskBoard = taskBoard;
+
+    // 注册 delegate_to_agent 工具（仅当有 peer Agent 时才注册）
+    const peers = api.agentNetwork.listPeers();
+    if (peers.length > 0) {
+      result.tools.register(createDelegateToAgentTool({
+        agentNetwork: api.agentNetwork,
+        taskBoard,
+        getSessionId: () => result.backend.getActiveSessionId(),
+      }));
+      // 注册 query_delegated_task 工具
+      result.tools.register(createQueryDelegatedTaskTool({ taskBoard }));
+    }
+  }
+
+  // 3. 创建共享多 Agent 平台（所有 agent 共用一个 HTTP 端口）+ 其他非 Console 平台
   const allNonConsolePlatforms: PlatformAdapter[] = [];
   let sharedMultiAgentPlatform: (PlatformAdapter & MultiAgentCapable) | undefined;
 
@@ -268,7 +307,7 @@ async function runMultiAgent(): Promise<void> {
     await Promise.all(allNonConsolePlatforms.map(p => p.start()));
   }
 
-  // 3. 注册退出清理（在 Console 循环之前，确保运行期间信号也能触发清理）
+  // 4. 注册退出清理（在 Console 循环之前，确保运行期间信号也能触发清理）
   let cleaning = false;
   const cleanup = async () => {
     if (cleaning) return;
@@ -287,7 +326,7 @@ async function runMultiAgent(): Promise<void> {
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
-  // 4. Console Agent 选择循环
+  // 5. Console Agent 选择循环
   //    全局 AI 始终可选，所有已定义 agent 也可选
   await runConsoleAgentLoop(agentDefs, bootstrapCache);
 }

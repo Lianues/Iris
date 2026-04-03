@@ -319,28 +319,38 @@ export class ConsolePlatform extends PlatformAdapter {
       }
     });
 
-    // 监听 agent:notification 获取任务描述（在 turn:start 之前触发）
-    this.backend.on('agent:notification' as any, (sid: string, _taskId: string, status: string, summary: string) => {
+    // 监听 agent:notification 获取任务描述（在 turn:start 之前触发）。
+    // [职责分离] 第 5 个参数 taskType 区分 'sub_agent' 和 'delegate'。
+    // 委派任务走单独的计数器（delegateTaskCount），不与异步子代理的
+    // backgroundTaskCount / spinner / token 动画混在一起。
+    this.backend.on('agent:notification' as any, (sid: string, _taskId: string, status: string, summary: string, taskType?: string) => {
       if (sid === this.sessionId) {
-        // 更新 StatusBar 中的后台任务计数：
-        // registered → 新任务启动，计数 +1
-        // completed / failed / killed → 任务结束，计数 -1
-        // token-update → 实时更新后台任务的 token 消耗
-        if (status === 'registered') {
-          this.appHandle?.updateBackgroundTaskCount(1);
-        } else if (status === 'completed' || status === 'failed' || status === 'killed') {
-          this.appHandle?.updateBackgroundTaskCount(-1);
-          this.appHandle?.removeBackgroundTaskTokens(_taskId);
-          this.appHandle?.setNotificationContext(summary);
-        } else if (status === 'token-update') {
-          // summary 字段携带 token 数值字符串（由 Backend 转发时填入）
-          const tokens = parseInt(summary, 10);
-          if (!isNaN(tokens)) {
-            this.appHandle?.updateBackgroundTaskTokens(_taskId, tokens);
+        const isDelegate = taskType === 'delegate';
+
+        if (isDelegate) {
+          // ── 委派任务：只更新独立的委派计数，不影响子代理的 spinner/token ──
+          if (status === 'registered') {
+            this.appHandle?.updateDelegateTaskCount(1);
+          } else if (status === 'completed' || status === 'failed' || status === 'killed') {
+            this.appHandle?.updateDelegateTaskCount(-1);
+            this.appHandle?.setNotificationContext(summary);
           }
-        } else if (status === 'chunk-heartbeat') {
-          // 真实数据流动心跳：推进 spinner 帧
-          this.appHandle?.advanceBackgroundTaskSpinner();
+        } else {
+          // ── 异步子代理：保持原有逻辑（计数 / spinner / token） ──
+          if (status === 'registered') {
+            this.appHandle?.updateBackgroundTaskCount(1);
+          } else if (status === 'completed' || status === 'failed' || status === 'killed') {
+            this.appHandle?.updateBackgroundTaskCount(-1);
+            this.appHandle?.removeBackgroundTaskTokens(_taskId);
+            this.appHandle?.setNotificationContext(summary);
+          } else if (status === 'token-update') {
+            const tokens = parseInt(summary, 10);
+            if (!isNaN(tokens)) {
+              this.appHandle?.updateBackgroundTaskTokens(_taskId, tokens);
+            }
+          } else if (status === 'chunk-heartbeat') {
+            this.appHandle?.advanceBackgroundTaskSpinner();
+          }
         }
       }
     });

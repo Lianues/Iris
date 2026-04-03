@@ -50,7 +50,7 @@ import { MessageQueue } from '../message-queue';
 import type { QueuedMessage } from '../message-queue';
 import { TurnLock } from '../turn-lock';
 import { StreamingToolExecutor } from '../../tools/streaming-executor';
-import type { AgentTaskRegistry, AgentTask } from '../agent-task-registry';
+import type { CrossAgentTaskBoard, TaskRecord } from '../cross-agent-task-board';
 
 import type { BackendConfig, ImageInput, DocumentInput, UndoScope, UndoOperationResult, RedoOperationResult, NotificationPayload } from './types';
 import { buildStoredUserParts } from './media';
@@ -155,10 +155,10 @@ export class Backend extends EventEmitter {
    */
   private _draining = false;
 
-  /** 异步子代理任务注册表（由 bootstrap 注入） */
-  private agentTaskRegistry?: AgentTaskRegistry;
-  /** setAgentTaskRegistry 注册的监听器清理函数（防止热重载泄漏） */
-  private agentTaskRegistryCleanup?: () => void;
+  /** 全局任务板（由 bootstrap 注入，替代原 per-Agent AgentTaskRegistry） */
+  private taskBoard?: CrossAgentTaskBoard;
+  /** setTaskBoard 注册的监听器清理函数（防止热重载泄漏） */
+  private taskBoardCleanup?: () => void;
 
   /**
    * 待合并的异步子代理通知（per-session）。
@@ -230,55 +230,65 @@ export class Backend extends EventEmitter {
     this.toolLoopConfig.afterLLMCall = hookConfig.afterLLMCall;
   }
 
-  /** 注入异步子代理任务注册表，将 registry 生命周期事件转发为 BackendEvents */
-  setAgentTaskRegistry(registry: AgentTaskRegistry): void {
-    // 清理旧 registry 的监听器（防止热重载时泄漏）
-    this.agentTaskRegistryCleanup?.();
+  /**
+   * 注入全局任务板，将 board 生命周期事件转发为 BackendEvents。
+   * 替代原 setAgentTaskRegistry，使用 CrossAgentTaskBoard 替代 per-Agent AgentTaskRegistry。
+   */
+  setTaskBoard(board: CrossAgentTaskBoard): void {
+    // 清理旧 board 的监听器（防止热重载时泄漏）
+    this.taskBoardCleanup?.();
 
-    this.agentTaskRegistry = registry;
+    this.taskBoard = board;
 
-    // 转发 registry 生命周期事件为 agent:notification。
-    // 注意：registry 事件名与 task.status 不完全对应（registered→running），
+    // 转发 board 生命周期事件为 agent:notification。
+    // 注意：board 事件名与 task.status 不完全对应（registered→running），
     // 此处统一使用事件名作为 status，保持语义清晰。
-    const onRegistered = (task: AgentTask) => {
-      this.emit('agent:notification', task.sessionId, task.taskId, 'registered', task.description);
+    // TaskRecord 使用 sourceSessionId（发起方会话 ID）作为事件路由目标。
+    //
+    // [职责分离] 第 6 个参数 taskType 区分 'sub_agent' 和 'delegate'。
+    // 前端据此把委派任务和异步子代理分开计数/渲染，互不干扰。
+    // 通知合并逻辑也只看 sub_agent 类型的 running 任务，
+    // 避免委派任务（由另一个 Agent 执行、不会回到本 backend 的队列）
+    // 阻塞子代理通知的合并与发送。
+    const onRegistered = (task: TaskRecord) => {
+      this.emit('agent:notification', task.sourceSessionId, task.taskId, 'registered', task.description, task.type);
     };
-    const onCompleted = (task: AgentTask) => {
-      this.emit('agent:notification', task.sessionId, task.taskId, 'completed', task.description);
+    const onCompleted = (task: TaskRecord) => {
+      this.emit('agent:notification', task.sourceSessionId, task.taskId, 'completed', task.description, task.type);
     };
-    const onFailed = (task: AgentTask) => {
-      this.emit('agent:notification', task.sessionId, task.taskId, 'failed', task.description);
+    const onFailed = (task: TaskRecord) => {
+      this.emit('agent:notification', task.sourceSessionId, task.taskId, 'failed', task.description, task.type);
     };
-    const onKilled = (task: AgentTask) => {
-      this.emit('agent:notification', task.sessionId, task.taskId, 'killed', task.description);
+    const onKilled = (task: TaskRecord) => {
+      this.emit('agent:notification', task.sourceSessionId, task.taskId, 'killed', task.description, task.type);
     };
 
-    registry.on('registered', onRegistered);
-    registry.on('completed', onCompleted);
-    registry.on('failed', onFailed);
-    registry.on('killed', onKilled);
+    board.on('registered', onRegistered);
+    board.on('completed', onCompleted);
+    board.on('failed', onFailed);
+    board.on('killed', onKilled);
 
-    // 转发异步子代理的实时 token 更新事件。
+    // 转发任务的实时 token 更新事件。
     // 平台层（如 Console StatusBar）通过此事件展示后台任务的 token 消耗。
-    const onTokenUpdate = (task: AgentTask) => {
-      this.emit('agent:notification', task.sessionId, task.taskId, 'token-update', String(task.totalTokens ?? 0));
+    const onTokenUpdate = (task: TaskRecord) => {
+      this.emit('agent:notification', task.sourceSessionId, task.taskId, 'token-update', String(task.totalTokens ?? 0), task.type);
     };
-    registry.on('token-update', onTokenUpdate);
+    board.on('token-update', onTokenUpdate);
 
-    // 转发异步子代理的 chunk 心跳事件。
+    // 转发任务的 chunk 心跳事件。
     // 平台层用此事件驱动 spinner 动画帧——只有数据真正流动时 spinner 才转。
-    const onChunkHeartbeat = (task: AgentTask) => {
-      this.emit('agent:notification', task.sessionId, task.taskId, 'chunk-heartbeat', '');
+    const onChunkHeartbeat = (task: TaskRecord) => {
+      this.emit('agent:notification', task.sourceSessionId, task.taskId, 'chunk-heartbeat', '', task.type);
     };
-    registry.on('chunk-heartbeat', onChunkHeartbeat);
+    board.on('chunk-heartbeat', onChunkHeartbeat);
 
-    this.agentTaskRegistryCleanup = () => {
-      registry.off('registered', onRegistered);
-      registry.off('completed', onCompleted);
-      registry.off('failed', onFailed);
-      registry.off('killed', onKilled);
-      registry.off('token-update', onTokenUpdate);
-      registry.off('chunk-heartbeat', onChunkHeartbeat);
+    this.taskBoardCleanup = () => {
+      board.off('registered', onRegistered);
+      board.off('completed', onCompleted);
+      board.off('failed', onFailed);
+      board.off('killed', onKilled);
+      board.off('token-update', onTokenUpdate);
+      board.off('chunk-heartbeat', onChunkHeartbeat);
     };
   }
 
@@ -592,21 +602,30 @@ export class Backend extends EventEmitter {
     return this.turnLock;
   }
 
-  // ============ 异步子代理任务查询（只读） ============
+  // ============ 后台任务查询（只读，委托 taskBoard） ============
 
-  /** 获取指定 session 的所有异步子代理任务 */
-  getAgentTasks(sessionId: string): AgentTask[] {
-    return this.agentTaskRegistry?.getBySession(sessionId) ?? [];
+  /**
+   * 将 TaskRecord 映射为平台层 AgentTaskInfoLike 兼容格式。
+   * TaskRecord 使用 sourceSessionId，平台层期望 sessionId。
+   */
+  private mapTaskForPlatform(t: TaskRecord) {
+    return { taskId: t.taskId, sessionId: t.sourceSessionId, description: t.description, status: t.status, startTime: t.startTime, endTime: t.endTime };
   }
 
-  /** 获取指定 session 中正在运行的异步子代理任务 */
-  getRunningAgentTasks(sessionId: string): AgentTask[] {
-    return this.agentTaskRegistry?.getRunningBySession(sessionId) ?? [];
+  /** 获取指定 session 发起的所有后台任务（平台兼容格式） */
+  getAgentTasks(sessionId: string) {
+    return (this.taskBoard?.getBySourceSession?.(sessionId) ?? []).map(t => this.mapTaskForPlatform(t));
   }
 
-  /** 按 taskId 查询单个异步子代理任务 */
-  getAgentTask(taskId: string): AgentTask | undefined {
-    return this.agentTaskRegistry?.get(taskId);
+  /** 获取指定 session 发起的正在运行的后台任务（平台兼容格式） */
+  getRunningAgentTasks(sessionId: string) {
+    return (this.taskBoard?.getRunningBySourceSession(sessionId) ?? []).map(t => this.mapTaskForPlatform(t));
+  }
+
+  /** 按 taskId 查询单个后台任务（平台兼容格式） */
+  getAgentTask(taskId: string) {
+    const t = this.taskBoard?.get(taskId);
+    return t ? this.mapTaskForPlatform(t) : undefined;
   }
 
   // ============ Skill 管理 ============
@@ -703,6 +722,13 @@ export class Backend extends EventEmitter {
 
   getToolState(): ToolStateManager {
     return this.toolState;
+  }
+
+  getToolsConfig(): ToolsConfig {
+    // [配置修复] 暴露完整 toolsConfig，而不只是 permissions。
+    // 目的：让 sub_agent / 后台执行链继承 autoApproveAll、autoApproveDiff、disabledTools 等全局开关，
+    // 避免父级已授权但子代理丢失全局工具策略。
+    return this.toolLoopConfig.toolsConfig;
   }
 
   getToolPolicies(): Record<string, ToolPolicyConfig> {
@@ -844,10 +870,14 @@ export class Backend extends EventEmitter {
         pending.push(msg.text);
         this.pendingNotifications.set(msg.sessionId, pending);
 
-        // 2. 检查该 session 是否还有运行中的异步任务
-        const running = this.agentTaskRegistry?.getRunningBySession(msg.sessionId) ?? [];
+        // 2. 检查该 session 是否还有运行中的异步子代理任务
+        // [职责分离] 只看 sub_agent 类型。delegate 类型的委派任务完成后
+        // 通知推到另一个 Agent 的 backend，不会回到本 session 的队列，
+        // 不应阻塞子代理通知的合并与发送。
+        const running = (this.taskBoard?.getRunningBySourceSession(msg.sessionId) ?? [])
+          .filter(t => t.type === 'sub_agent');
         if (running.length > 0) {
-          // 还有任务在跑 → 暂存通知，释放锁，等下一个通知到来时再检查
+          // 还有子代理任务在跑 → 暂存通知，释放锁，等下一个通知到来时再检查
           logger.info(
             `通知已暂存 (${pending.length} 条)，等待剩余 ${running.length} 个任务完成: session=${msg.sessionId}`,
           );
