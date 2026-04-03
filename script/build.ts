@@ -54,6 +54,7 @@ type BundledModuleFormat = "esm" | "cjs"
 interface EmbeddedExtensionBuildConfigItem {
   name: string
   sourceDir?: string
+  external?: string[]
   entrypoint?: string
   outfile?: string
   target?: BundledModuleTarget
@@ -63,6 +64,7 @@ interface EmbeddedExtensionBuildConfigItem {
 interface EmbeddedExtensionBuildTarget {
   name: string
   sourceDir: string
+  external: string[]
   entrypoint: string
   outfile: string
   target: BundledModuleTarget
@@ -200,14 +202,48 @@ async function buildBundledModule(options: {
   outfile: string
   target?: "node" | "bun"
   format?: "esm" | "cjs"
+  // 需要保持 external 的包列表（由主程序运行时提供的包），其余依赖全部打包进 bundle。
+  // 注意：Bun 1.x 的 external + outfile 存在 bug，会导致 outfile 被忽略、
+  // 文件写入丢失。因此有 external 时改用 outdir 模式，构建后将产物重命名到 outfile。
+  external?: string[]
 }): Promise<void> {
+  const hasExternal = options.external && options.external.length > 0
+
+  if (hasExternal) {
+    // Bun 1.x bug 规避：external + outfile 会导致输出文件丢失。
+    // 改用 outdir 模式输出到 outfile 所在目录，再将产物 index.js 重命名为目标文件名。
+    const outDir = path.dirname(options.outfile)
+    const targetName = path.basename(options.outfile)
+    fs.rmSync(outDir, { recursive: true, force: true })
+    fs.mkdirSync(outDir, { recursive: true })
+
+    const result = await Bun.build({
+      entrypoints: [options.entrypoint],
+      outdir: outDir,
+      target: options.target ?? "node",
+      format: options.format ?? "esm",
+      external: options.external,
+    })
+
+    if (!result.success) {
+      const logs = formatBuildLogs(result)
+      throw new Error(logs || `构建失败: ${options.outfile}`)
+    }
+
+    // Bun outdir 模式输出的文件名是 index.js，需要重命名为目标文件名（如 index.mjs）
+    const outputJs = path.join(outDir, "index.js")
+    if (fs.existsSync(outputJs) && targetName !== "index.js") {
+      fs.renameSync(outputJs, path.join(outDir, targetName))
+    }
+    return
+  }
+
   const result = await Bun.build({
     entrypoints: [options.entrypoint],
     outfile: options.outfile,
     target: options.target ?? "node",
     format: options.format ?? "esm",
   })
-
   if (!result.success) {
     const logs = formatBuildLogs(result)
     throw new Error(logs || `构建失败: ${options.outfile}`)
@@ -278,6 +314,9 @@ function loadEmbeddedExtensionBuildTargets(): EmbeddedExtensionBuildTarget[] {
     targets.push({
       name,
       sourceDir,
+      // 解析 external 数组：配合 packages:"bundle" 使用，
+      // 指定哪些包保持 external（由主程序提供），其余全部内联
+      external: Array.isArray(config.external) ? config.external.filter((e): e is string => typeof e === "string") : [],
       entrypoint,
       outfile,
       target: config.target === "bun" ? "bun" : "node",
@@ -293,6 +332,8 @@ async function buildEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[
     await buildBundledModule({
       entrypoint: extension.entrypoint,
       outfile: extension.outfile,
+      // 传入 external 配置：让指定的包保持 external，其余打包进 bundle
+      external: extension.external,
       target: extension.target,
       format: extension.format,
     })
