@@ -199,7 +199,6 @@ export function App({
     isGenerating: appState.isGenerating,
     pendingApplies: appState.pendingApplies,
     pendingApprovals: appState.pendingApprovals,
-    toolInvocations: appState.toolInvocations,
     onOpenToolDetail,
     approval,
     onExit,
@@ -331,7 +330,6 @@ export function App({
         contextWindow={modelState.currentContextWindow}
         copyMode={copyMode}
         exitConfirmArmed={exitConfirm.exitConfirmArmed}
-        hasTools={appState.toolInvocations.length > 0}
         backgroundTaskCount={appState.backgroundTaskCount}
         delegateTaskCount={appState.delegateTaskCount}
         backgroundTaskTokens={appState.backgroundTaskTokens}

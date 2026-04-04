@@ -547,10 +547,19 @@ export class ConsolePlatform extends PlatformAdapter {
 
   /** 打开工具详情 */
   private openToolDetail(toolId: string): void {
-    const handle = this._activeHandles.get(toolId);
+    let handle: any;
+    if (toolId) {
+      handle = this._activeHandles.get(toolId);
+    } else {
+      // 自动选择：优先正在执行的，否则最后一个
+      const all = Array.from(this._activeHandles.values());
+      if (all.length === 0) return;
+      handle = all.find((h: any) => h.status === 'executing') ?? all[all.length - 1];
+    }
     if (!handle) return;
-    this._toolDetailStack = [toolId];
-    this.pushToolDetailData(toolId);
+    const id = handle.id ?? toolId;
+    this._toolDetailStack = [id];
+    this.pushToolDetailData(id);
   }
 
   /** 导航到子工具详情 */

@@ -40,7 +40,6 @@ interface BottomPanelProps {
   thinkingEffort: ThinkingEffortLevel;
   /** Shift+Left/Right 切换思考强度 */
   onCycleThinkingEffort: (direction: 1 | -1) => void;
-  hasTools?: boolean;
 }
 
 export function BottomPanel({
@@ -66,7 +65,6 @@ export function BottomPanel({
   backgroundTaskSpinnerFrame,
   thinkingEffort,
   onCycleThinkingEffort,
-  hasTools,
 }: BottomPanelProps) {
   // 输入框仅在审批/确认对话框期间完全禁用
   const inputDisabled = !!(pendingConfirm || pendingApprovals.length > 0);
@@ -119,7 +117,6 @@ export function BottomPanel({
         queueSize={queueSize}
         copyMode={copyMode}
         exitConfirmArmed={exitConfirmArmed}
-        hasTools={hasTools}
       />
     </box>
   );

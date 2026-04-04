@@ -39,8 +39,6 @@ interface UseAppKeyboardOptions {
   isGenerating: boolean;
   pendingApplies: ToolInvocation[];
   pendingApprovals: ToolInvocation[];
-  /** 当前工具调用列表（用于判断是否可打开详情） */
-  toolInvocations: ToolInvocation[];
   /** 打开工具详情 */
   onOpenToolDetail: (toolId: string) => void;
   approval: ApprovalController;
@@ -93,7 +91,6 @@ export function useAppKeyboard({
   isGenerating,
   pendingApplies,
   pendingApprovals,
-  toolInvocations,
   onOpenToolDetail,
   approval,
   onExit,
@@ -144,14 +141,9 @@ export function useAppKeyboard({
       return;
     }
 
-    // Ctrl+T：打开工具执行详情
+    // Ctrl+T：打开工具执行详情（由 index.ts 从 _activeHandles 中选择目标）
     if (key.name === 't' && key.ctrl) {
-      if (toolInvocations.length > 0) {
-        // 优先选择正在执行的工具，否则选最后一个
-        const executing = toolInvocations.find(t => t.status === 'executing');
-        const target = executing ?? toolInvocations[toolInvocations.length - 1];
-        onOpenToolDetail(target.id);
-      }
+      onOpenToolDetail('');
       return;
     }
 

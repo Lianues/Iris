@@ -9,8 +9,6 @@ interface HintBarProps {
   queueSize?: number;
   copyMode: boolean;
   exitConfirmArmed: boolean;
-  /** 是否有工具调用（用于显示 Ctrl+T 提示） */
-  hasTools?: boolean;
 }
 
 /* ---------- 路径截断工具 ---------- */
@@ -60,7 +58,7 @@ function hardTruncate(text: string, maxWidth: number): string {
 
 /* ---------- 组件 ---------- */
 
-export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, hasTools }: HintBarProps) {
+export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed }: HintBarProps) {
   const cwd = process.cwd();
   const hasQueue = (queueSize ?? 0) > 0;
 
@@ -71,7 +69,7 @@ export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, h
   } else {
     const parts: string[] = [];
     parts.push(isGenerating ? 'esc 中断生成' : 'ctrl+j 换行');
-    if (hasTools) parts.push('ctrl+t 工具详情');
+    parts.push('ctrl+t 工具详情');
     if (!isGenerating) parts.push('shift+\u2190/\u2192 思考');
     if (isGenerating && hasQueue) {
       parts.push('/queue 管理队列');
@@ -99,7 +97,7 @@ export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, h
       ) : (
         <text fg={C.dim}>
           {isGenerating ? 'esc 中断生成' : 'ctrl+j 换行'}
-          {hasTools ? '  \u00b7  ctrl+t 工具详情' : null}
+          {'  \u00b7  ctrl+t 工具详情'}
           {isGenerating && hasQueue ? (
             <>
               {'  \u00b7  '}
