@@ -80,6 +80,7 @@ export interface UseAppHandleReturn {
   retryInfo: RetryInfo | null;
   pendingApprovals: ToolInvocation[];
   pendingApplies: ToolInvocation[];
+  toolInvocations: ToolInvocation[];
   /** 当前后台运行中的异步子代理数量 */
   backgroundTaskCount: number;
   /** 当前后台运行中的委派任务数量（delegate_to_agent），与子代理分开计数 */
@@ -104,6 +105,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
   const [retryInfo, setRetryInfo] = useState<RetryInfo | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<ToolInvocation[]>([]);
   const [pendingApplies, setPendingApplies] = useState<ToolInvocation[]>([]);
+  const [toolInvocations, setToolInvocationsState] = useState<ToolInvocation[]>([]);
   const [backgroundTaskCount, setBackgroundTaskCount] = useState(0);
   // [职责分离] 委派任务独立计数，不与异步子代理的 spinner / token 混用
   const [delegateTaskCount, setDelegateTaskCount] = useState(0);
@@ -126,6 +128,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
 
   const commitTools = useCallback(() => {
     toolInvocationsRef.current = [];
+    setToolInvocationsState([]);
     setPendingApprovals([]);
     setPendingApplies([]);
   }, []);
@@ -247,6 +250,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
       setToolInvocations(invocations) {
         const copy = [...invocations];
         toolInvocationsRef.current = copy;
+        setToolInvocationsState(copy);
         setPendingApprovals(copy.filter((invocation) => invocation.status === 'awaiting_approval'));
         setPendingApplies(copy.filter((invocation) => invocation.status === 'awaiting_apply'));
         setMessages((prev) => {
@@ -433,6 +437,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
     retryInfo,
     pendingApprovals,
     pendingApplies,
+    toolInvocations,
     backgroundTaskCount,
     delegateTaskCount,
     backgroundTaskTokens,
