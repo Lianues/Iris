@@ -69,6 +69,7 @@ interface UseAppKeyboardOptions {
   queueEditState: TextInputState;
   queueEditActions: TextInputActions;
   onToggleThoughts: () => void;
+  toolListItems: ToolInvocation[];
 }
 
 function closeConfirm(
@@ -119,6 +120,7 @@ export function useAppKeyboard({
   queueEditState,
   queueEditActions,
   onToggleThoughts,
+  toolListItems,
 }: UseAppKeyboardOptions) {
   useKeyboard((key) => {
     if (key.ctrl && key.name === 'c') {
@@ -151,6 +153,21 @@ export function useAppKeyboard({
 
     // tool-detail 视图由 ToolDetailView 组件自身处理键盘（useKeyboard），此处不拦截
     if (viewMode === 'tool-detail') return;
+
+    // ── tool-list 视图 ──
+    if (viewMode === 'tool-list') {
+      if (key.name === 'escape') {
+        setViewMode('chat');
+      } else if (key.name === 'up') setSelectedIndex((prev) => Math.max(0, prev - 1));
+      else if (key.name === 'down') setSelectedIndex((prev) => Math.min(toolListItems.length - 1, prev + 1));
+      else if (key.name === 'return') {
+        const selected = toolListItems[selectedIndex];
+        if (selected) {
+          onOpenToolDetail(selected.id);
+        }
+      }
+      return;
+    }
 
     if (pendingConfirm && key.name === 'escape') {
       closeConfirm(setPendingConfirm, setConfirmChoice);

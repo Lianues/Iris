@@ -61,6 +61,8 @@ export interface AppHandle {
   updateToolDetailData(data: ToolDetailData): void;
   /** 关闭工具详情（弹出导航栈或完全退出） */
   closeToolDetail(): void;
+  /** 打开工具列表视图 */
+  openToolList(tools: ToolInvocation[]): void;
 }
 
 interface UseAppHandleOptions {
@@ -93,6 +95,7 @@ export interface UseAppHandleReturn {
   commitTools: () => void;
   toolDetailData: ToolDetailData | null;
   toolDetailStack: ToolDetailBreadcrumb[];
+  toolListItems: ToolInvocation[];
 }
 
 export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppHandleOptions): UseAppHandleReturn {
@@ -117,6 +120,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
   const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState(0);
   const [toolDetailData, setToolDetailData] = useState<ToolDetailData | null>(null);
   const [toolDetailStack, setToolDetailStack] = useState<ToolDetailBreadcrumb[]>([]);
+  const [toolListItems, setToolListItems] = useState<ToolInvocation[]>([]);
 
   const streamPartsRef = useRef<MessagePart[]>([]);
   const toolInvocationsRef = useRef<ToolInvocation[]>([]);
@@ -422,6 +426,9 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
       drainQueue() {
         return drainCallbackRef.current?.() ?? undefined;
       },
+      openToolList(tools: ToolInvocation[]) {
+        setToolListItems(tools);
+      },
     };
 
     onReady(handle);
@@ -446,5 +453,6 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
     commitTools,
     toolDetailData,
     toolDetailStack,
+    toolListItems,
   };
 }

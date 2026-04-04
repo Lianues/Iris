@@ -570,17 +570,20 @@ export class ConsolePlatform extends PlatformAdapter {
 
   /** 打开工具详情 */
   private openToolDetail(toolId: string): void {
-    let handle: any;
-    if (toolId) {
-      handle = this._activeHandles.get(toolId);
-    } else {
+    if (!toolId) {
+      // Ctrl+T 无指定目标：打开工具列表
       const all = Array.from(this._activeHandles.values());
       if (all.length === 0) {
-        this.appHandle?.addErrorMessage('当前会话没有工具执行记录。请先让 AI 执行工具后再按 Ctrl+T 查看详情。');
+        this.appHandle?.addErrorMessage('当前会话没有工具执行记录。');
         return;
       }
-      handle = all.find((h: any) => h.status === 'executing') ?? all[all.length - 1];
+      // 收集所有工具的快照，按创建时间排序
+      const tools = all.map((h: any) => h.getSnapshot() as ToolInvocation)
+        .sort((a: ToolInvocation, b: ToolInvocation) => a.createdAt - b.createdAt);
+      this.appHandle?.openToolList(tools);
+      return;
     }
+    const handle = this._activeHandles.get(toolId);
     if (!handle) {
       this.appHandle?.addErrorMessage('未找到指定的工具执行记录。');
       return;
