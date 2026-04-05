@@ -5,6 +5,7 @@
 import type { LLMConfig, ToolsConfig, SkillDefinition, SummaryConfig } from '../../config/types';
 import type { OCRProvider } from '../../ocr';
 import type { Part, Content, UsageMetadata, ToolInvocation, ToolAttachment } from '../../types';
+import type { ToolExecutionHandle } from '../../tools/handle';
 
 // ============ 常量 ============
 
@@ -114,8 +115,14 @@ export interface BackendEvents {
   'stream:chunk': (sessionId: string, chunk: string) => void;
   /** 流式段结束 */
   'stream:end': (sessionId: string, usage?: UsageMetadata) => void;
-  /** 工具状态变更 */
-  'tool:update': (sessionId: string, invocations: ToolInvocation[]) => void;
+  /**
+   * 新工具执行启动。
+   *
+   * 平台层通过此事件获取工具的双向通道（Handle），
+   * 之后所有工具相关的交互（状态变化、输出流、审批、终止）都通过 Handle 完成。
+   * 替代原有的 tool:update + approveTool + applyTool 碎片化模式。
+   */
+  'tool:execute': (sessionId: string, handle: ToolExecutionHandle) => void;
   /** 处理出错 */
   'error': (sessionId: string, error: string) => void;
   /** Token 用量（每轮 LLM 调用后发出） */

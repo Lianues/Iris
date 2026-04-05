@@ -132,9 +132,8 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
 
   // ---- 0. 预加载插件 + PreBootstrap 阶段 ----
   const inlinePlugins = options?.inlinePlugins ?? [];
-  let pluginManager: PluginManager | undefined;
+  const pluginManager = new PluginManager();
   if (config.plugins?.length || inlinePlugins.length > 0) {
-    pluginManager = new PluginManager();
     pluginManager.setConfigDir(configDir);
     pluginManager.setDevSourceExtensions(config.system.devSourceExtensions);
     await pluginManager.prepareAll(config.plugins ?? [], config, inlinePlugins);
@@ -285,6 +284,7 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
       retryOnError: config.system.retryOnError,
       maxRetries: config.system.maxRetries,
       tools,
+      toolState,
       subAgentTypes,
       maxDepth: config.system.maxAgentDepth,
       // ---- 异步子代理依赖注入（仅在 asyncSubAgents 启用时提供 taskBoard） ----
@@ -454,8 +454,10 @@ export async function bootstrap(options?: BootstrapOptions): Promise<BootstrapRe
       setExtensionLogLevel(level);
     },
     getLogLevel: () => getGlobalLogLevel() as number,
-    pluginManager: pluginManager!,
+    pluginManager,
     eventBus,
+    services: pluginManager.getServiceRegistry(),
+    configContributions: pluginManager.getConfigContributionRegistry(),
     // 暴露 taskBoard 供插件（如 cron）在后台执行任务时复用任务板
     taskBoard,
     // [cron 重构] 暴露 agentName 供插件在注册任务时标识 sourceAgent / targetAgent

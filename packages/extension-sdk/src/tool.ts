@@ -35,6 +35,10 @@ export interface ToolInvocation {
    * 例如 sub_agent: { tokens: number, frame: number }
    */
   progress?: Record<string, unknown>;
+  /** 父工具执行 ID（子代理内部工具指向 sub_agent 的 invocationId） */
+  parentToolId?: string;
+  /** 嵌套深度（顶层=0，子代理内部=1...） */
+  depth?: number;
 }
 
 /**
@@ -56,4 +60,65 @@ export interface ToolDefinition {
   declaration: FunctionDeclaration;
   handler: ToolHandler;
   parallel?: ToolParallelPolicy;
+}
+
+
+// ============ 工具输出 ============
+
+/** 工具执行的输出条目（累积式日志流） */
+export interface ToolOutputEntry {
+  /** 输出类型 */
+  type: 'stdout' | 'stderr' | 'log' | 'chat' | 'data';
+  /** 输出内容 */
+  content: string;
+  /** 结构化数据（可选） */
+  data?: Record<string, unknown>;
+  /** 时间戳 */
+  timestamp: number;
+}
+
+// ============ 工具执行句柄 ============
+
+/**
+ * 工具执行双向通道的 SDK 侧接口。
+ *
+ * 平台扩展通过 `backend.on('tool:execute', (sid, handle) => ...)` 获取 Handle，
+ * 之后所有工具相关交互都通过 Handle 完成：
+ * - 下行订阅：on('state'/'output'/'progress'/'child'/'done')
+ * - 上行控制：abort() / approve() / apply() / send()
+ * - 状态查询：getSnapshot() / getOutputHistory() / getChildren()
+ */
+export interface ToolExecutionHandleLike {
+  readonly id: string;
+  readonly toolName: string;
+  readonly status: ToolStatus;
+  readonly parentId?: string;
+  readonly depth: number;
+
+  // ── 下行订阅 ──
+  on(event: 'state', listener: (status: ToolStatus, prev: ToolStatus) => void): this;
+  on(event: 'output', listener: (entry: ToolOutputEntry) => void): this;
+  on(event: 'progress', listener: (data: Record<string, unknown>) => void): this;
+  on(event: 'child', listener: (childHandle: ToolExecutionHandleLike) => void): this;
+  on(event: 'done', listener: (result?: unknown, error?: string) => void): this;
+  on(event: 'message', listener: (type: string, data?: unknown) => void): this;
+  off(event: string, listener: (...args: any[]) => void): this;
+
+  // ── 上行控制 ──
+  /** 终止此工具执行 */
+  abort(): void;
+  /** 审批此工具执行（一类审批：Y/N 确认） */
+  approve(approved: boolean): void;
+  /** Diff 预览确认（二类审批） */
+  apply(applied: boolean): void;
+  /** 通用上行消息通道 */
+  send(type: string, data?: unknown): void;
+
+  // ── 查询 ──
+  /** 获取当前 ToolInvocation 的快照副本 */
+  getSnapshot(): ToolInvocation;
+  /** 获取输出历史副本 */
+  getOutputHistory(): ToolOutputEntry[];
+  /** 获取子 Handle 列表副本 */
+  getChildren(): ToolExecutionHandleLike[];
 }

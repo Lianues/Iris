@@ -250,7 +250,7 @@ async function main() {
   let durationMs = 0;
   let hasError = false;
 
-  const printedToolStates = new Map<string, string>(); // id → last printed status
+  // tool handles 通过 tool:execute 事件直接驱动，不再需要 printedToolStates
   // 监听事件
   const sid = options.sessionId;
 
@@ -272,20 +272,17 @@ async function main() {
   });
 
   // 工具调用状态
-  backend.on('tool:update', (_sid: string, invocations: ToolInvocation[]) => {
+  backend.on('tool:execute' as any, (_sid: string, handle: any) => {
     if (_sid !== sid || !options.printTools) return;
-    for (const inv of invocations) {
-      const lastPrinted = printedToolStates.get(inv.id);
-      if (lastPrinted === inv.status) continue;
-      printedToolStates.set(inv.id, inv.status);
-      if (inv.status === 'executing' && lastPrinted !== 'executing') {
-        process.stderr.write(`[tool] ${inv.toolName}(${summarizeArgs(inv.args)})\n`);
-      } else if (inv.status === 'success' && lastPrinted !== 'success') {
-        process.stderr.write(`[tool] ${inv.toolName} ✓\n`);
-      } else if (inv.status === 'error' && lastPrinted !== 'error') {
-        process.stderr.write(`[tool] ${inv.toolName} ✗ ${inv.error || ''}\n`);
+    handle.on('state', (status: string, prev: string) => {
+      if (status === 'executing' && prev !== 'executing') {
+        process.stderr.write(`[tool] ${handle.toolName}(${summarizeArgs(handle.getSnapshot().args)})\n`);
+      } else if (status === 'success' && prev !== 'success') {
+        process.stderr.write(`[tool] ${handle.toolName} ✓\n`);
+      } else if (status === 'error' && prev !== 'error') {
+        process.stderr.write(`[tool] ${handle.toolName} ✗ ${handle.getSnapshot().error || ''}\n`);
       }
-    }
+    });
   });
 
   // 完整的 assistant 内容（用于收集工具调用记录）

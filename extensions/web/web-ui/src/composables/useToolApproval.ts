@@ -56,6 +56,18 @@ async function apply(id: string, applied: boolean) {
   }
 }
 
+async function abort(id: string) {
+  if (inflightIds.has(id)) return
+  inflightIds.add(id)
+  try {
+    await api.abortTool(id)
+  } catch (err) {
+    console.error('[useToolApproval] abort failed:', err)
+  } finally {
+    inflightIds.delete(id)
+  }
+}
+
 export function useToolApproval() {
   return {
     toolInvocations,
@@ -63,7 +75,6 @@ export function useToolApproval() {
     pendingApplies,
     setToolInvocations,
     clearToolState,
-    approve,
-    apply,
+    approve, apply, abort,
   }
 }

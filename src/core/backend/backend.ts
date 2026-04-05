@@ -4,7 +4,7 @@
  * 封装全部业务逻辑，通过公共方法和事件与平台层交互。
  *
  * 平台层调用 Backend 的方法（chat / clearSession / listSessionMetas 等），
- * Backend 通过事件（response / stream:start / stream:chunk / stream:end / tool:update）
+ * Backend 通过事件（response / stream:start / stream:chunk / stream:end / tool:execute）
  * 将结果推送给平台层。
  *
  * Backend 不知道任何平台的存在。
@@ -51,6 +51,7 @@ import type { QueuedMessage } from '../message-queue';
 import { TurnLock } from '../turn-lock';
 import { StreamingToolExecutor } from '../../tools/streaming-executor';
 import type { CrossAgentTaskBoard, TaskRecord } from '../cross-agent-task-board';
+import { ToolExecutionHandle } from '../../tools/handle';
 
 import type { BackendConfig, ImageInput, DocumentInput, UndoScope, UndoOperationResult, RedoOperationResult, NotificationPayload } from './types';
 import { buildStoredUserParts } from './media';
@@ -744,8 +745,14 @@ export class Backend extends EventEmitter {
     return info;
   }
 
-  getToolState(): ToolStateManager {
-    return this.toolState;
+  /** 获取指定工具的双向通道 Handle */
+  getToolHandle(toolId: string): ToolExecutionHandle | undefined {
+    return this.toolState.getHandle(toolId);
+  }
+
+  /** 获取指定会话的所有工具 Handle */
+  getToolHandles(sessionId: string): ToolExecutionHandle[] {
+    return this.toolState.getHandlesBySession(sessionId);
   }
 
   getToolsConfig(): ToolsConfig {
@@ -757,22 +764,6 @@ export class Backend extends EventEmitter {
 
   getToolPolicies(): Record<string, ToolPolicyConfig> {
     return this.toolLoopConfig.toolsConfig.permissions;
-  }
-
-  approveTool(toolId: string, approved: boolean): void {
-    if (approved) {
-      this.toolState.transition(toolId, 'executing');
-    } else {
-      this.toolState.transition(toolId, 'error', { error: '用户已拒绝执行' });
-    }
-  }
-
-  applyTool(toolId: string, applied: boolean): void {
-    if (applied) {
-      this.toolState.transition(toolId, 'executing');
-    } else {
-      this.toolState.transition(toolId, 'error', { error: '用户在 diff 预览中拒绝了执行' });
-    }
   }
 
   isStreamEnabled(): boolean {
@@ -1318,16 +1309,11 @@ export class Backend extends EventEmitter {
   // ============ 工具事件转发 ============
 
   private setupToolStateForwarding(): void {
-    this.toolState.on('created', (invocation: ToolInvocation) => {
-      const sid = invocation.sessionId;
+    // Handle 被创建时，通知平台层
+    this.toolState.on('handle:created', (handle: ToolExecutionHandle) => {
+      const sid = handle.getSnapshot().sessionId;
       if (!sid) return;
-      this.emit('tool:update', sid, this.toolState.getBySession(sid));
-    });
-
-    this.toolState.on('stateChange', (event: { invocation: ToolInvocation }) => {
-      const sid = event.invocation.sessionId;
-      if (!sid) return;
-      this.emit('tool:update', sid, this.toolState.getBySession(sid));
+      this.emit('tool:execute', sid, handle);
     });
   }
 

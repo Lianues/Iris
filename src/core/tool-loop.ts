@@ -131,6 +131,11 @@ export class ToolLoop {
     private toolState?: ToolStateManager,
   ) {}
 
+  /** 获取关联的 ToolStateManager（sub-agent 工厂需要拿到引用） */
+  getToolState(): ToolStateManager | undefined {
+    return this.toolState;
+  }
+
   /**
    * 执行工具循环。
    *

@@ -556,8 +556,29 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable {
     const onDone = (sid: string, durationMs: number) => {
       this.writeSSE(sid, { type: 'done_meta', durationMs });
     };
-    const onToolUpdate = (sid: string, invocations: any[]) => {
-      this.writeSSE(sid, { type: 'tool_update', invocations });
+    const onToolExecute = (sid: string, handle: any) => {
+      // 推送新工具启动
+      this.writeSSE(sid, {
+        type: 'tool_start',
+        tool: { id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, depth: handle.depth, parentId: handle.parentId },
+      });
+      // 订阅状态变化
+      handle.on('state', (status: string, prev: string) => {
+        this.writeSSE(sid, { type: 'tool_state', toolId: handle.id, status, prev, snapshot: handle.getSnapshot() });
+      });
+      // 订阅实时输出
+      handle.on('output', (entry: any) => {
+        this.writeSSE(sid, { type: 'tool_output', toolId: handle.id, entry });
+      });
+      // 订阅进度
+      handle.on('progress', (data: any) => {
+        this.writeSSE(sid, { type: 'tool_progress', toolId: handle.id, data });
+      });
+      // 子工具产生
+      handle.on('child', (childHandle: any) => {
+        // 递归：子 handle 也走同样的事件订阅
+        onToolExecute(sid, childHandle);
+      });
     };
     const onUsage = (sid: string, usage: any) => {
       this.writeSSE(sid, { type: 'usage', usage });
@@ -594,7 +615,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable {
     backend.on('stream:parts', onStreamParts);
     backend.on('stream:end', onStreamEnd);
     backend.on('done', onDone);
-    backend.on('tool:update', onToolUpdate);
+    backend.on('tool:execute' as any, onToolExecute);
     backend.on('usage', onUsage);
     backend.on('retry', onRetry);
     backend.on('auto-compact', onAutoCompact);
@@ -613,7 +634,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable {
         backend.off!('stream:parts', onStreamParts);
         backend.off!('stream:end', onStreamEnd);
         backend.off!('done', onDone);
-        backend.off!('tool:update', onToolUpdate);
+        backend.off!('tool:execute' as any, onToolExecute);
         backend.off!('usage', onUsage);
         backend.off!('retry', onRetry);
         backend.off!('auto-compact', onAutoCompact);
@@ -895,7 +916,9 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable {
       try {
         const { backend } = this.resolveAgent(req);
         const body = await readBody(req);
-        backend.approveTool?.(params.id, body.approved);
+        const handle = backend.getToolHandle?.(params.id);
+        if (!handle) { sendJSON(res, 404, { error: '未找到工具调用' }); return; }
+        handle.approve(body.approved);
         sendJSON(res, 200, { ok: true });
       } catch (err: unknown) {
         sendJSON(res, 400, { error: err instanceof Error ? err.message : '操作失败' });
@@ -906,7 +929,22 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable {
       try {
         const { backend } = this.resolveAgent(req);
         const body = await readBody(req);
-        backend.applyTool?.(params.id, body.applied);
+        const handle = backend.getToolHandle?.(params.id);
+        if (!handle) { sendJSON(res, 404, { error: '未找到工具调用' }); return; }
+        handle.apply(body.applied);
+        sendJSON(res, 200, { ok: true });
+      } catch (err: unknown) {
+        sendJSON(res, 400, { error: err instanceof Error ? err.message : '操作失败' });
+      }
+    });
+
+    // 工具终止
+    this.router.post('/api/tools/:id/abort', async (req, res, params) => {
+      try {
+        const { backend } = this.resolveAgent(req);
+        const handle = backend.getToolHandle?.(params.id);
+        if (!handle) { sendJSON(res, 404, { error: '未找到工具调用' }); return; }
+        handle.abort();
         sendJSON(res, 200, { ok: true });
       } catch (err: unknown) {
         sendJSON(res, 400, { error: err instanceof Error ? err.message : '操作失败' });

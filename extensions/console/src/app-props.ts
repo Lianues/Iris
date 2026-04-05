@@ -13,6 +13,12 @@ export interface AppProps {
   onToolApproval: (toolId: string, approved: boolean) => void;
   onToolApply: (toolId: string, applied: boolean) => void;
   onAbort: () => void;
+  /** 用户请求打开工具详情 */
+  onOpenToolDetail: (toolId: string) => void;
+  /** 用户在详情页请求查看子工具 */
+  onNavigateToolDetail: (toolId: string) => void;
+  /** 用户关闭工具详情（返回上一层或退出） */
+  onCloseToolDetail: () => void;
   onNewSession: () => void;
   onLoadSession: (id: string) => Promise<void>;
   onListSessions: () => Promise<SessionMeta[]>;

@@ -1,4 +1,4 @@
-import { PlatformAdapter, createExtensionLogger, definePlatformFactory, autoApproveTools } from '@irises/extension-sdk';
+import { PlatformAdapter, createExtensionLogger, definePlatformFactory, autoApproveHandle } from '@irises/extension-sdk';
 import { buildLarkCard, formatLarkToolLine, type LarkToolStatusEntry } from './card-builder';
 import { LarkClient } from './client';
 import { LarkCommandRouter } from './commands';
@@ -146,36 +146,44 @@ export class LarkPlatform extends PlatformAdapter {
     if (this.backendListenersReady) return;
     this.backendListenersReady = true;
 
-    this.backend.on('tool:update', (sid: string, invocations: IrisToolInvocationLike[]) => {
-      autoApproveTools(this.backend, invocations);
+    this.backend.on('tool:execute' as any, (sid: string, handle: any) => {
+      autoApproveHandle(handle);
 
       if (!this.showToolStatus) return;
       const cs = this.findChatStateBySid(sid);
       if (!cs?.stream || cs.stopped) return;
 
-      const sorted = [...invocations].sort((a, b) => a.createdAt - b.createdAt);
-
-      for (const inv of sorted) {
-        const isDone = inv.status === 'success' || inv.status === 'error';
-        if (isDone && !cs.stream.committedToolIds.has(inv.id)) {
-          cs.stream.committedToolIds.add(inv.id);
-          const line = formatLarkToolLine(inv);
+      handle.on('done', () => {
+        if (!cs.stream) return;
+        if (!cs.stream.committedToolIds.has(handle.id)) {
+          cs.stream.committedToolIds.add(handle.id);
+          const line = formatLarkToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
           cs.stream.buffer = cs.stream.buffer
             ? `${cs.stream.buffer}\n\n${line}\n\n`
             : `${line}\n\n`;
         }
-      }
+      });
 
-      cs.stream.activeToolEntries = sorted
-        .filter((inv) => !cs.stream!.committedToolIds.has(inv.id))
-        .map((inv) => ({
-          id: inv.id,
-          toolName: inv.toolName,
-          status: inv.status,
-          createdAt: inv.createdAt,
-        }));
-
-      this.patchStreamCard(cs);
+      handle.on('state', () => {
+        if (!cs.stream || cs.stopped) return;
+        if (handle.status !== 'success' && handle.status !== 'error' && handle.status !== 'warning') {
+          cs.stream.activeToolEntries = cs.stream.activeToolEntries || [];
+          const existing = cs.stream.activeToolEntries.findIndex((e: any) => e.id === handle.id);
+          const entry = { id: handle.id, toolName: handle.toolName, status: handle.status, createdAt: handle.getSnapshot().createdAt };
+          if (existing >= 0) {
+            cs.stream.activeToolEntries[existing] = entry;
+          } else {
+            cs.stream.activeToolEntries.push(entry);
+          }
+          this.patchStreamCard(cs);
+        } else {
+          // 终态：从 active 列表移除
+          if (cs.stream.activeToolEntries) {
+            cs.stream.activeToolEntries = cs.stream.activeToolEntries.filter((e: any) => e.id !== handle.id);
+          }
+          this.patchStreamCard(cs);
+        }
+      });
     });
 
     this.backend.on('stream:start', (sid: string) => {

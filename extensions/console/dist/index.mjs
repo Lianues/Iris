@@ -9,7 +9,7 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// ../../packages/extension-sdk/dist/logger.js
+// ../../packages/extension-sdk/dist/plugin.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -18,7 +18,6 @@ var LogLevel;
   LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
   LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
 })(LogLevel || (LogLevel = {}));
-var _logLevel = LogLevel.INFO;
 // src/index.ts
 import { estimateTokenCount } from "tokenx";
 
@@ -6675,6 +6674,7 @@ class ConsolePlatform extends PlatformAdapter {
   appHandle;
   disposeResizeWatcher;
   api;
+  _activeHandles = [];
   isCompiledBinary;
   currentToolIds = new Set;
   currentThinkingEffort = "none";
@@ -6736,10 +6736,25 @@ class ConsolePlatform extends PlatformAdapter {
         this.appHandle?.endStream();
       }
     });
-    this.backend.on("tool:update", (sid, invocations) => {
-      if (sid === this.sessionId) {
+    this.backend.on("tool:execute", (sid, handle) => {
+      if (sid !== this.sessionId)
+        return;
+      if (!this._activeHandles)
+        this._activeHandles = [];
+      this._activeHandles.push(handle);
+      const refreshUI = () => {
+        const invocations = (this._activeHandles || []).map((h) => h.getSnapshot());
         this.appHandle?.setToolInvocations(invocations);
-      }
+      };
+      handle.on("state", refreshUI);
+      handle.on("child", (childHandle) => {
+        if (!this._activeHandles)
+          this._activeHandles = [];
+        this._activeHandles.push(childHandle);
+        childHandle.on("state", refreshUI);
+        refreshUI();
+      });
+      refreshUI();
     });
     this.backend.on("error", (sid, error) => {
       if (sid === this.sessionId) {
@@ -6897,10 +6912,10 @@ ${summaryText}`;
           this.backend.clearRedo?.(this.sessionId);
         },
         onToolApproval: (toolId, approved) => {
-          this.backend.approveTool?.(toolId, approved);
+          this.backend.getToolHandle?.(toolId)?.approve(approved);
         },
         onToolApply: (toolId, applied) => {
-          this.backend.applyTool?.(toolId, applied);
+          this.backend.getToolHandle?.(toolId)?.apply(applied);
         },
         onAbort: () => {
           this.backend.abortChat?.(this.sessionId);
@@ -6936,6 +6951,7 @@ ${summaryText}`;
   handleNewSession() {
     this.sessionId = generateSessionId();
     this.currentToolIds.clear();
+    this._activeHandles = [];
   }
   handleRunCommand(cmd) {
     return this.backend.runCommand?.(cmd) ?? { output: "", cwd: "" };
@@ -6983,6 +6999,7 @@ ${summaryText}`;
   async handleLoadSession(id) {
     this.sessionId = id;
     this.currentToolIds.clear();
+    this._activeHandles = [];
     const history = await this.backend.getHistory?.(id) ?? [];
     const responseMap = new Map;
     for (let i = 0;i < history.length; i++) {

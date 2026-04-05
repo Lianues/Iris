@@ -14,8 +14,10 @@ import { ChatMessageList } from './components/ChatMessageList';
 import { DiffApprovalView } from './components/DiffApprovalView';
 import { InitWarnings } from './components/InitWarnings';
 import { LogoScreen } from './components/LogoScreen';
+import { ToolDetailView } from './components/ToolDetailView';
 import { ModelListView } from './components/ModelListView';
 import { QueueListView } from './components/QueueListView';
+import { ToolListView } from './components/ToolListView';
 import { SessionListView } from './components/SessionListView';
 import { SettingsView } from './components/SettingsView';
 import { type ConfirmChoice, type PendingConfirm, type SettingsInitialSection, type ThinkingEffortLevel, type ViewMode } from './app-types';
@@ -37,6 +39,9 @@ export type { AppProps } from './app-props';
 export function App({
   onReady,
   onSubmit,
+  onOpenToolDetail,
+  onNavigateToolDetail,
+  onCloseToolDetail,
   onUndo,
   onRedo,
   onClearRedoStack,
@@ -174,6 +179,23 @@ export function App({
     }
   }, [viewMode, appState.isGenerating, messageQueue, onSubmit]);
 
+  // 工具详情数据变化时自动切换视图
+  useEffect(() => {
+    if (appState.toolDetailData && viewMode !== 'tool-detail') {
+      setViewMode('tool-detail');
+    } else if (!appState.toolDetailData && viewMode === 'tool-detail') {
+      setViewMode('chat');
+    }
+  }, [appState.toolDetailData, viewMode]);
+
+  // 工具列表数据变化时自动切换视图
+  useEffect(() => {
+    if (appState.toolListItems.length > 0 && viewMode !== 'tool-list' && viewMode !== 'tool-detail') {
+      setSelectedIndex(0);
+      setViewMode('tool-list');
+    }
+  }, [appState.toolListItems]);
+
   useAppKeyboard({
     viewMode,
     setViewMode,
@@ -186,6 +208,7 @@ export function App({
     isGenerating: appState.isGenerating,
     pendingApplies: appState.pendingApplies,
     pendingApprovals: appState.pendingApprovals,
+    onOpenToolDetail,
     approval,
     onExit,
     onAbort,
@@ -213,6 +236,7 @@ export function App({
     queueEditState,
     queueEditActions,
     onToggleThoughts: () => setThoughtsToggleSignal((prev) => prev + 1),
+    toolListItems: appState.toolListItems,
   });
 
   const currentApply = appState.isGenerating ? appState.pendingApplies[0] : undefined;
@@ -261,6 +285,28 @@ export function App({
         wrapMode={approval.wrapMode}
         previewIndex={approval.previewIndex}
       />
+    );
+  }
+
+  // 工具列表视图
+  if (viewMode === 'tool-list') {
+    return <ToolListView tools={appState.toolListItems} selectedIndex={selectedIndex} />;
+  }
+
+  // 工具详情视图
+  if (viewMode === 'tool-detail' && appState.toolDetailData) {
+    return (
+      <box flexDirection="column" width="100%" height="100%">
+        <ToolDetailView
+          data={appState.toolDetailData}
+          breadcrumb={appState.toolDetailStack}
+          onNavigateChild={onNavigateToolDetail}
+          onClose={onCloseToolDetail}
+          onAbort={(toolId) => {
+            onOpenToolDetail(toolId);
+          }}
+        />
+      </box>
     );
   }
 

@@ -24,6 +24,7 @@ import { createLogger } from '../logger';
 import type { ToolAttachment, ToolExecutionContext } from '../types';
 import { ToolPolicyConfig, ToolsConfig } from '../config';
 import type { BeforeToolExecInterceptor, AfterToolExecInterceptor } from '../extension';
+import type { ToolExecutionHandle } from './handle';
 
 const logger = createLogger('ToolScheduler');
 
@@ -239,6 +240,27 @@ export function buildExecutionPlan(
 // ============ 执行 ============
 
 /**
+ * 合并多个 AbortSignal，任一触发即 abort。
+ * 用于合并会话级 signal 和工具级 signal。
+ */
+function combineAbortSignals(...signals: (AbortSignal | undefined)[]): AbortSignal | undefined {
+  const valid = signals.filter((s): s is AbortSignal => s !== undefined);
+  if (valid.length === 0) return undefined;
+  if (valid.length === 1) return valid[0];
+  // Node 20+ / Bun 支持 AbortSignal.any()
+  if ('any' in AbortSignal) {
+    return (AbortSignal as any).any(valid);
+  }
+  // fallback: 手动合并
+  const controller = new AbortController();
+  for (const s of valid) {
+    if (s.aborted) { controller.abort(s.reason); return controller.signal; }
+    s.addEventListener('abort', () => controller.abort(s.reason), { once: true });
+  }
+  return controller.signal;
+}
+
+/**
  * 创建带节流的进度上报函数。
  *
  * leading + trailing 模式（150ms 默认间隔）：
@@ -350,7 +372,7 @@ async function executeSingle(
   const policy = toolsConfig.permissions[toolName];
   // 未配置的工具默认需要确认（autoApprove: false）
   // 在有 toolState 的平台（Console）会弹出审批，
-  // 不支持交互审批的平台（如 WXWork）应自行监听 tool:update 事件并自动批准。
+  // 不支持交互审批的平台（如 WXWork）应使用 autoApproveHandle 自动批准。
   const effectivePolicy: ToolPolicyConfig = policy ?? { autoApprove: false };
 
   // 全局开关（最高优先级）
@@ -406,7 +428,7 @@ async function executeSingle(
           },
         };
       }
-      // approved → 用户明确批准，状态已被 approveTool 转为 executing
+      // approved → 用户明确批准，状态已被 handle.approve() 转为 executing
       userExplicitlyApproved = true;
     }
 
@@ -425,7 +447,7 @@ async function executeSingle(
           },
         };
       }
-      // applied → 状态已被 applyTool 转为 executing
+      // applied → 状态已被 handle.apply() 转为 executing
     } else if (autoApproved) {
       // 两类审批都跳过时才需要手动设置 executing
       toolState.transition(invocationId, 'executing');
@@ -502,15 +524,18 @@ async function executeSingle(
     } catch { /* 拦截器错误不阻止执行 */ }
   }
 
-    // 创建工具执行上下文：带节流的进度上报 + 中止信号。
+    // 创建工具执行上下文：带节流的进度上报 + 中止信号 + Handle 能力。
     // 仅在有 ToolStateManager 和 invocationId 时创建 reportProgress（CLI 等场景跳过）。
     let progressCtx: ReturnType<typeof createThrottledReportProgress> | undefined;
     if (toolState && invocationId) {
       progressCtx = createThrottledReportProgress(toolState, invocationId);
     }
+    const handle = toolState?.getHandle(invocationId!);
+    // 合并会话级 signal 和工具级 signal（Handle 的 abort() 触发工具级 signal）
+    const effectiveSignal = combineAbortSignals(signal, handle?.signal);
     const executionContext: ToolExecutionContext = {
       reportProgress: progressCtx?.reportProgress,
-      signal,
+      signal: effectiveSignal,
       approvedByUser: userExplicitlyApproved || undefined,
       // requestApproval: handler 执行过程中可调用此方法请求 Y/N 弹窗确认。
       // 仅在可交互上下文（Console 前台会话）中提供。
@@ -519,6 +544,16 @@ async function executeSingle(
         ? async () => {
             toolState.transition(invocationId, 'awaiting_approval');
             return toolState.waitForApproval(invocationId, signal);
+          }
+        : undefined,
+      invocationId,
+      appendOutput: handle
+        ? (entry) => handle.appendOutput(entry)
+        : undefined,
+      onMessage: handle
+        ? (listener) => {
+            handle.on('_upstream', listener);
+            return () => { handle.off('_upstream', listener); };
           }
         : undefined,
     };
@@ -544,7 +579,7 @@ async function executeSingle(
         lastValue = intermediate;
         frameCounter++;
         // 将 yield 的中间值作为 progress 推送到 ToolStateManager，
-        // 触发 tool:update 转发到前端 ToolCall 组件。
+        // 通过 Handle 的 progress 事件推送到前端 ToolCall 组件。
         // 节流：每 4 个 yield 推送一次，避免高频渲染。
         if (toolState && invocationId && frameCounter % 4 === 0) {
           const progress = (typeof lastValue === 'object' && lastValue !== null)

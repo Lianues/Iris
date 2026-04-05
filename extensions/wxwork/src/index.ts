@@ -19,7 +19,7 @@
  * 官方插件参考：https://github.com/WecomTeam/wecom-openclaw-plugin
  */
 
-import { createExtensionLogger, definePlatformFactory, autoApproveTools, formatToolStatusLine, detectImageMime, PlatformAdapter, type ImageInput, type IrisBackendLike } from '@irises/extension-sdk';
+import { createExtensionLogger, definePlatformFactory, autoApproveHandle, formatToolStatusLine, detectImageMime, PlatformAdapter, type ImageInput, type IrisBackendLike } from '@irises/extension-sdk';
 import { WSClient, generateReqId } from '@wecom/aibot-node-sdk';
 import type { WsFrame } from '@wecom/aibot-node-sdk';
 
@@ -290,49 +290,35 @@ export class WXWorkPlatform extends PlatformAdapter {
     //   1. 向用户发送包含「批准/拒绝」按钮的卡片消息
     //   2. 收到用户点击回调后调用 this.backend.approveTool(id, approved)
     // ──────────────────────────────────────────────────────────
-    this.backend.on('tool:update', (sid: string, invocations: Array<{
-      id: string;
-      toolName: string;
-      status: string;
-      args: Record<string, unknown>;
-      createdAt: number;
-    }>) => {
-      // ⚠️ 临时方案：自动批准所有等待审批的工具（跳过人工审批）
-      autoApproveTools(this.backend, invocations);
+    this.backend.on('tool:execute' as any, (sid: string, handle: any) => {
+      autoApproveHandle(handle);
 
       if (!this.showToolStatus) return;
-
       const cs = this.findChatStateBySid(sid);
       if (!cs || !cs.frame || !cs.stream || cs.stopped) return;
 
-      // 按创建时间排序
-      const sorted = [...invocations].sort((a, b) => a.createdAt - b.createdAt);
-
-      // 将新完成的工具状态固化到 buffer 中（按时间顺序嵌入 AI 文本之间）
-      for (const inv of sorted) {
-        const isDone = inv.status === 'success' || inv.status === 'error';
-        if (isDone && !cs.stream.committedToolIds.has(inv.id)) {
-          cs.stream.committedToolIds.add(inv.id);
-          const line = formatToolStatusLine(inv, { codeStyle: true });
-          // 末尾留 \n\n，让后续 stream:chunk 的 AI 文本自然另起一段
+      handle.on('done', () => {
+        if (!cs.stream) return;
+        if (!cs.stream.committedToolIds.has(handle.id)) {
+          cs.stream.committedToolIds.add(handle.id);
+          const line = formatToolStatusLine({ toolName: handle.toolName, status: handle.status }, { codeStyle: true });
           cs.stream.buffer = cs.stream.buffer
-            ? `${cs.stream.buffer}\n\n${line}\n\n` : `${line}\n\n`;
+            ? `${cs.stream.buffer}\n\n${line}\n\n`
+            : `${line}\n\n`;
         }
-      }
+      });
 
-      // 仍在执行中的工具：临时追加在 buffer 末尾（不固化）
-      const activeLine = sorted
-        .filter(inv => !cs.stream!.committedToolIds.has(inv.id))
-        .map(inv => formatToolStatusLine(inv, { codeStyle: true }))
-        .join('\n\n');
-
-      const displayText = activeLine
-        ? (cs.stream.buffer ? `${cs.stream.buffer}\n\n${activeLine}` : activeLine)
-        : cs.stream.buffer;
-
-      if (!displayText) return;
-      this.wsClient.replyStream(cs.frame, cs.stream.streamId, displayText, false).catch(err => {
-        logger.error(`工具状态更新失败 (session=${sid}):`, err);
+      handle.on('state', () => {
+        if (!cs.stream || cs.stopped) return;
+        if (handle.status !== 'success' && handle.status !== 'error' && handle.status !== 'warning') {
+          const activeLine = formatToolStatusLine({ toolName: handle.toolName, status: handle.status }, { codeStyle: true });
+          const displayText = cs.stream.buffer ? `${cs.stream.buffer}\n\n${activeLine}` : activeLine;
+          if (displayText) {
+            this.wsClient.replyStream(cs.frame, cs.stream.streamId, displayText, false).catch((err: any) => {
+              logger.error('流式回复更新失败:', err);
+            });
+          }
+        }
       });
     });
 

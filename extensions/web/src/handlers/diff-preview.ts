@@ -323,7 +323,7 @@ export function createDiffPreviewHandler(backend: IrisBackendLike, utils: ToolPr
       return;
     }
 
-    const inv = (backend as any).getToolState?.()?.get?.(toolId) as ToolInvocationLike | undefined;
+    const inv = (backend as any).getToolHandle?.(toolId)?.getSnapshot() as ToolInvocationLike | undefined;
     if (!inv) {
       sendJSON(res, 404, { error: '未找到工具调用' });
       return;

@@ -24,6 +24,8 @@ import {
   resolveLocalPluginSource,
 } from './registry';
 import type { ResolvedLocalPlugin } from '@irises/extension-sdk';
+import { ServiceRegistry } from './service-registry';
+import { ConfigContributionRegistry } from './config-contribution-registry';
 
 const logger = createLogger('PluginManager');
 
@@ -41,6 +43,9 @@ function byPriorityDesc<T extends { priority?: number }>(items: T[]): T[] {
 export class PluginManager {
   private plugins = new Map<string, LoadedPlugin>();
   private prepared: PreparedPlugin[] = [];
+  private _serviceRegistry = new ServiceRegistry();
+  private _configContributions = new ConfigContributionRegistry();
+
   /** 在 notifyReady 中缓存 IrisAPI 引用，供 notifyPlatformsReady 使用 */
   private _api?: IrisAPI;
   /** 宿主配置目录（由 bootstrap 设置） */
@@ -53,6 +58,12 @@ export class PluginManager {
 
   /** 设置源码加载白名单（供 bootstrap 调用） */
   setDevSourceExtensions(list?: string[]): void { this._devSourceExtensions = list; }
+
+  /** 获取服务注册中心（供 bootstrap 构建 IrisAPI 使用） */
+  getServiceRegistry(): ServiceRegistry { return this._serviceRegistry; }
+
+  /** 获取配置贡献注册中心（供 bootstrap 构建 IrisAPI 使用） */
+  getConfigContributionRegistry(): ConfigContributionRegistry { return this._configContributions; }
 
   /**
    * 预加载所有配置中启用的插件。
@@ -287,6 +298,8 @@ export class PluginManager {
       internals.router,
       appConfig,
       internals.prompt,
+      this._serviceRegistry,
+      this._configContributions,
       prepared.pluginConfig,
       prepared.extensionRootDir,
       this._configDir,

@@ -16,6 +16,7 @@
 
 import { EventEmitter } from 'events';
 import { ToolStatus, ToolInvocation, ToolStateChangeEvent, TERMINAL_TOOL_STATUSES } from '../types';
+import { ToolExecutionHandle } from './handle';
 import { createLogger } from '../logger';
 
 const logger = createLogger('ToolState');
@@ -46,6 +47,8 @@ export interface ToolStateEvents {
   stateChange: (event: ToolStateChangeEvent) => void;
   /** 进入终态 */
   completed: (invocation: ToolInvocation) => void;
+  /** Handle 被创建（平台层通过此事件获取 Handle） */
+  'handle:created': (handle: ToolExecutionHandle) => void;
 }
 
 // ============ ToolStateManager ============
@@ -53,6 +56,7 @@ export interface ToolStateEvents {
 export class ToolStateManager extends EventEmitter {
   private invocations = new Map<string, ToolInvocation>();
   private counter = 0;
+  private handles = new Map<string, ToolExecutionHandle>();
 
   // ----创建 ----
 
@@ -84,8 +88,12 @@ export class ToolStateManager extends EventEmitter {
     };
 
     this.invocations.set(id, invocation);
+    // 同时创建 Handle（双向通道）
+    const handle = new ToolExecutionHandle(invocation, this);
+    this.handles.set(id, handle);
     logger.debug(`创建: ${toolName}(${id}) [${initialStatus}]`);
     this.emit('created', invocation);
+    this.emit('handle:created', handle);
 
     return invocation;
   }
@@ -136,6 +144,15 @@ export class ToolStateManager extends EventEmitter {
       logger.debug(`转换: ${invocation.toolName}(${id}) ${previousStatus} → ${newStatus}`);
     }
     this.emit('stateChange', { invocation, previousStatus } as ToolStateChangeEvent);
+
+    // 通知 Handle
+    const handle = this.handles.get(id);
+    if (handle) {
+      handle._emitState(newStatus, previousStatus);
+      if (payload?.progress) {
+        handle._emitProgress(payload.progress);
+      }
+    }
 
     // 终态额外事件
     if (TERMINAL_STATUSES.has(newStatus)) {
@@ -206,19 +223,35 @@ export class ToolStateManager extends EventEmitter {
   /** 清除所有调用记录 */
   clearAll(): void {
     this.invocations.clear();
+    this.handles.clear();
     this.counter = 0;
   }
 
   /** 清除指定会话的调用记录 */
   clearSession(sessionId: string): void {
     for (const [id, inv] of this.invocations) {
-      if (inv.sessionId === sessionId) this.invocations.delete(id);
+      if (inv.sessionId === sessionId) {
+        this.invocations.delete(id);
+        this.handles.delete(id);
+      }
     }
   }
 
   /** 获取指定会话的所有调用记录 */
   getBySession(sessionId: string): ToolInvocation[] {
     return Array.from(this.invocations.values()).filter(i => i.sessionId === sessionId);
+  }
+
+  /** 根据 ID 获取 Handle */
+  getHandle(id: string): ToolExecutionHandle | undefined {
+    return this.handles.get(id);
+  }
+
+  /** 获取指定会话的所有 Handle */
+  getHandlesBySession(sessionId: string): ToolExecutionHandle[] {
+    return this.getBySession(sessionId)
+      .map(inv => this.handles.get(inv.id))
+      .filter((h): h is ToolExecutionHandle => h !== undefined);
   }
 
   // ---- 审批等待 ----

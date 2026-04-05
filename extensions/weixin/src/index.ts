@@ -19,7 +19,7 @@
  *   协议文档：https://ilinkai.weixin.qq.com
  */
 
-import { createExtensionLogger, definePlatformFactory, splitText, autoApproveTools, formatToolStatusLine, PlatformAdapter, type ImageInput, type IrisBackendLike, type IrisPlatformFactoryContextLike } from '@irises/extension-sdk';
+import { createExtensionLogger, definePlatformFactory, splitText, autoApproveHandle, formatToolStatusLine, PlatformAdapter, type ImageInput, type IrisBackendLike, type IrisPlatformFactoryContextLike } from '@irises/extension-sdk';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -694,33 +694,23 @@ export class WeixinPlatform extends PlatformAdapter {
       cs.buffer = text;
     });
 
-    this.backend.on('tool:update', (sid: string, invocations: any[]) => {
+    this.backend.on('tool:execute' as any, (sid: string, handle: any) => {
+      // 修复：微信之前缺少自动审批，现在补上
+      autoApproveHandle(handle);
+
       if (this.config.showToolStatus === false) return;
       const userId = this.findUserIdBySid(sid);
       if (!userId) return;
       const cs = this.getChatState(userId);
       if (cs.stopped) return;
 
-      const sorted = [...invocations].sort((a, b) => a.createdAt - b.createdAt);
-      let activeToolsText = '';
-
-      for (const inv of sorted) {
-        const isDone = inv.status === 'success' || inv.status === 'error';
-        const line = formatToolStatusLine(inv);
-
-        if (isDone) {
-          if (!cs.committedToolIds.has(inv.id)) {
-            cs.committedToolIds.add(inv.id);
-            cs.toolBuffer += `${line}\n`;
-          }
-        } else {
-          activeToolsText += `${line}\n`;
+      handle.on('done', () => {
+        const line = formatToolStatusLine({ toolName: handle.toolName, status: handle.status });
+        if (!cs.committedToolIds.has(handle.id)) {
+          cs.committedToolIds.add(handle.id);
+          cs.toolBuffer += `${line}\n`;
         }
-      }
-
-      // 微信不支持流式更新，工具状态只在本地累积。
-      // 如果需要实时反馈，可以在此处发送一条临时消息，但微信会刷屏。
-      // 因此 Phase 1 选择在最终回复中一并展示。
+      });
     });
 
     this.backend.on('error', (sid: string, errorMsg: string) => {

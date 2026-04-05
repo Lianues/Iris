@@ -59,6 +59,22 @@ export interface ToolInvocation {
    * 例如 sub_agent: { tokens: number, frame: number }
    */
   progress?: Record<string, unknown>;
+  /** 父工具执行 ID（子代理内部工具指向 sub_agent 的 invocationId） */
+  parentToolId?: string;
+  /** 嵌套深度（顶层=0，子代理内部=1，子代理的子代理=2...） */
+  depth?: number;
+}
+
+/** 工具执行的输出条目（累积式日志流） */
+export interface ToolOutputEntry {
+  /** 输出类型 */
+  type: 'stdout' | 'stderr' | 'log' | 'chat' | 'data';
+  /** 输出内容 */
+  content: string;
+  /** 结构化数据（可选） */
+  data?: Record<string, unknown>;
+  /** 时间戳 */
+  timestamp: number;
 }
 
 /** 状态变更事件载荷 */
@@ -98,13 +114,27 @@ export interface ToolExecutionContext {
   requestApproval?: () => Promise<boolean>;
   /**
    * 上报实时进度。调用后进度数据会写入 ToolInvocation.progress，
-   * 通过 tool:update 事件推送到前端渲染。
+   * 通过 Handle 的 progress 事件推送到前端渲染。
    * scheduler 内部做节流处理，handler 可高频调用而不会造成渲染压力。
    * 未提供时（如 CLI 场景无 ToolStateManager）为 undefined。
    */
   reportProgress?: (data: Record<string, unknown>) => void;
   /** 中止信号，handler 可用于检查是否需要提前终止 */
   signal?: AbortSignal;
+  /** 当前工具的 invocation ID（handler 可用于关联） */
+  invocationId?: string;
+  /**
+   * 追加输出内容到输出流。
+   * 与 reportProgress 不同：
+   * - reportProgress 是「状态快照」语义（覆盖式），用于 spinner/进度条
+   * - appendOutput 是「日志追加」语义（累积式），用于展示工具输出
+   */
+  appendOutput?: (entry: Omit<ToolOutputEntry, 'timestamp'>) => void;
+  /**
+   * 监听平台端发来的上行消息。返回取消监听的函数。
+   * 用于双向通信场景（如交互式 shell 输入）。
+   */
+  onMessage?: (listener: (type: string, data?: unknown) => void) => (() => void);
 }
 
 /**

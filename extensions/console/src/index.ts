@@ -190,6 +190,7 @@ export class ConsolePlatform extends PlatformAdapter {
   private appHandle?: AppHandle;
   private disposeResizeWatcher?: () => void;
   private api?: IrisAPI;
+  private _activeHandles: Map<string, any> = new Map();
   private isCompiledBinary: boolean;
 
   /** 当前响应周期内的工具调用 ID 集合 */
@@ -197,6 +198,9 @@ export class ConsolePlatform extends PlatformAdapter {
 
   /** 当前思考强度层级（用于模型切换后重新应用） */
   private currentThinkingEffort: import('./app-types').ThinkingEffortLevel = 'none';
+
+  /** 当前正在查看详情的工具 ID 栈 */
+  private _toolDetailStack: string[] = [];
 
   /** 串行化 undo/redo 持久化操作，防止并发写入。 */
   private historyMutationQueue: Promise<unknown> = Promise.resolve();
@@ -271,10 +275,24 @@ export class ConsolePlatform extends PlatformAdapter {
       }
     });
 
-    this.backend.on('tool:update', (sid: string, invocations: ToolInvocation[]) => {
-      if (sid === this.sessionId) {
+    this.backend.on('tool:execute' as any, (sid: string, handle: any) => {
+      if (sid !== this.sessionId) return;
+      this._activeHandles.set(handle.id, handle);
+      const refreshUI = () => {
+        const invocations = Array.from(this._activeHandles.values()).map((h: any) => h.getSnapshot());
         this.appHandle?.setToolInvocations(invocations);
-      }
+        // 如果工具详情视图打开，同步更新详情数据
+        this.refreshToolDetailIfNeeded();
+      };
+      handle.on('state', refreshUI);
+      handle.on('output', refreshUI);
+      handle.on('child', (childHandle: any) => {
+        this._activeHandles.set(childHandle.id, childHandle);
+        childHandle.on('state', refreshUI);
+        childHandle.on('output', refreshUI);
+        refreshUI();
+      });
+      refreshUI();
     });
 
     this.backend.on('error', (sid: string, error: string) => {
@@ -467,13 +485,22 @@ export class ConsolePlatform extends PlatformAdapter {
           this.backend.clearRedo?.(this.sessionId);
         },
         onToolApproval: (toolId: string, approved: boolean) => {
-          this.backend.approveTool?.(toolId, approved);
+          (this.backend as any).getToolHandle?.(toolId)?.approve(approved);
         },
         onToolApply: (toolId: string, applied: boolean) => {
-          this.backend.applyTool?.(toolId, applied);
+          (this.backend as any).getToolHandle?.(toolId)?.apply(applied);
         },
         onAbort: () => {
           this.backend.abortChat?.(this.sessionId);
+        },
+        onOpenToolDetail: (toolId: string) => {
+          this.openToolDetail(toolId);
+        },
+        onNavigateToolDetail: (toolId: string) => {
+          this.navigateToolDetail(toolId);
+        },
+        onCloseToolDetail: () => {
+          this.closeToolDetail();
         },
         onNewSession: () => this.handleNewSession(),
         onLoadSession: (id: string) => this.handleLoadSession(id),
@@ -512,9 +539,106 @@ export class ConsolePlatform extends PlatformAdapter {
 
   // ============ 内部逻辑 ============
 
+  /** 从历史 ToolInvocation 创建轻量 Handle 对象（与实时 Handle 接口兼容） */
+  private createHistoricalHandle(inv: ToolInvocation): any {
+    return {
+      id: inv.id,
+      toolName: inv.toolName,
+      status: inv.status,
+      depth: inv.depth ?? 0,
+      parentId: inv.parentToolId,
+      signal: new AbortController().signal,
+      getSnapshot: () => ({ ...inv }),
+      getOutputHistory: () => [],
+      getChildren: () => [],
+      abort: () => {},
+      approve: () => {},
+      apply: () => {},
+      send: () => {},
+      on: () => {},
+      off: () => {},
+      emit: () => false,
+    };
+  }
+
+
   private handleNewSession(): void {
     this.sessionId = generateSessionId();
     this.currentToolIds.clear();
+    this._activeHandles.clear();
+  }
+
+  /** 打开工具详情 */
+  private openToolDetail(toolId: string): void {
+    if (!toolId) {
+      // Ctrl+T 无指定目标：打开工具列表
+      const all = Array.from(this._activeHandles.values());
+      if (all.length === 0) {
+        this.appHandle?.addErrorMessage('当前会话没有工具执行记录。');
+        return;
+      }
+      // 收集所有工具的快照，按创建时间排序
+      const tools = all.map((h: any) => h.getSnapshot() as ToolInvocation)
+        .sort((a: ToolInvocation, b: ToolInvocation) => a.createdAt - b.createdAt);
+      this.appHandle?.openToolList(tools);
+      return;
+    }
+    const handle = this._activeHandles.get(toolId);
+    if (!handle) {
+      this.appHandle?.addErrorMessage('未找到指定的工具执行记录。');
+      return;
+    }
+    this._toolDetailStack = [handle.id];
+    this.pushToolDetailData(handle.id);
+  }
+
+  /** 导航到子工具详情 */
+  private navigateToolDetail(toolId: string): void {
+    const handle = this._activeHandles.get(toolId);
+    if (!handle) return;
+    this._toolDetailStack.push(toolId);
+    this.pushToolDetailData(toolId);
+  }
+
+  /** 关闭/返回工具详情 */
+  private closeToolDetail(): void {
+    if (this._toolDetailStack.length > 1) {
+      this._toolDetailStack.pop();
+      const parentId = this._toolDetailStack[this._toolDetailStack.length - 1];
+      this.pushToolDetailData(parentId);
+    } else {
+      this._toolDetailStack = [];
+      this.appHandle?.closeToolDetail();
+    }
+  }
+
+  /** 推送工具详情数据到 UI */
+  private pushToolDetailData(toolId: string): void {
+    const handle = this._activeHandles.get(toolId);
+    if (!handle) return;
+    const invocation = handle.getSnapshot();
+    const output = handle.getOutputHistory?.() ?? [];
+    const childHandles = handle.getChildren?.() ?? [];
+    const children = childHandles.map((ch: any) => ch.getSnapshot());
+    const breadcrumb = this._toolDetailStack.map((id: string) => {
+      const h = this._activeHandles.get(id);
+      return { toolId: id, toolName: h?.toolName ?? id };
+    });
+    // 移除最后一个（当前查看的），只保留上层作为 breadcrumb
+    const breadcrumbForView = breadcrumb.slice(0, -1);
+    this.appHandle?.openToolDetail(
+      { invocation, output, children },
+      breadcrumbForView,
+    );
+  }
+
+  /** 如果详情视图打开，刷新数据 */
+  private refreshToolDetailIfNeeded(): void {
+    if (this._toolDetailStack.length === 0) return;
+    const currentId = this._toolDetailStack[this._toolDetailStack.length - 1];
+    if (this._activeHandles.has(currentId)) {
+      this.pushToolDetailData(currentId);
+    }
   }
 
   private handleRunCommand(cmd: string): { output: string; cwd: string } {
@@ -567,6 +691,7 @@ export class ConsolePlatform extends PlatformAdapter {
   private async handleLoadSession(id: string): Promise<void> {
     this.sessionId = id;
     this.currentToolIds.clear();
+    this._activeHandles.clear();
 
     const history = await this.backend.getHistory?.(id) ?? [];
 
@@ -588,6 +713,14 @@ export class ConsolePlatform extends PlatformAdapter {
       const msg = history[i];
       const role = msg.role === 'user' ? 'user' : 'assistant';
       const parts = convertPartsToMessageParts(msg.parts, 'success', responseMap.get(i));
+      // 收集历史工具调用，包装为 Handle 存入 _activeHandles
+      for (const part of parts) {
+        if (part.type === 'tool_use') {
+          for (const inv of part.tools) {
+            this._activeHandles.set(inv.id, this.createHistoricalHandle(inv));
+          }
+        }
+      }
       const meta = getMessageMeta(msg);
       if (parts.length > 0) {
         this.appHandle?.addStructuredMessage(role as 'user' | 'assistant', parts, meta);

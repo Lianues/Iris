@@ -1,4 +1,5 @@
 import type { Content } from './message.js';
+import type { ToolExecutionHandleLike } from './tool.js';
 
 export type ImageInput = {
   mimeType: string;
@@ -83,7 +84,6 @@ export interface IrisBackendLike {
     platform?: string,
   ): Promise<unknown>;
   isStreamEnabled(): boolean;
-  approveTool(id: string, approved: boolean): void;
   clearSession(sessionId: string): Promise<void>;
   switchModel(modelName: string, platform?: string): { modelName: string; modelId: string };
   listModels(): IrisModelInfoLike[];
@@ -95,12 +95,15 @@ export interface IrisBackendLike {
   listModes?(): IrisModeInfoLike[];
   switchMode?(modeName: string): boolean;
   clearRedo?(sessionId: string): void;
-  applyTool?(toolId: string, applied: boolean): void;
   getHistory?(sessionId: string): Promise<Content[]>;
   runCommand?(cmd: string): unknown;
   summarize?(sessionId: string): Promise<unknown>;
   resetConfigToDefaults?(): unknown;
   getToolNames?(): string[];
+  /** 获取指定工具的双向通道 Handle */
+  getToolHandle(toolId: string): ToolExecutionHandleLike | undefined;
+  /** 获取指定会话的所有工具 Handle */
+  getToolHandles(sessionId: string): ToolExecutionHandleLike[];
   /** 查询指定 session 的所有异步子代理任务（只读） */
   getAgentTasks?(sessionId: string): AgentTaskInfoLike[];
   /** 查询指定 session 中正在运行的异步子代理任务（只读） */

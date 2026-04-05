@@ -9,7 +9,7 @@
  */
 
 import { PairingGuard, PairingStore } from '@irises/extension-sdk/pairing';
-import { PlatformAdapter, autoApproveTools, createExtensionLogger, definePlatformFactory, type DocumentInput, type ImageInput, type IrisBackendLike, type ToolAttachment } from '@irises/extension-sdk';
+import { PlatformAdapter, autoApproveHandle, createExtensionLogger, definePlatformFactory, type DocumentInput, type ImageInput, type IrisBackendLike, type ToolAttachment } from '@irises/extension-sdk';
 import { TelegramClient } from './client';
 import { TelegramCommandRouter } from './commands';
 import { TelegramMediaService } from './media';
@@ -206,42 +206,35 @@ export class TelegramPlatform extends PlatformAdapter {
 
   private setupBackendListeners(): void {
     // ---- 工具状态 ----
-    this.backend.on('tool:update', (sid: string, invocations: Array<{
-      id: string; toolName: string; status: string; args: Record<string, unknown>; createdAt: number;
-    }>) => {
-      // 自动批准所有等待审批的工具
-      autoApproveTools(this.backend, invocations);
+    this.backend.on('tool:execute' as any, (sid: string, handle: any) => {
+      autoApproveHandle(handle);
 
       if (!this.showToolStatus) return;
       const cs = this.findChatStateBySid(sid);
       if (!cs?.stream || cs.stopped) return;
 
-      const sorted = [...invocations].sort((a, b) => a.createdAt - b.createdAt);
-
-      // 将已完成的工具固化到 buffer
-      for (const inv of sorted) {
-        const isDone = inv.status === 'success' || inv.status === 'error';
-        if (isDone && !cs.stream.committedToolIds.has(inv.id)) {
-          cs.stream.committedToolIds.add(inv.id);
-          const line = formatTelegramToolLine(inv);
+      // 完成时固化状态行
+      handle.on('done', () => {
+        if (!cs.stream) return;
+        if (!cs.stream.committedToolIds.has(handle.id)) {
+          cs.stream.committedToolIds.add(handle.id);
+          const line = formatTelegramToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
           cs.stream.buffer = cs.stream.buffer
             ? `${cs.stream.buffer}\n\n${line}\n\n`
             : `${line}\n\n`;
         }
-      }
+      });
 
-      // 仍在执行中的工具临时追加
-      const activeLines = sorted
-        .filter((inv) => !cs.stream!.committedToolIds.has(inv.id))
-        .map((inv) => formatTelegramToolLine(inv))
-        .join('\n\n');
-
-      const displayText = activeLines
-        ? (cs.stream.buffer ? `${cs.stream.buffer}\n\n${activeLines}` : activeLines)
-        : cs.stream.buffer;
-
-      if (!displayText) return;
-      this.editStreamMessage(cs, displayText);
+      // 状态变化时更新活跃行
+      handle.on('state', () => {
+        if (!cs.stream || cs.stopped) return;
+        // 只在非终态时显示临时状态
+        if (handle.status !== 'success' && handle.status !== 'error' && handle.status !== 'warning') {
+          const line = formatTelegramToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
+          const displayText = cs.stream.buffer ? `${cs.stream.buffer}\n\n${line}` : line;
+          this.editStreamMessage(cs, displayText);
+        }
+      });
     });
 
     // ---- 工具附件（图片等） ----

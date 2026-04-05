@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRe
 import type { ToolInvocation, UsageMetadata } from '@irises/extension-sdk';
 import type { ChatMessage, MessagePart, NotificationPayload } from '../components/MessageItem';
 import type { RetryInfo } from '../components/GeneratingTimer';
-import type { MessageMeta } from '../app-types';
+import type { MessageMeta, ToolDetailData, ToolDetailBreadcrumb } from '../app-types';
 import {
   appendAssistantParts,
   appendMergedMessagePart,
@@ -55,6 +55,14 @@ export interface AppHandle {
    * 返回下一条消息的文本，队列为空时返回 undefined。
    */
   drainQueue(): string | undefined;
+  /** 打开工具详情视图 */
+  openToolDetail(data: ToolDetailData, breadcrumb: ToolDetailBreadcrumb[]): void;
+  /** 更新当前工具详情数据（Handle 事件驱动） */
+  updateToolDetailData(data: ToolDetailData): void;
+  /** 关闭工具详情（弹出导航栈或完全退出） */
+  closeToolDetail(): void;
+  /** 打开工具列表视图 */
+  openToolList(tools: ToolInvocation[]): void;
 }
 
 interface UseAppHandleOptions {
@@ -74,6 +82,7 @@ export interface UseAppHandleReturn {
   retryInfo: RetryInfo | null;
   pendingApprovals: ToolInvocation[];
   pendingApplies: ToolInvocation[];
+  toolInvocations: ToolInvocation[];
   /** 当前后台运行中的异步子代理数量 */
   backgroundTaskCount: number;
   /** 当前后台运行中的委派任务数量（delegate_to_agent），与子代理分开计数 */
@@ -84,6 +93,9 @@ export interface UseAppHandleReturn {
   backgroundTaskSpinnerFrame: number;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   commitTools: () => void;
+  toolDetailData: ToolDetailData | null;
+  toolDetailStack: ToolDetailBreadcrumb[];
+  toolListItems: ToolInvocation[];
 }
 
 export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppHandleOptions): UseAppHandleReturn {
@@ -96,6 +108,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
   const [retryInfo, setRetryInfo] = useState<RetryInfo | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<ToolInvocation[]>([]);
   const [pendingApplies, setPendingApplies] = useState<ToolInvocation[]>([]);
+  const [toolInvocations, setToolInvocationsState] = useState<ToolInvocation[]>([]);
   const [backgroundTaskCount, setBackgroundTaskCount] = useState(0);
   // [职责分离] 委派任务独立计数，不与异步子代理的 spinner / token 混用
   const [delegateTaskCount, setDelegateTaskCount] = useState(0);
@@ -105,6 +118,9 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
   // chunk 心跳驱动的 spinner 帧计数器（不是定时器，只在数据真正流动时递增）
   const spinnerFrameRef = useRef(0);
   const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState(0);
+  const [toolDetailData, setToolDetailData] = useState<ToolDetailData | null>(null);
+  const [toolDetailStack, setToolDetailStack] = useState<ToolDetailBreadcrumb[]>([]);
+  const [toolListItems, setToolListItems] = useState<ToolInvocation[]>([]);
 
   const streamPartsRef = useRef<MessagePart[]>([]);
   const toolInvocationsRef = useRef<ToolInvocation[]>([]);
@@ -116,6 +132,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
 
   const commitTools = useCallback(() => {
     toolInvocationsRef.current = [];
+    setToolInvocationsState([]);
     setPendingApprovals([]);
     setPendingApplies([]);
   }, []);
@@ -237,6 +254,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
       setToolInvocations(invocations) {
         const copy = [...invocations];
         toolInvocationsRef.current = copy;
+        setToolInvocationsState(copy);
         setPendingApprovals(copy.filter((invocation) => invocation.status === 'awaiting_approval'));
         setPendingApplies(copy.filter((invocation) => invocation.status === 'awaiting_apply'));
         setMessages((prev) => {
@@ -391,8 +409,25 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
           setBackgroundTaskSpinnerFrame(spinnerFrameRef.current);
         }
       },
+      openToolDetail(data: ToolDetailData, breadcrumb: ToolDetailBreadcrumb[]) {
+        setToolDetailData(data);
+        setToolDetailStack(breadcrumb);
+      },
+      updateToolDetailData(data: ToolDetailData) {
+        setToolDetailData(data);
+      },
+      closeToolDetail() {
+        setToolDetailStack(prev => {
+          if (prev.length > 1) return prev; // 上层导航由 App.tsx 的回调处理
+          return [];
+        });
+        setToolDetailData(null);
+      },
       drainQueue() {
         return drainCallbackRef.current?.() ?? undefined;
+      },
+      openToolList(tools: ToolInvocation[]) {
+        setToolListItems(tools);
       },
     };
 
@@ -409,11 +444,15 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
     retryInfo,
     pendingApprovals,
     pendingApplies,
+    toolInvocations,
     backgroundTaskCount,
     delegateTaskCount,
     backgroundTaskTokens,
     backgroundTaskSpinnerFrame,
     setMessages,
     commitTools,
+    toolDetailData,
+    toolDetailStack,
+    toolListItems,
   };
 }

@@ -69,6 +69,7 @@ export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed }:
   } else {
     const parts: string[] = [];
     parts.push(isGenerating ? 'esc 中断生成' : 'ctrl+j 换行');
+    parts.push('ctrl+t 工具详情');
     if (!isGenerating) parts.push('shift+\u2190/\u2192 思考');
     if (isGenerating && hasQueue) {
       parts.push('/queue 管理队列');
@@ -96,6 +97,7 @@ export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed }:
       ) : (
         <text fg={C.dim}>
           {isGenerating ? 'esc 中断生成' : 'ctrl+j 换行'}
+          {'  \u00b7  ctrl+t 工具详情'}
           {isGenerating && hasQueue ? (
             <>
               {'  \u00b7  '}

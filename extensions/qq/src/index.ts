@@ -20,7 +20,7 @@
  * OneBot v11 参考：https://github.com/botuniverse/onebot-11
  */
 
-import { createExtensionLogger, definePlatformFactory, splitText, autoApproveTools, formatToolStatusLine, detectImageMime, PlatformAdapter, type ImageInput, type IrisBackendLike } from '@irises/extension-sdk';
+import { createExtensionLogger, definePlatformFactory, splitText, autoApproveHandle, formatToolStatusLine, detectImageMime, PlatformAdapter, type ImageInput, type IrisBackendLike } from '@irises/extension-sdk';
 import WebSocket from 'ws';
 
 const logger = createExtensionLogger('QQExtension', 'QQ');
@@ -407,30 +407,24 @@ export class QQPlatform extends PlatformAdapter {
     // ⚠️ 工具调用审批：自动批准所有工具调用。
     // QQ 不支持消息编辑/卡片交互，无法实现交互式审批 UI。
     // ──────────────────────────────────────────────────────────
-    this.backend.on('tool:update', (sid: string, invocations: Array<{
-      id: string;
-      toolName: string;
-      status: string;
-      args: Record<string, unknown>;
-      createdAt: number;
-    }>) => {
-      autoApproveTools(this.backend, invocations);
+    this.backend.on('tool:execute' as any, (sid: string, handle: any) => {
+      autoApproveHandle(handle);
 
       if (!this.showToolStatus) return;
 
       const cs = this.findChatStateBySid(sid);
       if (!cs || !cs.target || cs.stopped) return;
 
-      // 对新出现的执行中工具发送独立通知消息（避免重复）
-      for (const inv of invocations) {
-        if (inv.status === 'executing' && !this.notifiedToolIds.has(inv.id)) {
-          this.notifiedToolIds.add(inv.id);
-          const line = formatToolStatusLine(inv);
-          this.sendMessage(line, cs.target).catch((err) => {
+      // 工具进入执行状态时发送通知
+      handle.on('state', (status: string) => {
+        if (status === 'executing' && !this.notifiedToolIds.has(handle.id)) {
+          this.notifiedToolIds.add(handle.id);
+          const line = formatToolStatusLine({ toolName: handle.toolName, status });
+          this.sendMessage(line, cs.target).catch((err: any) => {
             logger.error(`工具状态通知失败 (session=${sid}):`, err);
           });
         }
-      }
+      });
     });
 
     // ---- 流式输出：累积到 buffer，等 response 或 done 时一次性发送 ----

@@ -39,6 +39,8 @@ interface UseAppKeyboardOptions {
   isGenerating: boolean;
   pendingApplies: ToolInvocation[];
   pendingApprovals: ToolInvocation[];
+  /** 打开工具详情 */
+  onOpenToolDetail: (toolId: string) => void;
   approval: ApprovalController;
   onExit: () => void;
   onAbort: () => void;
@@ -67,6 +69,7 @@ interface UseAppKeyboardOptions {
   queueEditState: TextInputState;
   queueEditActions: TextInputActions;
   onToggleThoughts: () => void;
+  toolListItems: ToolInvocation[];
 }
 
 function closeConfirm(
@@ -89,6 +92,7 @@ export function useAppKeyboard({
   isGenerating,
   pendingApplies,
   pendingApprovals,
+  onOpenToolDetail,
   approval,
   onExit,
   onAbort,
@@ -116,6 +120,7 @@ export function useAppKeyboard({
   queueEditState,
   queueEditActions,
   onToggleThoughts,
+  toolListItems,
 }: UseAppKeyboardOptions) {
   useKeyboard((key) => {
     if (key.ctrl && key.name === 'c') {
@@ -138,7 +143,31 @@ export function useAppKeyboard({
       return;
     }
 
+    // Ctrl+T：打开工具执行详情（由 index.ts 从 _activeHandles 中选择目标）
+    if (key.name === 't' && key.ctrl) {
+      onOpenToolDetail('');
+      return;
+    }
+
     if (viewMode === 'settings') return;
+
+    // tool-detail 视图由 ToolDetailView 组件自身处理键盘（useKeyboard），此处不拦截
+    if (viewMode === 'tool-detail') return;
+
+    // ── tool-list 视图 ──
+    if (viewMode === 'tool-list') {
+      if (key.name === 'escape') {
+        setViewMode('chat');
+      } else if (key.name === 'up') setSelectedIndex((prev) => Math.max(0, prev - 1));
+      else if (key.name === 'down') setSelectedIndex((prev) => Math.min(toolListItems.length - 1, prev + 1));
+      else if (key.name === 'return') {
+        const selected = toolListItems[selectedIndex];
+        if (selected) {
+          onOpenToolDetail(selected.id);
+        }
+      }
+      return;
+    }
 
     if (pendingConfirm && key.name === 'escape') {
       closeConfirm(setPendingConfirm, setConfirmChoice);

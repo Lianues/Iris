@@ -5,7 +5,7 @@
  * 包含：图片 MIME 检测、工具状态格式化、自动工具审批等。
  */
 
-import type { IrisBackendLike } from './platform.js';
+import type { ToolExecutionHandleLike } from './tool.js';
 
 // ── 图片 MIME 检测 ──
 
@@ -88,25 +88,20 @@ export function formatToolStatusLine(
 // ── 自动工具审批 ──
 
 /**
- * 自动批准所有处于 awaiting_approval 状态的工具调用。
+ * 自动批准工具执行。
  *
- * 适用于不支持交互式审批 UI 的平台（如 QQ、微信等无法编辑消息的平台）。
- * 静默处理错误（工具状态可能已被并发转换）。
+ * 适用于不支持交互式审批 UI 的平台（如 QQ、微信等）。
+ * 在 handle 进入 awaiting_approval 时自动 approve。
  *
- * @param backend 后端实例
- * @param invocations 工具调用列表
+ * 用法：backend.on('tool:execute', (sid, handle) => { autoApproveHandle(handle); });
  */
-export function autoApproveTools(
-  backend: IrisBackendLike,
-  invocations: Array<{ id: string; status: string }>,
-): void {
-  for (const inv of invocations) {
-    if (inv.status === 'awaiting_approval') {
-      try {
-        backend.approveTool(inv.id, true);
-      } catch {
-        // 状态可能已被并发转换，忽略
-      }
-    }
+export function autoApproveHandle(handle: ToolExecutionHandleLike): void {
+  if (handle.status === 'awaiting_approval') {
+    try { handle.approve(true); } catch { /* 并发状态转换 */ }
   }
+  handle.on('state', (status) => {
+    if (status === 'awaiting_approval') {
+      try { handle.approve(true); } catch { /* 并发状态转换 */ }
+    }
+  });
 }

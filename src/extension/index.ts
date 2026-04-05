@@ -25,6 +25,8 @@ export type { ExtensionInstallOptions } from './installer';
 export { PluginManager } from './manager';
 export { PluginEventBus } from './event-bus';
 export { patchMethod, patchPrototype } from './patch';
+export { ServiceRegistry } from './service-registry';
+export { ConfigContributionRegistry } from './config-contribution-registry';
 
 // ── 宿主内部类型 ─────────────────────────────────────────────
 
@@ -52,6 +54,12 @@ export type {
   ToolWrapper,
   WebPanelDefinition,
   PatchDisposer,
+  Disposable,
+  ServiceDescriptor,
+  ServiceRegistryLike,
+  ConfigContribution,
+  ConfigContributionRegistryLike,
+  ConfigFieldSchema,
   ExtensionManifest,
   ExtensionPackage,
   ExtensionPlatformContribution,

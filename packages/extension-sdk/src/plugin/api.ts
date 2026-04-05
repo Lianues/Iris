@@ -16,6 +16,8 @@ import type {
 } from './registry.js';
 import type { StorageLike } from './storage.js';
 import type { ToolPreviewUtilsLike } from './tool-preview.js';
+import type { ServiceRegistryLike } from './service.js';
+import type { ConfigContributionRegistryLike } from './config-contribution.js';
 
 /** 扩展面板定义（由插件通过 registerWebPanel 注册，宿主 Web UI 动态渲染） */
 export interface WebPanelDefinition {
@@ -175,6 +177,10 @@ export interface IrisAPI {
   extensions: BootstrapExtensionRegistryLike;
   pluginManager: PluginManagerLike;
   eventBus: PluginEventBusLike;
+  /** 服务注册中心（插件间 API 注册与发现） */
+  services: ServiceRegistryLike;
+  /** 配置贡献注册中心（统一配置 schema 注册与查询） */
+  configContributions: ConfigContributionRegistryLike;
   patchMethod: PatchMethod;
   patchPrototype: PatchPrototype;
   registerWebRoute?: (method: string, path: string, handler: (req: any, res: any, params: Record<string, string>) => Promise<void>) => void;

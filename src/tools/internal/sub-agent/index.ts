@@ -24,6 +24,8 @@ import { ToolRegistry } from '../../registry';
 import { ToolLoop, LLMCaller } from '../../../core/tool-loop';
 import { PromptAssembler } from '../../../prompt/assembler';
 import { createLogger } from '../../../logger';
+import { ToolStateManager } from '../../state';
+import { ToolExecutionHandle } from '../../handle';
 import { SubAgentTypeRegistry, SubAgentTypeConfig } from './types';
 import type { CrossAgentTaskBoard } from '../../../core/cross-agent-task-board';
 import { createTaskId } from '../../../core/cross-agent-task-board';
@@ -73,6 +75,7 @@ export interface SubAgentToolDeps {
    * 用于在 taskBoard 注册任务时标识 sourceAgent。
    */
   agentName?: string;
+  toolState?: ToolStateManager;
 }
 
 /** 工具名称常量 */
@@ -327,6 +330,20 @@ ${typeDescriptions}
         const tc = typeConfig!;
         const subPrompt = new PromptAssembler();
         subPrompt.setSystemPrompt(tc.systemPrompt);
+
+        // 为子代理创建独立的 ToolStateManager，用于追踪内部工具执行
+        const childToolState = deps.toolState ? new ToolStateManager() : undefined;
+        // 如果有父 Handle，将子 ToolStateManager 的 handle 事件冒泡到父 Handle
+        const parentHandle = deps.toolState?.getHandle(context?.invocationId ?? '');
+        if (childToolState && parentHandle) {
+          childToolState.on('handle:created', (childHandle: ToolExecutionHandle) => {
+            // 设置子 handle 的层级关系
+            Object.defineProperty(childHandle, '_parentId', { value: parentHandle.id, writable: true });
+            Object.defineProperty(childHandle, '_depth', { value: parentHandle.depth + 1, writable: true });
+            parentHandle.addChild(childHandle);
+          });
+        }
+
         const loop = new ToolLoop(subTools, subPrompt, {
           maxRounds: tc.maxToolRounds,
           // [权限修复] 子代理需要继承完整 toolsConfig，而不是只有 permissions。
@@ -335,13 +352,15 @@ ${typeDescriptions}
           toolsConfig: resolveInheritedToolsConfig(deps),
           retryOnError: deps.retryOnError,
           maxRetries: deps.maxRetries,
-        });
+        }, childToolState);
 
         // onChunk/onTokens 回调直接调用 reportProgress 推送进度，
         // 与异步子代理调用 AgentTaskRegistry.emitChunkHeartbeat/updateTokens 的时机对齐。
         const reportProgress = context?.reportProgress;
         const callLLM = createStreamingLLMCaller(
           deps, tc,
+          // TODO: createStreamingLLMCaller 的 onChunk 签名为 () => void，暂无法推送 LLM 对话内容到父 Handle 输出流。
+          // 后续可改为 (chunk?: string) => void 以支持 context.appendOutput({ type: 'chat', content: chunk })
           () => { frame++; reportProgress?.({ tokens, frame }); },
           (t) => { tokens = t; reportProgress?.({ tokens, frame }); },
         );
@@ -349,7 +368,7 @@ ${typeDescriptions}
         const runResult = await loop.run(
           [{ role: 'user', parts: [{ text: fullPrompt }] }],
           callLLM,
-          { modelName: tc.modelName },
+          { modelName: tc.modelName, signal: context?.signal },
         );
 
         if (runResult.error) {

@@ -21,6 +21,8 @@ import type {
   PlatformFactory,
   StorageFactory,
 } from './types.js';
+import type { ServiceRegistryLike } from './service.js';
+import type { ConfigContributionRegistryLike } from './config-contribution.js';
 
 export type ToolWrapper = (
   original: ToolHandler,
@@ -125,6 +127,10 @@ export interface PluginContext {
   getPluginManager?(): PluginManagerLike;
   /** 更新当前插件已注册 Hook 的优先级 */
   setHookPriority?(hookName: string, priority: number): boolean;
+  /** 获取服务注册中心（插件间 API 注册与发现） */
+  getServiceRegistry(): ServiceRegistryLike;
+  /** 获取配置贡献注册中心（统一配置 schema 注册与查询） */
+  getConfigContributions(): ConfigContributionRegistryLike;
 }
 
 export interface IrisPlugin {

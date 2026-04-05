@@ -360,6 +360,13 @@ export async function applyTool(id: string, applied: boolean): Promise<{ ok: boo
   return res.json()
 }
 
+export async function abortTool(id: string): Promise<{ ok: boolean }> {
+  const res = await request(`/api/tools/${encodeURIComponent(id)}/abort`, {
+    method: 'POST',
+  })
+  return res.json()
+}
+
 // ============ 撤销/重做 ============
 
 export async function undoMessage(sessionId: string): Promise<{ ok: boolean; changed: boolean; messages?: Message[] }> {
@@ -462,7 +469,18 @@ function dispatchChatStreamEvent(rawBlock: string, callbacks: ChatCallbacks): vo
       case 'done': callbacks.onDone?.(); break
       case 'done_meta': callbacks.onDoneMeta?.(event.durationMs); break
       case 'error': callbacks.onError?.(event.message); break
-      case 'tool_update': callbacks.onToolUpdate?.(event.invocations); break
+      case 'tool_start':
+        callbacks.onToolStart?.(event.tool);
+        break
+      case 'tool_state':
+        callbacks.onToolState?.(event.toolId, event.status, event.prev, event.snapshot);
+        break
+      case 'tool_output':
+        callbacks.onToolOutput?.(event.toolId, event.entry);
+        break
+      case 'tool_progress':
+        callbacks.onToolProgress?.(event.toolId, event.data);
+        break
       case 'usage': callbacks.onUsage?.(event.usage); break
       case 'retry': callbacks.onRetry?.(event.attempt, event.maxRetries, event.error); break
       case 'auto_compact': callbacks.onAutoCompact?.(event.summary); break

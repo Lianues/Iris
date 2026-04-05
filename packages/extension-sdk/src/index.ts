@@ -84,6 +84,8 @@ export type {
 export type {
   FunctionDeclaration,
   ToolDefinition,
+  ToolExecutionHandleLike,
+  ToolOutputEntry,
   ToolExecutionContext,
   ToolHandler,
   ToolInvocation,
@@ -113,7 +115,11 @@ export type {
   AgentManagerLike,
   BootstrapExtensionRegistryLike,
   ConfigManagerLike,
+  ConfigContribution,
+  ConfigContributionRegistryLike,
+  ConfigFieldSchema,
   DeleteCodeEntryLike,
+  Disposable,
   ExtensionManagerLike,
   InlinePluginEntry,
   InsertEntryLike,
@@ -143,6 +149,8 @@ export type {
   PluginManagerLike,
   PreBootstrapContext,
   PromptAssemblerLike,
+  ServiceDescriptor,
+  ServiceRegistryLike,
   SessionInfoLike,
   StorageFactory,
   StorageLike,
@@ -178,7 +186,7 @@ export type {
 
 
 export {
-  autoApproveTools,
+  autoApproveHandle,
   detectImageMime,
   formatToolStatusLine,
   TOOL_STATUS_ICONS,
