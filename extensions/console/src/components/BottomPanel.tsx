@@ -3,6 +3,7 @@
 import React from 'react';
 import type { ToolInvocation } from '@irises/extension-sdk';
 import type { ApprovalChoice, ConfirmChoice, PendingConfirm, ThinkingEffortLevel } from '../app-types';
+import type { ApprovalPage } from '../hooks/use-approval';
 import { ApprovalBar } from './ApprovalBar';
 import { ConfirmBar } from './ConfirmBar';
 import { HintBar } from './HintBar';
@@ -17,6 +18,7 @@ interface BottomPanelProps {
   confirmChoice: ConfirmChoice;
   pendingApprovals: ToolInvocation[];
   approvalChoice: ApprovalChoice;
+  approvalPage?: ApprovalPage;
   isGenerating: boolean;
   queueSize: number;
   onSubmit: (text: string) => void;
@@ -48,6 +50,7 @@ export function BottomPanel({
   confirmChoice,
   pendingApprovals,
   approvalChoice,
+  approvalPage,
   isGenerating,
   queueSize,
   onSubmit,
@@ -78,6 +81,8 @@ export function BottomPanel({
           toolName={pendingApprovals[0].toolName}
           choice={approvalChoice}
           remainingCount={pendingApprovals.length}
+          isCommandTool={pendingApprovals[0].toolName === 'shell' || pendingApprovals[0].toolName === 'bash'}
+          approvalPage={approvalPage}
         />
       ) : (
         <box

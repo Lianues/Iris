@@ -13,9 +13,11 @@ type SetState<T> = Dispatch<SetStateAction<T>>;
 
 interface ApprovalController {
   approvalChoice: ApprovalChoice;
+  approvalPage: 'basic' | 'policy';
   setPreviewIndex: SetState<number>;
   resetChoice: () => void;
   toggleChoice: () => void;
+  toggleApprovalPage: () => void;
   toggleDiffView: () => void;
   toggleLineNumbers: () => void;
   toggleWrapMode: () => void;
@@ -46,6 +48,7 @@ interface UseAppKeyboardOptions {
   onAbort: () => void;
   onToolApply: (toolId: string, applied: boolean) => void;
   onToolApproval: (toolId: string, approved: boolean) => void;
+  onAddCommandPattern?: (toolName: string, command: string, type: 'allow' | 'deny') => void;
   sessionList: SessionMeta[];
   modelList: LLMModelInfo[];
   selectedIndex: number;
@@ -98,6 +101,7 @@ export function useAppKeyboard({
   onAbort,
   onToolApply,
   onToolApproval,
+  onAddCommandPattern,
   sessionList,
   modelList,
   selectedIndex,
@@ -330,24 +334,61 @@ export function useAppKeyboard({
     }
 
     if (isGenerating && pendingApprovals.length > 0) {
+      const inv = pendingApprovals[0];
+      const isCommandTool = inv.toolName === 'shell' || inv.toolName === 'bash';
+
+      // Tab: 切换基础页(Y/N) ↔ 策略页(A/S)，仅命令类工具
+      if (key.name === 'tab' && isCommandTool) {
+        approval.toggleApprovalPage();
+        return;
+      }
+
+      // 方向键切换选中项（两页通用）
       if (key.name === 'left' || key.name === 'up' || key.name === 'right' || key.name === 'down') {
         approval.toggleChoice();
         return;
       }
-      if (key.name === 'enter' || key.name === 'return') {
-        onToolApproval(pendingApprovals[0].id, approval.approvalChoice === 'approve');
-        approval.resetChoice();
-        return;
-      }
+
+      // Y/N 在任何页面都保持基础功能（批准/拒绝），避免用户在策略页按 Y 无反应
       if (key.name === 'y') {
-        onToolApproval(pendingApprovals[0].id, true);
+        onToolApproval(inv.id, true);
         approval.resetChoice();
         return;
       }
       if (key.name === 'n') {
-        onToolApproval(pendingApprovals[0].id, false);
+        onToolApproval(inv.id, false);
         approval.resetChoice();
         return;
+      }
+
+      if (approval.approvalPage === 'policy' && isCommandTool) {
+        // ── 策略页：Enter 按选中项、A/S 快捷键 ──
+        const command = typeof inv.args?.command === 'string' ? inv.args.command : '';
+        if (key.name === 'enter' || key.name === 'return') {
+          onToolApproval(inv.id, true);
+          onAddCommandPattern?.(inv.toolName, command, approval.approvalChoice === 'approve' ? 'allow' : 'deny');
+          approval.resetChoice();
+          return;
+        }
+        if (key.name === 'a') {
+          onToolApproval(inv.id, true);
+          onAddCommandPattern?.(inv.toolName, command, 'allow');
+          approval.resetChoice();
+          return;
+        }
+        if (key.name === 's') {
+          onToolApproval(inv.id, true);
+          onAddCommandPattern?.(inv.toolName, command, 'deny');
+          approval.resetChoice();
+          return;
+        }
+      } else {
+        // ── 基础页：Enter 按选中项 ──
+        if (key.name === 'enter' || key.name === 'return') {
+          onToolApproval(inv.id, approval.approvalChoice === 'approve');
+          approval.resetChoice();
+          return;
+        }
       }
       return;
     }

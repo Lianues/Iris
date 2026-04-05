@@ -2,8 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ToolInvocation } from '@irises/extension-sdk';
 import type { ApprovalChoice, ApprovalDiffView, ApprovalDiffWrapMode } from '../app-types';
 
+export type ApprovalPage = 'basic' | 'policy';
+
 export function useApproval(pendingApprovals: ToolInvocation[], pendingApplies: ToolInvocation[]) {
   const [approvalChoice, setApprovalChoice] = useState<ApprovalChoice>('approve');
+  const [approvalPage, setApprovalPage] = useState<ApprovalPage>('basic');
   const [diffView, setDiffView] = useState<ApprovalDiffView>('unified');
   const [showLineNumbers, setShowLineNumbers] = useState(true);
   const [wrapMode, setWrapMode] = useState<ApprovalDiffWrapMode>('word');
@@ -11,6 +14,7 @@ export function useApproval(pendingApprovals: ToolInvocation[], pendingApplies: 
 
   useEffect(() => {
     setApprovalChoice('approve');
+    setApprovalPage('basic');
   }, [pendingApprovals[0]?.id]);
 
   useEffect(() => {
@@ -23,6 +27,11 @@ export function useApproval(pendingApprovals: ToolInvocation[], pendingApplies: 
 
   const resetChoice = useCallback(() => {
     setApprovalChoice('approve');
+    setApprovalPage('basic');
+  }, []);
+
+  const toggleApprovalPage = useCallback(() => {
+    setApprovalPage((prev) => prev === 'basic' ? 'policy' : 'basic');
   }, []);
 
   const toggleChoice = useCallback(() => {
@@ -43,6 +52,7 @@ export function useApproval(pendingApprovals: ToolInvocation[], pendingApplies: 
 
   return {
     approvalChoice,
+    approvalPage,
     diffView,
     showLineNumbers,
     wrapMode,
@@ -50,6 +60,7 @@ export function useApproval(pendingApprovals: ToolInvocation[], pendingApplies: 
     setPreviewIndex,
     resetChoice,
     toggleChoice,
+    toggleApprovalPage,
     toggleDiffView,
     toggleLineNumbers,
     toggleWrapMode,

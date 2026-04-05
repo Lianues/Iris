@@ -47,6 +47,7 @@ export function App({
   onClearRedoStack,
   onToolApproval,
   onToolApply,
+  onAddCommandPattern,
   onAbort,
   onNewSession,
   onLoadSession,
@@ -214,6 +215,7 @@ export function App({
     onAbort,
     onToolApply,
     onToolApproval,
+    onAddCommandPattern,
     sessionList,
     modelList,
     selectedIndex,
@@ -334,6 +336,7 @@ export function App({
         confirmChoice={confirmChoice}
         pendingApprovals={appState.pendingApprovals}
         approvalChoice={approval.approvalChoice}
+        approvalPage={approval.approvalPage}
         isGenerating={appState.isGenerating}
         queueSize={messageQueue.size}
         onSubmit={handleSubmit}

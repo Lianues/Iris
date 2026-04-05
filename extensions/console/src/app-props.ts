@@ -12,6 +12,8 @@ export interface AppProps {
   onClearRedoStack: () => void;
   onToolApproval: (toolId: string, approved: boolean) => void;
   onToolApply: (toolId: string, applied: boolean) => void;
+  /** shell/bash 审批中用户选择"始终允许"或"始终询问"时，持久化命令模式 */
+  onAddCommandPattern?: (toolName: string, command: string, type: 'allow' | 'deny') => void;
   onAbort: () => void;
   /** 用户请求打开工具详情 */
   onOpenToolDetail: (toolId: string) => void;

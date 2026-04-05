@@ -34,6 +34,15 @@ import { ConsoleSettingsController, ConsoleSettingsSaveResult, ConsoleSettingsSn
 import { configureBundledOpenTuiTreeSitter } from './opentui-runtime';
 import { attachCompiledResizeWatcher } from './resize-watcher';
 
+/** 从 shell 命令生成前缀通配模式（如 "npm install express" → "npm install *"） */
+function generateCommandPattern(command: string): string {
+  const tokens = command.trim().split(/\s+/);
+  if (tokens.length === 0 || !tokens[0]) return '*';
+  if (tokens.length <= 1) return tokens[0] + ' *';
+  if (tokens[1].startsWith('-')) return tokens[0] + ' *';
+  return tokens[0] + ' ' + tokens[1] + ' *';
+}
+
 function createToolInvocationFromFunctionCall(
   part: any,
   index: number,
@@ -490,6 +499,9 @@ export class ConsolePlatform extends PlatformAdapter {
         onToolApply: (toolId: string, applied: boolean) => {
           (this.backend as any).getToolHandle?.(toolId)?.apply(applied);
         },
+        onAddCommandPattern: (toolName: string, command: string, type: 'allow' | 'deny') => {
+          this.addCommandPattern(toolName, command, type);
+        },
         onAbort: () => {
           this.backend.abortChat?.(this.sessionId);
         },
@@ -609,6 +621,61 @@ export class ConsolePlatform extends PlatformAdapter {
     } else {
       this._toolDetailStack = [];
       this.appHandle?.closeToolDetail();
+    }
+  }
+
+  /**
+   * 将命令模式添加到 shell/bash 的 allowPatterns 或 denyPatterns。
+   * 内存立即生效 + 持久化到 tools.yaml。
+   */
+  private addCommandPattern(toolName: string, command: string, type: 'allow' | 'deny'): void {
+    const pattern = generateCommandPattern(command);
+    const key = type === 'allow' ? 'allowPatterns' : 'denyPatterns';
+
+    // 1. 内存生效：直接修改 backend 的 policy 引用
+    const policies = this.backend.getToolPolicies();
+    let policy = policies[toolName];
+    if (!policy) {
+      policy = { autoApprove: false };
+      policies[toolName] = policy;
+    }
+    // 添加到目标列表
+    const arr = (policy as any)[key] as string[] | undefined;
+    if (arr) {
+      if (!arr.includes(pattern)) arr.push(pattern);
+    } else {
+      (policy as any)[key] = [pattern];
+    }
+    // 从对立列表移除冲突模式（如"始终允许"时清除"始终询问"中的同模式）
+    const oppositeKey = type === 'allow' ? 'denyPatterns' : 'allowPatterns';
+    const oppositeArr = (policy as any)[oppositeKey] as string[] | undefined;
+    if (oppositeArr) {
+      const idx = oppositeArr.indexOf(pattern);
+      if (idx !== -1) oppositeArr.splice(idx, 1);
+    }
+
+    // 2. 持久化到 tools.yaml
+    const configManager = this.api?.configManager;
+    if (configManager) {
+      try {
+        const raw = configManager.readEditableConfig() as Record<string, any>;
+        const tools = raw.tools ?? {};
+        const toolSection = tools[toolName] ?? {};
+        const existing: string[] = Array.isArray(toolSection[key]) ? toolSection[key] : [];
+        if (!existing.includes(pattern)) {
+          existing.push(pattern);
+        }
+        // 从对立列表移除冲突模式
+        const oppositeKey = type === 'allow' ? 'denyPatterns' : 'allowPatterns';
+        const opposite: string[] = Array.isArray(toolSection[oppositeKey]) ? toolSection[oppositeKey] : [];
+        const oidx = opposite.indexOf(pattern);
+        if (oidx !== -1) opposite.splice(oidx, 1);
+        const updates: Record<string, any> = { [key]: existing };
+        if (oidx !== -1) updates[oppositeKey] = opposite;
+        configManager.updateEditableConfig({ tools: { [toolName]: updates } });
+      } catch {
+        // 持久化失败不阻塞审批
+      }
     }
   }
 

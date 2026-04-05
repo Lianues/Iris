@@ -90,12 +90,30 @@ function extractShellCommand(call: FunctionCallPart): string {
 }
 
 /**
- * 判断工具调用是否应该自动批准。
+ * 从 shell 命令生成前缀通配模式。
  *
- * 对 shell 工具：调度器一律自动批准，安全判定交给 handler 内层处理。
- *   - 内层黑名单 → handler 硬拦截
- *   - 内层白名单 → handler 直接放行
- *   - unknown → handler 走 AI 分类器，分类器拒绝后通过 requestApproval 弹 Y/N
+ * 取前两个 token + `*`（第二个以 `-` 开头时只取第一个）。
+ * 示例：
+ *   "npm install express" → "npm install *"
+ *   "git push origin main" → "git push *"
+ *   "python -m pytest" → "python *"
+ *   "ls" → "ls *"
+ */
+export function generateCommandPattern(command: string): string {
+  const tokens = command.trim().split(/\s+/);
+  if (tokens.length === 0 || !tokens[0]) return '*';
+  if (tokens.length <= 1) return tokens[0] + ' *';
+  if (tokens[1].startsWith('-')) return tokens[0] + ' *';
+  return tokens[0] + ' ' + tokens[1] + ' *';
+}
+
+/**
+ * 判断工具调用是否应该自动批准（跳过 scheduler Y/N）。
+ *
+ * 对 shell/bash 工具（3 层优先级）：
+ *   1. denyPatterns 匹配 → 不自动批准（弹 Y/N，跳过分类器直接让用户决定）
+ *   2. 其他情况 → 自动批准，安全判定交给 handler 内层
+ *      （allowPatterns / autoApprove 通过 userExplicitlyApproved 控制是否跳过分类器）
  *
  * 对非 shell 工具：行为不变，按 autoApprove 配置决定。
  */
@@ -103,8 +121,15 @@ function shouldAutoApprove(
   call: FunctionCallPart,
   policy: ToolPolicyConfig,
 ): boolean {
-  // shell / bash 工具：一律自动批准，安全判定完全交给 handler 内层
-  if (call.functionCall.name === 'shell' || call.functionCall.name === 'bash') return true;
+  if (call.functionCall.name === 'shell' || call.functionCall.name === 'bash') {
+    // denyPatterns 匹配 → 不自动批准（触发 scheduler Y/N）
+    const command = extractShellCommand(call);
+    if (policy.denyPatterns?.length && matchesAnyPattern(command, policy.denyPatterns)) {
+      return false;
+    }
+    // 其他情况自动批准，安全判定交给 handler（或 approvedByUser 跳过分类器）
+    return true;
+  }
 
   // 非 shell 工具：按 autoApprove 配置决定
   return policy.autoApprove;
@@ -384,33 +409,49 @@ async function executeSingle(
   // 追踪用户是否通过交互审批明确批准了此次调用（用于 shell 安全分类器覆盖）
   let userExplicitlyApproved = false;
 
-  // 对非 shell 工具：autoApprove/allowPatterns 跳过审批时，标记为用户已批准。
-  // 对 shell 工具：仅当全局跳过确认（autoApproveAll / autoApproveConfirmation）时设置，
-  // 让 handler 收到 approvedByUser=true 后跳过 AI 分类器。
-  // 普通情况下 shell 的安全判定交给 handler 内层（分类器 → requestApproval Y/N）。
-  if (toolName !== 'shell' && toolName !== 'bash') {
+  // 对非 shell 工具：autoApprove 跳过审批时，标记为用户已批准。
+  // 对 shell 工具：以下场景设置 approvedByUser，让 handler 跳过 AI 分类器：
+  //   - 全局跳过确认（autoApproveAll / autoApproveConfirmation）
+  //   - 工具级 autoApprove: true
+  //   - allowPatterns 匹配
+  // 默认（autoApprove: false + 无 pattern 匹配）→ handler 正常跑分类器（不变）。
+  const isShell = toolName === 'shell' || toolName === 'bash';
+  if (!isShell) {
     if (autoApproved) {
       userExplicitlyApproved = true;
     }
-  } else if (globalSkipConfirmation) {
+  } else if (globalSkipConfirmation || (autoApproved && effectivePolicy.autoApprove)) {
+    // autoApproved 条件确保 denyPatterns 匹配时（autoApproved=false）autoApprove 不生效，
+    // 维持 denyPatterns > autoApprove 的优先级。
+    // globalSkipConfirmation 是最高优先级，不受 denyPatterns 约束（因为它已在 autoApproved 计算中生效）。
     userExplicitlyApproved = true;
+  } else if (autoApproved && effectivePolicy.allowPatterns?.length) {
+    // 仅在 denyPatterns 未匹配时（autoApproved = true）才检查 allowPatterns，
+    // 确保 denyPatterns 优先级高于 allowPatterns。
+    const command = extractShellCommand(call);
+    if (matchesAnyPattern(command, effectivePolicy.allowPatterns)) {
+      userExplicitlyApproved = true;
+    }
   }
 
   if (!autoApproved) {
     // [安全修复] 非交互上下文不能等待人工确认，否则后台委派 / 子代理会永久卡死。
-    // 这里改为明确失败，让调用方知道需要在对应 agent 的 tools.yaml 中开启 autoApprove。
     if (!interactiveApproval) {
-      const approvalError = `当前执行上下文无法进行人工确认，工具「${toolName}」被权限策略拦截。请在目标 Agent 的 tools.yaml 中为该工具开启 autoApprove。`;
-      if (toolState && invocationId) {
-        toolState.transition(invocationId, 'error', { error: approvalError });
+      // Shell/bash: handler 有自己的安全流水线（分类器/force），不在 scheduler 层硬拦截。
+      // fall through 到 handler，让 handler 的分类器/force 机制处理。
+      if (!isShell) {
+        const approvalError = `当前执行上下文无法进行人工确认，工具「${toolName}」被权限策略拦截。请在目标 Agent 的 tools.yaml 中为该工具开启 autoApprove。`;
+        if (toolState && invocationId) {
+          toolState.transition(invocationId, 'error', { error: approvalError });
+        }
+        return {
+          functionResponse: {
+            name: toolName,
+            callId: call.functionCall.callId,
+            response: { error: approvalError },
+          },
+        };
       }
-      return {
-        functionResponse: {
-          name: toolName,
-          callId: call.functionCall.callId,
-          response: { error: approvalError },
-        },
-      };
     }
   }
 
