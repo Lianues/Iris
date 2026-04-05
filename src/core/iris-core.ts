@@ -56,7 +56,7 @@ import { registerExtensionPlatforms } from '../extension';
 import { ensureDevSourceSdkShims } from '../extension';
 import type { IrisAPI, InlinePluginEntry, WebPanelDefinition, ConsoleSettingsTabDefinition } from '@irises/extension-sdk';
 import { BackendHandle } from '@irises/extension-sdk';
-import { readEditableConfig, updateEditableConfig } from '../config/manage';
+import { readEditableConfig, updateEditableConfig, LayeredConfigManager } from '../config/manage';
 import { applyRuntimeConfigReload, type RuntimeConfigReloadContext } from '../config/runtime';
 import { DEFAULTS, parseLLMConfig } from '../config/llm';
 import { parseSystemConfig } from '../config/system';
@@ -91,6 +91,9 @@ export interface AgentNetworkProvider {
   getPeerDescription(name: string): string | undefined;
   getPeerBackend(name: string): Backend | undefined;
   getPeerBackendHandle?(name: string): BackendHandle | undefined;
+  /** 获取指定 peer Agent 的 IrisAPI（含 configManager 等）。
+   *  分层配置修复：console 切换 Agent 后需要从新 Agent 获取 configManager 重建 settingsController。 */
+  getPeerAPI?(name: string): Record<string, unknown> | undefined;
 }
 
 /** IrisCore 构造选项 */
@@ -181,6 +184,10 @@ export class IrisCore {
     const configDir = agentPaths?.configDir
       ? findConfigFile(agentPaths.configDir, true)
       : findConfigFile();
+    // 分层配置修复：获取全局配置目录，用于构造 LayeredConfigManager。
+    // 当没有 agentPaths 时 configDir 已经指向全局目录，globalDir == configDir，
+    // LayeredConfigManager 退化为单目录模式，零回归风险。
+    const globalDir = findConfigFile();
     const config = options.resolvedConfig ?? loadConfig(agentPaths?.configDir, agentPaths);
     const extensions = createBootstrapExtensionRegistry();
     registerExtensionPlatforms(extensions.platforms, undefined, config.system.devSourceExtensions);
@@ -446,26 +453,30 @@ export class IrisCore {
       get mcpManager() { return getMCPManagerFn(); },
       ocrService,
       extensions,
-      configManager: {
-        getConfigDir: () => configDir,
-        readEditableConfig: () => readEditableConfig(configDir),
-        updateEditableConfig: (updates: Record<string, unknown>) => updateEditableConfig(configDir, updates),
-        applyRuntimeConfigReload: async (mergedConfig: Record<string, unknown>) => {
-          try {
-            const ctx: RuntimeConfigReloadContext = {
-              backend, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
-            };
-            await applyRuntimeConfigReload(ctx, mergedConfig);
-            return { success: true };
-          } catch (e) {
-            return { success: false, error: e instanceof Error ? e.message : String(e) };
-          }
+      // 分层配置修复：用 LayeredConfigManager 替代原来的单目录闭包。
+      // 读时返回 global + agent 合并后的完整配置（解决 settings UI 空白问题），
+      // 写时只修改 agent 覆盖层，返回合并后的 mergedRaw（解决热重载不完整问题）。
+      // 每个 IrisCore 持有独立实例（解决 Agent 切换后 configManager 未更新问题）。
+      configManager: Object.assign(
+        new LayeredConfigManager(globalDir, configDir),
+        {
+          applyRuntimeConfigReload: async (mergedConfig: Record<string, unknown>) => {
+            try {
+              const ctx: RuntimeConfigReloadContext = {
+                backend, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
+              };
+              await applyRuntimeConfigReload(ctx, mergedConfig);
+              return { success: true };
+            } catch (e) {
+              return { success: false, error: e instanceof Error ? e.message : String(e) };
+            }
+          },
+          getLLMDefaults: () => DEFAULTS as Record<string, Record<string, unknown>>,
+          parseLLMConfig: (raw?: Record<string, unknown>) => parseLLMConfig(raw as any) as unknown as Record<string, unknown>,
+          parseSystemConfig: (raw?: Record<string, unknown>) => parseSystemConfig(raw as any) as unknown as Record<string, unknown>,
+          parseToolsConfig: (raw?: Record<string, unknown>) => parseToolsConfig(raw as any) as unknown as Record<string, unknown>,
         },
-        getLLMDefaults: () => DEFAULTS as Record<string, Record<string, unknown>>,
-        parseLLMConfig: (raw?: Record<string, unknown>) => parseLLMConfig(raw as any) as unknown as Record<string, unknown>,
-        parseSystemConfig: (raw?: Record<string, unknown>) => parseSystemConfig(raw as any) as unknown as Record<string, unknown>,
-        parseToolsConfig: (raw?: Record<string, unknown>) => parseToolsConfig(raw as any) as unknown as Record<string, unknown>,
-      },
+      ),
       isCompiledBinary,
       projectRoot: (await import('../paths')).projectRoot,
       dataDir: agentPaths?.dataDir || globalDataDir,

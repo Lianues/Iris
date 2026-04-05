@@ -274,6 +274,9 @@ export class IrisHost {
       },
       getPeerBackend: (name: string) => this.cores.get(name)?.backend,
       getPeerBackendHandle: (name: string) => this.cores.get(name)?.backendHandle,
+      // 分层配置修复：console 切换 Agent 后需要获取目标 Agent 的 IrisAPI
+      // （含 configManager），以便重建 settingsController。
+      getPeerAPI: (name: string) => this.cores.get(name)?.irisAPI as Record<string, unknown> | undefined,
     };
   }
 }

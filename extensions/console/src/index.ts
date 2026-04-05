@@ -625,6 +625,21 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.sessionId = generateSessionId();
       this.currentToolIds.clear();
       this._activeHandles.clear();
+
+      // 分层配置修复：切换 Agent 后必须重建 settingsController，
+      // 否则 settings UI 仍然读写原 Agent 的配置。
+      // 通过 agentNetwork.getPeerAPI 获取目标 Agent 的 IrisAPI（含其独立的 configManager），
+      // 然后用新的 configManager 和 mcpManager 重建 settingsController。
+      const peerAPI = network.getPeerAPI?.(targetName) as any;
+      if (peerAPI) {
+        this.api = peerAPI;
+        this.settingsController = new ConsoleSettingsController({
+          backend: targetHandle,
+          configManager: peerAPI.configManager,
+          mcpManager: peerAPI.mcpManager,
+          extensions: peerAPI.extensions,
+        });
+      }
     }
 
     // 重启 TUI
