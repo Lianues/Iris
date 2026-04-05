@@ -7,7 +7,7 @@
  */
 
 import * as fs from 'fs/promises';
-import { ToolDefinition } from '../../../types';
+import { ToolDefinition } from '@/types';
 import { resolveProjectPath } from '../../utils';
 import {
   parseUnifiedDiff,

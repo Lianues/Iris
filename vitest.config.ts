@@ -12,6 +12,7 @@ export default defineConfig({
       '@irises/extension-sdk/plugin': path.resolve(__dirname, 'packages/extension-sdk/src/plugin'),
       '@irises/extension-sdk/tool-utils': path.resolve(__dirname, 'packages/extension-sdk/src/tool-utils'),
       '@irises/extension-sdk': path.resolve(__dirname, 'packages/extension-sdk/src'),
+      '@': path.resolve(__dirname, 'src'),
     },
   },
   test: {

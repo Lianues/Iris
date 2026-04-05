@@ -105,6 +105,7 @@ export interface NotificationPayload {
 }
 
 export interface BackendEvents {
+  [event: string]: (...args: any[]) => void;
   /** 非流式最终回复 */
   'response': (sessionId: string, text: string) => void;
   /** 流式段开始 */

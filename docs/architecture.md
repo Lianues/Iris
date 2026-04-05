@@ -10,10 +10,18 @@
 src/
 ├── cli.ts          CLI 入口（headless 模式，外部传 prompt 执行）
 ├── main.ts         统一入口（编译后的二进制路由到各模式）
-├── bootstrap.ts    核心初始化（创建 Backend 及所有依赖，供 index.ts 和 cli.ts 共享）
 ├── terminal.ts     Terminal TUI 入口（onboard / models / platforms / extension 界面）
 ├── types/          公共类型定义
-├── core/           Backend 核心服务 + ToolLoop + Summarizer + TurnLock + MessageQueue
+├── core/           核心服务
+│   ├── iris-host.ts    多 Agent 管理器（进程唯一，管理所有 IrisCore 实例的生命周期）
+│   ├── iris-core.ts    单 Agent 运行时（持有 Backend 及全部依赖，提供 start/shutdown 生命周期）
+│   └── ...             Backend / ToolLoop / Summarizer / TurnLock / MessageQueue 等
+├── ipc/            IPC 进程间通信层（JSON-RPC 2.0 over TCP）
+│   ├── protocol.ts     协议定义（方法名、事件名、类型守卫、序列化结构）
+│   ├── framing.ts      传输层：4 字节长度前缀帧编解码器
+│   ├── server.ts       IPC 服务端（每个 IrisCore 一个实例）
+│   ├── client.ts       IPC 客户端（连接到 server）
+│   └── remote-*.ts     客户端侧代理（BackendHandle / ToolHandle / API）
 ├── platforms/      用户交互层：接收输入、展示输出
 ├── llm/            LLM API 调用层
 ├── storage/        聊天记录存储层
@@ -26,6 +34,7 @@ src/
 ├── modes/          模式系统
 ├── media/          媒体处理（图片缩放、文档提取、Office 转 PDF）
 ├── ocr/            OCR 服务（非 vision 模型的图片回退）
+├── attach.ts       Attach 模式入口（通过 IPC 连接远端 IrisCore）
 ├── logger/         日志模块
 ├── paths.ts        路径常量与多 Agent 路径解析
 └── config/         配置加载
@@ -68,15 +77,64 @@ terminal/            独立 TUI 应用（onboard / models / platforms / extensio
 [Platform]  ── 将回复展示给用户
 ```
 
+## IPC 层（进程间通信）
+
+IPC 层允许外部进程（如 `iris attach`）连接到已运行的 IrisCore，通过 JSON-RPC 2.0 over TCP 协议与 Backend 交互。
+
+### 架构位置
+
+```
+┌──────────────────────────────────────────────────┐
+│            主进程 (bun run dev)                     │
+│  IrisHost                                         │
+│  ├── Core A ─── BackendHandle ─── ConsolePlatform │ ← 同进程直接引用
+│  │   └─ Backend A                                 │
+│  │   └─ IPCServer A (:port) ◄═══════╗            │
+│  └── Core B ─── BackendHandle ─── Telegram        │
+│      └─ Backend B                                 │
+│      └─ IPCServer B (:port)                       │
+└────────────────────────────────╨───────────────────┘
+                                 ║
+           ┌─────────────────────╨──────┐
+           │  独立进程 (iris attach)      │ ← 跨进程 IPC 代理
+           │  ├── IPCClient              │
+           │  │   └── RemoteBackendHandle│
+           │  └── ConsolePlatform        │
+           └────────────────────────────┘
+```
+
+### 组件说明
+
+| 文件 | 说明 |
+|------|------|
+| `src/ipc/protocol.ts` | 协议定义：方法名枚举、事件名枚举、类型守卫、序列化结构 |
+| `src/ipc/framing.ts` | 传输层：4 字节长度前缀帧编解码，解决 TCP 粘包/拆包 |
+| `src/ipc/server.ts` | IPC 服务端：每个 IrisCore 一个实例，管理客户端连接和事件转发 |
+| `src/ipc/client.ts` | IPC 客户端：请求-响应匹配、事件通知监听 |
+| `src/ipc/remote-backend-handle.ts` | 客户端侧的 Backend 代理，实现 `IrisBackendLike` 接口 |
+| `src/ipc/remote-tool-handle.ts` | 客户端侧的 ToolExecutionHandle 代理 |
+| `src/ipc/remote-api-proxy.ts` | IrisAPI 子集代理（setLogLevel/agentNetwork/configManager/router） |
+| `src/attach.ts` | `iris attach` 入口：连接 → 创建代理 → 启动 Console |
+
+### 设计原则
+
+- **同进程不走 IPC**：同进程平台仍使用 BackendHandle 直接引用，IPC 是可选的远程访问通道
+- **接口一致**：`RemoteBackendHandle` 和 `BackendHandle` 都实现 `IrisBackendLike` 接口
+- **安全性**：绑定 127.0.0.1，仅限本机访问
+
+
+
 ## 入口文件
 
 | 文件 | 作用 | 启动方式 |
 |------|------|----------|
-| `src/bootstrap.ts` | 核心初始化：创建 LLM、存储、工具、MCP、Backend 等全部模块 | 不直接运行，被下面两个入口调用 |
-| `src/index.ts` | 平台模式：`bootstrap()` → 创建平台适配器 → 启动长驻服务 | `npm run dev` / `bun run dev` |
-| `src/cli.ts` | CLI 模式：`bootstrap()` → `backend.chat()` → 输出 → 退出 | `npm run cli -- -p "prompt"` |
+| `src/core/iris-core.ts` | 单 Agent 运行时：创建 LLM、存储、工具、MCP、Backend 等全部模块，提供 start/shutdown 生命周期 | 由 IrisHost 或 cli.ts 创建 |
+| `src/core/iris-host.ts` | 多 Agent 管理器：管理所有 IrisCore 实例、共享 taskBoard、agentNetwork 注入 | 由 index.ts 创建 |
+| `src/index.ts` | 平台模式：`IrisHost.start()` → 创建平台适配器 → 启动长驻服务 | `npm run dev` / `bun run dev` |
+| `src/cli.ts` | CLI 模式：`IrisCore.start()` → `backend.chat()` → 输出 → `core.shutdown()` | `npm run cli -- -p "prompt"` |
+| `src/attach.ts` | Attach 模式：通过 IPC 连接已运行的 IrisCore → 创建 RemoteBackendHandle → 启动 Console | `iris attach [--agent name]` |
 
-`bootstrap(options?)` 接受可选的 `BootstrapOptions`（含 `agentName` / `agentPaths`），返回 `BootstrapResult`。多 Agent 模式下每个 Agent 独立调用 `bootstrap()`。
+`IrisCore` 接受可选的 `IrisCoreOptions`（含 `agentName` / `agentPaths` / `taskBoard`）。多 Agent 模式下由 `IrisHost` 为每个 Agent 创建独立的 `IrisCore` 实例。
 
 ---
 
@@ -138,6 +196,7 @@ npm run cli -- -p "分析这个项目"
 |------|------|
 | [architecture.md](./architecture.md) | 全局架构（本文件） |
 | [core.md](./core.md) | Backend 核心服务与子 Agent 系统 |
+| [ipc.md](./ipc.md) | IPC 进程间通信与 `iris attach` |
 | [platforms.md](./platforms.md) | 用户交互层 |
 | [llm.md](./llm.md) | LLM API 调用层 |
 | [storage.md](./storage.md) | 聊天记录存储层 |

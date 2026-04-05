@@ -222,7 +222,7 @@ function buildNotificationXML(opts: {
 /**
  * 全局任务板。
  *
- * 在 runMultiAgent() 中创建单例，注册所有 Agent 的 backend 引用。
+ * 由 IrisHost 创建单例，注册所有 Agent 的 backend 引用。
  * sub_agent 异步任务和 delegate_to_agent 委派任务都注册到此 board。
  * 任务完成/失败/中止时，board 自动构建 XML 通知并路由到 sourceAgent 的 backend。
  */
@@ -243,11 +243,20 @@ export class CrossAgentTaskBoard extends EventEmitter {
 
   /**
    * 注册 Agent 的 backend 引用。
-   * 启动时由 runMultiAgent() 调用，热重载时可覆盖。
+   * 启动时由 IrisCore.start() 调用，热重载时可覆盖。
    */
   registerBackend(agentName: string, backend: { enqueueAgentNotification(sessionId: string, text: string): void }): void {
     this.backends.set(agentName, backend);
     logger.info(`Backend 已注册: agent=${agentName}`);
+  }
+
+  /**
+   * 注销 Agent 的 backend 引用。
+   * 运行时销毁 Agent 时由 IrisHost.destroyAgent() 调用。
+   */
+  unregisterBackend(agentName: string): void {
+    this.backends.delete(agentName);
+    logger.info(`Backend 已注销: agent=${agentName}`);
   }
 
   // ---- 任务生命周期 ----

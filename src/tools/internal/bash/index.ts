@@ -11,14 +11,14 @@
  */
 
 import { exec } from 'child_process';
-import { ToolDefinition } from '../../../types';
-import { resolveProjectPath } from '../../utils';
+import { ToolDefinition } from '@/types';
+import { resolveProjectPath, getProjectRoot } from '../../utils';
 import { getToolLimits } from '../../tool-limits';
 import { classifyCommand, getDenyReason } from './whitelist';
 import { classifyWithLLM, resolveClassifierDecision } from '../shell/classifier';
 import { tryLearnFromInstall } from '../shell/learn';
 import type { BashToolDeps } from './types';
-import { createLogger } from '../../../logger';
+import { createLogger } from '@/logger';
 
 const logger = createLogger('BashTool');
 
@@ -192,7 +192,7 @@ force 参数规则：
       const timeout = Math.min((args.timeout as number | undefined) ?? limits.defaultTimeout, 600_000);
       const force = args.force === true;
 
-      const projectRoot = process.cwd();
+      const projectRoot = getProjectRoot();
       const workDir = cwd ? resolveProjectPath(cwd) : projectRoot;
 
       // ---- 安全检查 ----
@@ -274,7 +274,7 @@ force 参数规则：
 
       // 调用 AI 分类器
       logger.info(`Bash 命令进入 AI 分类器: ${command.slice(0, 100)}`);
-      const classifierResult = await classifyWithLLM(command, deps.getRouter(), classifierConfig, getShell());
+      const classifierResult = await classifyWithLLM(command, deps.getRouter(), classifierConfig, getShell(), projectRoot);
       const decision = resolveClassifierDecision(classifierResult, classifierConfig);
 
       if (decision.allow) {

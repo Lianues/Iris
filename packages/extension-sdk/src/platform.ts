@@ -72,9 +72,36 @@ export interface AgentTaskInfoLike {
   endTime?: number;
 }
 
+/** Backend 事件签名（供 SDK 消费者使用，核心类型用 unknown 代替以保持解耦） */
+export interface BackendEventMap {
+  'response':           (sessionId: string, text: string) => void;
+  'stream:start':       (sessionId: string) => void;
+  'stream:chunk':       (sessionId: string, chunk: string) => void;
+  'stream:end':         (sessionId: string, usage?: unknown) => void;
+  'stream:parts':       (sessionId: string, parts: unknown[]) => void;
+  'tool:execute':       (sessionId: string, handle: ToolExecutionHandleLike) => void;
+  'error':              (sessionId: string, error: string) => void;
+  'usage':              (sessionId: string, usage: unknown) => void;
+  'done':               (sessionId: string, durationMs: number, turnId?: string) => void;
+  'assistant:content':  (sessionId: string, content: unknown) => void;
+  'turn:start':         (sessionId: string, turnId: string, mode: string) => void;
+  'retry':              (sessionId: string, attempt: number, maxRetries: number, error: string) => void;
+  'user:token':         (sessionId: string, tokenCount: number) => void;
+  'auto-compact':       (sessionId: string, summaryText: string) => void;
+  'attachments':        (sessionId: string, attachments: unknown[]) => void;
+  'agent:notification': (sessionId: string, taskId: string, status: string, summary: string, taskType?: string, silent?: boolean) => void;
+  'task:result':        (sessionId: string, taskId: string, status: string, description: string, taskType?: string, silent?: boolean, result?: string) => void;
+  'notification:payloads': (sessionId: string, payloads: unknown[]) => void;
+}
+
 export interface IrisBackendLike {
+  /** 监听已知事件（强类型） */
+  on<K extends keyof BackendEventMap>(event: K, listener: BackendEventMap[K]): this;
+  /** 监听未知/自定义事件（兼容） */
   on(event: string, listener: (...args: any[]) => void): this;
+  once?<K extends keyof BackendEventMap>(event: K, listener: BackendEventMap[K]): this;
   once?(event: string, listener: (...args: any[]) => void): this;
+  off<K extends keyof BackendEventMap>(event: K, listener: BackendEventMap[K]): this;
   off(event: string, listener: (...args: any[]) => void): this;
   chat(
     sessionId: string,
@@ -110,7 +137,170 @@ export interface IrisBackendLike {
   getRunningAgentTasks?(sessionId: string): AgentTaskInfoLike[];
   /** 按 taskId 查询单个异步子代理任务（只读） */
   getAgentTask?(taskId: string): AgentTaskInfoLike | undefined;
+
+  // ── 补全：消除各平台的 as any 访问 ──
+
+  /** 获取工具权限策略 */
+  getToolPolicies?(): Record<string, unknown> | undefined;
+  /** 获取当前活跃模型信息 */
+  getCurrentModelInfo?(): IrisModelInfoLike | undefined;
+  /** 获取被禁用的工具名称列表 */
+  getDisabledTools?(): string[] | undefined;
+  /** 获取当前活跃会话 ID */
+  getActiveSessionId?(): string | undefined;
 }
+
+// ── BackendHandle：稳定代理层 ──
+
+/**
+ * Backend 的稳定代理。
+ *
+ * Platform 持有 BackendHandle 而非直接持有 Backend 实例。
+ * 当 Core 被热重载/重建时，Host 调用 `handle.swap(newBackend)` 将底层 Backend
+ * 替换为新实例，同时自动迁移所有已注册的事件监听器。Platform 侧零感知。
+ */
+export class BackendHandle implements IrisBackendLike {
+  private _backend: IrisBackendLike;
+  private _listeners = new Map<string, Set<(...args: any[]) => void>>();
+
+  constructor(backend: IrisBackendLike) {
+    this._backend = backend;
+  }
+
+  /**
+   * 热替换底层 Backend。
+   * 自动将所有已注册的事件监听器从旧 Backend 迁移到新 Backend。
+   */
+  swap(newBackend: IrisBackendLike): void {
+    // 从旧 Backend 移除所有监听器
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.off(event, fn);
+      }
+    }
+    this._backend = newBackend;
+    // 在新 Backend 上重新注册所有监听器
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.on(event, fn);
+      }
+    }
+  }
+
+  // ── EventEmitter 代理（追踪监听器） ──
+
+  on(event: string, listener: (...args: any[]) => void): this {
+    if (!this._listeners.has(event)) this._listeners.set(event, new Set());
+    this._listeners.get(event)!.add(listener);
+    this._backend.on(event, listener);
+    return this;
+  }
+
+  off(event: string, listener: (...args: any[]) => void): this {
+    this._listeners.get(event)?.delete(listener);
+    this._backend.off(event, listener);
+    return this;
+  }
+
+  once(event: string, listener: (...args: any[]) => void): this {
+    const wrapper = (...args: any[]) => {
+      this._listeners.get(event)?.delete(wrapper);
+      listener(...args);
+    };
+    return this.on(event, wrapper);
+  }
+
+  // ── 方法代理 ──
+
+  chat(
+    sessionId: string,
+    text: string,
+    images?: ImageInput[],
+    documents?: DocumentInput[],
+    platform?: string,
+  ): Promise<unknown> {
+    return this._backend.chat(sessionId, text, images, documents, platform);
+  }
+
+  isStreamEnabled(): boolean { return this._backend.isStreamEnabled(); }
+  clearSession(sessionId: string): Promise<void> { return this._backend.clearSession(sessionId); }
+
+  switchModel(modelName: string, platform?: string): { modelName: string; modelId: string } {
+    return this._backend.switchModel(modelName, platform);
+  }
+
+  listModels(): IrisModelInfoLike[] { return this._backend.listModels(); }
+  listSessionMetas(): Promise<IrisSessionMetaLike[]> { return this._backend.listSessionMetas(); }
+  abortChat(sessionId: string): void { return this._backend.abortChat(sessionId); }
+
+  getToolHandle(toolId: string): ToolExecutionHandleLike | undefined {
+    return this._backend.getToolHandle(toolId);
+  }
+
+  getToolHandles(sessionId: string): ToolExecutionHandleLike[] {
+    return this._backend.getToolHandles(sessionId);
+  }
+
+  // ── 可选方法代理 ──
+
+  undo(sessionId: string, scope?: string): Promise<{ assistantText?: string } | null> {
+    return this._backend.undo?.(sessionId, scope) ?? Promise.resolve(null);
+  }
+
+  redo(sessionId: string): Promise<{ assistantText?: string } | null> {
+    return this._backend.redo?.(sessionId) ?? Promise.resolve(null);
+  }
+
+  listSkills(): IrisSkillInfoLike[] { return this._backend.listSkills?.() ?? []; }
+  listModes(): IrisModeInfoLike[] { return this._backend.listModes?.() ?? []; }
+  switchMode(modeName: string): boolean { return this._backend.switchMode?.(modeName) ?? false; }
+  clearRedo(sessionId: string): void { return this._backend.clearRedo?.(sessionId); }
+
+  getHistory(sessionId: string): Promise<Content[]> {
+    return this._backend.getHistory?.(sessionId) ?? Promise.resolve([]);
+  }
+
+  runCommand(cmd: string): unknown { return this._backend.runCommand?.(cmd); }
+
+  summarize(sessionId: string): Promise<unknown> {
+    return this._backend.summarize?.(sessionId) ?? Promise.resolve(undefined);
+  }
+
+  resetConfigToDefaults(): unknown { return this._backend.resetConfigToDefaults?.(); }
+  getToolNames(): string[] { return this._backend.getToolNames?.() ?? []; }
+
+  getAgentTasks(sessionId: string): AgentTaskInfoLike[] {
+    return this._backend.getAgentTasks?.(sessionId) ?? [];
+  }
+
+  getRunningAgentTasks(sessionId: string): AgentTaskInfoLike[] {
+    return this._backend.getRunningAgentTasks?.(sessionId) ?? [];
+  }
+
+  getAgentTask(taskId: string): AgentTaskInfoLike | undefined {
+    return this._backend.getAgentTask?.(taskId);
+  }
+
+  // ── 补全方法代理 ──
+
+  getToolPolicies(): Record<string, unknown> | undefined {
+    return this._backend.getToolPolicies?.();
+  }
+
+  getCurrentModelInfo(): IrisModelInfoLike | undefined {
+    return this._backend.getCurrentModelInfo?.();
+  }
+
+  getDisabledTools(): string[] | undefined {
+    return this._backend.getDisabledTools?.();
+  }
+
+  getActiveSessionId(): string | undefined {
+    return this._backend.getActiveSessionId?.();
+  }
+}
+
+// ── 平台工厂 ──
 
 /**
  * 平台工厂创建上下文。
@@ -122,7 +312,7 @@ export interface IrisBackendLike {
  * 索引签名 `[key: string]: unknown` 允许宿主传递额外的平台特定参数。
  */
 export interface IrisPlatformFactoryContextLike {
-  backend: IrisBackendLike;
+  backend: BackendHandle;
   config?: {
     platform?: Record<string, unknown>;
     [key: string]: unknown;
@@ -165,7 +355,7 @@ export interface PlatformFactoryHelperOptions<TConfig extends Record<string, unk
   platformName: string;
   resolveConfig: (raw: Partial<TConfig>, context: IrisPlatformFactoryContextLike) => TConfig;
   create: (
-    backend: IrisBackendLike,
+    backend: BackendHandle,
     config: TConfig,
     context: IrisPlatformFactoryContextLike,
   ) => Promise<TPlatform> | TPlatform;
@@ -209,6 +399,43 @@ export abstract class PlatformAdapter {
   }
 }
 
+// ── 能力接口 ──
+
+/**
+ * 前台交互式平台。
+ *
+ * 实现此接口的平台（如 Console TUI）会阻塞主流程直到用户退出或切换 Agent。
+ * 核心层通过 `isForegroundPlatform()` 类型守卫检测，不通过平台名称硬编码。
+ */
+export interface ForegroundPlatform {
+  /** 等待用户退出。返回退出意图。 */
+  waitForExit(): Promise<'exit' | 'switch-agent'>;
+}
+
+/** 检测平台是否实现了 ForegroundPlatform 接口 */
+export function isForegroundPlatform(
+  platform: PlatformAdapter,
+): platform is PlatformAdapter & ForegroundPlatform {
+  return typeof (platform as any).waitForExit === 'function';
+}
+
+/**
+ * 支持 HTTP 路由注册的平台。
+ *
+ * 插件通过 IrisAPI.registerRoute 注册路由，Core 层缓存后推送给实现此接口的平台。
+ * 核心层通过 `isRoutableHttpPlatform()` 类型守卫检测。
+ */
+export interface RoutableHttpPlatform {
+  /** 注册外部路由到此平台的 HTTP 服务器 */
+  registerRoute(method: string, path: string, handler: (...args: unknown[]) => Promise<void>): void;
+}
+
+/** 检测平台是否实现了 RoutableHttpPlatform 接口 */
+export function isRoutableHttpPlatform(
+  platform: PlatformAdapter,
+): platform is PlatformAdapter & RoutableHttpPlatform {
+  return typeof (platform as any).registerRoute === 'function';
+}
 
 // ── Multi-Agent 支持 ──
 
@@ -216,7 +443,7 @@ export abstract class PlatformAdapter {
 export interface AgentContextLike {
   name: string;
   description?: string;
-  backend: IrisBackendLike;
+  backend: BackendHandle;
   config: Record<string, unknown>;
   getMCPManager?: () => unknown;
   setMCPManager?: (mgr?: unknown) => void;
@@ -230,15 +457,13 @@ export interface AgentContextLike {
  */
 export interface MultiAgentCapable {
   /** 添加 Agent 上下文 */
-  addAgent(name: string, backend: IrisBackendLike, config: Record<string, unknown>, description?: string, getMCPManager?: () => unknown, setMCPManager?: (mgr?: unknown) => void, extensions?: Record<string, unknown>): void;
+  addAgent(name: string, backend: BackendHandle, config: Record<string, unknown>, description?: string, getMCPManager?: () => unknown, setMCPManager?: (mgr?: unknown) => void, extensions?: Record<string, unknown>): void;
   /** 热重载 Agent 列表 */
   reloadAgents?(): Promise<unknown>;
   /** 设置 Agent 热重载回调 */
   setReloadHandler?(handler: (...args: unknown[]) => Promise<unknown>): void;
   /** 设置平台配置热重载回调 */
   setPlatformReloadHandler?(handler: (...args: unknown[]) => Promise<void>): void;
-  /** 注册外部路由到此平台的 HTTP 服务器 */
-  registerRoute?(method: string, path: string, handler: (...args: unknown[]) => Promise<void>): void;
   /** 获取 MCP 管理器 */
   getMCPManager?(agentName?: string): unknown;
 }

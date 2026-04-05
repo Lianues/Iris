@@ -1,15 +1,62 @@
-# Backend 核心服务
+# 核心架构
 
-## 职责
+## 三层结构
 
-`Backend` 是整个应用的核心服务层，封装全部业务逻辑。
+```
+IrisHost（进程唯一，管所有 Agent 的生死）
+├── cores: Map<string, IrisCore>
+├── taskBoard: CrossAgentTaskBoard（共享）
+├── ipcServers: Map<string, IPCServer>（每个 Agent 一个 IPC 端口）
+├── spawnAgent(def) → 运行时创建新 Core（自动注入 agentNetwork）
+├── reloadAgent(name) → BackendHandle.swap()，Platform 零感知
+├── destroyAgent(name) → 运行时销毁 Core
+├── shutdown() → 幂等，关闭所有 Core
+│
+└── IrisCore（一个 Agent 的完整运行时，可多个）
+    ├── state: init → running → stopping → stopped
+    ├── start() / shutdown()（幂等）
+    ├── backend: Backend              ← 业务核心（内部实例）
+    ├── backendHandle: BackendHandle  ← 稳定代理（Platform 持有这个）
+    ├── router: LLMRouter       ← 模型路由
+    ├── tools: ToolRegistry     ← 工具注册
+    ├── mcpManager: MCPManager  ← MCP 连接
+    ├── storage: StorageProvider ← 数据库
+    ├── pluginManager           ← 插件
+    ├── skillWatcherDispose     ← 文件监听（shutdown 时关闭）
+    └── irisAPI                 ← 完整 API（供平台和插件使用）
 
-它通过**公共方法**接收平台层的调用，通过**事件**将结果推送给平台层。Backend 不知道任何平台的存在，不持有任何平台引用。
+Platform 层（通过能力接口区分，不通过名称硬编码）
+├── MultiAgentCapable     → 共享多 Agent（如 Web）
+├── RoutableHttpPlatform  → 支持 HTTP 路由注册
+├── ForegroundPlatform    → 前台阻塞（如 Console），有 waitForExit()
+└── 普通平台              → 启动后在后台运行
 
-##文件结构
+index.ts（纯编排层，无硬编码平台名称）
+├── const host = new IrisHost()
+├── await host.start()
+├── 创建平台、启动
+├── 等待退出条件
+├── await host.shutdown()
+└── process.exit(0)
+```
+
+不存在"单 Agent 模式"和"多 Agent 模式"的分叉——单 Agent 就是 N=1 的多 Agent。
+
+## 职责划分
+
+| 层 | 职责 | 不管的事 |
+|---|---|---|
+| **IrisHost** | 管理所有 Core 的生命周期、共享 taskBoard、agentNetwork 构造注入、reloadAgent(swap) | 不知道平台的存在 |
+| **IrisCore** | 持有并初始化一个 Agent 的全部资源（Backend + 依赖），提供 shutdown | 不知道其他 Core，不知道平台 |
+| **Backend** | 业务逻辑核心（对话、工具循环、会话管理） | 不知道 Core、不管资源生命周期 |
+| **index.ts** | 编排：创建 Host → 创建平台 → 信号处理 → 退出 | 不管业务逻辑 |
+
+## 文件结构
 
 ```
 src/core/
+├── iris-host.ts         IrisHost 多 Agent 管理器
+├── iris-core.ts         IrisCore 单 Agent 运行时
 ├── backend/
 │   ├── backend.ts       Backend 核心服务（主类）
 │   ├── types.ts         BackendConfig / BackendEvents / UndoOperationResult 等类型定义
@@ -25,65 +72,74 @@ src/core/
 ├── message-queue.ts     消息排队（AI 繁忙时暂存用户新消息）
 ├── history-sanitizer.ts 历史修复（清理孤立 functionCall/functionResponse）
 ├── agent-task-registry.ts 异步子代理任务注册表
+├── cross-agent-task-board.ts 跨 Agent 任务板
 └── platform-registry.ts 平台注册表（内置 + extension 注册）
+```
+
+```
+src/ipc/                  IPC 进程间通信层
+├── protocol.ts           协议定义（方法名、事件名、类型守卫、序列化结构）
+├── framing.ts            传输层：4 字节长度前缀帧编解码器
+├── server.ts             IPC 服务端（每个 IrisCore 一个实例）
+├── client.ts             IPC 客户端（连接到 server）
+├── remote-backend-handle.ts  客户端侧 Backend 代理（实现 IrisBackendLike）
+├── remote-tool-handle.ts     客户端侧 ToolExecutionHandle 代理
+├── remote-api-proxy.ts       IrisAPI 子集代理
+└── index.ts              统一导出
 ```
 
 相关入口文件：
 
 ```
 src/
-├── bootstrap.ts     核心初始化（创建 Backend 及所有依赖模块）
-├── index.ts         平台模式入口（bootstrap → 创建平台 → 启动）
-├── cli.ts           CLI 模式入口（bootstrap → backend.chat() → 输出 → 退出）
+├── index.ts         平台模式入口（IrisHost → 创建平台 → 启动）
+├── cli.ts           CLI 模式入口（IrisCore → backend.chat() → 输出 → shutdown）
+├── attach.ts        Attach 模式入口（通过 IPC 连接远端 IrisCore → 启动 Console）
 ├── paths.ts         路径常量与多 Agent 路径解析（AgentPaths）
 └── agents/          多 Agent 注册表（agents.yaml 加载、状态查询）
 ```
 
-## bootstrap()
+## IrisCore 生命周期
 
-`src/bootstrap.ts` 提供 `bootstrap()` 函数，封装从配置加载到 Backend 创建的全部初始化逻辑。
+`src/core/iris-core.ts`，原 `bootstrap()` 函数重构为类。
 
 ```typescript
-interface BootstrapOptions {
-  agentName?: string;     // Agent 名称（多 Agent 模式）
-  agentPaths?: AgentPaths; // Agent 专属路径集
+interface IrisCoreOptions {
+  agentName?: string;
+  agentPaths?: AgentPaths;
+  inlinePlugins?: InlinePluginEntry[];
+  taskBoard?: CrossAgentTaskBoard;  // 外部注入（IrisHost 提供）
+  agentNetwork?: AgentNetworkProvider;  // 多 Agent 时由 IrisHost 构造注入
 }
 
-interface BootstrapResult {
-  backend: Backend;
-  config: AppConfig;
-  configDir: string;
-  router: LLMRouter;
-  tools: ToolRegistry;
-  mcpManager: MCPManager | undefined;
-  setMCPManager: (manager?: MCPManager) => void;
-  getMCPManager: () => MCPManager | undefined;
-  agentName?: string;         // 多 Agent 模式下的 Agent 标识
-  initWarnings: string[];     // 初始化过程中的警告信息
-  pluginManager: PluginManager | undefined; // 插件管理器
-  extensions: BootstrapExtensionRegistry;   // 启动扩展注册表
-  platformRegistry: PlatformRegistry;       // 平台注册表（内置 + 插件注册）
-  eventBus: PluginEventBus;                 // 插件间共享事件总线
-  bindWebRouteRegistration: (register) => void; // 绑定 Web 路由注册
-  irisAPI?: Record<string, unknown>;        // 完整 IrisAPI（供平台 factory 注入）
-}
+const core = new IrisCore({ agentName: 'my-agent' });
+await core.start();     // init → running（创建所有资源）
+// ... 使用 core.backend, core.router 等
+await core.shutdown();  // running → stopping → stopped（幂等）
 ```
 
-`index.ts` 和 `cli.ts` 都调用 `bootstrap(options?)` 获取 Backend 实例。多 Agent 模式下每个 Agent 独立调用 `bootstrap()`，各自拥有隔离的配置、存储和记忆。详见 [agents.md](./agents.md)。
+**幂等 shutdown**：多次调用返回同一个 Promise，不会重复关闭资源。SIGINT 和 `/exit` 同时触发也不会冲突。
+
+shutdown 关闭的资源：MCP 连接、Skill 文件监听器、storage.close()（当实现支持时）。
 
 ## 架构位置
 
 ```
-Platform ──调方法──▶ Backend ──发事件──▶ Platform
+Platform ──通过 BackendHandle──▶ Backend ──发事件──▶ BackendHandle ──▶ Platform
                        │
                        ├──▶ Storage     存储
                        ├──▶ LLMRouter   LLM 调用
                        ├──▶ ToolLoop    工具循环
                        ├──▶ Memory      记忆（可选）
                        └──▶ ModeRegistry 模式
+
+远程 Platform（iris attach）:
+RemotePlatform ──通过 RemoteBackendHandle──▶ IPCClient ──TCP──▶ IPCServer ──▶ Backend
 ```
 
 平台层与 Backend 的关系是**单向依赖**：平台知道 Backend，Backend 不知道平台。
+
+远程模式下，`RemoteBackendHandle` 实现相同的 `IrisBackendLike` 接口，将方法调用序列化为 IPC 请求，将服务端事件转为本地 EventEmitter 事件。对平台层透明。
 
 ---
 

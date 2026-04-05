@@ -1,4 +1,4 @@
-import type { IrisBackendLike } from '../platform.js';
+import type { IrisBackendLike, BackendHandle } from '../platform.js';
 import { LogLevel } from '../logger.js';
 import type { MediaServiceLike, OCRProviderLike } from '../media.js';
 import type {
@@ -157,6 +157,18 @@ export interface AgentNetworkLike {
   getPeerDescription(name: string): string | undefined;
   /** 获取指定 peer Agent 的 backend 实例引用 */
   getPeerBackend(name: string): IrisBackendLike | undefined;
+  /** 获取指定 peer Agent 的 BackendHandle（平台层使用的稳定代理） */
+  getPeerBackendHandle?(name: string): BackendHandle | undefined;
+}
+
+/** 应用配置的只读视图（供插件和扩展使用） */
+export interface AppConfigLike {
+  readonly llm: unknown;
+  readonly system: unknown;
+  readonly tools: unknown;
+  readonly platform: unknown;
+  readonly storage: unknown;
+  readonly [key: string]: unknown;
 }
 
 export interface IrisAPI {
@@ -168,7 +180,7 @@ export interface IrisAPI {
   tools: ToolRegistryLike;
   modes: ModeRegistryLike;
   prompt: PromptAssemblerLike;
-  config: Readonly<Record<string, unknown>>;
+  config: AppConfigLike;
   mcpManager?: MCPManagerLike;
   /** OCR 服务（当主模型不支持 vision 时回退使用）。未配置 OCR 时为 undefined。 */
   ocrService?: OCRProviderLike;

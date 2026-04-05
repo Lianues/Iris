@@ -60,6 +60,11 @@ export abstract class StorageProvider {
     return this.constructor.name;
   }
 
+  /** 关闭存储连接（如数据库连接池等）。默认空实现，子类按需重写。 */
+  async close(): Promise<void> {
+    // 默认无操作
+  }
+
   /** 统一 Content 的字段顺序：role → parts → usageMetadata → durationMs → streamOutputDurationMs → 其余 */
   protected normalize(content: Content): Content {
     const known = new Set(['role', 'parts', 'usageMetadata', 'durationMs', 'streamOutputDurationMs', 'isSummary']);

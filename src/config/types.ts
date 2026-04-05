@@ -310,6 +310,7 @@ export interface SummaryConfig {
 }
 
 export interface AppConfig {
+  [key: string]: unknown;
   llm: LLMRegistryConfig;
   ocr?: OCRConfig;
   platform: PlatformConfig;

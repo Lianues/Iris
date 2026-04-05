@@ -17,6 +17,7 @@ import {
 } from '@irises/extension-sdk';
 import type {
   IrisBackendLike,
+  RoutableHttpPlatform,
   ImageInput,
   DocumentInput,
   Content,
@@ -96,7 +97,7 @@ export interface WebPlatformDeps {
   isCompiledBinary?: boolean;
 }
 
-export class WebPlatform extends PlatformAdapter implements MultiAgentCapable {
+export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, RoutableHttpPlatform {
   private server?: http.Server;
   private router: Router;
   private config: WebPlatformConfig;
@@ -182,7 +183,19 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable {
       this.agents.delete('default');
       this.defaultAgentName = name;
     }
-    const cfg = config as WebPlatformConfig;
+    // 从传入的通用配置中提取 Web 平台专属配置
+    const raw = config as Record<string, unknown>;
+    const webSub = (raw.platform as Record<string, unknown> | undefined)?.web as Record<string, unknown> | undefined;
+    const cfg: WebPlatformConfig = {
+      port: (webSub?.port ?? raw.port ?? this.config.port) as number,
+      host: (webSub?.host ?? raw.host ?? this.config.host) as string,
+      authToken: (webSub?.authToken ?? raw.authToken ?? this.config.authToken) as string | undefined,
+      managementToken: (webSub?.managementToken ?? raw.managementToken ?? this.config.managementToken) as string | undefined,
+      configPath: (raw.configPath ?? '') as string,
+      provider: (raw.provider ?? 'unknown') as string,
+      modelId: (raw.modelId ?? 'unknown') as string,
+      streamEnabled: (raw.streamEnabled ?? true) as boolean,
+    };
     this.agents.set(name, {
       name, description, backend, config: cfg,
       getMCPManager: getMCPManager ?? (() => undefined),
@@ -835,7 +848,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable {
         const result = await this.deps.api?.configManager?.applyRuntimeConfigReload(mergedConfig);
         if (result && !result.error) {
           // 尝试从 backend 获取最新模型信息更新 agent config
-          const modelInfo = (agent.backend as any).getCurrentModelInfo?.();
+          const modelInfo = agent.backend.getCurrentModelInfo?.();
           if (modelInfo) {
             agent.config.provider = modelInfo.provider ?? agent.config.provider;
             agent.config.modelId = modelInfo.modelId ?? agent.config.modelId;
@@ -879,8 +892,8 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable {
     // 状态 API
     this.router.get('/api/status', async (req, res) => {
       const agent = this.resolveAgent(req);
-      const modelInfo = (agent.backend as any).getCurrentModelInfo?.() ?? {};
-      const disabledTools = (agent.backend as any).getDisabledTools?.() ?? [];
+      const modelInfo = agent.backend.getCurrentModelInfo?.() ?? {};
+      const disabledTools = agent.backend.getDisabledTools?.() ?? [];
       const pRoot = this.deps.projectRoot ?? process.cwd();
       sendJSON(res, 200, {
         provider: agent.config.provider,

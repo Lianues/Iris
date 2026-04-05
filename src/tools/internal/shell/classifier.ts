@@ -6,10 +6,10 @@
  * 通过 platform 参数区分 Windows (PowerShell) 和 Unix (bash) 场景。
  */
 
-import type { LLMRouter } from '../../../llm/router';
-import type { Content } from '../../../types';
+import type { LLMRouter } from '@/llm/router';
+import type { Content } from '@/types';
 import type { ClassifierResult, ShellClassifierConfig } from './types';
-import { createLogger } from '../../../logger';
+import { createLogger } from '@/logger';
 
 const logger = createLogger('ShellClassifier');
 
@@ -139,6 +139,7 @@ function validateResult(parsed: unknown): ClassifierResult | null {
  * @param router   LLM 路由器
  * @param config   分类器配置
  * @param shell    当前使用的 shell 可执行名称
+ * @param cwd      当前工作目录（用于构建分类器 prompt）
  * @returns 分类结果，超时/异常时返回 null
  */
 export async function classifyWithLLM(
@@ -146,9 +147,9 @@ export async function classifyWithLLM(
   router: LLMRouter,
   config?: Partial<ShellClassifierConfig>,
   shell?: string,
+  cwd?: string,
 ): Promise<ClassifierResult | null> {
-  const cwd = process.cwd();
-  const systemPrompt = buildClassifierPrompt(shell ?? 'powershell.exe', cwd);
+  const systemPrompt = buildClassifierPrompt(shell ?? 'powershell.exe', cwd ?? process.cwd());
 
   const timeout = config?.timeout ?? DEFAULTS.timeout;
 

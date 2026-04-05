@@ -15,10 +15,10 @@
 
 import type { CommandSafetyConfig, ShellClassifierConfig, ShellToolDeps } from './types';
 import { addToRuntimeWhitelist, getRuntimeWhitelistSize } from './whitelist';
-import { ToolLoop, type LLMCaller } from '../../../core/tool-loop';
+import { ToolLoop, type LLMCaller } from '@/core/tool-loop';
 import { ToolRegistry } from '../../registry';
-import { PromptAssembler } from '../../../prompt/assembler';
-import { createLogger } from '../../../logger';
+import { PromptAssembler } from '@/prompt/assembler';
+import { createLogger } from '@/logger';
 
 const logger = createLogger('ShellLearn');
 

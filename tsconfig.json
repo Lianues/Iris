@@ -18,7 +18,10 @@
     "paths": {
       "@irises/extension-sdk": ["./packages/extension-sdk/src"],
       "@irises/extension-sdk/utils": ["./packages/extension-sdk/src/utils"],
-      "@irises/extension-sdk/tool-utils": ["./packages/extension-sdk/src/tool-utils"]
+      "@irises/extension-sdk/plugin": ["./packages/extension-sdk/src/plugin"],
+      "@irises/extension-sdk/pairing": ["./packages/extension-sdk/src/pairing"],
+      "@irises/extension-sdk/tool-utils": ["./packages/extension-sdk/src/tool-utils"],
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*"],

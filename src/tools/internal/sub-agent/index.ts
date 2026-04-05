@@ -14,21 +14,21 @@
  *   - task-notification 触发主 LLM 的新 turn（由 Backend 的 MessageQueue 驱动）
  */
 
-import { ToolDefinition } from '../../../types';
-import type { Content, Part, LLMRequest, UsageMetadata, ToolExecutionContext } from '../../../types';
-import { appendMergedPart } from '../../../core/backend/stream';
-import type { ToolsConfig } from '../../../config';
-import { LLMRouter } from '../../../llm/router';
-import { agentContext } from '../../../logger';
+import { ToolDefinition } from '@/types';
+import type { Content, Part, LLMRequest, UsageMetadata, ToolExecutionContext } from '@/types';
+import { appendMergedPart } from '@/core/backend/stream';
+import type { ToolsConfig } from '@/config';
+import { LLMRouter } from '@/llm/router';
+import { agentContext } from '@/logger';
 import { ToolRegistry } from '../../registry';
-import { ToolLoop, LLMCaller } from '../../../core/tool-loop';
-import { PromptAssembler } from '../../../prompt/assembler';
-import { createLogger } from '../../../logger';
+import { ToolLoop, LLMCaller } from '@/core/tool-loop';
+import { PromptAssembler } from '@/prompt/assembler';
+import { createLogger } from '@/logger';
 import { ToolStateManager } from '../../state';
 import { ToolExecutionHandle } from '../../handle';
 import { SubAgentTypeRegistry, SubAgentTypeConfig } from './types';
-import type { CrossAgentTaskBoard } from '../../../core/cross-agent-task-board';
-import { createTaskId } from '../../../core/cross-agent-task-board';
+import type { CrossAgentTaskBoard } from '@/core/cross-agent-task-board';
+import { createTaskId } from '@/core/cross-agent-task-board';
 
 // 统一导出类型层
 export type { SubAgentTypeConfig } from './types';
@@ -54,7 +54,7 @@ export interface SubAgentToolDeps {
    */
   getToolsConfig?: () => ToolsConfig;
   /** @deprecated 兼容旧测试与旧调用点；仅返回 permissions，不包含全局工具配置。 */
-  getToolPolicies?: () => Record<string, import('../../../config').ToolPolicyConfig>;
+  getToolPolicies?: () => Record<string, import('@/config').ToolPolicyConfig>;
 
   // ---- 异步子代理依赖（由 bootstrap 注入） ----
 
@@ -197,15 +197,20 @@ ${typeDescriptions}
   if (asyncCapable) {
     toolDescription += `
 
-后台运行：
-- 通过 run_in_background: true 让子代理在后台运行，你会立即收到 async_launched 响应
-- 后台子代理完成后，你会收到一条 <task-notification> 消息，包含任务结果
-- 启动后台子代理后，应简要告知用户已启动了什么任务，然后结束回复，**不要猜测或模拟任务结果**
-- 收到 <task-notification> 后，根据其中的 status 决定下一步行动
-- 禁止完整复述 <task-notification> 的内容，因为用户可以在前端完整看到 <task-notification> 中的内容。
-- 前台（默认）：需要子代理结果才能继续时使用。后台：有真正独立的并行工作时使用
+同步 vs 后台运行决策：
+- 根据「下一步是否依赖子代理返回结果」来决定运行方式：
+  · 你的下一轮回复需要用到子代理的结果才能继续 → 前台同步（默认）
+  · 子代理结果不影响你立即回复用户 → 后台异步（run_in_background: true）
+- 预计耗时较长的任务（大范围搜索、批量文件操作、复杂多步骤工作）倾向使用后台异步，这样你可以先回复用户
 - 需要并行执行多个独立任务时，连续启动多个后台子代理
-- 读任务可并行，写任务涉及同一文件集合时应串行`;
+- 读任务可并行，写任务涉及同一文件集合时应串行
+
+后台运行机制：
+- run_in_background: true 时你会立即收到 async_launched 响应
+- 后台子代理完成后，你会收到一条 <task-notification> 消息，包含任务结果
+- 启动后台子代理后，应简要告知用户已启动了什么任务，然后结束回复，不要猜测或模拟任务结果
+- 收到 <task-notification> 后，根据其中的 status 决定下一步行动
+- 禁止完整复述 <task-notification> 的内容，用户可以在前端完整看到其中的内容`;
   }
 
   // 工具参数声明
@@ -253,7 +258,7 @@ ${typeDescriptions}
       }
 
       // 判断是否走异步路径
-      const shouldRunAsync = asyncCapable && (runInBackground || (typeConfig as any).background === true);
+      const shouldRunAsync = asyncCapable && runInBackground;
 
       // 构建子工具集（同步/异步共用）
       // shell/bash 名称归一化已在 ToolRegistry.createSubset/createFiltered 中处理

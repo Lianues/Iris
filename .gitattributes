@@ -1,2 +1,20 @@
-# 强制编译产物使用 LF 行尾，避免 Windows 上重新编译后产生纯行尾差异的假 diff
+# ── 全局：所有文本文件统一 LF 行尾 ──
+* text=auto eol=lf
+
+# ── 二进制文件（不做行尾转换） ──
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.pdf binary
+
+# ── 编译产物（已有规则，保持） ──
 extensions/*/dist/*.mjs text eol=lf

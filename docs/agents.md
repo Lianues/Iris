@@ -143,16 +143,16 @@ iris -p "你好"
 ### 单 Agent 模式（默认）
 
 ```
-main() → runSingleAgent() → bootstrap() → createPlatforms() → start()
+main() → IrisHost.start() → IrisCore.start() → createPlatforms() → start()
 ```
 
-与改造前行为完全一致。
+单 Agent 是多 Agent 的子集（N=1），IrisHost 自动创建一个名为 `__global__` 的默认 Core。
 
 ### 多 Agent 模式
 
 ```
-main() → runMultiAgent()
-  ├── bootstrap() × N（每个 Agent 独立初始化）
+main() → IrisHost.start()
+  ├── IrisCore.start() × N（每个 Agent 独立初始化）
   ├── 创建共享 WebPlatform，注册所有 Agent
   ├── 启动非 Console 平台
   ├── 注册 SIGINT/SIGTERM 清理

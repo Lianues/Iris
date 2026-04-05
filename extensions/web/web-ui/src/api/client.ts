@@ -722,6 +722,6 @@ export interface WebPanelInfo {
 }
 
 export async function getWebPanels(): Promise<WebPanelInfo[]> {
-  const res = await request('/api/web-panels')
+  const res = await request('/api/panels')
   return res.json()
 }

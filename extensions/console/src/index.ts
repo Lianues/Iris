@@ -7,11 +7,14 @@
  * 提交的消息会被加入队列，等当前响应完成后自动发送下一条。
  */
 
+declare const process: { exit(code?: number): never };
+
 import React from 'react';
 import { createCliRenderer, type CliRenderer } from '@opentui/core';
 import { createRoot } from '@opentui/react';
 import {
   PlatformAdapter,
+  type ForegroundPlatform,
   LogLevel,
   type Content,
   type Part,
@@ -173,8 +176,6 @@ export interface ConsolePlatformOptions {
   setMCPManager: (manager?: MCPManagerLike) => void;
   /** 当前 Agent 名称（多 Agent 模式下显示在 TUI 中） */
   agentName?: string;
-  /** 切换 Agent 回调（多 Agent 模式下由 /agent 指令触发） */
-  onSwitchAgent?: () => void;
   /** 初始化过程中的警告信息（TUI 启动后展示） */
   initWarnings?: string[];
   extensions?: Pick<BootstrapExtensionRegistryLike, 'llmProviders' | 'ocrProviders'>;
@@ -184,7 +185,7 @@ export interface ConsolePlatformOptions {
   isCompiledBinary?: boolean;
 }
 
-export class ConsolePlatform extends PlatformAdapter {
+export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatform {
   private sessionId: string;
   private modeName?: string;
   private modelId: string;
@@ -192,9 +193,12 @@ export class ConsolePlatform extends PlatformAdapter {
   private contextWindow?: number;
   private backend: IrisBackendLike;
   private agentName?: string;
-  private onSwitchAgent?: () => void;
   private settingsController: ConsoleSettingsController;
   private initWarnings: string[];
+
+  /** waitForExit() 的 resolve 函数 */
+  private exitResolve?: (action: 'exit' | 'switch-agent') => void;
+
   private renderer?: CliRenderer;
   private appHandle?: AppHandle;
   private disposeResizeWatcher?: () => void;
@@ -223,7 +227,6 @@ export class ConsolePlatform extends PlatformAdapter {
     this.modelName = options.modelName;
     this.contextWindow = options.contextWindow;
     this.agentName = options.agentName;
-    this.onSwitchAgent = options.onSwitchAgent;
     this.initWarnings = options.initWarnings ?? [];
     this.api = options.api;
     this.isCompiledBinary = options.isCompiledBinary ?? false;
@@ -526,9 +529,12 @@ export class ConsolePlatform extends PlatformAdapter {
         onLoadSettings: () => this.handleLoadSettings(),
         onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => this.handleSaveSettings(snapshot),
         onResetConfig: () => this.handleResetConfig(),
-        onExit: () => this.stop(),
+        onExit: () => {
+          this.stop();
+          this.exitResolve?.('exit');
+        },
         onSummarize: () => this.handleSummarize(),
-        onSwitchAgent: this.onSwitchAgent,
+        onSwitchAgent: () => this.handleSwitchAgent(),
         onThinkingEffortChange: (level: import('./app-types').ThinkingEffortLevel) => this.applyThinkingEffort(level),
         agentName: this.agentName,
         modeName: this.modeName,
@@ -550,6 +556,78 @@ export class ConsolePlatform extends PlatformAdapter {
     // OpenTUI 的 destroy() 会清理交替屏幕、恢复光标等
     this.disposeResizeWatcher?.();
     this.renderer?.destroy();
+  }
+
+  /**
+   * ForegroundPlatform 接口实现。
+   * 返回的 Promise 在用户选择退出或切换 Agent 时 resolve。
+   */
+  waitForExit(): Promise<'exit' | 'switch-agent'> {
+    return new Promise<'exit' | 'switch-agent'>((resolve) => {
+      this.exitResolve = resolve;
+    });
+  }
+
+  /**
+   * 处理 Agent 切换（/agent 命令）。
+   *
+   * 在 Console 内部完成，不需要退出到 index.ts 的外部循环。
+   * 流程：停止当前 TUI → 显示 Agent 选择器 → 替换 backend → 重启 TUI
+   */
+  private async handleSwitchAgent(): Promise<void> {
+    const network = this.api?.agentNetwork;
+    if (!network) {
+      // 没有 agentNetwork 说明不是多 Agent 模式，不应该到这里
+      return;
+    }
+
+    // 获取 Agent 列表
+    const agents = this.api?.listAgents?.() ?? [];
+    if (agents.length === 0) return;
+
+    // 停止当前 TUI（释放交替屏幕）
+    await this.stop();
+
+    // 显示 Agent 选择器
+    const { showAgentSelector } = await import('./agent-selector');
+    const selected = await showAgentSelector(agents);
+
+    if (!selected) {
+      // 用户按 Esc 取消，重启原来的 TUI
+      await this.start();
+      return;
+    }
+
+    const targetName = selected.name;
+    const currentName = network.selfName;
+
+    // 如果选择了当前已绑定的 Agent，直接重启
+    if (targetName === currentName) {
+      await this.start();
+      return;
+    }
+
+    // 获取目标 Agent 的 BackendHandle
+    const targetHandle = network.getPeerBackendHandle?.(targetName);
+    if (targetHandle) {
+      this.backend = targetHandle;
+      this.agentName = targetName === '__global__' ? undefined : targetName;
+
+      // 更新模型信息（新 Agent 可能使用不同模型）
+      const modelInfo = targetHandle.getCurrentModelInfo?.();
+      if (modelInfo) {
+        this.modelName = modelInfo.modelName;
+        this.modelId = modelInfo.modelId;
+        this.contextWindow = modelInfo.contextWindow;
+      }
+
+      this.sessionId = generateSessionId();
+      this.currentToolIds.clear();
+      this._activeHandles.clear();
+    }
+
+    // 重启 TUI
+    await this.start();
   }
 
   // ============ 内部逻辑 ============
@@ -636,8 +714,11 @@ export class ConsolePlatform extends PlatformAdapter {
     const key = type === 'allow' ? 'allowPatterns' : 'denyPatterns';
 
     // 1. 内存生效：直接修改 backend 的 policy 引用
-    const policies = this.backend.getToolPolicies();
-    let policy = policies[toolName];
+    const policies = this.backend.getToolPolicies?.();
+    if (!policies) {
+      return;
+    }
+    let policy = policies[toolName] as Record<string, unknown> | undefined;
     if (!policy) {
       policy = { autoApprove: false };
       policies[toolName] = policy;
@@ -886,7 +967,6 @@ interface ConsoleFactoryContext {
   router?: { getCurrentModelInfo?(): { modelName: string; modelId: string; contextWindow?: number; provider?: string } };
   getMCPManager?: () => MCPManagerLike | undefined;
   setMCPManager?: (manager?: MCPManagerLike) => void;
-  onSwitchAgent?: () => void;
   extensions?: Pick<BootstrapExtensionRegistryLike, 'llmProviders' | 'ocrProviders'>;
   api?: IrisAPI;
   isCompiledBinary?: boolean;
@@ -917,7 +997,6 @@ export default async function consoleFactory(rawContext: Record<string, unknown>
     getMCPManager: context.getMCPManager ?? (() => undefined),
     setMCPManager: context.setMCPManager ?? (() => {}),
     agentName: context.agentName,
-    onSwitchAgent: context.onSwitchAgent,
     initWarnings: context.initWarnings,
     extensions: context.extensions,
     api: context.api,

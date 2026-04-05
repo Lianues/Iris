@@ -680,15 +680,18 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
 
         return;
       }
-      const server = snapshot.mcpServers[editor.target.serverIndex];
+      if (editor.target.kind !== 'mcpField') return;
+      const mcpTarget = editor.target;
+      const server = snapshot.mcpServers[mcpTarget.serverIndex];
       if (!server) return;
-      if (editor.target.field === 'name') server.name = value.replace(/[^a-zA-Z0-9_]/g, '_');
-      else if (editor.target.field === 'timeout') server.timeout = Number(value.trim());
-      else if (editor.target.field === 'command') server.command = value;
-      else if (editor.target.field === 'args') server.args = value;
-      else if (editor.target.field === 'cwd') server.cwd = value;
-      else if (editor.target.field === 'url') server.url = value;
-      else if (editor.target.field === 'authHeader') server.authHeader = value;
+      const field = mcpTarget.field;
+      if (field === 'name') server.name = value.replace(/[^a-zA-Z0-9_]/g, '_');
+      else if (field === 'timeout') server.timeout = Number(value.trim());
+      else if (field === 'command') server.command = value;
+      else if (field === 'args') server.args = value;
+      else if (field === 'cwd') server.cwd = value;
+      else if (field === 'url') server.url = value;
+      else if (field === 'authHeader') server.authHeader = value;
       else server.transport = value as ConsoleMCPTransport;
     });
     setStatus('字段已更新，按 S 保存并热重载', 'success');

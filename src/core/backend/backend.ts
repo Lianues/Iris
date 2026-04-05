@@ -18,8 +18,8 @@
  *   - 保证用户输入永远优先于后台通知被处理
  */
 
-import { EventEmitter } from 'events';
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { TypedEventEmitter } from '../typed-event-emitter';
+import type { BackendEvents } from './types';
 import { agentContext } from '../../logger';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -60,11 +60,10 @@ import { callLLMStream } from './stream';
 import { UndoRedoManager } from './undo-redo';
 import { buildPluginHookConfig } from './plugins';
 
+import { sessionContext, getSessionCwd, setSessionCwd, getRememberedCwd, getActiveSessionId, clearSessionCwd } from './session-context';
+import type { SessionExecutionContext } from './session-context';
+
 const logger = createLogger('Backend');
-
-// ============ 会话上下文（用于在异步调用链中传递 sessionId） ============
-
-export const sessionContext = new AsyncLocalStorage<string>();
 
 /**
  * 解析合并后的 <task-notification> XML 文本为结构化数据。
@@ -90,7 +89,7 @@ function parseNotificationPayloads(mergedText: string): NotificationPayload[] {
 
 // ============ Backend 类 ============
 
-export class Backend extends EventEmitter {
+export class Backend extends TypedEventEmitter<BackendEvents> {
   private router: LLMRouter;
   private storage: StorageProvider;
   private tools: ToolRegistry;
@@ -533,7 +532,8 @@ export class Backend extends EventEmitter {
   }
 
   setCwd(dirPath: string): void {
-    const resolved = path.resolve(process.cwd(), dirPath);
+    const currentCwd = getSessionCwd();
+    const resolved = path.resolve(currentCwd, dirPath);
     if (!fs.existsSync(resolved)) {
       throw new Error(`目录不存在: ${resolved}`);
     }
@@ -541,12 +541,13 @@ export class Backend extends EventEmitter {
     if (!stat.isDirectory()) {
       throw new Error(`不是目录: ${resolved}`);
     }
-    process.chdir(resolved);
+    const sid = getActiveSessionId();
+    if (sid) setSessionCwd(sid, resolved);
     logger.info(`工作目录已切换: ${resolved}`);
   }
 
   getCwd(): string {
-    return process.cwd();
+    return getSessionCwd();
   }
 
   runCommand(cmd: string): { output: string; cwd: string } {
@@ -556,11 +557,12 @@ export class Backend extends EventEmitter {
     if (cdMatch) {
       const target = cdMatch[1].trim().replace(/^["']|["']$/g, '');
       this.setCwd(target);
-      return { output: `已切换到: ${process.cwd()}`, cwd: process.cwd() };
+      const cwd = getSessionCwd();
+      return { output: `已切换到: ${cwd}`, cwd };
     }
 
     const result = spawnSync(trimmed, {
-      cwd: process.cwd(),
+      cwd: getSessionCwd(),
       encoding: 'utf-8',
       timeout: 30000,
       windowsHide: true,
@@ -574,7 +576,7 @@ export class Backend extends EventEmitter {
     if (result.status !== 0) {
       throw new Error(combined || `命令执行失败 (exit code: ${result.status})`);
     }
-    return { output: combined, cwd: process.cwd() };
+    return { output: combined, cwd: getSessionCwd() };
   }
 
   getToolNames(): string[] {
@@ -602,7 +604,7 @@ export class Backend extends EventEmitter {
   }
 
   getActiveSessionId(): string | undefined {
-    return sessionContext.getStore();
+    return getActiveSessionId();
   }
 
   getModeRegistry(): ModeRegistry | undefined {
@@ -764,6 +766,20 @@ export class Backend extends EventEmitter {
 
   getToolPolicies(): Record<string, ToolPolicyConfig> {
     return this.toolLoopConfig.toolsConfig.permissions;
+  }
+
+  /** 获取指定会话最近一次 LLM 调用的 token 数量 */
+  getLastSessionTokens(sessionId: string): number | undefined {
+    return this.lastSessionTokens.get(sessionId);
+  }
+
+  /** 获取所有会话的 token 数量快照 */
+  getAllSessionTokens(): Record<string, number> {
+    const result: Record<string, number> = {};
+    for (const [k, v] of this.lastSessionTokens) {
+      result[k] = v;
+    }
+    return result;
   }
 
   isStreamEnabled(): boolean {
@@ -928,7 +944,11 @@ export class Backend extends EventEmitter {
         // ---- task-notification 路径（异步子代理完成通知） ----
         // 注入 agentContext='main'，使主 LLM turn 内的工具执行日志
         // 都带 [Module|main] 前缀，与子代理的 [Module|taskId] 区分。
-        await sessionContext.run(msg.sessionId, () =>
+        const execCtx: SessionExecutionContext = {
+          sessionId: msg.sessionId,
+          cwd: getRememberedCwd(msg.sessionId),
+        };
+        await sessionContext.run(execCtx, () =>
           agentContext.run('main', () =>
             this.handleNotificationTurn(msg.sessionId, mergedNotificationText!, msg.turnId, abortController.signal)
           )
@@ -936,7 +956,11 @@ export class Backend extends EventEmitter {
       } else {
         // ---- 普通用户消息路径 ----
         // 同上，注入 agentContext='main'。
-        await sessionContext.run(msg.sessionId, () =>
+        const execCtx: SessionExecutionContext = {
+          sessionId: msg.sessionId,
+          cwd: getRememberedCwd(msg.sessionId),
+        };
+        await sessionContext.run(execCtx, () =>
           agentContext.run('main', () =>
             this.handleMessage(msg.sessionId, msg.text, msg.turnId, abortController.signal, msg.images, msg.documents, msg.platformName)
           )
@@ -1328,7 +1352,7 @@ export class Backend extends EventEmitter {
 
   private async updateSessionMeta(sessionId: string, userParts: Part[], isNewSession: boolean, platformName?: string): Promise<void> {
     const now = new Date().toISOString();
-    const cwd = process.cwd();
+    const cwd = getSessionCwd();
 
     if (isNewSession) {
       const hasDocuments = userParts.some(p =>

@@ -6,7 +6,7 @@
  */
 
 import type { AppConfig } from '../config/types';
-import type { Backend } from '../core/backend';
+import type { BackendHandle } from '@irises/extension-sdk';
 import type { LLMRouter } from '../llm/router';
 import type { MCPManager } from '../mcp';
 import type { BootstrapExtensionRegistry } from '../bootstrap/extensions';
@@ -14,7 +14,8 @@ import { PlatformAdapter } from '@irises/extension-sdk';
 import type { PluginEventBus } from '../extension/event-bus';
 
 export interface PlatformFactoryContext {
-  backend: Backend;
+  [key: string]: unknown;
+  backend: BackendHandle;
   config: AppConfig;
   configDir: string;
   router: LLMRouter;
@@ -23,7 +24,6 @@ export interface PlatformFactoryContext {
   agentName?: string;
   extensions: BootstrapExtensionRegistry;
   initWarnings: string[];
-  onSwitchAgent?: () => void;
   /** 插件间共享事件总线 */
   eventBus?: PluginEventBus;
   /** 完整 API（供 console 等高级平台使用） */

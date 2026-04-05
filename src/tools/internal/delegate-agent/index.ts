@@ -11,19 +11,18 @@
  *   数据来自 CrossAgentTaskBoard.query()。
  */
 
-import { ToolDefinition } from '../../../types';
-// 直接从 SDK 的 api 模块导入，避免子路径解析问题
-import type { AgentNetworkLike } from '../../../../packages/extension-sdk/src/plugin/api';
-import type { CrossAgentTaskBoard } from '../../../core/cross-agent-task-board';
-import { createTaskId } from '../../../core/cross-agent-task-board';
-import { createLogger } from '../../../logger';
+import { ToolDefinition } from '@/types';
+import type { AgentNetworkLike, IrisBackendLike } from '@irises/extension-sdk';
+import type { CrossAgentTaskBoard } from '@/core/cross-agent-task-board';
+import { createTaskId } from '@/core/cross-agent-task-board';
+import { createLogger } from '@/logger';
 
 const logger = createLogger('DelegateAgent');
 
 // ---- 依赖接口 ----
 
 export interface DelegateAgentToolDeps {
-  /** 跨 Agent 通信网络（由 runMultiAgent 注入） */
+  /** 跨 Agent 通信网络（由 IrisHost.injectAgentNetwork 注入） */
   agentNetwork: AgentNetworkLike;
   /** 全局任务板 */
   taskBoard: CrossAgentTaskBoard;
@@ -168,7 +167,7 @@ ${peerDescriptions}
  * 完成后通过 taskBoard 自动构建通知并推回发起方会话。
  */
 async function runDelegatedTask(opts: {
-  targetBackend: { on: Function; off: Function; chat: Function; once?: Function };
+  targetBackend: IrisBackendLike;
   targetSessionId: string;
   targetPrompt: string;
   taskId: string;
@@ -194,7 +193,7 @@ async function runDelegatedTask(opts: {
         if (sid !== targetSessionId) return;
         // 取最后一轮的文本输出
         if (content?.parts) {
-          const textParts = content.parts.filter((p: any) => typeof p.text === 'string').map((p: any) => p.text);
+          const textParts = content.parts.filter((p) => typeof p.text === 'string').map((p) => p.text as string);
           if (textParts.length > 0) {
             finalText = textParts.join('');
           }

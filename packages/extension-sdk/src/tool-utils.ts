@@ -762,10 +762,13 @@ export function normalizeStringArrayArg(
 /**
  * 解析路径并校验是否在项目目录内，防止路径穿越。
  * 返回解析后的绝对路径。
+ *
+ * @param inputPath 要解析的路径
+ * @param baseCwd   项目根目录基准（默认 process.cwd()，多 session 场景下应传入 per-session cwd）
  */
-export function resolveProjectPath(inputPath: string): string {
-  const resolved = path.resolve(inputPath);
-  const cwd = process.cwd();
+export function resolveProjectPath(inputPath: string, baseCwd?: string): string {
+  const cwd = baseCwd ?? process.cwd();
+  const resolved = path.resolve(cwd, inputPath);
   if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) {
     throw new Error(`路径超出项目目录: ${inputPath}`);
   }

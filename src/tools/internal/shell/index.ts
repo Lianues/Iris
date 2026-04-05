@@ -11,14 +11,14 @@
  */
 
 import { exec, execFileSync } from 'child_process';
-import { ToolDefinition } from '../../../types';
-import { resolveProjectPath } from '../../utils';
+import { ToolDefinition } from '@/types';
+import { resolveProjectPath, getProjectRoot } from '../../utils';
 import { getToolLimits } from '../../tool-limits';
 import { classifyCommand, getDenyReason } from './whitelist';
 import { classifyWithLLM, resolveClassifierDecision } from './classifier';
 import { tryLearnFromInstall } from './learn';
 import type { ShellToolDeps } from './types';
-import { createLogger } from '../../../logger';
+import { createLogger } from '@/logger';
 
 const logger = createLogger('ShellTool');
 
@@ -216,7 +216,7 @@ force 参数规则：
       const force = args.force === true;
 
       // 解析工作目录（安全检查：禁止超出项目范围）
-      const projectRoot = process.cwd();
+      const projectRoot = getProjectRoot();
       const workDir = cwd ? resolveProjectPath(cwd) : projectRoot;
 
       // ---- 安全检查 ----
@@ -302,7 +302,7 @@ force 参数规则：
 
       // 调用 AI 分类器
       logger.info(`Shell 命令进入 AI 分类器: ${command.slice(0, 100)}`);
-      const classifierResult = await classifyWithLLM(command, deps.getRouter(), classifierConfig, getShell());
+      const classifierResult = await classifyWithLLM(command, deps.getRouter(), classifierConfig, getShell(), projectRoot);
       const decision = resolveClassifierDecision(classifierResult, classifierConfig);
 
       if (decision.allow) {

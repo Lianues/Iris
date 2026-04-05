@@ -11,9 +11,9 @@
  * 每次调用使用独立的 sessionId，天然支持多进程并行调用。
  */
 
-import { bootstrap } from './bootstrap';
+import { IrisCore } from './core/iris-core';
+import type { IrisCoreOptions } from './core/iris-core';
 import { isMultiAgentEnabled, loadAgentDefinitions, resolveAgentPaths } from './agents';
-import type { BootstrapOptions } from './bootstrap';
 import type { Content } from './types';
 import type { ToolInvocation } from './types/tool';
 import { createRequire } from 'module';
@@ -199,7 +199,7 @@ async function main() {
   }
 
   // 初始化核心
-  let bootstrapOpts: BootstrapOptions | undefined;
+  let coreOpts: IrisCoreOptions | undefined;
   if (options.agent) {
     // 指定了 --agent：从多 Agent 注册表查找
     if (!isMultiAgentEnabled()) {
@@ -212,17 +212,19 @@ async function main() {
       console.error(`错误: 未找到 Agent "${options.agent}"。可用 Agent: ${agentDefs.map(d => d.name).join(', ')}`);
       process.exit(1);
     }
-    bootstrapOpts = { agentName: def.name, agentPaths: resolveAgentPaths(def) };
+    coreOpts = { agentName: def.name, agentPaths: resolveAgentPaths(def) };
   } else if (isMultiAgentEnabled()) {
     // 多 Agent 模式但未指定 --agent：使用第一个 agent
     const agentDefs = loadAgentDefinitions();
     if (agentDefs.length > 0) {
       const def = agentDefs[0];
-      bootstrapOpts = { agentName: def.name, agentPaths: resolveAgentPaths(def) };
+      coreOpts = { agentName: def.name, agentPaths: resolveAgentPaths(def) };
     }
   }
 
-  const { backend } = await bootstrap(bootstrapOpts);
+  const core = new IrisCore(coreOpts);
+  await core.start();
+  const backend = core.backend;
 
   // CLI 模式下强制所有工具自动审批（headless 无人交互）
   backend.reloadConfig({
@@ -272,7 +274,7 @@ async function main() {
   });
 
   // 工具调用状态
-  backend.on('tool:execute' as any, (_sid: string, handle: any) => {
+  backend.on('tool:execute', (_sid, handle) => {
     if (_sid !== sid || !options.printTools) return;
     handle.on('state', (status: string, prev: string) => {
       if (status === 'executing' && prev !== 'executing') {
@@ -338,6 +340,7 @@ async function main() {
     process.stdout.write('\n');
   }
 
+  await core.shutdown();
   process.exit(hasError ? 1 : 0);
 }
 

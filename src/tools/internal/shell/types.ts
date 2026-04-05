@@ -2,9 +2,9 @@
  * Shell 命令安全分类器 —— 类型定义
  */
 
-import type { LLMRouter } from '../../../llm/router';
+import type { LLMRouter } from '@/llm/router';
 import type { ToolRegistry } from '../../registry';
-import type { ToolPolicyConfig } from '../../../config';
+import type { ToolPolicyConfig } from '@/config';
 
 // ============ 白名单类型 ============
 

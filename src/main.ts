@@ -31,6 +31,7 @@ Iris - AI Agent
 
 命令:
   iris start              启动平台服务（Web / Telegram 等）
+  iris attach             连接已运行的 Iris 实例（跨进程 Console）
   iris chat <prompt>      执行 AI 提示词（CLI 模式）
   iris onboard            交互式配置引导
   iris models             模型配置界面
@@ -93,6 +94,10 @@ if (command && TERMINAL_COMMANDS.has(command)) {
   // CLI 提示词模式
   process.argv.splice(2, 1); // 移除 'chat'，让 cli.ts 解析剩余参数
   await import('./cli');
+} else if (command === 'attach') {
+  // 跨进程连接已运行的 Iris 实例
+  const { runAttach } = await import('./attach');
+  await runAttach(args.slice(1));
 } else if (!command || command === 'serve' || command === 'start') {
   // 平台服务（默认命令）
   if (command) {

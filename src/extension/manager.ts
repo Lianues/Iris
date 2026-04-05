@@ -231,6 +231,20 @@ export class PluginManager {
     this.prepared = [];
   }
 
+  /** 反激活所有插件（shutdown 时调用） */
+  async deactivateAll(): Promise<void> {
+    for (const [name, loaded] of this.plugins) {
+      try {
+        await loaded.plugin.deactivate?.();
+        logger.info(`插件 "${name}" 已反激活`);
+      } catch (err) {
+        logger.error(`插件 "${name}" 反激活失败:`, err);
+      }
+    }
+    this.plugins.clear();
+  }
+
+
   /** 获取所有已加载插件注册的钩子 */
   getHooks(): PluginHook[] {
     const hooks: PluginHook[] = [];

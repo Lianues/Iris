@@ -1,0 +1,596 @@
+/**
+ * IrisCore — 单个 Agent 的完整运行时
+ *
+ * 持有 Backend 及其所有依赖资源（LLM 路由、存储、MCP、插件、工具等），
+ * 提供 start() / shutdown() 生命周期管理。
+ *
+ * 原 bootstrap() 函数的逻辑搬入 start()，原 BootstrapResult 的字段
+ * 变成类的公开属性。新增幂等 shutdown() 统一关闭所有资源。
+ *
+ * 使用方式：
+ *   - index.ts（平台模式）：由 IrisHost 创建和管理
+ *   - cli.ts（CLI 模式）：直接 new IrisCore() → start() → 使用 → shutdown()
+ */
+
+import { loadConfig, findConfigFile, AppConfig } from '../config';
+import type { AgentPaths } from '../paths';
+import { dataDir as globalDataDir, logsDir as globalLogsDir } from '../paths';
+import { createLLMRouter } from '../llm/factory';
+import { LLMRouter } from '../llm/router';
+import { createSkillWatcher } from '../config/skill-loader';
+import { createMCPManager, MCPManager } from '../mcp';
+import type { OCRProvider } from '../ocr';
+import { ToolRegistry } from '../tools/registry';
+import { ToolStateManager } from '../tools/state';
+import { setToolLimits } from '../tools/tool-limits';
+import { readFile } from '../tools/internal/read_file';
+import { searchInFiles } from '../tools/internal/search_in_files';
+import { createShellTool } from '../tools/internal/shell';
+import { createBashTool } from '../tools/internal/bash';
+import { findFiles } from '../tools/internal/find_files';
+import { applyDiff } from '../tools/internal/apply_diff';
+import { writeFile } from '../tools/internal/write_file';
+import { listFiles } from '../tools/internal/list_files';
+import { deleteFile } from '../tools/internal/delete_file';
+import { createDirectory } from '../tools/internal/create_directory';
+import { insertCode } from '../tools/internal/insert_code';
+import { deleteCode } from '../tools/internal/delete_code';
+import { SubAgentTypeRegistry, createSubAgentTool } from '../tools/internal/sub-agent';
+import { createDelegateToAgentTool, createQueryDelegatedTaskTool } from '../tools/internal/delegate-agent';
+import { ModeRegistry, DEFAULT_MODE, DEFAULT_MODE_NAME } from '../modes';
+import { PromptAssembler } from '../prompt/assembler';
+import { CrossAgentTaskBoard } from './cross-agent-task-board';
+import { ToolLoop } from './tool-loop';
+import { createHistorySearchTool } from '../tools/internal/history_search';
+import { createReadSkillTool } from '../tools/internal/read_skill';
+import { createInvokeSkillTool } from '../tools/internal/invoke_skill';
+import { DEFAULT_SYSTEM_PROMPT } from '../prompt/templates/default';
+import { Backend } from './backend';
+import type { StorageProvider } from '../storage/base';
+import { PluginManager } from '../extension';
+import { createBootstrapExtensionRegistry, type BootstrapExtensionRegistry } from '../bootstrap/extensions';
+import type { PlatformRegistry } from './platform-registry';
+import { PluginEventBus } from '../extension/event-bus';
+import { patchMethod, patchPrototype } from '../extension/patch';
+import { registerExtensionPlatforms } from '../extension';
+import { ensureDevSourceSdkShims } from '../extension';
+import type { IrisAPI, InlinePluginEntry, WebPanelDefinition, ConsoleSettingsTabDefinition } from '@irises/extension-sdk';
+import { BackendHandle } from '@irises/extension-sdk';
+import { readEditableConfig, updateEditableConfig } from '../config/manage';
+import { applyRuntimeConfigReload, type RuntimeConfigReloadContext } from '../config/runtime';
+import { DEFAULTS, parseLLMConfig } from '../config/llm';
+import { parseSystemConfig } from '../config/system';
+import { parseToolsConfig } from '../config/tools';
+import { setGlobalLogLevel, getGlobalLogLevel, LogLevel } from '../logger';
+import { isCompiledBinary } from '../paths';
+import { resizeImage, formatDimensionNote } from '../media/image-resize';
+import { extractDocument, isSupportedDocumentMime } from '../media/document-extract';
+import { convertToPDF, isConversionAvailable } from '../media/office-to-pdf';
+import {
+  getAgentStatus, setAgentEnabled, createManifestIfNotExists,
+  createAgent, updateAgent, deleteAgent, resetCache as resetAgentCache, loadAgentDefinitions,
+} from '../agents';
+import { parseUnifiedDiff } from '../tools/internal/apply_diff/unified_diff';
+import { buildSearchRegex, decodeText, globToRegExp, isLikelyBinary, toPosix, walkFiles } from '../tools/internal/search_in_files';
+import { normalizeWriteArgs } from '../tools/internal/write_file';
+import { normalizeInsertArgs } from '../tools/internal/insert_code';
+import { normalizeDeleteCodeArgs } from '../tools/internal/delete_code';
+import { resolveProjectPath } from '../tools/utils';
+import { supportsVision as checkVision, supportsNativePDF as checkNativePDF, supportsNativeOffice as checkNativeOffice, isDocumentMimeType as checkDocMime } from '../llm/vision';
+import { setExtensionLogLevel } from '@irises/extension-sdk';
+
+// ── 类型 ──
+
+export type CoreState = 'init' | 'running' | 'stopping' | 'stopped';
+
+/** Agent 网络提供者（由 IrisHost 在多 Agent 模式下构建并传入） */
+export interface AgentNetworkProvider {
+  readonly selfName: string;
+  listPeers(): string[];
+  getPeerDescription(name: string): string | undefined;
+  getPeerBackend(name: string): Backend | undefined;
+  getPeerBackendHandle?(name: string): BackendHandle | undefined;
+}
+
+/** IrisCore 构造选项 */
+export interface IrisCoreOptions {
+  /** Agent 名称（用于日志标识和 TUI 显示） */
+  agentName?: string;
+  /** Agent 专属路径集（不提供则使用全局默认路径） */
+  agentPaths?: AgentPaths;
+  /** 运行时直接注入的内联插件 */
+  inlinePlugins?: InlinePluginEntry[];
+  /** 外部注入的全局任务板（多 Agent 模式下由 IrisHost 创建并共享） */
+  taskBoard?: CrossAgentTaskBoard;
+  /** 多 Agent 模式下的 agentNetwork（由 IrisHost 构造时注入） */
+  agentNetwork?: AgentNetworkProvider;
+}
+
+// ── IrisCore ──
+
+export class IrisCore {
+  // ---- 生命周期状态 ----
+  private _state: CoreState = 'init';
+  private shutdownPromise: Promise<void> | null = null;
+
+  get state(): CoreState { return this._state; }
+
+  // ---- 公开属性（原 BootstrapResult 的字段，start() 后可用） ----
+  backend!: Backend;
+  backendHandle!: BackendHandle;
+  config!: AppConfig;
+  configDir!: string;
+  router!: LLMRouter;
+  tools!: ToolRegistry;
+  agentName?: string;
+  initWarnings: string[] = [];
+  pluginManager: PluginManager | undefined;
+  extensions!: BootstrapExtensionRegistry;
+  platformRegistry!: PlatformRegistry;
+  eventBus!: PluginEventBus;
+  irisAPI?: Record<string, unknown>;
+
+  // ---- MCP 管理（支持热重载，需要 getter/setter） ----
+  private _mcpManager: MCPManager | undefined;
+
+  get mcpManager(): MCPManager | undefined { return this._mcpManager; }
+  setMCPManager(manager?: MCPManager): void { this._mcpManager = manager; }
+  getMCPManager(): MCPManager | undefined { return this._mcpManager; }
+
+  // ---- 路由延迟注册（平台无关） ----
+  private pendingRoutes: Array<{ method: string; path: string; handler: (req: any, res: any, params: Record<string, string>) => Promise<void> }> = [];
+  private routeRegistrar: ((method: string, path: string, handler: any) => void) | undefined;
+
+  /** 绑定路由注册器（由实现了 RoutableHttpPlatform 的平台提供） */
+  bindRouteRegistrar(register: (method: string, path: string, handler: any) => void): void {
+    this.routeRegistrar = register;
+    for (const route of this.pendingRoutes) register(route.method, route.path, route.handler);
+  }
+
+  // ---- 内部资源（shutdown 时清理） ----
+  private skillWatcherDispose?: () => void;
+  private storage?: StorageProvider;
+
+  // ---- 构造参数暂存 ----
+  private options: IrisCoreOptions;
+
+  constructor(options?: IrisCoreOptions) {
+    this.options = options ?? {};
+    this.agentName = options?.agentName;
+  }
+
+  // ============ start() ============
+
+  async start(): Promise<void> {
+    if (this._state !== 'init') {
+      throw new Error(`IrisCore.start() 只能在 init 状态调用，当前状态: ${this._state}`);
+    }
+
+    const options = this.options;
+    const agentPaths = options.agentPaths;
+    const agentLabel = options.agentName;
+
+    const configDir = findConfigFile(agentPaths?.configDir);
+    const config = loadConfig(agentPaths?.configDir, agentPaths);
+    const extensions = createBootstrapExtensionRegistry();
+    registerExtensionPlatforms(extensions.platforms, undefined, config.system.devSourceExtensions);
+
+    if (config.system.devSourceExtensions?.length) {
+      if (config.system.devSourceSdk) {
+        ensureDevSourceSdkShims();
+      }
+      console.log(`[Iris] DevSource 模式已启用，以下扩展将从源码加载: ${config.system.devSourceExtensions.join(', ')}`);
+    }
+
+    // ---- 0. 预加载插件 + PreBootstrap 阶段 ----
+    const inlinePlugins = options.inlinePlugins ?? [];
+    const pluginManager = new PluginManager();
+    if (config.plugins?.length || inlinePlugins.length > 0) {
+      pluginManager.setConfigDir(configDir);
+      pluginManager.setDevSourceExtensions(config.system.devSourceExtensions);
+      await pluginManager.prepareAll(config.plugins ?? [], config, inlinePlugins);
+      await pluginManager.runPreBootstrap(config, extensions);
+    }
+
+    // ---- 1. 创建 LLM 路由器 ----
+    const router = createLLMRouter(config.llm, undefined, extensions.llmProviders);
+
+    // ---- 1.5 配置请求日志 ----
+    if (config.system.logRequests) {
+      const effectiveLogsDir = agentPaths?.logsDir || globalLogsDir;
+      for (const model of router.listModels()) {
+        router.resolve(model.modelName).setLogging(effectiveLogsDir);
+      }
+    }
+
+    // ---- 2. 创建存储 ----
+    const storageFactory = extensions.storageProviders.get(config.storage.type);
+    if (!storageFactory) {
+      throw new Error(`未注册的存储类型: ${config.storage.type}`);
+    }
+    const storage = await storageFactory(config.storage) as StorageProvider;
+
+    // ---- 2.6 创建 OCR 服务 ----
+    let ocrService: OCRProvider | undefined;
+    if (config.ocr) {
+      const ocrFactory = extensions.ocrProviders.get(config.ocr.provider);
+      if (!ocrFactory) {
+        throw new Error(`未注册的 OCR provider: ${config.ocr.provider}`);
+      }
+      ocrService = await ocrFactory(config.ocr) as OCRProvider;
+    }
+
+    // ---- 3. 注册工具 ----
+    const tools = new ToolRegistry();
+    setToolLimits(config.tools.limits);
+
+    const isWindows = process.platform === 'win32';
+    const commandToolName = isWindows ? 'shell' : 'bash';
+    const shellClassifierConfig = (config.tools.permissions[commandToolName] as any)?.classifier
+      ?? { enabled: true };
+    const commandToolDeps = {
+      getRouter: () => router,
+      classifierConfig: shellClassifierConfig,
+      tools,
+      getToolPolicies: () => config.tools.permissions,
+      retryOnError: config.system.retryOnError,
+    };
+    const commandTool = isWindows
+      ? createShellTool(commandToolDeps)
+      : createBashTool(commandToolDeps);
+    tools.registerAll([readFile, writeFile, applyDiff, searchInFiles, findFiles, commandTool, listFiles, deleteFile, createDirectory, insertCode, deleteCode]);
+
+    // ---- 3.1 连接 MCP 服务器 ----
+    let mcpManager: MCPManager | undefined;
+    if (config.mcp) {
+      mcpManager = createMCPManager(config.mcp);
+      await mcpManager.connectAll();
+      tools.registerAll(mcpManager.getTools());
+    }
+
+    const initWarnings: string[] = [];
+
+    // ---- 3.5 注册子代理工具 ----
+    const subAgentTypes = new SubAgentTypeRegistry();
+
+    if (config.subAgents?.enabled !== false && config.subAgents?.types) {
+      const globalStream = config.subAgents.stream;
+      for (const t of config.subAgents.types) {
+        if (t.enabled === false) continue;
+        const effectiveStream = globalStream ?? t.stream;
+        subAgentTypes.register({ ...t, stream: effectiveStream });
+      }
+    }
+
+    // ---- 3.6 注册用户自定义模式 ----
+    const modeRegistry = new ModeRegistry();
+    modeRegistry.register(DEFAULT_MODE);
+    if (config.modes) {
+      modeRegistry.registerAll(config.modes);
+    }
+    const defaultMode = config.system.defaultMode ?? DEFAULT_MODE_NAME;
+
+    // ---- 3.7 创建工具状态管理器 ----
+    const toolState = new ToolStateManager();
+
+    // ---- 3.8 配置提示词 ----
+    const prompt = new PromptAssembler();
+    prompt.setSystemPrompt(config.system.systemPrompt || DEFAULT_SYSTEM_PROMPT);
+
+    // ---- 3.9 激活插件 ----
+    if (pluginManager) {
+      await pluginManager.activateAll(
+        { tools, modes: modeRegistry, prompt, router },
+        config,
+      );
+    }
+
+    // ---- 5. 创建 Backend ----
+    const hasSubAgents = subAgentTypes.getAll().length > 0;
+    const asyncSubAgentsEnabled = config.system.asyncSubAgents === true && hasSubAgents;
+
+    const taskBoard = options.taskBoard ?? new CrossAgentTaskBoard();
+    const backend = new Backend(router, storage, tools, toolState, prompt, {
+      maxToolRounds: config.system.maxToolRounds,
+      stream: config.system.stream,
+      retryOnError: config.system.retryOnError,
+      maxRetries: config.system.maxRetries,
+      toolsConfig: config.tools,
+      defaultMode,
+      currentLLMConfig: router.getCurrentConfig(),
+      ocrService,
+      summaryModelName: config.llm.summaryModelName,
+      summaryConfig: config.summary,
+      skills: config.system.skills,
+      configDir,
+      rememberPlatformModel: config.llm.rememberPlatformModel,
+      asyncSubAgents: asyncSubAgentsEnabled,
+    }, modeRegistry);
+
+    backend.setTaskBoard(taskBoard);
+    taskBoard.registerBackend(options.agentName ?? '__global__', backend);
+
+    // 注册子代理工具
+    if (hasSubAgents) {
+      tools.register(createSubAgentTool({
+        getRouter: () => backend.getRouter(),
+        getToolsConfig: () => backend.getToolsConfig(),
+        retryOnError: config.system.retryOnError,
+        maxRetries: config.system.maxRetries,
+        tools,
+        toolState,
+        subAgentTypes,
+        maxDepth: config.system.maxAgentDepth,
+        ...(asyncSubAgentsEnabled ? {
+          getSessionId: () => backend.getActiveSessionId(),
+          taskBoard,
+          agentName: options.agentName ?? '__global__',
+        } : {}),
+      }));
+    }
+
+    // ---- 3.7b 注册 agentNetwork delegate 工具（多 Agent 模式） ----
+    if (options.agentNetwork) {
+      const network = options.agentNetwork;
+      tools.register(createDelegateToAgentTool({
+        agentNetwork: network,
+        taskBoard,
+        getSessionId: () => backend.getActiveSessionId(),
+      }));
+      tools.register(createQueryDelegatedTaskTool({ taskBoard }));
+    }
+
+    // 注册历史搜索工具
+    tools.register(createHistorySearchTool({
+      getStorage: () => backend.getStorage(),
+      getSessionId: () => backend.getActiveSessionId(),
+    }));
+
+    // 注册 Skill 工具（read_skill + invoke_skill）。
+    // 即使启动时没有 Skill，也保留回调，便于运行时热重载新增 Skill 后自动出现工具。
+    const rebuildSkillsTool = () => {
+      const skillsList = backend.listSkills();
+      tools.unregister('read_skill');
+      if (skillsList.length > 0) {
+        tools.register(createReadSkillTool({
+          getBackend: () => backend,
+        }));
+      }
+    };
+
+    const rebuildInvokeSkillTool = () => {
+      tools.unregister('invoke_skill');
+      const skillsList = backend.listSkills();
+      // 仅在有模型可调用的 skill 时注册（全部 disableModelInvocation 时不注册）
+      const hasInvocableSkills = skillsList.some(s => !s.disableModelInvocation);
+      if (skillsList.length > 0 && hasInvocableSkills) {
+        tools.register(createInvokeSkillTool({
+          getBackend: () => backend,
+          getRouter: () => backend.getRouter(),
+          tools,
+          getToolsConfig: () => backend.getToolsConfig(),
+          retryOnError: config.system.retryOnError,
+          maxRetries: config.system.maxRetries,
+        }));
+      }
+    };
+
+    // 初始注册
+    rebuildSkillsTool();
+    rebuildInvokeSkillTool();
+
+    // 注册回调：Skill 列表变化时自动重建所有 Skill 工具声明
+    const rebuildAllSkillTools = () => {
+      rebuildSkillsTool();
+      rebuildInvokeSkillTool();
+    };
+    backend.setOnSkillsChanged(rebuildAllSkillTools);
+
+    // 启动 Skill 目录文件系统监听
+    const effectiveDataDir = agentPaths?.dataDir || globalDataDir;
+    const inlineSkills = config.system.skills?.filter(s => s.path.startsWith('inline:'));
+    const stopSkillWatcher = createSkillWatcher(effectiveDataDir, () => {
+      backend.reloadSkillsFromFilesystem(effectiveDataDir, inlineSkills);
+    });
+
+    // 将插件钩子注入 Backend
+    const eventBus = new PluginEventBus();
+
+    // 路由延迟注册（平台无关）
+    const registerRoute = (method: string, path: string, handler: (req: any, res: any, params: Record<string, string>) => Promise<void>) => {
+      const record = { method: method.toUpperCase(), path, handler };
+      this.pendingRoutes.push(record);
+      this.routeRegistrar?.(record.method, record.path, record.handler);
+    };
+
+    // 面板注册表
+    const panelDefinitions: WebPanelDefinition[] = [];
+    const registerPanel = (panel: WebPanelDefinition) => {
+      if (!panelDefinitions.some(p => p.id === panel.id)) panelDefinitions.push(panel);
+    };
+    registerRoute('GET', '/api/panels', async (_req: any, res: any) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(panelDefinitions));
+    });
+
+    // Console Settings Tab 注册表
+    const consoleSettingsTabs: ConsoleSettingsTabDefinition[] = [];
+    const registerConsoleSettingsTab = (tab: ConsoleSettingsTabDefinition) => {
+      if (!consoleSettingsTabs.some(t => t.id === tab.id)) consoleSettingsTabs.push(tab);
+    };
+
+    // 构建完整内部 API
+    const getMCPManagerFn = () => this._mcpManager;
+    const setMCPManagerFn = (m?: MCPManager) => { this._mcpManager = m; };
+    const irisAPI = {
+      backend,
+      media: { resizeImage, formatDimensionNote, extractDocument, isSupportedDocumentMime, convertToPDF, isConversionAvailable },
+      router,
+      storage,
+      tools,
+      modes: modeRegistry,
+      prompt,
+      config,
+      get mcpManager() { return getMCPManagerFn(); },
+      ocrService,
+      extensions,
+      configManager: {
+        getConfigDir: () => configDir,
+        readEditableConfig: () => readEditableConfig(configDir),
+        updateEditableConfig: (updates: Record<string, unknown>) => updateEditableConfig(configDir, updates),
+        applyRuntimeConfigReload: async (mergedConfig: Record<string, unknown>) => {
+          try {
+            const ctx: RuntimeConfigReloadContext = {
+              backend, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
+            };
+            await applyRuntimeConfigReload(ctx, mergedConfig);
+            return { success: true };
+          } catch (e) {
+            return { success: false, error: e instanceof Error ? e.message : String(e) };
+          }
+        },
+        getLLMDefaults: () => DEFAULTS as Record<string, Record<string, unknown>>,
+        parseLLMConfig: (raw?: Record<string, unknown>) => parseLLMConfig(raw as any) as unknown as Record<string, unknown>,
+        parseSystemConfig: (raw?: Record<string, unknown>) => parseSystemConfig(raw as any) as unknown as Record<string, unknown>,
+        parseToolsConfig: (raw?: Record<string, unknown>) => parseToolsConfig(raw as any) as unknown as Record<string, unknown>,
+      },
+      isCompiledBinary,
+      projectRoot: (await import('../paths')).projectRoot,
+      dataDir: agentPaths?.dataDir || globalDataDir,
+      fetchAvailableModels: async (input: { provider: string; apiKey: string; baseUrl?: string }) => {
+        const { listAvailableModels } = await import('../llm/model-catalog');
+        return await listAvailableModels(input as any);
+      },
+      agentManager: {
+        getStatus: () => getAgentStatus(),
+        setEnabled: (enabled: boolean) => setAgentEnabled(enabled),
+        createManifest: () => createManifestIfNotExists(),
+        create: (name: string, description?: string) => createAgent(name, description),
+        update: (name: string, fields: any) => updateAgent(name, fields),
+        delete: (name: string) => deleteAgent(name),
+        resetCache: () => resetAgentCache(),
+        getActiveSessionId: () => backend.getActiveSessionId(),
+        getLastSessionTokens: (sessionId: string) => backend.getLastSessionTokens(sessionId),
+        getAllSessionTokens: () => backend.getAllSessionTokens(),
+      },
+      toolPreviewUtils: { parseUnifiedDiff, normalizeWriteArgs, normalizeInsertArgs, normalizeDeleteCodeArgs, resolveProjectPath, buildSearchRegex, decodeText, globToRegExp, isLikelyBinary, toPosix, walkFiles },
+      setLogLevel: (level: number) => {
+        setGlobalLogLevel(level as LogLevel);
+        setExtensionLogLevel(level);
+      },
+      getLogLevel: () => getGlobalLogLevel() as number,
+      pluginManager,
+      eventBus,
+      services: pluginManager.getServiceRegistry(),
+      configContributions: pluginManager.getConfigContributionRegistry(),
+      taskBoard,
+      agentName: options.agentName ?? '__global__',
+      patchMethod,
+      patchPrototype,
+      createToolLoop: (loopOptions: { tools: any; systemPrompt: string; maxRounds?: number }) => {
+        const loopPrompt = new PromptAssembler();
+        loopPrompt.setSystemPrompt(loopOptions.systemPrompt);
+        const loopConfig = {
+          maxRounds: loopOptions.maxRounds ?? 15,
+          toolsConfig: config.tools ?? {},
+          retryOnError: true,
+          maxRetries: 2,
+        };
+        return new ToolLoop(loopOptions.tools as ToolRegistry, loopPrompt, loopConfig);
+      },
+      registerRoute,
+      registerPanel,
+      agentNetwork: options.agentNetwork,
+      registerConsoleSettingsTab,
+      getConsoleSettingsTabs: () => consoleSettingsTabs,
+      listAgents: () => loadAgentDefinitions(),
+      supportsVision: (modelName?: string) => {
+        const cfg = modelName ? router.getModelConfig(modelName) : router.getCurrentConfig();
+        return checkVision(cfg);
+      },
+      supportsNativePDF: (modelName?: string) => {
+        const cfg = modelName ? router.getModelConfig(modelName) : router.getCurrentConfig();
+        return checkNativePDF(cfg);
+      },
+      supportsNativeOffice: (modelName?: string) => {
+        const cfg = modelName ? router.getModelConfig(modelName) : router.getCurrentConfig();
+        return checkNativeOffice(cfg);
+      },
+      isDocumentMimeType: (mimeType: string) => {
+        return checkDocMime(mimeType);
+      },
+    } as IrisAPI;
+
+    // 同步初始日志级别到 SDK logger
+    setExtensionLogLevel(getGlobalLogLevel());
+
+    if (pluginManager && pluginManager.size > 0) {
+      backend.setPluginHooks(pluginManager.getHooks());
+      await pluginManager.notifyReady(irisAPI);
+    }
+
+    // ---- 赋值公开属性 ----
+    this.backend = backend;
+    this.backendHandle = new BackendHandle(backend);
+    this.config = config;
+    this.configDir = configDir;
+    this.router = router;
+    this.tools = tools;
+    this.agentName = agentLabel;
+    this.initWarnings = initWarnings;
+    this.pluginManager = pluginManager;
+    this.extensions = extensions;
+    this.platformRegistry = extensions.platforms;
+    this.eventBus = eventBus;
+    this.irisAPI = irisAPI as unknown as Record<string, unknown>;
+
+    // ---- 赋值内部资源 ----
+    this._mcpManager = mcpManager;
+    this.skillWatcherDispose = stopSkillWatcher;
+    this.storage = storage;
+
+    this._state = 'running';
+  }
+
+  // ============ shutdown() — 幂等 ============
+
+  /**
+   * 优雅关闭所有资源。幂等：多次调用返回同一个 Promise。
+   */
+  shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.shutdownPromise = this.doShutdown();
+    return this.shutdownPromise;
+  }
+
+  private async doShutdown(): Promise<void> {
+    if (this._state === 'stopped' || this._state === 'init') return;
+    this._state = 'stopping';
+
+    try {
+      // 断开 MCP 连接
+      if (this._mcpManager) {
+        try { await this._mcpManager.disconnectAll(); } catch { /* 忽略 */ }
+      }
+
+      // 停止 Skill 文件监听
+      if (this.skillWatcherDispose) {
+        try { this.skillWatcherDispose(); } catch { /* 忽略 */ }
+      }
+
+      // 反激活插件
+      if (this.pluginManager) {
+        try { await this.pluginManager.deactivateAll(); } catch { /* 忽略 */ }
+      }
+
+      // 关闭存储
+      if (this.storage) {
+        try { await this.storage.close(); } catch { /* 忽略 */ }
+      }
+    } catch (err) {
+      console.error('[IrisCore] shutdown 出错:', err);
+    }
+
+    this._state = 'stopped';
+  }
+}

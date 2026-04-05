@@ -20,6 +20,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYAML } from 'yaml';
+import { getSessionCwd } from '../core/backend/session-context';
 import type { SkillDefinition, SkillContextModifier } from './types';
 
 /** Skill 名称校验：仅允许 ASCII 字母、数字、下划线、连字符，1-64 字符 */
@@ -218,7 +219,7 @@ function scanSkillsDir(skillsDir: string): SkillDefinition[] {
  */
 export function loadSkillsFromFilesystem(dataDir: string): SkillDefinition[] {
   const globalDir = path.join(dataDir, 'skills');
-  const projectDir = path.join(process.cwd(), '.agents', 'skills');
+  const projectDir = path.join(getSessionCwd(), '.agents', 'skills');
 
   // 全局 Skill 先加载，项目级后加载（同名时项目级覆盖全局）
   const globalSkills = scanSkillsDir(globalDir);
@@ -239,7 +240,7 @@ export function loadSkillsFromFilesystem(dataDir: string): SkillDefinition[] {
 export function getSkillWatchDirs(dataDir: string): string[] {
   const dirs: string[] = [];
   const globalDir = path.join(dataDir, 'skills');
-  const projectDir = path.join(process.cwd(), '.agents', 'skills');
+  const projectDir = path.join(getSessionCwd(), '.agents', 'skills');
   if (fs.existsSync(globalDir)) dirs.push(globalDir);
   if (fs.existsSync(projectDir)) dirs.push(projectDir);
   return dirs;
