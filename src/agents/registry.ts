@@ -40,7 +40,10 @@ function loadManifest(): AgentManifest | null {
     }
     _cachedManifest = parsed as AgentManifest;
     return _cachedManifest;
-  } catch {
+  } catch (err) {
+    // 修复：YAML 解析异常（如重复键 DUPLICATE_KEY）不应被静默吞掉，
+    // 否则会导致所有 agent 定义丢失、平台无法创建等级联故障。
+    console.error(`[Iris] agents.yaml 解析失败，请检查文件格式:`, (err as Error).message ?? err);
     _cachedManifest = null;
     return null;
   }
@@ -209,7 +212,13 @@ export function ensureDefaultAgent(): void {
   const defs = loadAgentDefinitions();
   if (defs.length === 0) {
     console.log('[Iris] agents.yaml 中无 agent 定义，自动添加 master agent。');
-    createAgent('master', '主 AI 助手');
+    const result = createAgent('master', '主 AI 助手');
+    if (!result.success) {
+      // 修复：如果 agents.yaml 存在但格式错误（如重复键），createAgent 的
+      // readFile + parse 也会失败。此时明确提示用户修复文件，而不是静默继续
+      // 导致"未配置任何有效平台"的误导性错误。
+      console.error(`[Iris] 无法自动创建 master agent: ${result.message}。请手动检查 ${AGENTS_MANIFEST_PATH}`);
+    }
   }
 
   // 确保每个 agent 的 configs/ 目录存在
