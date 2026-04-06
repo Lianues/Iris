@@ -13,7 +13,8 @@
 
 import { IrisCore } from './core/iris-core';
 import type { IrisCoreOptions } from './core/iris-core';
-import { isMultiAgentEnabled, loadAgentDefinitions, resolveAgentPaths } from './agents';
+// 多 Agent 配置分层重构：移除 isMultiAgentEnabled 导入
+import { loadAgentDefinitions, resolveAgentPaths } from './agents';
 import type { Content } from './types';
 import type { ToolInvocation } from './types/tool';
 import { createRequire } from 'module';
@@ -200,26 +201,21 @@ async function main() {
 
   // 初始化核心
   let coreOpts: IrisCoreOptions | undefined;
+  // 多 Agent 配置分层重构：移除 isMultiAgentEnabled 判断。
+  // 系统永远以 agent 为单位运行，直接加载 agent 定义。
+  const agentDefs = loadAgentDefinitions();
   if (options.agent) {
-    // 指定了 --agent：从多 Agent 注册表查找
-    if (!isMultiAgentEnabled()) {
-      console.error('错误: 使用 --agent 需先在 ~/.iris/agents.yaml 中设置 enabled: true。');
-      process.exit(1);
-    }
-    const agentDefs = loadAgentDefinitions();
+    // 指定了 --agent：从注册表查找
     const def = agentDefs.find(d => d.name === options.agent);
     if (!def) {
       console.error(`错误: 未找到 Agent "${options.agent}"。可用 Agent: ${agentDefs.map(d => d.name).join(', ')}`);
       process.exit(1);
     }
     coreOpts = { agentName: def.name, agentPaths: resolveAgentPaths(def) };
-  } else if (isMultiAgentEnabled()) {
-    // 多 Agent 模式但未指定 --agent：使用第一个 agent
-    const agentDefs = loadAgentDefinitions();
-    if (agentDefs.length > 0) {
-      const def = agentDefs[0];
-      coreOpts = { agentName: def.name, agentPaths: resolveAgentPaths(def) };
-    }
+  } else if (agentDefs.length > 0) {
+    // 未指定 --agent：使用第一个 agent（通常是 master）
+    const def = agentDefs[0];
+    coreOpts = { agentName: def.name, agentPaths: resolveAgentPaths(def) };
   }
 
   const core = new IrisCore(coreOpts);

@@ -1861,9 +1861,9 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
 
   // ---- 多 Agent 管理 ----
 
+  // 多 Agent 配置分层重构：移除 exists / enabled 字段和 handleToggleAgent 函数。
+  // agents.yaml 存在即生效，不再需要 enabled 开关。
   const agentStatus = reactive({
-    exists: false,
-    enabled: false,
     agents: [] as Array<{ name: string; description?: string }>,
     manifestPath: '',
   })
@@ -1872,8 +1872,6 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     try {
       const { getAgentStatus } = await import('../../api/client')
       const status = await getAgentStatus()
-      agentStatus.exists = status.exists
-      agentStatus.enabled = status.enabled
       agentStatus.agents = status.agents
       agentStatus.manifestPath = status.manifestPath
     } catch {
@@ -1881,44 +1879,11 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     }
   }
 
-  async function handleToggleAgent() {
-    const newEnabled = !agentStatus.enabled
-    try {
-      const { toggleAgentEnabled } = await import('../../api/client')
-      const result = await toggleAgentEnabled(newEnabled)
-      if (result.success) {
-        agentStatus.enabled = newEnabled
-        statusText.value = result.message
-        statusError.value = false
-      } else {
-        statusText.value = result.message
-        statusError.value = true
-      }
-    } catch (err) {
-      statusText.value = `操作失败: ${err instanceof Error ? err.message : String(err)}`
-      statusError.value = true
-    }
   }
 
   // Agent 状态由主 onMounted 在 loadConfigData 完成后加载
 
-  async function handleInitAgentManifest() {
-    try {
-      const { initAgentManifest } = await import('../../api/client')
-      const result = await initAgentManifest()
-      if (result.success) {
-        await loadAgentStatus()
-        statusText.value = result.message
-        statusError.value = false
-      } else {
-        statusText.value = result.message
-        statusError.value = true
-      }
-    } catch (err) {
-      statusText.value = `初始化失败: ${err instanceof Error ? err.message : String(err)}`
-      statusError.value = true
-    }
-  }
+  // 多 Agent 配置分层重构：移除 handleInitAgentManifest（不再需要手动初始化 agents.yaml）
 
   const newAgentName = ref('')
   const newAgentDesc = ref('')
@@ -2084,10 +2049,9 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     handleResetConfig,
     resetPending,
     agentStatus,
-    handleToggleAgent,
+    // 多 Agent 配置分层重构：移除 handleToggleAgent / handleInitAgentManifest 导出
     editingAgent,
     switchEditingAgent,
-    handleInitAgentManifest,
     newAgentName,
     newAgentDesc,
     handleCreateAgent,

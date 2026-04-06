@@ -6,7 +6,9 @@
  *
  * 启动流程：
  *   1. IrisHost.start() → 加载 Agent 定义，为每个 Agent 创建 IrisCore
- *   2. 创建平台适配器（通过 PlatformRegistry）
+ *   2. 仅为默认 Agent（第一个）创建平台适配器
+ *      - 非默认 Agent 只启动后端（backend / IPC），供 delegate 等跨 Agent 机制调用
+ *      - console 等前台平台通过 agentNetwork 实现 Agent 切换，不需要为每个 Agent 各建一套平台
  *   3. 启动平台
  *   4. 等待退出条件（信号 / 前台平台退出）
  *   5. IrisHost.shutdown() → 优雅关闭所有资源
@@ -74,76 +76,84 @@ async function createPlatformsForCore(
 }
 
 /**
- * 为所有 Core 创建平台，通过能力接口检测区分平台行为。
- * 不硬编码任何平台名称。
+ * 仅为默认 Agent（第一个 Core）创建平台。
+ *
+ * 设计原则：
+ *   - 平台是用户界面层，一个进程只需要一套平台实例。
+ *   - 非默认 Agent 只有后端（backend + IPC），不需要自己的平台。
+ *   - console（ForegroundPlatform）独占 stdin/stdout，天然只能有一个。
+ *   - web（MultiAgentCapable）通过 addAgent 注册多个 backend 到同一个 HTTP 服务。
+ *   - 非默认 Agent 的交互通过以下机制完成：
+ *     · delegate_to_agent 工具：直接调用目标 Agent 的 backend.chat()
+ *     · console Agent 切换：通过 agentNetwork 获取目标 backendHandle 并 swap
+ *     · IPC：每个 Agent 有独立的 IPC 端口，外部客户端可直接连接
  */
 async function createPlatforms(host: IrisHost) {
   const allPlatforms: PlatformAdapter[] = [];
   let sharedPlatform: (PlatformAdapter & MultiAgentCapable) | undefined;
   let foregroundPlatform: (PlatformAdapter & ForegroundPlatform) | undefined;
 
-  for (const [name, core] of host.cores) {
-    const platforms = await createPlatformsForCore(core);
+  // 只为默认 Agent（第一个 Core）创建平台。
+  // 非默认 Agent 只有 backend + IPC，不创建平台实例。
+  const defaultCore = host.getDefaultCore();
+  const platforms = await createPlatformsForCore(defaultCore);
 
-    for (const platform of platforms) {
-      // MultiAgentCapable 平台：只创建一次，多个 Core 共享
-      if (isMultiAgentCapable(platform) && !sharedPlatform) {
-        sharedPlatform = platform;
+  for (const platform of platforms) {
+    // MultiAgentCapable 平台（如 web）：将其他 Agent 注册进来
+    if (isMultiAgentCapable(platform) && !sharedPlatform) {
+      sharedPlatform = platform;
 
-        // 多 Agent 模式下将所有 Core 注册到共享平台
-        if (host.cores.size > 1) {
-          for (const [agentName, agentCore] of host.cores) {
-            if (agentName === name) continue; // 创建者已自动注册
-            const agentDefs = host.getAgentDefs();
-            const displayName = agentName === '__global__'
-              ? '全局 AI'
-              : agentDefs.find(d => d.name === agentName)?.description;
-            sharedPlatform.addAgent(
-              agentName,
-              agentCore.backendHandle,
-              {
-                platform: agentCore.config.platform,
-                configPath: agentCore.configDir,
-                provider: agentCore.router.getCurrentModelInfo().provider,
-                modelId: agentCore.router.getCurrentModelInfo().modelId,
-                streamEnabled: agentCore.config.system.stream,
-              },
-              displayName,
-              () => agentCore.getMCPManager(),
-              (mgr?: any) => agentCore.setMCPManager(mgr),
-              { llmProviders: agentCore.extensions.llmProviders, ocrProviders: agentCore.extensions.ocrProviders },
-            );
-          }
+      // 多 Agent 模式下将非默认 Core 注册到共享平台
+      if (host.cores.size > 1) {
+        for (const [agentName, agentCore] of host.cores) {
+          if (agentCore === defaultCore) continue; // 创建者已自动注册
+          const agentDefs = host.getAgentDefs();
+          const displayName = agentDefs.find(d => d.name === agentName)?.description;
+          sharedPlatform.addAgent(
+            agentName,
+            agentCore.backendHandle,
+            {
+              platform: agentCore.config.platform,
+              configPath: agentCore.configDir,
+              provider: agentCore.router.getCurrentModelInfo().provider,
+              modelId: agentCore.router.getCurrentModelInfo().modelId,
+              streamEnabled: agentCore.config.system.stream,
+            },
+            displayName,
+            () => agentCore.getMCPManager(),
+            (mgr?: any) => agentCore.setMCPManager(mgr),
+            { llmProviders: agentCore.extensions.llmProviders, ocrProviders: agentCore.extensions.ocrProviders },
+          );
         }
       }
-
-      // RoutableHttpPlatform 平台：绑定路由注册器
-      if (isRoutableHttpPlatform(platform)) {
-        core.bindRouteRegistrar(platform.registerRoute.bind(platform));
-      }
-
-      // ForegroundPlatform 平台：只取第一个
-      if (isForegroundPlatform(platform) && !foregroundPlatform) {
-        foregroundPlatform = platform;
-      }
-
-      allPlatforms.push(platform);
     }
 
-    // 通知插件
-    if (core.pluginManager) {
-      const platformMap = new Map<string, PlatformAdapter>();
-      for (let i = 0; i < core.config.platform.types.length && i < platforms.length; i++) {
-        platformMap.set(core.config.platform.types[i], platforms[i]);
-      }
-      await core.pluginManager.notifyPlatformsReady(platformMap);
+    // RoutableHttpPlatform 平台：绑定路由注册器
+    if (isRoutableHttpPlatform(platform)) {
+      defaultCore.bindRouteRegistrar(platform.registerRoute.bind(platform));
     }
+
+    // ForegroundPlatform 平台：记录引用
+    if (isForegroundPlatform(platform) && !foregroundPlatform) {
+      foregroundPlatform = platform;
+    }
+
+    allPlatforms.push(platform);
   }
 
-  // 热重载注入（统一，不分叉）
+  // 通知默认 Core 的插件
+  if (defaultCore.pluginManager) {
+    const platformMap = new Map<string, PlatformAdapter>();
+    for (let i = 0; i < defaultCore.config.platform.types.length && i < platforms.length; i++) {
+      platformMap.set(defaultCore.config.platform.types[i], platforms[i]);
+    }
+    await defaultCore.pluginManager.notifyPlatformsReady(platformMap);
+  }
+
+  // 热重载注入
   if (sharedPlatform?.setReloadHandler) {
     sharedPlatform.setReloadHandler(async (agent: any): Promise<any> => {
-      const agentName = (typeof agent === 'object' ? agent.name : undefined) ?? '__global__';
+      const agentName = (typeof agent === 'object' ? agent.name : undefined) ?? 'master';
       return await host.reloadAgent(agentName);
     });
   }
@@ -155,10 +165,12 @@ async function createPlatforms(host: IrisHost) {
 
 async function main() {
   // 1. 启动 Host（创建所有 Core）
+  //    所有 Agent 的 backend + IPC 在此阶段全部就绪，
+  //    保证 delegate_to_agent 等跨 Agent 机制可用。
   const host = new IrisHost();
   await host.start();
 
-  // 2. 创建平台
+  // 2. 仅为默认 Agent 创建平台
   const { allPlatforms, foregroundPlatform } = await createPlatforms(host);
 
   if (allPlatforms.length === 0) {

@@ -312,6 +312,14 @@ export interface ChatCallbacks {
   onSessionId?: (id: string) => void
   onAssistantContent?: (message: Message) => void
   onToolUpdate?: (invocations: ToolInvocation[]) => void
+  /** 工具调用开始（tool_start 事件） */
+  onToolStart?: (tool: { toolId: string; name: string; args: Record<string, unknown> }) => void
+  /** 工具执行状态变更（tool_state 事件） */
+  onToolState?: (toolId: string, status: string, prev: string, snapshot: Record<string, unknown>) => void
+  /** 工具输出条目（tool_output 事件） */
+  onToolOutput?: (toolId: string, entry: Record<string, unknown>) => void
+  /** 工具进度更新（tool_progress 事件） */
+  onToolProgress?: (toolId: string, data: Record<string, unknown>) => void
   onUsage?: (usage: UsageMetadata) => void
   onRetry?: (attempt: number, maxRetries: number, error: string) => void
   onAutoCompact?: (summary: string) => void

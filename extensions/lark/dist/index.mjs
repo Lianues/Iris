@@ -78043,6 +78043,126 @@ var require_lib2 = __commonJS((exports) => {
 });
 
 // ../../packages/extension-sdk/src/platform.ts
+class BackendHandle {
+  _backend;
+  _listeners = new Map;
+  constructor(backend) {
+    this._backend = backend;
+  }
+  swap(newBackend) {
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.off(event, fn);
+      }
+    }
+    this._backend = newBackend;
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.on(event, fn);
+      }
+    }
+  }
+  on(event, listener) {
+    if (!this._listeners.has(event))
+      this._listeners.set(event, new Set);
+    this._listeners.get(event).add(listener);
+    this._backend.on(event, listener);
+    return this;
+  }
+  off(event, listener) {
+    this._listeners.get(event)?.delete(listener);
+    this._backend.off(event, listener);
+    return this;
+  }
+  once(event, listener) {
+    const wrapper = (...args) => {
+      this._listeners.get(event)?.delete(wrapper);
+      listener(...args);
+    };
+    return this.on(event, wrapper);
+  }
+  chat(sessionId, text, images, documents, platform) {
+    return this._backend.chat(sessionId, text, images, documents, platform);
+  }
+  isStreamEnabled() {
+    return this._backend.isStreamEnabled();
+  }
+  clearSession(sessionId) {
+    return this._backend.clearSession(sessionId);
+  }
+  switchModel(modelName, platform) {
+    return this._backend.switchModel(modelName, platform);
+  }
+  listModels() {
+    return this._backend.listModels();
+  }
+  listSessionMetas() {
+    return this._backend.listSessionMetas();
+  }
+  abortChat(sessionId) {
+    return this._backend.abortChat(sessionId);
+  }
+  getToolHandle(toolId) {
+    return this._backend.getToolHandle(toolId);
+  }
+  getToolHandles(sessionId) {
+    return this._backend.getToolHandles(sessionId);
+  }
+  undo(sessionId, scope) {
+    return this._backend.undo?.(sessionId, scope) ?? Promise.resolve(null);
+  }
+  redo(sessionId) {
+    return this._backend.redo?.(sessionId) ?? Promise.resolve(null);
+  }
+  listSkills() {
+    return this._backend.listSkills?.() ?? [];
+  }
+  listModes() {
+    return this._backend.listModes?.() ?? [];
+  }
+  switchMode(modeName) {
+    return this._backend.switchMode?.(modeName) ?? false;
+  }
+  clearRedo(sessionId) {
+    return this._backend.clearRedo?.(sessionId);
+  }
+  getHistory(sessionId) {
+    return this._backend.getHistory?.(sessionId) ?? Promise.resolve([]);
+  }
+  runCommand(cmd) {
+    return this._backend.runCommand?.(cmd);
+  }
+  summarize(sessionId) {
+    return this._backend.summarize?.(sessionId) ?? Promise.resolve(undefined);
+  }
+  resetConfigToDefaults() {
+    return this._backend.resetConfigToDefaults?.();
+  }
+  getToolNames() {
+    return this._backend.getToolNames?.() ?? [];
+  }
+  getAgentTasks(sessionId) {
+    return this._backend.getAgentTasks?.(sessionId) ?? [];
+  }
+  getRunningAgentTasks(sessionId) {
+    return this._backend.getRunningAgentTasks?.(sessionId) ?? [];
+  }
+  getAgentTask(taskId) {
+    return this._backend.getAgentTask?.(taskId);
+  }
+  getToolPolicies() {
+    return this._backend.getToolPolicies?.();
+  }
+  getCurrentModelInfo() {
+    return this._backend.getCurrentModelInfo?.();
+  }
+  getDisabledTools() {
+    return this._backend.getDisabledTools?.();
+  }
+  getActiveSessionId() {
+    return this._backend.getActiveSessionId?.();
+  }
+}
 function getPlatformConfig(context, platformName) {
   const platform = context.config?.platform;
   if (!platform || typeof platform !== "object") {
@@ -78090,14 +78210,19 @@ function createExtensionLogger(extensionName, tag) {
   };
 }
 // ../../packages/extension-sdk/src/platform-utils.ts
-function autoApproveTools(backend, invocations) {
-  for (const inv of invocations) {
-    if (inv.status === "awaiting_approval") {
+function autoApproveHandle(handle) {
+  if (handle.status === "awaiting_approval") {
+    try {
+      handle.approve(true);
+    } catch {}
+  }
+  handle.on("state", (status) => {
+    if (status === "awaiting_approval") {
       try {
-        backend.approveTool(inv.id, true);
+        handle.approve(true);
       } catch {}
     }
-  }
+  });
 }
 // src/card-builder.ts
 var TOOL_STATUS_ICONS2 = {
@@ -78934,19 +79059,19 @@ class LarkPlatform extends PlatformAdapter {
     if (this.backendListenersReady)
       return;
     this.backendListenersReady = true;
-    this.backend.on("tool:update", (sid, invocations) => {
-      autoApproveTools(this.backend, invocations);
+    this.backend.on("tool:execute", (sid, handle) => {
+      autoApproveHandle(handle);
       if (!this.showToolStatus)
         return;
       const cs = this.findChatStateBySid(sid);
       if (!cs?.stream || cs.stopped)
         return;
-      const sorted = [...invocations].sort((a, b) => a.createdAt - b.createdAt);
-      for (const inv of sorted) {
-        const isDone = inv.status === "success" || inv.status === "error";
-        if (isDone && !cs.stream.committedToolIds.has(inv.id)) {
-          cs.stream.committedToolIds.add(inv.id);
-          const line = formatLarkToolLine(inv);
+      handle.on("done", () => {
+        if (!cs.stream)
+          return;
+        if (!cs.stream.committedToolIds.has(handle.id)) {
+          cs.stream.committedToolIds.add(handle.id);
+          const line = formatLarkToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
           cs.stream.buffer = cs.stream.buffer ? `${cs.stream.buffer}
 
 ${line}
@@ -78955,14 +79080,27 @@ ${line}
 
 `;
         }
-      }
-      cs.stream.activeToolEntries = sorted.filter((inv) => !cs.stream.committedToolIds.has(inv.id)).map((inv) => ({
-        id: inv.id,
-        toolName: inv.toolName,
-        status: inv.status,
-        createdAt: inv.createdAt
-      }));
-      this.patchStreamCard(cs);
+      });
+      handle.on("state", () => {
+        if (!cs.stream || cs.stopped)
+          return;
+        if (handle.status !== "success" && handle.status !== "error" && handle.status !== "warning") {
+          cs.stream.activeToolEntries = cs.stream.activeToolEntries || [];
+          const existing = cs.stream.activeToolEntries.findIndex((e) => e.id === handle.id);
+          const entry = { id: handle.id, toolName: handle.toolName, status: handle.status, createdAt: handle.getSnapshot().createdAt };
+          if (existing >= 0) {
+            cs.stream.activeToolEntries[existing] = entry;
+          } else {
+            cs.stream.activeToolEntries.push(entry);
+          }
+          this.patchStreamCard(cs);
+        } else {
+          if (cs.stream.activeToolEntries) {
+            cs.stream.activeToolEntries = cs.stream.activeToolEntries.filter((e) => e.id !== handle.id);
+          }
+          this.patchStreamCard(cs);
+        }
+      });
     });
     this.backend.on("stream:start", (sid) => {
       const cs = this.findChatStateBySid(sid);

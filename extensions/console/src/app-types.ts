@@ -18,7 +18,7 @@ export interface SwitchModelResult {
   contextWindow?: number;
 }
 
-export type ViewMode = 'chat' | 'session-list' | 'model-list' | 'settings' | 'queue-list' | 'tool-detail' | 'tool-list';
+export type ViewMode = 'chat' | 'session-list' | 'model-list' | 'agent-list' | 'settings' | 'queue-list' | 'tool-detail' | 'tool-list';
 // 放宽为 string：插件可通过 registerConsoleSettingsTab 注册自定义 tab id
 export type SettingsInitialSection = 'general' | 'mcp' | (string & {});
 export type ConfirmChoice = 'confirm' | 'cancel';

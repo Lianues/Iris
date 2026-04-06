@@ -235,11 +235,10 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     agentManager.resetCache();
 
     const status = agentManager.getStatus();
-    const enabled = status.enabled;
-    const newDefs = enabled ? status.agents : [];
-    // 多 agent 模式下还有一个 __global__ 全局 AI
+    // 多 Agent 配置分层重构：移除 enabled 判断和 __global__ 特判
+    // 系统永远以 agent 为单位运行，直接使用 agents 列表
+    const newDefs = status.agents;
     const newNames = new Set(newDefs.map(d => d.name));
-    if (enabled) newNames.add('__global__');
 
     const currentNames = new Set(this.agents.keys());
     const added: string[] = [];
@@ -272,7 +271,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
       this.agents.set(name, {
         name,
         description: def === '__default__' ? undefined
-          : name === '__global__' ? '全局 AI'
+          // 多 Agent 配置分层重构：移除 __global__ 特判
           : (def as AgentDefinitionLike).description,
         backend: result.backend,
         config: {
@@ -329,9 +328,8 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     for (const name of newNames) {
       if (!currentNames.has(name) || currentNames.has('default')) {
         try {
-          const def = name === '__global__'
-            ? { name: '__global__' } as AgentDefinitionLike
-            : newDefs.find(d => d.name === name);
+          // 多 Agent 配置分层重构：移除 __global__ 特判
+          const def = newDefs.find(d => d.name === name);
           if (!def) {
             logger.warn(`Agent「${name}」在定义列表中未找到，跳过。`);
             continue;
@@ -707,32 +705,10 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
       sendJSON(res, 200, result);
     });
 
-    // Agent 启用/禁用切换（修改 agents.yaml 的 enabled 字段，自动热重载）
-    this.router.post('/api/agents/toggle', async (req, res) => {
-      const body = await readBody(req);
-      if (typeof body.enabled !== 'boolean') {
-        sendJSON(res, 400, { error: '缺少 enabled 参数' });
-        return;
-      }
-      const agentManager = this.deps.api?.agentManager;
-      if (!agentManager) { sendJSON(res, 503, { error: 'agentManager 不可用' }); return; }
-      const result = agentManager.setEnabled(body.enabled);
-      if (result.success) {
-        const reload = await this.reloadAgents();
-        sendJSON(res, 200, { ...result, reload });
-      } else {
-        sendJSON(res, 500, result);
-      }
-    });
+    // 多 Agent 配置分层重构：移除 /api/agents/toggle 路由（不再有 enabled 开关）
+    // 移除 /api/agents/init 路由（不再有 createManifest）
 
     // Agent CRUD API
-    this.router.post('/api/agents/init', async (_req, res) => {
-      const agentManager = this.deps.api?.agentManager;
-      if (!agentManager) { sendJSON(res, 503, { error: 'agentManager 不可用' }); return; }
-      const result = agentManager.createManifest();
-      sendJSON(res, result.success ? 200 : 500, result);
-    });
-
     this.router.post('/api/agents/create', async (req, res) => {
       const body = await readBody(req);
       if (typeof body.name !== 'string' || !body.name.trim()) {

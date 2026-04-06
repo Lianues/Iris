@@ -6,12 +6,12 @@
  *
  * 不使用 OpenTUI React，因为它是一个一次性的简单交互，
  * 直接用 ANSI 输出 + readline 实现更轻量。
+ *
+ * 多 Agent 配置分层重构：移除 GLOBAL_AGENT_NAME / __global__ 特判。
+ * 不再有"全局 AI"选项，所有 agent 都是普通条目。
  */
 
 import type { AgentDefinitionLike as AgentDefinition } from '@irises/extension-sdk';
-
-/** 全局 AI 模式的特殊 agent name */
-export const GLOBAL_AGENT_NAME = '__global__';
 
 const ESC = '\x1b';
 const CSI = `${ESC}[`;
@@ -30,34 +30,16 @@ const ansi = {
   white: `${CSI}37m`,
 };
 
-/** 选择列表中的条目 */
-interface SelectorItem {
-  agent: AgentDefinition;
-  /** 是否为全局 AI 条目（使用不同颜色） */
-  isGlobal: boolean;
-}
-
 /**
  * 显示 Agent 选择界面。
  *
- * 列表顶部始终显示“全局 AI”选项（使用全局配置），用绿色区分。
- * 下方显示各独立 Agent，用青色显示。
+ * 多 Agent 配置分层重构：移除"全局 AI"选项，所有 agent 统一显示。
  *
  * @returns 选中的 AgentDefinition，用户按 Esc/Ctrl+C 时返回 null。
- *          全局 AI 返回 { name: '__global__', description: '...' }
  */
 export function showAgentSelector(agents: AgentDefinition[]): Promise<AgentDefinition | null> {
   return new Promise((resolve) => {
-    //I 在顶部 + 各独立 agent
-    const items: SelectorItem[] = [
-      {
-        agent: { name: GLOBAL_AGENT_NAME, description: '使用全局配置（~/.iris/configs/）' },
-        isGlobal: true,
-      },
-      ...agents.map(a => ({ agent: a, isGlobal: false })),
-    ];
-
-    if (items.length === 0) {
+    if (agents.length === 0) {
       resolve(null);
       return;
     }
@@ -65,7 +47,7 @@ export function showAgentSelector(agents: AgentDefinition[]): Promise<AgentDefin
     let selectedIndex = 0;
     const stdin = process.stdin;
     const stdout = process.stdout;
-    const totalItems = items.length;
+    const totalItems = agents.length;
 
     const wasRaw = stdin.isRaw;
     if (stdin.setRawMode) stdin.setRawMode(true);
@@ -79,33 +61,16 @@ export function showAgentSelector(agents: AgentDefinition[]): Promise<AgentDefin
       lines.push('');
 
       for (let i = 0; i < totalItems; i++) {
-        const item = items[i];
+        const agent = agents[i];
         const isSelected = i === selectedIndex;
 
-        if (item.isGlobal) {
-          // 全局 AI：绿色
-          const marker = isSelected ? `${ansi.green}${ansi.bold} ❯ ` : '   ';
-          const nameStyle = isSelected ? `${ansi.green}${ansi.bold}` : `${ansi.green}`;
-          lines.push(`${marker}${nameStyle}★ 全局 AI${ansi.reset}`);
-          if (item.agent.description) {
-            lines.push(`     ${ansi.dim}${item.agent.description}${ansi.reset}`);
-          }
-        } else {
-          // 普通 Agent：青色
-          const marker = isSelected ? `${ansi.cyan}${ansi.bold} ❯ ` : '   ';
-          const nameStyle = isSelected ? `${ansi.cyan}${ansi.bold}` : `${ansi.white}`;
-          lines.push(`${marker}${nameStyle}${item.agent.name}${ansi.reset}`);
-          if (item.agent.description) {
-            lines.push(`     ${ansi.dim}${item.agent.description}${ansi.reset}`);
-          }
+        const marker = isSelected ? `${ansi.cyan}${ansi.bold} ❯ ` : '   ';
+        const nameStyle = isSelected ? `${ansi.cyan}${ansi.bold}` : `${ansi.white}`;
+        lines.push(`${marker}${nameStyle}${agent.name}${ansi.reset}`);
+        if (agent.description) {
+          lines.push(`     ${ansi.dim}${agent.description}${ansi.reset}`);
         }
-
-        // 全局 AI 和 Agent 列表之间加一条分隔线
-        if (item.isGlobal) {
-          lines.push(`   ${ansi.dim}──────────────────────────────${ansi.reset}`);
-        } else {
-          lines.push('');
-        }
+        lines.push('');
       }
 
       lines.push(`  ${ansi.dim}↑↓ 选择  Enter 确认  Esc 退出${ansi.reset}`);
@@ -140,7 +105,7 @@ export function showAgentSelector(agents: AgentDefinition[]): Promise<AgentDefin
       // Enter
       if (key === '\r' || key === '\n') {
         cleanup();
-        resolve(items[selectedIndex].agent);
+        resolve(agents[selectedIndex]);
         return;
       }
 

@@ -56,7 +56,7 @@ import { registerExtensionPlatforms } from '../extension';
 import { ensureDevSourceSdkShims } from '../extension';
 import type { IrisAPI, InlinePluginEntry, WebPanelDefinition, ConsoleSettingsTabDefinition } from '@irises/extension-sdk';
 import { BackendHandle } from '@irises/extension-sdk';
-import { readEditableConfig, updateEditableConfig } from '../config/manage';
+import { readEditableConfig, updateEditableConfig, LayeredConfigManager } from '../config/manage';
 import { applyRuntimeConfigReload, type RuntimeConfigReloadContext } from '../config/runtime';
 import { DEFAULTS, parseLLMConfig } from '../config/llm';
 import { parseSystemConfig } from '../config/system';
@@ -67,7 +67,8 @@ import { resizeImage, formatDimensionNote } from '../media/image-resize';
 import { extractDocument, isSupportedDocumentMime } from '../media/document-extract';
 import { convertToPDF, isConversionAvailable } from '../media/office-to-pdf';
 import {
-  getAgentStatus, setAgentEnabled, createManifestIfNotExists,
+  // 多 Agent 配置分层重构：移除 setAgentEnabled / createManifestIfNotExists 导入
+  getAgentStatus,
   createAgent, updateAgent, deleteAgent, resetCache as resetAgentCache, loadAgentDefinitions,
 } from '../agents';
 import { parseUnifiedDiff } from '../tools/internal/apply_diff/unified_diff';
@@ -90,6 +91,9 @@ export interface AgentNetworkProvider {
   getPeerDescription(name: string): string | undefined;
   getPeerBackend(name: string): Backend | undefined;
   getPeerBackendHandle?(name: string): BackendHandle | undefined;
+  /** 获取指定 peer Agent 的 IrisAPI（含 configManager 等）。
+   *  分层配置修复：console 切换 Agent 后需要从新 Agent 获取 configManager 重建 settingsController。 */
+  getPeerAPI?(name: string): Record<string, unknown> | undefined;
 }
 
 /** IrisCore 构造选项 */
@@ -98,12 +102,19 @@ export interface IrisCoreOptions {
   agentName?: string;
   /** Agent 专属路径集（不提供则使用全局默认路径） */
   agentPaths?: AgentPaths;
+  /**
+   * 已合并的完整配置（由 IrisHost 分层合并后传入）。
+   * 多 Agent 配置分层重构：优先使用此字段，不提供时 fallback 到自行加载。
+   */
+  resolvedConfig?: AppConfig;
   /** 运行时直接注入的内联插件 */
   inlinePlugins?: InlinePluginEntry[];
   /** 外部注入的全局任务板（多 Agent 模式下由 IrisHost 创建并共享） */
   taskBoard?: CrossAgentTaskBoard;
   /** 多 Agent 模式下的 agentNetwork（由 IrisHost 构造时注入） */
   agentNetwork?: AgentNetworkProvider;
+  /** MCP 共享：外部注入的共享 MCPManager（由 IrisHost 在 MCP 配置相同时传入，Core 不拥有其生命周期） */
+  sharedMCPManager?: MCPManager;
 }
 
 // ── IrisCore ──
@@ -133,6 +144,11 @@ export class IrisCore {
   // ---- MCP 管理（支持热重载，需要 getter/setter） ----
   private _mcpManager: MCPManager | undefined;
 
+  /**
+   * MCP 共享：标识该 Core 是否拥有 MCPManager 的生命周期。
+   * false 表示使用的是 IrisHost 注入的共享实例，shutdown 时不 disconnect。
+   */
+  private _mcpOwned = true;
   get mcpManager(): MCPManager | undefined { return this._mcpManager; }
   setMCPManager(manager?: MCPManager): void { this._mcpManager = manager; }
   getMCPManager(): MCPManager | undefined { return this._mcpManager; }
@@ -170,8 +186,16 @@ export class IrisCore {
     const agentPaths = options.agentPaths;
     const agentLabel = options.agentName;
 
-    const configDir = findConfigFile(agentPaths?.configDir);
-    const config = loadConfig(agentPaths?.configDir, agentPaths);
+    // 多 Agent 配置分层重构：优先使用 IrisHost 传入的 resolvedConfig，
+    // fallback 到自行加载（兼容 CLI 模式直接 new IrisCore() 的用法）。
+    const configDir = agentPaths?.configDir
+      ? findConfigFile(agentPaths.configDir, true)
+      : findConfigFile();
+    // 分层配置修复：获取全局配置目录，用于构造 LayeredConfigManager。
+    // 当没有 agentPaths 时 configDir 已经指向全局目录，globalDir == configDir，
+    // LayeredConfigManager 退化为单目录模式，零回归风险。
+    const globalDir = findConfigFile();
+    const config = options.resolvedConfig ?? loadConfig(agentPaths?.configDir, agentPaths);
     const extensions = createBootstrapExtensionRegistry();
     registerExtensionPlatforms(extensions.platforms, undefined, config.system.devSourceExtensions);
 
@@ -242,7 +266,16 @@ export class IrisCore {
 
     // ---- 3.1 连接 MCP 服务器 ----
     let mcpManager: MCPManager | undefined;
-    if (config.mcp) {
+    // MCP 共享：如果 IrisHost 注入了 sharedMCPManager（配置相同时），
+    // 直接复用该实例，跳过 createMCPManager + connectAll。
+    // 此时 _mcpOwned = false，shutdown 时不 disconnect。
+    if (options.sharedMCPManager) {
+      mcpManager = options.sharedMCPManager;
+      this._mcpOwned = false;
+      tools.registerAll(mcpManager.getTools());
+    } else if (config.mcp) {
+      // 没有共享注入时走原有逻辑：自建 MCPManager + connectAll。
+      // _mcpOwned 保持默认 true，shutdown 时由 Core 自行 disconnect。
       mcpManager = createMCPManager(config.mcp);
       await mcpManager.connectAll();
       tools.registerAll(mcpManager.getTools());
@@ -308,7 +341,8 @@ export class IrisCore {
     }, modeRegistry);
 
     backend.setTaskBoard(taskBoard);
-    taskBoard.registerBackend(options.agentName ?? '__global__', backend);
+    // 多 Agent 配置分层重构：移除 __global__ fallback，所有 agent 都有明确名称（至少 master）
+    taskBoard.registerBackend(options.agentName ?? 'master', backend);
 
     // 注册子代理工具
     if (hasSubAgents) {
@@ -324,7 +358,8 @@ export class IrisCore {
         ...(asyncSubAgentsEnabled ? {
           getSessionId: () => backend.getActiveSessionId(),
           taskBoard,
-          agentName: options.agentName ?? '__global__',
+          // 多 Agent 配置分层重构：移除 __global__ fallback
+          agentName: options.agentName ?? 'master',
         } : {}),
       }));
     }
@@ -498,26 +533,30 @@ export class IrisCore {
       get mcpManager() { return getMCPManagerFn(); },
       ocrService,
       extensions,
-      configManager: {
-        getConfigDir: () => configDir,
-        readEditableConfig: () => readEditableConfig(configDir),
-        updateEditableConfig: (updates: Record<string, unknown>) => updateEditableConfig(configDir, updates),
-        applyRuntimeConfigReload: async (mergedConfig: Record<string, unknown>) => {
-          try {
-            const ctx: RuntimeConfigReloadContext = {
-              backend, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
-            };
-            await applyRuntimeConfigReload(ctx, mergedConfig);
-            return { success: true };
-          } catch (e) {
-            return { success: false, error: e instanceof Error ? e.message : String(e) };
-          }
+      // 分层配置修复：用 LayeredConfigManager 替代原来的单目录闭包。
+      // 读时返回 global + agent 合并后的完整配置（解决 settings UI 空白问题），
+      // 写时只修改 agent 覆盖层，返回合并后的 mergedRaw（解决热重载不完整问题）。
+      // 每个 IrisCore 持有独立实例（解决 Agent 切换后 configManager 未更新问题）。
+      configManager: Object.assign(
+        new LayeredConfigManager(globalDir, configDir),
+        {
+          applyRuntimeConfigReload: async (mergedConfig: Record<string, unknown>) => {
+            try {
+              const ctx: RuntimeConfigReloadContext = {
+                backend, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
+              };
+              await applyRuntimeConfigReload(ctx, mergedConfig);
+              return { success: true };
+            } catch (e) {
+              return { success: false, error: e instanceof Error ? e.message : String(e) };
+            }
+          },
+          getLLMDefaults: () => DEFAULTS as Record<string, Record<string, unknown>>,
+          parseLLMConfig: (raw?: Record<string, unknown>) => parseLLMConfig(raw as any) as unknown as Record<string, unknown>,
+          parseSystemConfig: (raw?: Record<string, unknown>) => parseSystemConfig(raw as any) as unknown as Record<string, unknown>,
+          parseToolsConfig: (raw?: Record<string, unknown>) => parseToolsConfig(raw as any) as unknown as Record<string, unknown>,
         },
-        getLLMDefaults: () => DEFAULTS as Record<string, Record<string, unknown>>,
-        parseLLMConfig: (raw?: Record<string, unknown>) => parseLLMConfig(raw as any) as unknown as Record<string, unknown>,
-        parseSystemConfig: (raw?: Record<string, unknown>) => parseSystemConfig(raw as any) as unknown as Record<string, unknown>,
-        parseToolsConfig: (raw?: Record<string, unknown>) => parseToolsConfig(raw as any) as unknown as Record<string, unknown>,
-      },
+      ),
       isCompiledBinary,
       projectRoot: (await import('../paths')).projectRoot,
       dataDir: agentPaths?.dataDir || globalDataDir,
@@ -527,8 +566,7 @@ export class IrisCore {
       },
       agentManager: {
         getStatus: () => getAgentStatus(),
-        setEnabled: (enabled: boolean) => setAgentEnabled(enabled),
-        createManifest: () => createManifestIfNotExists(),
+        // 多 Agent 配置分层重构：移除 setEnabled / createManifest（不再有 enabled 开关）
         create: (name: string, description?: string) => createAgent(name, description),
         update: (name: string, fields: any) => updateAgent(name, fields),
         delete: (name: string) => deleteAgent(name),
@@ -548,7 +586,8 @@ export class IrisCore {
       services: pluginManager.getServiceRegistry(),
       configContributions: pluginManager.getConfigContributionRegistry(),
       taskBoard,
-      agentName: options.agentName ?? '__global__',
+      // 多 Agent 配置分层重构：移除 __global__ fallback
+      agentName: options.agentName ?? 'master',
       patchMethod,
       patchPrototype,
       createToolLoop: (loopOptions: { tools: any; systemPrompt: string; maxRounds?: number }) => {
@@ -632,8 +671,10 @@ export class IrisCore {
     this._state = 'stopping';
 
     try {
-      // 断开 MCP 连接
-      if (this._mcpManager) {
+      // 断开 MCP 连接。
+      // MCP 共享：_mcpOwned === false 表示使用的是 IrisHost 注入的共享实例，
+      // 由 Host 统一管理生命周期，Core shutdown 时跳过 disconnect。
+      if (this._mcpManager && this._mcpOwned) {
         try { await this._mcpManager.disconnectAll(); } catch { /* 忽略 */ }
       }
 

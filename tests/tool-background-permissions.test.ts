@@ -152,7 +152,8 @@ describe('background tool permissions', () => {
       'write_file',
       { files: [{ path: 'hello.ts', content: 'console.log("hi")' }] },
       'queued',
-      'cross-agent:__global__:task-1',
+      // 多 Agent 配置分层重构：__global__ → master
+      'cross-agent:master:task-1',
     );
 
     const calls = [fc('write_file', { files: [{ path: 'hello.ts', content: 'console.log("hi")' }] })];

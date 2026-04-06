@@ -115,7 +115,7 @@ src/attach.ts                 iris attach 入口
 {
   "pid": 12345,
   "port": 54321,
-  "agentName": "__global__",
+  "agentName": "master",
   "startedAt": "2025-01-01T00:00:00.000Z"
 }
 ```
@@ -142,7 +142,7 @@ iris attach
 ```json
 {
   "version": "1.0.0",
-  "agentName": "__global__",
+  "agentName": "master",
   "pid": 12345,
   "streamEnabled": true
 }

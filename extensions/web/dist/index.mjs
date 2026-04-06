@@ -6997,6 +6997,126 @@ var require_dist = __commonJS((exports) => {
 });
 
 // ../../packages/extension-sdk/src/platform.ts
+class BackendHandle {
+  _backend;
+  _listeners = new Map;
+  constructor(backend) {
+    this._backend = backend;
+  }
+  swap(newBackend) {
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.off(event, fn);
+      }
+    }
+    this._backend = newBackend;
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.on(event, fn);
+      }
+    }
+  }
+  on(event, listener) {
+    if (!this._listeners.has(event))
+      this._listeners.set(event, new Set);
+    this._listeners.get(event).add(listener);
+    this._backend.on(event, listener);
+    return this;
+  }
+  off(event, listener) {
+    this._listeners.get(event)?.delete(listener);
+    this._backend.off(event, listener);
+    return this;
+  }
+  once(event, listener) {
+    const wrapper = (...args) => {
+      this._listeners.get(event)?.delete(wrapper);
+      listener(...args);
+    };
+    return this.on(event, wrapper);
+  }
+  chat(sessionId, text, images, documents, platform) {
+    return this._backend.chat(sessionId, text, images, documents, platform);
+  }
+  isStreamEnabled() {
+    return this._backend.isStreamEnabled();
+  }
+  clearSession(sessionId) {
+    return this._backend.clearSession(sessionId);
+  }
+  switchModel(modelName, platform) {
+    return this._backend.switchModel(modelName, platform);
+  }
+  listModels() {
+    return this._backend.listModels();
+  }
+  listSessionMetas() {
+    return this._backend.listSessionMetas();
+  }
+  abortChat(sessionId) {
+    return this._backend.abortChat(sessionId);
+  }
+  getToolHandle(toolId) {
+    return this._backend.getToolHandle(toolId);
+  }
+  getToolHandles(sessionId) {
+    return this._backend.getToolHandles(sessionId);
+  }
+  undo(sessionId, scope) {
+    return this._backend.undo?.(sessionId, scope) ?? Promise.resolve(null);
+  }
+  redo(sessionId) {
+    return this._backend.redo?.(sessionId) ?? Promise.resolve(null);
+  }
+  listSkills() {
+    return this._backend.listSkills?.() ?? [];
+  }
+  listModes() {
+    return this._backend.listModes?.() ?? [];
+  }
+  switchMode(modeName) {
+    return this._backend.switchMode?.(modeName) ?? false;
+  }
+  clearRedo(sessionId) {
+    return this._backend.clearRedo?.(sessionId);
+  }
+  getHistory(sessionId) {
+    return this._backend.getHistory?.(sessionId) ?? Promise.resolve([]);
+  }
+  runCommand(cmd) {
+    return this._backend.runCommand?.(cmd);
+  }
+  summarize(sessionId) {
+    return this._backend.summarize?.(sessionId) ?? Promise.resolve(undefined);
+  }
+  resetConfigToDefaults() {
+    return this._backend.resetConfigToDefaults?.();
+  }
+  getToolNames() {
+    return this._backend.getToolNames?.() ?? [];
+  }
+  getAgentTasks(sessionId) {
+    return this._backend.getAgentTasks?.(sessionId) ?? [];
+  }
+  getRunningAgentTasks(sessionId) {
+    return this._backend.getRunningAgentTasks?.(sessionId) ?? [];
+  }
+  getAgentTask(taskId) {
+    return this._backend.getAgentTask?.(taskId);
+  }
+  getToolPolicies() {
+    return this._backend.getToolPolicies?.();
+  }
+  getCurrentModelInfo() {
+    return this._backend.getCurrentModelInfo?.();
+  }
+  getDisabledTools() {
+    return this._backend.getDisabledTools?.();
+  }
+  getActiveSessionId() {
+    return this._backend.getActiveSessionId?.();
+  }
+}
 function getPlatformConfig(context, platformName) {
   const platform = context.config?.platform;
   if (!platform || typeof platform !== "object") {
@@ -9214,7 +9334,7 @@ function createDiffPreviewHandler(backend, utils) {
       sendJSON(res, 400, { error: "缺少工具 ID" });
       return;
     }
-    const inv = backend.getToolState?.()?.get?.(toolId);
+    const inv = backend.getToolHandle?.(toolId)?.getSnapshot();
     if (!inv) {
       sendJSON(res, 404, { error: "未找到工具调用" });
       return;
@@ -9551,13 +9671,13 @@ function writeEditablePluginEntries(entries) {
 
 ${import_yaml.stringify({ plugins: entries }, { indent: 2 })}`, "utf-8");
 }
-function upsertLocalPluginEnabled(name, enabled) {
+function upsertLocalPluginEnabled(name, enabled2) {
   const entries = readEditablePluginEntries();
   const idx = entries.findIndex((e) => e.name === name && (e.type ?? "local") === "local");
   if (idx >= 0) {
-    entries[idx] = { ...entries[idx], type: "local", enabled };
+    entries[idx] = { ...entries[idx], type: "local", enabled: enabled2 };
   } else {
-    entries.push({ name, type: "local", enabled });
+    entries.push({ name, type: "local", enabled: enabled2 });
   }
   writeEditablePluginEntries(entries);
 }
@@ -10298,7 +10418,18 @@ class WebPlatform extends PlatformAdapter {
       this.agents.delete("default");
       this.defaultAgentName = name;
     }
-    const cfg = config;
+    const raw = config;
+    const webSub = raw.platform?.web;
+    const cfg = {
+      port: webSub?.port ?? raw.port ?? this.config.port,
+      host: webSub?.host ?? raw.host ?? this.config.host,
+      authToken: webSub?.authToken ?? raw.authToken ?? this.config.authToken,
+      managementToken: webSub?.managementToken ?? raw.managementToken ?? this.config.managementToken,
+      configPath: raw.configPath ?? "",
+      provider: raw.provider ?? "unknown",
+      modelId: raw.modelId ?? "unknown",
+      streamEnabled: raw.streamEnabled ?? true
+    };
     this.agents.set(name, {
       name,
       description,
@@ -10328,11 +10459,8 @@ class WebPlatform extends PlatformAdapter {
     }
     agentManager.resetCache();
     const status = agentManager.getStatus();
-    const enabled = status.enabled;
-    const newDefs = enabled ? status.agents : [];
+    const newDefs = status.agents;
     const newNames = new Set(newDefs.map((d) => d.name));
-    if (enabled)
-      newNames.add("__global__");
     const currentNames = new Set(this.agents.keys());
     const added = [];
     const removed = [];
@@ -10359,7 +10487,7 @@ class WebPlatform extends PlatformAdapter {
       let _mcpManager = result.getMCPManager();
       this.agents.set(name, {
         name,
-        description: def === "__default__" ? undefined : name === "__global__" ? "全局 AI" : def.description,
+        description: def === "__default__" ? undefined : def.description,
         backend: result.backend,
         config: {
           ...this.config,
@@ -10406,7 +10534,7 @@ class WebPlatform extends PlatformAdapter {
     for (const name of newNames) {
       if (!currentNames.has(name) || currentNames.has("default")) {
         try {
-          const def = name === "__global__" ? { name: "__global__" } : newDefs.find((d) => d.name === name);
+          const def = newDefs.find((d) => d.name === name);
           if (!def) {
             logger3.warn(`Agent「${name}」在定义列表中未找到，跳过。`);
             continue;
@@ -10601,8 +10729,23 @@ class WebPlatform extends PlatformAdapter {
     const onDone = (sid, durationMs) => {
       this.writeSSE(sid, { type: "done_meta", durationMs });
     };
-    const onToolUpdate = (sid, invocations) => {
-      this.writeSSE(sid, { type: "tool_update", invocations });
+    const onToolExecute = (sid, handle) => {
+      this.writeSSE(sid, {
+        type: "tool_start",
+        tool: { id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, depth: handle.depth, parentId: handle.parentId }
+      });
+      handle.on("state", (status, prev) => {
+        this.writeSSE(sid, { type: "tool_state", toolId: handle.id, status, prev, snapshot: handle.getSnapshot() });
+      });
+      handle.on("output", (entry) => {
+        this.writeSSE(sid, { type: "tool_output", toolId: handle.id, entry });
+      });
+      handle.on("progress", (data) => {
+        this.writeSSE(sid, { type: "tool_progress", toolId: handle.id, data });
+      });
+      handle.on("child", (childHandle) => {
+        onToolExecute(sid, childHandle);
+      });
     };
     const onUsage = (sid, usage) => {
       this.writeSSE(sid, { type: "usage", usage });
@@ -10635,7 +10778,7 @@ class WebPlatform extends PlatformAdapter {
     backend.on("stream:parts", onStreamParts);
     backend.on("stream:end", onStreamEnd);
     backend.on("done", onDone);
-    backend.on("tool:update", onToolUpdate);
+    backend.on("tool:execute", onToolExecute);
     backend.on("usage", onUsage);
     backend.on("retry", onRetry);
     backend.on("auto-compact", onAutoCompact);
@@ -10652,7 +10795,7 @@ class WebPlatform extends PlatformAdapter {
         backend.off("stream:parts", onStreamParts);
         backend.off("stream:end", onStreamEnd);
         backend.off("done", onDone);
-        backend.off("tool:update", onToolUpdate);
+        backend.off("tool:execute", onToolExecute);
         backend.off("usage", onUsage);
         backend.off("retry", onRetry);
         backend.off("auto-compact", onAutoCompact);
@@ -10699,34 +10842,6 @@ class WebPlatform extends PlatformAdapter {
     this.router.post("/api/agents/reload", async (_req, res) => {
       const result = await this.reloadAgents();
       sendJSON(res, 200, result);
-    });
-    this.router.post("/api/agents/toggle", async (req, res) => {
-      const body = await readBody(req);
-      if (typeof body.enabled !== "boolean") {
-        sendJSON(res, 400, { error: "缺少 enabled 参数" });
-        return;
-      }
-      const agentManager = this.deps.api?.agentManager;
-      if (!agentManager) {
-        sendJSON(res, 503, { error: "agentManager 不可用" });
-        return;
-      }
-      const result = agentManager.setEnabled(body.enabled);
-      if (result.success) {
-        const reload = await this.reloadAgents();
-        sendJSON(res, 200, { ...result, reload });
-      } else {
-        sendJSON(res, 500, result);
-      }
-    });
-    this.router.post("/api/agents/init", async (_req, res) => {
-      const agentManager = this.deps.api?.agentManager;
-      if (!agentManager) {
-        sendJSON(res, 503, { error: "agentManager 不可用" });
-        return;
-      }
-      const result = agentManager.createManifest();
-      sendJSON(res, result.success ? 200 : 500, result);
     });
     this.router.post("/api/agents/create", async (req, res) => {
       const body = await readBody(req);
@@ -10930,7 +11045,12 @@ class WebPlatform extends PlatformAdapter {
       try {
         const { backend } = this.resolveAgent(req);
         const body = await readBody(req);
-        backend.approveTool?.(params.id, body.approved);
+        const handle = backend.getToolHandle?.(params.id);
+        if (!handle) {
+          sendJSON(res, 404, { error: "未找到工具调用" });
+          return;
+        }
+        handle.approve(body.approved);
         sendJSON(res, 200, { ok: true });
       } catch (err) {
         sendJSON(res, 400, { error: err instanceof Error ? err.message : "操作失败" });
@@ -10940,7 +11060,26 @@ class WebPlatform extends PlatformAdapter {
       try {
         const { backend } = this.resolveAgent(req);
         const body = await readBody(req);
-        backend.applyTool?.(params.id, body.applied);
+        const handle = backend.getToolHandle?.(params.id);
+        if (!handle) {
+          sendJSON(res, 404, { error: "未找到工具调用" });
+          return;
+        }
+        handle.apply(body.applied);
+        sendJSON(res, 200, { ok: true });
+      } catch (err) {
+        sendJSON(res, 400, { error: err instanceof Error ? err.message : "操作失败" });
+      }
+    });
+    this.router.post("/api/tools/:id/abort", async (req, res, params) => {
+      try {
+        const { backend } = this.resolveAgent(req);
+        const handle = backend.getToolHandle?.(params.id);
+        if (!handle) {
+          sendJSON(res, 404, { error: "未找到工具调用" });
+          return;
+        }
+        handle.abort();
         sendJSON(res, 200, { ok: true });
       } catch (err) {
         sendJSON(res, 400, { error: err instanceof Error ? err.message : "操作失败" });

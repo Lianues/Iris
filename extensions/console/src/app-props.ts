@@ -1,4 +1,5 @@
 import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta } from '@irises/extension-sdk';
+import type { AgentDefinitionLike } from '@irises/extension-sdk';
 import type { ConsoleSettingsTabDefinition } from '@irises/extension-sdk/plugin';
 import type { SwitchModelResult, ThinkingEffortLevel } from './app-types';
 import type { AppHandle } from './hooks/use-app-handle';
@@ -32,7 +33,10 @@ export interface AppProps {
   onResetConfig: () => Promise<{ success: boolean; message: string }>;
   onExit: () => void;
   onSummarize: () => Promise<{ ok: boolean; message: string }>;
-  onSwitchAgent?: () => void;
+  /** 获取可切换的 Agent 列表（/agent 命令触发） */
+  onListAgents?: () => AgentDefinitionLike[];
+  /** 用户在 agent-list 视图中确认选择后，执行实际的 Agent 切换 */
+  onSelectAgent?: (agentName: string) => void;
   onRemoteConnect?: (name?: string) => void;
   onRemoteDisconnect?: () => void;
   /** 远程连接的主机地址（非空时 StatusBar 显示远程标识） */

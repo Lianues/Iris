@@ -24,3 +24,7 @@ node-download.zip
 gemini_2026-03-24T02-37-01.html
 opentui-main/
 opentui-skill-main/
+
+# 临时文件
+.tmp-*
+nul

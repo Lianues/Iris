@@ -34,7 +34,7 @@ var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
 // node_modules/silk-wasm/lib/index.cjs
 var require_lib = __commonJS((exports, module) => {
-  var __filename = "D:\\Software\\Iris\\extensions\\weixin\\node_modules\\silk-wasm\\lib\\index.cjs";
+  var __filename = "C:\\Users\\Moeblack\\Repos\\Iris\\extensions\\weixin\\node_modules\\silk-wasm\\lib\\index.cjs";
   var __defProp2 = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
@@ -893,6 +893,126 @@ return ret;
 });
 
 // ../../packages/extension-sdk/src/platform.ts
+class BackendHandle {
+  _backend;
+  _listeners = new Map;
+  constructor(backend) {
+    this._backend = backend;
+  }
+  swap(newBackend) {
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.off(event, fn);
+      }
+    }
+    this._backend = newBackend;
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.on(event, fn);
+      }
+    }
+  }
+  on(event, listener) {
+    if (!this._listeners.has(event))
+      this._listeners.set(event, new Set);
+    this._listeners.get(event).add(listener);
+    this._backend.on(event, listener);
+    return this;
+  }
+  off(event, listener) {
+    this._listeners.get(event)?.delete(listener);
+    this._backend.off(event, listener);
+    return this;
+  }
+  once(event, listener) {
+    const wrapper = (...args) => {
+      this._listeners.get(event)?.delete(wrapper);
+      listener(...args);
+    };
+    return this.on(event, wrapper);
+  }
+  chat(sessionId, text, images, documents, platform) {
+    return this._backend.chat(sessionId, text, images, documents, platform);
+  }
+  isStreamEnabled() {
+    return this._backend.isStreamEnabled();
+  }
+  clearSession(sessionId) {
+    return this._backend.clearSession(sessionId);
+  }
+  switchModel(modelName, platform) {
+    return this._backend.switchModel(modelName, platform);
+  }
+  listModels() {
+    return this._backend.listModels();
+  }
+  listSessionMetas() {
+    return this._backend.listSessionMetas();
+  }
+  abortChat(sessionId) {
+    return this._backend.abortChat(sessionId);
+  }
+  getToolHandle(toolId) {
+    return this._backend.getToolHandle(toolId);
+  }
+  getToolHandles(sessionId) {
+    return this._backend.getToolHandles(sessionId);
+  }
+  undo(sessionId, scope) {
+    return this._backend.undo?.(sessionId, scope) ?? Promise.resolve(null);
+  }
+  redo(sessionId) {
+    return this._backend.redo?.(sessionId) ?? Promise.resolve(null);
+  }
+  listSkills() {
+    return this._backend.listSkills?.() ?? [];
+  }
+  listModes() {
+    return this._backend.listModes?.() ?? [];
+  }
+  switchMode(modeName) {
+    return this._backend.switchMode?.(modeName) ?? false;
+  }
+  clearRedo(sessionId) {
+    return this._backend.clearRedo?.(sessionId);
+  }
+  getHistory(sessionId) {
+    return this._backend.getHistory?.(sessionId) ?? Promise.resolve([]);
+  }
+  runCommand(cmd) {
+    return this._backend.runCommand?.(cmd);
+  }
+  summarize(sessionId) {
+    return this._backend.summarize?.(sessionId) ?? Promise.resolve(undefined);
+  }
+  resetConfigToDefaults() {
+    return this._backend.resetConfigToDefaults?.();
+  }
+  getToolNames() {
+    return this._backend.getToolNames?.() ?? [];
+  }
+  getAgentTasks(sessionId) {
+    return this._backend.getAgentTasks?.(sessionId) ?? [];
+  }
+  getRunningAgentTasks(sessionId) {
+    return this._backend.getRunningAgentTasks?.(sessionId) ?? [];
+  }
+  getAgentTask(taskId) {
+    return this._backend.getAgentTask?.(taskId);
+  }
+  getToolPolicies() {
+    return this._backend.getToolPolicies?.();
+  }
+  getCurrentModelInfo() {
+    return this._backend.getCurrentModelInfo?.();
+  }
+  getDisabledTools() {
+    return this._backend.getDisabledTools?.();
+  }
+  getActiveSessionId() {
+    return this._backend.getActiveSessionId?.();
+  }
+}
 function getPlatformConfig(context, platformName) {
   const platform = context.config?.platform;
   if (!platform || typeof platform !== "object") {
@@ -985,6 +1105,20 @@ function formatToolStatusLine(inv, options) {
   const label = TOOL_STATUS_LABELS[inv.status] || inv.status;
   const name = options?.codeStyle ? `\`${inv.toolName}\`` : inv.toolName;
   return `${icon} ${name} ${label}`;
+}
+function autoApproveHandle(handle) {
+  if (handle.status === "awaiting_approval") {
+    try {
+      handle.approve(true);
+    } catch {}
+  }
+  handle.on("state", (status) => {
+    if (status === "awaiting_approval") {
+      try {
+        handle.approve(true);
+      } catch {}
+    }
+  });
 }
 // src/index.ts
 import fs from "node:fs";
@@ -1459,7 +1593,8 @@ ${qrcodeUrl}
         return;
       cs.buffer = text;
     });
-    this.backend.on("tool:update", (sid, invocations) => {
+    this.backend.on("tool:execute", (sid, handle) => {
+      autoApproveHandle(handle);
       if (this.config.showToolStatus === false)
         return;
       const userId = this.findUserIdBySid(sid);
@@ -1468,22 +1603,14 @@ ${qrcodeUrl}
       const cs = this.getChatState(userId);
       if (cs.stopped)
         return;
-      const sorted = [...invocations].sort((a, b) => a.createdAt - b.createdAt);
-      let activeToolsText = "";
-      for (const inv of sorted) {
-        const isDone = inv.status === "success" || inv.status === "error";
-        const line = formatToolStatusLine(inv);
-        if (isDone) {
-          if (!cs.committedToolIds.has(inv.id)) {
-            cs.committedToolIds.add(inv.id);
-            cs.toolBuffer += `${line}
-`;
-          }
-        } else {
-          activeToolsText += `${line}
+      handle.on("done", () => {
+        const line = formatToolStatusLine({ toolName: handle.toolName, status: handle.status });
+        if (!cs.committedToolIds.has(handle.id)) {
+          cs.committedToolIds.add(handle.id);
+          cs.toolBuffer += `${line}
 `;
         }
-      }
+      });
     });
     this.backend.on("error", (sid, errorMsg) => {
       const userId = this.findUserIdBySid(sid);

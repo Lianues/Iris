@@ -67,7 +67,8 @@ export default definePlugin({
       // [cron 重构] 从 IrisAPI 获取 taskBoard 和 agentName，
       // 替代原有的 agentTaskRegistry + eventBus 注入方式。
       const taskBoard = (api as any).taskBoard ?? null;
-      const agentName: string = (api as any).agentName ?? '__global__';
+      // 多 Agent 配置分层重构：移除 __global__ fallback
+      const agentName: string = (api as any).agentName ?? 'master';
 
       // 创建调度器实例：传入 taskBoard 和 agentName 以启用后台执行模式
       schedulerInstance = new CronScheduler(api, config, taskBoard, agentName);

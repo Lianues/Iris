@@ -94,11 +94,33 @@ export interface MCPManagerLike {
   getTools?(): unknown[];
 }
 
+/**
+ * 可编辑配置的原始结构。
+ *
+ * 对应 ~/.iris/configs/ 下各 YAML 文件 deepMerge 后的顶层 key。
+ * 每个 section 内部是自由结构（Record<string, unknown>），
+ * 但顶层 key 是固定的，避免消费方到处 `as any`。
+ */
+export interface RawEditableConfig {
+  llm?: Record<string, unknown>;
+  system?: Record<string, unknown>;
+  tools?: Record<string, unknown>;
+  mcp?: Record<string, unknown>;
+  platform?: Record<string, unknown>;
+  storage?: Record<string, unknown>;
+  ocr?: Record<string, unknown>;
+  modes?: Record<string, unknown>;
+  sub_agents?: Record<string, unknown>;
+  plugins?: unknown[];
+  summary?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 export interface ConfigManagerLike {
   getConfigDir(): string;
-  readEditableConfig(): Record<string, unknown>;
-  updateEditableConfig(updates: Record<string, unknown>): { mergedRaw: Record<string, unknown>; sanitized?: Record<string, unknown> };
-  applyRuntimeConfigReload(mergedConfig: Record<string, unknown>): Promise<{ success: boolean; error?: string }>;
+  readEditableConfig(): RawEditableConfig;
+  updateEditableConfig(updates: Partial<RawEditableConfig>): { mergedRaw: RawEditableConfig; sanitized?: RawEditableConfig };
+  applyRuntimeConfigReload(mergedConfig: RawEditableConfig): Promise<{ success: boolean; error?: string }>;
   getLLMDefaults(): Record<string, Record<string, unknown>>;
   parseLLMConfig(raw?: Record<string, unknown>): Record<string, unknown>;
   parseSystemConfig(raw?: Record<string, unknown>): Record<string, unknown>;
@@ -130,11 +152,14 @@ export interface ExtensionManagerLike {
   listPlatformCatalog?(): unknown[];
 }
 
-/** Agent 管理接口（CRUD 操作 agents.yaml + 运行时状态查询） */
+/**
+ * Agent 管理接口（CRUD 操作 agents.yaml + 运行时状态查询）
+ *
+ * 多 Agent 配置分层重构：移除 setEnabled / createManifest / exists / enabled。
+ * agents.yaml 存在即生效，不再需要 enabled 开关。
+ */
 export interface AgentManagerLike {
-  getStatus(): { exists: boolean; enabled: boolean; agents: AgentDefinitionLike[]; manifestPath: string };
-  setEnabled(enabled: boolean): { success: boolean; message: string };
-  createManifest(): { success: boolean; message: string };
+  getStatus(): { agents: AgentDefinitionLike[]; manifestPath: string };
   create(name: string, description?: string): { success: boolean; message: string };
   update(name: string, fields: { description?: string; dataDir?: string }): { success: boolean; message: string };
   delete(name: string): { success: boolean; message: string };
@@ -159,6 +184,9 @@ export interface AgentNetworkLike {
   getPeerBackend(name: string): IrisBackendLike | undefined;
   /** 获取指定 peer Agent 的 BackendHandle（平台层使用的稳定代理） */
   getPeerBackendHandle?(name: string): BackendHandle | undefined;
+  /** 获取指定 peer Agent 的 IrisAPI（含 configManager、extensions 等）。
+   *  分层配置修复：平台切换 Agent 后需要从目标 Agent 获取 configManager。 */
+  getPeerAPI?(name: string): Record<string, unknown> | undefined;
 }
 
 /** 应用配置的只读视图（供插件和扩展使用） */

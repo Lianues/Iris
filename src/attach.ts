@@ -2,9 +2,9 @@
  * iris attach —— 跨进程 / 跨设备连接已运行的 IrisCore
  *
  * 用法：
- *   iris attach                                        → 连接本地默认 agent（__global__）
- *   iris attach --agent my-agent                       → 连接本地指定 agent
- *   iris attach --cwd /project                         → 连接并设置工作目录
+ *   iris attach                   → 连接默认 agent（master）
+ *   iris attach --agent my-agent  → 连接指定 agent
+ *   iris attach --cwd /project    → 连接并设置工作目录
  *   iris attach --remote ws://host:9100 --token xxx    → 远程直连
  *   iris attach --relay wss://relay:9001 --node id --token xxx → 通过中继连接
  *
@@ -34,7 +34,8 @@ interface AttachArgs {
 }
 
 function parseAttachArgs(argv: string[]): AttachArgs {
-  let agentName = '__global__';
+  // 多 Agent 配置分层重构：默认 agent 改为 master
+  let agentName = 'master';
   let cwd: string | undefined;
   let remote: string | undefined;
   let token: string | undefined;
@@ -59,7 +60,7 @@ function parseAttachArgs(argv: string[]): AttachArgs {
 iris attach — 跨进程 / 跨设备连接已运行的 Iris 实例
 
 本地连接:
-  --agent, -a <name>   要连接的 Agent 名称（默认: __global__）
+  --agent, -a <name>   要连接的 Agent 名称（默认: master）
   --cwd <path>         设置工作目录（默认: 当前目录）
 
 远程直连:

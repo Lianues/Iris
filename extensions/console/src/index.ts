@@ -552,7 +552,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
           this.exitResolve?.('exit');
         },
         onSummarize: () => this.handleSummarize(),
-        onSwitchAgent: () => this.handleSwitchAgent(),
+        onListAgents: () => this.handleListAgents(),
+        onSelectAgent: (name: string) => this.handleSelectAgent(name),
         onRemoteConnect: (name?: string) => this.handleRemoteConnect(name),
         onRemoteDisconnect: () => this.handleRemoteDisconnect(),
         remoteHost: this._remoteHost || undefined,
@@ -591,52 +592,39 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     });
   }
 
+
   /**
-   * 处理 Agent 切换（/agent 命令）。
+   * 获取可用 Agent 列表（/agent 命令触发）。
    *
-   * 在 Console 内部完成，不需要退出到 index.ts 的外部循环。
-   * 流程：停止当前 TUI → 显示 Agent 选择器 → 替换 backend → 重启 TUI
+   * 修改方式：不再直接操作 stdin/stdout 显示 ANSI 选择器，
+   * 而是返回 agent 列表交给 React viewMode 渲染，避免 stdin 争夺和日志泄漏。
    */
-  private async handleSwitchAgent(): Promise<void> {
+  private handleListAgents(): import('@irises/extension-sdk').AgentDefinitionLike[] {
+    return this.api?.listAgents?.() ?? [];
+  }
+
+  /**
+   * 用户在 agent-list 视图中选择后，执行实际的 Agent 切换。
+   *
+   * 修改方式：由 OpenTUI React 键盘事件触发（Enter 键），
+   * 不再需要 suspend/destroy renderer 来显示选择器。
+   * 选中当前 agent 时直接返回，选中其他 agent 时 stop → 切换 backend → start。
+   */
+  private async handleSelectAgent(targetName: string): Promise<void> {
     const network = this.api?.agentNetwork;
-    if (!network) {
-      // 没有 agentNetwork 说明不是多 Agent 模式，不应该到这里
-      return;
-    }
+    if (!network) return;
 
-    // 获取 Agent 列表
-    const agents = this.api?.listAgents?.() ?? [];
-    if (agents.length === 0) return;
+    // 选中当前 agent 时无需切换
+    if (targetName === network.selfName) return;
 
-    // 停止当前 TUI（释放交替屏幕）
+    // 销毁当前 TUI，准备用新 backend 重建
     await this.stop();
 
-    // 显示 Agent 选择器
-    const { showAgentSelector } = await import('./agent-selector');
-    const selected = await showAgentSelector(agents);
-
-    if (!selected) {
-      // 用户按 Esc 取消，重启原来的 TUI
-      await this.start();
-      return;
-    }
-
-    const targetName = selected.name;
-    const currentName = network.selfName;
-
-    // 如果选择了当前已绑定的 Agent，直接重启
-    if (targetName === currentName) {
-      await this.start();
-      return;
-    }
-
-    // 获取目标 Agent 的 BackendHandle
     const targetHandle = network.getPeerBackendHandle?.(targetName);
     if (targetHandle) {
       this.backend = targetHandle;
-      this.agentName = targetName === '__global__' ? undefined : targetName;
+      this.agentName = targetName;
 
-      // 更新模型信息（新 Agent 可能使用不同模型）
       const modelInfo = targetHandle.getCurrentModelInfo?.();
       if (modelInfo) {
         this.modelName = modelInfo.modelName;
@@ -647,9 +635,20 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.sessionId = generateSessionId();
       this.currentToolIds.clear();
       this._activeHandles.clear();
+
+      // 分层配置修复：切换 Agent 后重建 settingsController
+      const peerAPI = network.getPeerAPI?.(targetName) as any;
+      if (peerAPI) {
+        this.api = peerAPI;
+        this.settingsController = new ConsoleSettingsController({
+          backend: targetHandle,
+          configManager: peerAPI.configManager,
+          mcpManager: peerAPI.mcpManager,
+          extensions: peerAPI.extensions,
+        });
+      }
     }
 
-    // 重启 TUI
     await this.start();
   }
 

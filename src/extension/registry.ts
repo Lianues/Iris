@@ -208,6 +208,7 @@ export function discoverLocalExtensions(): ExtensionPackage[] {
   return packages;
 }
 
+
 export function resolveLocalPluginSource(
   name: string,
   extensionPackages: ExtensionPackage[] = discoverLocalExtensions(),

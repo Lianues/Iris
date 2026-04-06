@@ -8641,7 +8641,7 @@ var require_mod = __commonJS((exports) => {
   } });
 });
 
-// ../../packages/extension-sdk/dist/pairing/code-gen.js
+// ../../packages/extension-sdk/src/pairing/code-gen.ts
 import { randomInt } from "node:crypto";
 var CHARSET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 function generatePairingCode(length = 6) {
@@ -8652,7 +8652,7 @@ function generatePairingCode(length = 6) {
   return code;
 }
 
-// ../../packages/extension-sdk/dist/pairing/guard.js
+// ../../packages/extension-sdk/src/pairing/guard.ts
 class PairingGuard {
   platform;
   config;
@@ -8800,50 +8800,42 @@ class PairingGuard {
     }
   }
 }
-// ../../packages/extension-sdk/dist/pairing/store.js
+// ../../packages/extension-sdk/src/pairing/store.ts
 import fs from "node:fs";
 import path2 from "node:path";
 
-// ../../packages/extension-sdk/dist/logger.js
-var LogLevel;
-(function(LogLevel2) {
-  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
-  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
-  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
-  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
-  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
-})(LogLevel || (LogLevel = {}));
-var _logLevel = LogLevel.INFO;
+// ../../packages/extension-sdk/src/logger.ts
+var _logLevel = 1 /* INFO */;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= LogLevel.DEBUG)
+      if (_logLevel <= 0 /* DEBUG */)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= LogLevel.INFO)
+      if (_logLevel <= 1 /* INFO */)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= LogLevel.WARN)
+      if (_logLevel <= 2 /* WARN */)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= LogLevel.ERROR)
+      if (_logLevel <= 3 /* ERROR */)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
 
-// ../../packages/extension-sdk/dist/runtime-paths.js
+// ../../packages/extension-sdk/src/runtime-paths.ts
 import os from "node:os";
 import path from "node:path";
 function resolveDefaultDataDir(customDataDir) {
   return path.resolve(customDataDir || process.env.IRIS_DATA_DIR || path.join(os.homedir(), ".iris"));
 }
 
-// ../../packages/extension-sdk/dist/pairing/store.js
+// ../../packages/extension-sdk/src/pairing/store.ts
 var logger = createExtensionLogger("ExtensionSDK", "PairingStore");
 var NEVER_EXPIRE = 253402272000000;
 
@@ -8931,6 +8923,126 @@ class PairingStore {
   }
 }
 // ../../packages/extension-sdk/src/platform.ts
+class BackendHandle {
+  _backend;
+  _listeners = new Map;
+  constructor(backend) {
+    this._backend = backend;
+  }
+  swap(newBackend) {
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.off(event, fn);
+      }
+    }
+    this._backend = newBackend;
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.on(event, fn);
+      }
+    }
+  }
+  on(event, listener) {
+    if (!this._listeners.has(event))
+      this._listeners.set(event, new Set);
+    this._listeners.get(event).add(listener);
+    this._backend.on(event, listener);
+    return this;
+  }
+  off(event, listener) {
+    this._listeners.get(event)?.delete(listener);
+    this._backend.off(event, listener);
+    return this;
+  }
+  once(event, listener) {
+    const wrapper = (...args) => {
+      this._listeners.get(event)?.delete(wrapper);
+      listener(...args);
+    };
+    return this.on(event, wrapper);
+  }
+  chat(sessionId, text, images, documents, platform) {
+    return this._backend.chat(sessionId, text, images, documents, platform);
+  }
+  isStreamEnabled() {
+    return this._backend.isStreamEnabled();
+  }
+  clearSession(sessionId) {
+    return this._backend.clearSession(sessionId);
+  }
+  switchModel(modelName, platform) {
+    return this._backend.switchModel(modelName, platform);
+  }
+  listModels() {
+    return this._backend.listModels();
+  }
+  listSessionMetas() {
+    return this._backend.listSessionMetas();
+  }
+  abortChat(sessionId) {
+    return this._backend.abortChat(sessionId);
+  }
+  getToolHandle(toolId) {
+    return this._backend.getToolHandle(toolId);
+  }
+  getToolHandles(sessionId) {
+    return this._backend.getToolHandles(sessionId);
+  }
+  undo(sessionId, scope) {
+    return this._backend.undo?.(sessionId, scope) ?? Promise.resolve(null);
+  }
+  redo(sessionId) {
+    return this._backend.redo?.(sessionId) ?? Promise.resolve(null);
+  }
+  listSkills() {
+    return this._backend.listSkills?.() ?? [];
+  }
+  listModes() {
+    return this._backend.listModes?.() ?? [];
+  }
+  switchMode(modeName) {
+    return this._backend.switchMode?.(modeName) ?? false;
+  }
+  clearRedo(sessionId) {
+    return this._backend.clearRedo?.(sessionId);
+  }
+  getHistory(sessionId) {
+    return this._backend.getHistory?.(sessionId) ?? Promise.resolve([]);
+  }
+  runCommand(cmd) {
+    return this._backend.runCommand?.(cmd);
+  }
+  summarize(sessionId) {
+    return this._backend.summarize?.(sessionId) ?? Promise.resolve(undefined);
+  }
+  resetConfigToDefaults() {
+    return this._backend.resetConfigToDefaults?.();
+  }
+  getToolNames() {
+    return this._backend.getToolNames?.() ?? [];
+  }
+  getAgentTasks(sessionId) {
+    return this._backend.getAgentTasks?.(sessionId) ?? [];
+  }
+  getRunningAgentTasks(sessionId) {
+    return this._backend.getRunningAgentTasks?.(sessionId) ?? [];
+  }
+  getAgentTask(taskId) {
+    return this._backend.getAgentTask?.(taskId);
+  }
+  getToolPolicies() {
+    return this._backend.getToolPolicies?.();
+  }
+  getCurrentModelInfo() {
+    return this._backend.getCurrentModelInfo?.();
+  }
+  getDisabledTools() {
+    return this._backend.getDisabledTools?.();
+  }
+  getActiveSessionId() {
+    return this._backend.getActiveSessionId?.();
+  }
+}
 function getPlatformConfig(context, platformName) {
   const platform = context.config?.platform;
   if (!platform || typeof platform !== "object") {
@@ -8974,38 +9086,20 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// ../../packages/extension-sdk/src/logger.ts
-var _logLevel2 = 1 /* INFO */;
-function createExtensionLogger2(extensionName, tag) {
-  const scope = tag ? `${extensionName}:${tag}` : extensionName;
-  return {
-    debug: (...args) => {
-      if (_logLevel2 <= 0 /* DEBUG */)
-        console.debug(`[${scope}]`, ...args);
-    },
-    info: (...args) => {
-      if (_logLevel2 <= 1 /* INFO */)
-        console.log(`[${scope}]`, ...args);
-    },
-    warn: (...args) => {
-      if (_logLevel2 <= 2 /* WARN */)
-        console.warn(`[${scope}]`, ...args);
-    },
-    error: (...args) => {
-      if (_logLevel2 <= 3 /* ERROR */)
-        console.error(`[${scope}]`, ...args);
-    }
-  };
-}
 // ../../packages/extension-sdk/src/platform-utils.ts
-function autoApproveTools(backend, invocations) {
-  for (const inv of invocations) {
-    if (inv.status === "awaiting_approval") {
+function autoApproveHandle(handle) {
+  if (handle.status === "awaiting_approval") {
+    try {
+      handle.approve(true);
+    } catch {}
+  }
+  handle.on("state", (status) => {
+    if (status === "awaiting_approval") {
       try {
-        backend.approveTool(inv.id, true);
+        handle.approve(true);
       } catch {}
     }
-  }
+  });
 }
 // src/client.ts
 var import_grammy = __toESM(require_mod(), 1);
@@ -9071,7 +9165,7 @@ function buildTelegramSessionTarget(params) {
 }
 
 // src/client.ts
-var logger2 = createExtensionLogger2("TelegramExtension", "TelegramClient");
+var logger2 = createExtensionLogger("TelegramExtension", "TelegramClient");
 
 class TelegramClient {
   config;
@@ -9194,7 +9288,7 @@ class TelegramClient {
 }
 
 // src/media.ts
-var logger3 = createExtensionLogger2("TelegramExtension", "TelegramMedia");
+var logger3 = createExtensionLogger("TelegramExtension", "TelegramMedia");
 
 class TelegramMediaService {
   supportsInboundMedia() {
@@ -9326,7 +9420,7 @@ function formatTelegramToolLine(entry) {
 }
 
 // src/message-handler.ts
-var logger4 = createExtensionLogger2("TelegramExtension", "TelegramMessageHandler");
+var logger4 = createExtensionLogger("TelegramExtension", "TelegramMessageHandler");
 
 class TelegramMessageHandler {
   config;
@@ -9464,7 +9558,7 @@ function stripBotMention(text, username) {
 }
 
 // src/index.ts
-var logger5 = createExtensionLogger2("TelegramExtension", "Telegram");
+var logger5 = createExtensionLogger("TelegramExtension", "Telegram");
 var STREAM_THROTTLE_MS = 1500;
 var UNSUPPORTED_MEDIA_NOTICE = "当前阶段暂不支持直接处理图片、文件或语音消息，请附带文字说明后再次发送。";
 var BUFFERED_NOTICE = `\uD83D\uDCE5 消息已暂存，等 AI 回复结束后自动发送。
@@ -9587,19 +9681,19 @@ ${preview}`;
     return;
   }
   setupBackendListeners() {
-    this.backend.on("tool:update", (sid, invocations) => {
-      autoApproveTools(this.backend, invocations);
+    this.backend.on("tool:execute", (sid, handle) => {
+      autoApproveHandle(handle);
       if (!this.showToolStatus)
         return;
       const cs = this.findChatStateBySid(sid);
       if (!cs?.stream || cs.stopped)
         return;
-      const sorted = [...invocations].sort((a, b) => a.createdAt - b.createdAt);
-      for (const inv of sorted) {
-        const isDone = inv.status === "success" || inv.status === "error";
-        if (isDone && !cs.stream.committedToolIds.has(inv.id)) {
-          cs.stream.committedToolIds.add(inv.id);
-          const line = formatTelegramToolLine(inv);
+      handle.on("done", () => {
+        if (!cs.stream)
+          return;
+        if (!cs.stream.committedToolIds.has(handle.id)) {
+          cs.stream.committedToolIds.add(handle.id);
+          const line = formatTelegramToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
           cs.stream.buffer = cs.stream.buffer ? `${cs.stream.buffer}
 
 ${line}
@@ -9608,16 +9702,18 @@ ${line}
 
 `;
         }
-      }
-      const activeLines = sorted.filter((inv) => !cs.stream.committedToolIds.has(inv.id)).map((inv) => formatTelegramToolLine(inv)).join(`
+      });
+      handle.on("state", () => {
+        if (!cs.stream || cs.stopped)
+          return;
+        if (handle.status !== "success" && handle.status !== "error" && handle.status !== "warning") {
+          const line = formatTelegramToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
+          const displayText = cs.stream.buffer ? `${cs.stream.buffer}
 
-`);
-      const displayText = activeLines ? cs.stream.buffer ? `${cs.stream.buffer}
-
-${activeLines}` : activeLines : cs.stream.buffer;
-      if (!displayText)
-        return;
-      this.editStreamMessage(cs, displayText);
+${line}` : line;
+          this.editStreamMessage(cs, displayText);
+        }
+      });
     });
     this.backend.on("attachments", (sid, attachments) => {
       const cs = this.findChatStateBySid(sid);

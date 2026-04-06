@@ -36,7 +36,7 @@ Iris 实际读取的是 `data/configs/`，不是单文件 `config.yaml`。
 
 | 文件 | 必选 | 说明 |
 |---|---|---|
-| `agents.yaml` | 否 | 多 Agent 定义（Agent 名称、描述、启用开关）。详见 [agents.md](./agents.md) |
+| `agents.yaml` | 否 | Agent 定义（首次运行自动创建，含默认 master agent）。详见 [agents.md](./agents.md) |
 
 首次使用建议：
 

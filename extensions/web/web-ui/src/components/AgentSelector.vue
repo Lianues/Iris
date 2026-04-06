@@ -3,7 +3,7 @@
     <!-- 当前 Agent 指示器 -->
     <button class="agent-current" type="button" @click="panelOpen = true">
       <span class="agent-current-icon">
-        <AppIcon :name="isGlobalAgent ? ICONS.sidebar.empty : ICONS.sidebar.chat" />
+        <AppIcon :name="ICONS.sidebar.chat" />
       </span>
       <span class="agent-current-copy">
         <span class="agent-current-label">Agent</span>
@@ -27,23 +27,23 @@
             </div>
 
             <div class="agent-panel-list">
+              <!-- 多 Agent 配置分层重构：移除 __global__ 特判，所有 agent 统一显示 -->
               <button
                 v-for="agent in agents"
                 :key="agent.name"
                 class="agent-card"
                 :class="{
                   active: agent.name === currentAgent,
-                  global: agent.name === '__global__',
                 }"
                 type="button"
                 @click="selectAgent(agent.name)"
               >
-                <span class="agent-card-icon" :class="{ global: agent.name === '__global__' }">
-                  <AppIcon :name="agent.name === '__global__' ? ICONS.sidebar.empty : ICONS.sidebar.chat" />
+                <span class="agent-card-icon">
+                  <AppIcon :name="ICONS.sidebar.chat" />
                 </span>
                 <span class="agent-card-copy">
                   <strong class="agent-card-name">
-                    {{ agent.name === '__global__' ? '全局 AI' : agent.name }}
+                    {{ agent.name }}
                   </strong>
                   <span v-if="agent.description" class="agent-card-desc">{{ agent.description }}</span>
                 </span>
@@ -75,11 +75,9 @@ const { agents, currentAgent, multiAgentEnabled, switchAgent } = useAgents()
 
 const panelOpen = ref(false)
 
-const isGlobalAgent = computed(() => currentAgent.value === '__global__')
-
+// 多 Agent 配置分层重构：移除 isGlobalAgent / __global__ 特判
 const currentDisplayName = computed(() => {
   if (!currentAgent.value) return '未选择'
-  if (currentAgent.value === '__global__') return '全局 AI'
   return currentAgent.value
 })
 
@@ -285,19 +283,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.agent-card-icon.global {
-  background: rgba(89, 214, 154, 0.12);
-  color: var(--success);
-}
-
 .agent-card.active .agent-card-icon {
   background: var(--accent-soft-strong);
   color: var(--accent);
-}
-
-.agent-card.active .agent-card-icon.global {
-  background: rgba(89, 214, 154, 0.2);
-  color: var(--success);
 }
 
 /* ── Agent 卡片文字 ── */
@@ -326,10 +314,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   color: var(--accent);
   font-size: 20px;
   flex-shrink: 0;
-}
-
-.agent-card.active.global .agent-card-check {
-  color: var(--success);
 }
 
 /* ── 底部提示 ── */

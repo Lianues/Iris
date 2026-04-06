@@ -1,18 +1,19 @@
 /**
  * Agent 注册表
  *
- * 从 ~/.iris/agents.yaml 加载多 Agent 配置。
+ * 从 ~/.iris/agents.yaml 加载 Agent 配置。
  *
- * 判断规则：
- *   - agents.yaml 不存在 → 单 Agent 模式
- *   - agents.yaml 存在但 enabled: false → 单 Agent 模式
- *   - agents.yaml 存在且 enabled: true → 多 Agent 模式
+ * 多 Agent 配置分层重构：
+ *   - 移除 enabled 开关和单/多 Agent 模式分叉。
+ *   - agents.yaml 存在即生效，系统永远以 agent 为单位运行。
+ *   - 创建新 agent 只创建空 configs/ 目录，不再复制模板配置。
+ *   - 移除 isMultiAgentEnabled / setAgentEnabled / createManifestIfNotExists。
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYAML, stringify as stringifyYAML } from 'yaml';
-import { dataDir, getAgentPaths, getDefaultPaths, projectRoot } from '../paths';
+import { dataDir, getAgentPaths } from '../paths';
 import type { AgentPaths } from '../paths';
 import type { AgentDefinition, AgentManifest } from './types';
 
@@ -39,23 +40,21 @@ function loadManifest(): AgentManifest | null {
     }
     _cachedManifest = parsed as AgentManifest;
     return _cachedManifest;
-  } catch {
+  } catch (err) {
+    // 修复：YAML 解析异常（如重复键 DUPLICATE_KEY）不应被静默吞掉，
+    // 否则会导致所有 agent 定义丢失、平台无法创建等级联故障。
+    console.error(`[Iris] agents.yaml 解析失败，请检查文件格式:`, (err as Error).message ?? err);
     _cachedManifest = null;
     return null;
   }
 }
 
-/** 是否启用多 Agent 模式 */
-export function isMultiAgentEnabled(): boolean {
-  const manifest = loadManifest();
-  return !!manifest?.enabled;
-}
-
 /**
  * 加载 Agent 定义列表。
  *
- * - 多 Agent 模式：返回 agents.yaml 中定义的所有 agent
- * - 单 Agent 模式：不应调用此函数（调用前先检查 isMultiAgentEnabled）
+ * 多 Agent 配置分层重构：不再需要 isMultiAgentEnabled 判断。
+ * agents.yaml 存在即返回其中定义的所有 agent。
+ * 不存在时返回空数组（IrisHost 会自动创建 master）。
  */
 export function loadAgentDefinitions(): AgentDefinition[] {
   const manifest = loadManifest();
@@ -75,10 +74,13 @@ export function resolveAgentPaths(agent: AgentDefinition): AgentPaths {
   return getAgentPaths(agent.name, agent.dataDir);
 }
 
-/** 获取多 Agent 系统的完整状态（无论是否启用） */
+/**
+ * 获取 Agent 系统的完整状态。
+ *
+ * 多 Agent 配置分层重构：移除 exists 和 enabled 字段。
+ * agents.yaml 存在即生效，不再需要开关。
+ */
 export function getAgentStatus(): {
-  exists: boolean;
-  enabled: boolean;
   agents: AgentDefinition[];
   manifestPath: string;
 } {
@@ -92,63 +94,31 @@ export function getAgentStatus(): {
     : [];
 
   return {
-    exists: fs.existsSync(AGENTS_MANIFEST_PATH),
-    enabled: !!manifest?.enabled,
     agents,
     manifestPath: AGENTS_MANIFEST_PATH,
   };
 }
 
-/** 切换 agents.yaml 的 enabled 开关 */
-export function setAgentEnabled(enabled: boolean): { success: boolean; message: string } {
-  try {
-    if (!fs.existsSync(AGENTS_MANIFEST_PATH)) {
-      return { success: false, message: 'agents.yaml 不存在，请先创建配置文件。' };
-    }
-
-    const raw = fs.readFileSync(AGENTS_MANIFEST_PATH, 'utf-8');
-    // 简单的正则替换保留 YAML 格式和注释
-    const updated = raw.replace(/^enabled:\s*(true|false)/m, `enabled: ${enabled}`);
-    fs.writeFileSync(AGENTS_MANIFEST_PATH, updated, 'utf-8');
-
-    // 清除缓存
-    _cachedManifest = undefined;
-
-    return {
-      success: true,
-      message: enabled
-        ? '多 Agent 模式已启用。'
-        : '多 Agent 模式已禁用。',
-    };
-  } catch (err) {
-    return { success: false, message: err instanceof Error ? err.message : '操作失败' };
-  }
-}
-
-/** 初始化 agents.yaml（若不存在） */
-export function createManifestIfNotExists(): { success: boolean; message: string } {
-  if (fs.existsSync(AGENTS_MANIFEST_PATH)) {
-    return { success: true, message: 'agents.yaml 已存在。' };
-  }
-  try {
-    fs.writeFileSync(AGENTS_MANIFEST_PATH, stringifyYAML({ enabled: false, agents: {} }), 'utf-8');
-    _cachedManifest = undefined;
-    return { success: true, message: 'agents.yaml 已创建。' };
-  } catch (err) {
-    return { success: false, message: err instanceof Error ? err.message : '创建失败' };
-  }
-}
-
-/** 创建 Agent：写入 agents.yaml + 初始化配置目录 */
+/**
+ * 创建 Agent：写入 agents.yaml + 初始化空 configs/ 目录。
+ *
+ * 多 Agent 配置分层重构：不再从模板复制 YAML 文件。
+ * 空的 configs/ 目录意味着"完全继承全局配置"。
+ * 用户按需创建覆盖文件。
+ */
 export function createAgent(name: string, description?: string): { success: boolean; message: string } {
   if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
     return { success: false, message: 'Agent 名称只能包含字母、数字、下划线和连字符。' };
   }
   try {
-    // 确保 manifest 存在
-    createManifestIfNotExists();
+    // 确保 agents.yaml 存在
+    if (!fs.existsSync(AGENTS_MANIFEST_PATH)) {
+      // 多 Agent 配置分层重构：创建 agents.yaml 时不写 enabled 字段
+      fs.writeFileSync(AGENTS_MANIFEST_PATH, stringifyYAML({ agents: {} }), 'utf-8');
+      _cachedManifest = undefined;
+    }
     const raw = fs.readFileSync(AGENTS_MANIFEST_PATH, 'utf-8');
-    const manifest = parseYAML(raw) as AgentManifest ?? { enabled: false, agents: {} };
+    const manifest = parseYAML(raw) as AgentManifest ?? { agents: {} };
     if (!manifest.agents) manifest.agents = {};
 
     if (manifest.agents[name]) {
@@ -159,14 +129,11 @@ export function createAgent(name: string, description?: string): { success: bool
     fs.writeFileSync(AGENTS_MANIFEST_PATH, stringifyYAML(manifest), 'utf-8');
     _cachedManifest = undefined;
 
-    // 初始化配置目录（从 data/configs.example 复制模板）
+    // 多 Agent 配置分层重构：只创建空的 configs/ 目录，不复制模板文件。
+    // 空 configs/ = 完全继承全局配置。
     const agentPaths = getAgentPaths(name);
     if (!fs.existsSync(agentPaths.configDir)) {
-      const exampleDir = path.join(projectRoot, 'data/configs.example');
       fs.mkdirSync(agentPaths.configDir, { recursive: true });
-      if (fs.existsSync(exampleDir)) {
-        fs.cpSync(exampleDir, agentPaths.configDir, { recursive: true });
-      }
     }
 
     return { success: true, message: `Agent「${name}」已创建。` };
@@ -220,4 +187,46 @@ export function deleteAgent(name: string): { success: boolean; message: string }
 /** 清除 manifest 缓存，强制下次调用重新读取文件 */
 export function resetCache(): void {
   _cachedManifest = undefined;
+}
+
+/**
+ * 确保 agents.yaml 存在且包含 master agent。
+ *
+ * 多 Agent 配置分层重构：首次运行时自动创建 agents.yaml + master agent。
+ * 替代原有的 createManifestIfNotExists，不再有 enabled 字段。
+ */
+export function ensureDefaultAgent(): void {
+  if (!fs.existsSync(AGENTS_MANIFEST_PATH)) {
+    const defaultManifest: AgentManifest = {
+      agents: {
+        master: { description: '主 AI 助手' },
+      },
+    };
+    fs.mkdirSync(path.dirname(AGENTS_MANIFEST_PATH), { recursive: true });
+    fs.writeFileSync(AGENTS_MANIFEST_PATH, stringifyYAML(defaultManifest), 'utf-8');
+    console.log(`[Iris] 已创建默认 agents.yaml: ${AGENTS_MANIFEST_PATH}`);
+  }
+
+  // 确保至少有一个 agent（不应该发生，但做防御性检查）
+  _cachedManifest = undefined;
+  const defs = loadAgentDefinitions();
+  if (defs.length === 0) {
+    console.log('[Iris] agents.yaml 中无 agent 定义，自动添加 master agent。');
+    const result = createAgent('master', '主 AI 助手');
+    if (!result.success) {
+      // 修复：如果 agents.yaml 存在但格式错误（如重复键），createAgent 的
+      // readFile + parse 也会失败。此时明确提示用户修复文件，而不是静默继续
+      // 导致"未配置任何有效平台"的误导性错误。
+      console.error(`[Iris] 无法自动创建 master agent: ${result.message}。请手动检查 ${AGENTS_MANIFEST_PATH}`);
+    }
+  }
+
+  // 确保每个 agent 的 configs/ 目录存在
+  const finalDefs = loadAgentDefinitions();
+  for (const def of finalDefs) {
+    const agentPaths = getAgentPaths(def.name, def.dataDir);
+    if (!fs.existsSync(agentPaths.configDir)) {
+      fs.mkdirSync(agentPaths.configDir, { recursive: true });
+    }
+  }
 }

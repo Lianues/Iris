@@ -2885,6 +2885,126 @@ var require_websocket_server = __commonJS((exports, module) => {
 });
 
 // ../../packages/extension-sdk/src/platform.ts
+class BackendHandle {
+  _backend;
+  _listeners = new Map;
+  constructor(backend) {
+    this._backend = backend;
+  }
+  swap(newBackend) {
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.off(event, fn);
+      }
+    }
+    this._backend = newBackend;
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.on(event, fn);
+      }
+    }
+  }
+  on(event, listener) {
+    if (!this._listeners.has(event))
+      this._listeners.set(event, new Set);
+    this._listeners.get(event).add(listener);
+    this._backend.on(event, listener);
+    return this;
+  }
+  off(event, listener) {
+    this._listeners.get(event)?.delete(listener);
+    this._backend.off(event, listener);
+    return this;
+  }
+  once(event, listener) {
+    const wrapper = (...args) => {
+      this._listeners.get(event)?.delete(wrapper);
+      listener(...args);
+    };
+    return this.on(event, wrapper);
+  }
+  chat(sessionId, text, images, documents, platform) {
+    return this._backend.chat(sessionId, text, images, documents, platform);
+  }
+  isStreamEnabled() {
+    return this._backend.isStreamEnabled();
+  }
+  clearSession(sessionId) {
+    return this._backend.clearSession(sessionId);
+  }
+  switchModel(modelName, platform) {
+    return this._backend.switchModel(modelName, platform);
+  }
+  listModels() {
+    return this._backend.listModels();
+  }
+  listSessionMetas() {
+    return this._backend.listSessionMetas();
+  }
+  abortChat(sessionId) {
+    return this._backend.abortChat(sessionId);
+  }
+  getToolHandle(toolId) {
+    return this._backend.getToolHandle(toolId);
+  }
+  getToolHandles(sessionId) {
+    return this._backend.getToolHandles(sessionId);
+  }
+  undo(sessionId, scope) {
+    return this._backend.undo?.(sessionId, scope) ?? Promise.resolve(null);
+  }
+  redo(sessionId) {
+    return this._backend.redo?.(sessionId) ?? Promise.resolve(null);
+  }
+  listSkills() {
+    return this._backend.listSkills?.() ?? [];
+  }
+  listModes() {
+    return this._backend.listModes?.() ?? [];
+  }
+  switchMode(modeName) {
+    return this._backend.switchMode?.(modeName) ?? false;
+  }
+  clearRedo(sessionId) {
+    return this._backend.clearRedo?.(sessionId);
+  }
+  getHistory(sessionId) {
+    return this._backend.getHistory?.(sessionId) ?? Promise.resolve([]);
+  }
+  runCommand(cmd) {
+    return this._backend.runCommand?.(cmd);
+  }
+  summarize(sessionId) {
+    return this._backend.summarize?.(sessionId) ?? Promise.resolve(undefined);
+  }
+  resetConfigToDefaults() {
+    return this._backend.resetConfigToDefaults?.();
+  }
+  getToolNames() {
+    return this._backend.getToolNames?.() ?? [];
+  }
+  getAgentTasks(sessionId) {
+    return this._backend.getAgentTasks?.(sessionId) ?? [];
+  }
+  getRunningAgentTasks(sessionId) {
+    return this._backend.getRunningAgentTasks?.(sessionId) ?? [];
+  }
+  getAgentTask(taskId) {
+    return this._backend.getAgentTask?.(taskId);
+  }
+  getToolPolicies() {
+    return this._backend.getToolPolicies?.();
+  }
+  getCurrentModelInfo() {
+    return this._backend.getCurrentModelInfo?.();
+  }
+  getDisabledTools() {
+    return this._backend.getDisabledTools?.();
+  }
+  getActiveSessionId() {
+    return this._backend.getActiveSessionId?.();
+  }
+}
 function getPlatformConfig(context, platformName) {
   const platform = context.config?.platform;
   if (!platform || typeof platform !== "object") {
@@ -2993,14 +3113,19 @@ function formatToolStatusLine(inv, options) {
   const name = options?.codeStyle ? `\`${inv.toolName}\`` : inv.toolName;
   return `${icon} ${name} ${label}`;
 }
-function autoApproveTools(backend, invocations) {
-  for (const inv of invocations) {
-    if (inv.status === "awaiting_approval") {
+function autoApproveHandle(handle) {
+  if (handle.status === "awaiting_approval") {
+    try {
+      handle.approve(true);
+    } catch {}
+  }
+  handle.on("state", (status) => {
+    if (status === "awaiting_approval") {
       try {
-        backend.approveTool(inv.id, true);
+        handle.approve(true);
       } catch {}
     }
-  }
+  });
 }
 // node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -3205,22 +3330,22 @@ class QQPlatform extends PlatformAdapter {
     return;
   }
   setupBackendListeners() {
-    this.backend.on("tool:update", (sid, invocations) => {
-      autoApproveTools(this.backend, invocations);
+    this.backend.on("tool:execute", (sid, handle) => {
+      autoApproveHandle(handle);
       if (!this.showToolStatus)
         return;
       const cs = this.findChatStateBySid(sid);
       if (!cs || !cs.target || cs.stopped)
         return;
-      for (const inv of invocations) {
-        if (inv.status === "executing" && !this.notifiedToolIds.has(inv.id)) {
-          this.notifiedToolIds.add(inv.id);
-          const line = formatToolStatusLine(inv);
+      handle.on("state", (status) => {
+        if (status === "executing" && !this.notifiedToolIds.has(handle.id)) {
+          this.notifiedToolIds.add(handle.id);
+          const line = formatToolStatusLine({ toolName: handle.toolName, status });
           this.sendMessage(line, cs.target).catch((err) => {
             logger.error(`工具状态通知失败 (session=${sid}):`, err);
           });
         }
-      }
+      });
     });
     this.backend.on("stream:chunk", (sid, chunk) => {
       const cs = this.findChatStateBySid(sid);

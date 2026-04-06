@@ -1,23 +1,19 @@
-# 多 Agent 系统配置
+# Agent 配置
 #
 # 首次运行时此文件会自动拷贝到 ~/.iris/agents.yaml。
-# 设置 enabled: true 即可启用多 Agent 模式。
 #
-# 每个 agent 拥有独立的完整配置集（llm.yaml, system.yaml, tools.yaml 等）、
-# 会话存储和记忆数据库。
+# 多 Agent 配置分层重构：
+#   - 移除 enabled 开关，agents.yaml 存在即生效。
+#   - 默认 agent 为 master，空 configs/ 目录 = 完全继承全局配置。
+#   - 每个 agent 可在自己的 configs/ 下创建覆盖文件。
 #
 # agent 配置目录位于 ~/.iris/agents/<agent-name>/configs/
-# 首次启动时会自动从模板初始化。
-# 请编辑各 agent 的配置文件（至少填写 LLM API Key）。
-
-# 全局开关（默认关闭）
-enabled: false
 
 # Agent 定义
 agents:
-  # 示例 Agent：配置目录在 ~/.iris/agents/my-agent/configs/
-  my-agent:
-    description: "我的 AI 助手"
+  # 默认 Agent：配置目录在 ~/.iris/agents/master/configs/
+  master:
+    description: "主 AI 助手"
 
   # 更多 agent 示例...
   # code-helper:

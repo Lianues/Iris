@@ -382,7 +382,6 @@ Lark 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensions/
 | POST | `/api/model/switch` | 切换模型 |
 | GET | `/api/agents` | 获取运行时可用 Agent 列表 |
 | GET | `/api/agents/status` | 获取 agents.yaml 完整状态 |
-| POST | `/api/agents/toggle` | 切换多 Agent 模式 enabled 开关 |
 | GET | `/api/deploy/state` | 获取部署状态 🔒 管理令牌 |
 | GET | `/api/deploy/detect` | 检测部署环境 🔒 管理令牌 |
 | POST | `/api/deploy/preview` | 预览部署配置 🔒 管理令牌 |

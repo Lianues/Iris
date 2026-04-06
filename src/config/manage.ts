@@ -180,3 +180,97 @@ export function updateEditableConfig(configDir: string, updates: any): { mergedR
     sanitized: sanitizeConfig(mergedRaw),
   };
 }
+
+
+/**
+ * 可编辑配置的原始结构（实现侧类型）。
+ *
+ * 结构与 @irises/extension-sdk 中 RawEditableConfig 一致，
+ * 通过 TypeScript 结构化类型自动兼容，无需跨包 import。
+ */
+interface EditableConfigShape {
+  llm?: Record<string, unknown>;
+  system?: Record<string, unknown>;
+  tools?: Record<string, unknown>;
+  mcp?: Record<string, unknown>;
+  platform?: Record<string, unknown>;
+  storage?: Record<string, unknown>;
+  ocr?: Record<string, unknown>;
+  modes?: Record<string, unknown>;
+  sub_agents?: Record<string, unknown>;
+  plugins?: unknown[];
+  summary?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/**
+ * 分层配置管理器
+ *
+ * 借鉴 VS Code ConfigurationService / Amplifier ConfigManager 的设计：
+ *   - 读时合并（read merged）：返回 global + agent 深合并后的完整配置
+ *   - 写时定向（write to overlay）：只写 agent 覆盖层，不动全局配置
+ *
+ * 多 Agent 配置分层重构：解决 Settings UI / 热重载 / Agent 切换的三个数据断裂问题。
+ *   问题一：Settings UI 只读 agent 目录，看不到全局 LLM/MCP/system 配置 → 读时合并
+ *   问题二：热重载拿到不完整的 mergedRaw → 返回合并后完整配置
+ *   问题三：Agent 切换后 configManager 未更新 → 每个 IrisCore 持有独立实例
+ *
+ * 当 globalDir == agentDir（CLI 直接启动，无 Agent 分层）时，
+ * 退化为原先的单目录读写行为，零回归风险。
+ */
+export class LayeredConfigManager {
+  constructor(
+    /** 全局配置目录（~/.iris/configs/），所有 Agent 共享的基底 */
+    private readonly globalDir: string,
+    /** Agent 配置目录（~/.iris/agents/<name>/configs/），覆盖层 */
+    private readonly agentDir: string,
+  ) {}
+
+  /**
+   * 读取合并后的可编辑配置。
+   * global 层作为基底，agent 层的同名字段覆盖全局值。
+   */
+  readEditableConfig(): Record<string, unknown> {
+    const global = loadRawConfigDir(this.globalDir) ?? {};
+    // 相同目录时跳过二次加载，避免无意义的 deepMerge
+    if (this.globalDir === this.agentDir) {
+      return JSON.parse(JSON.stringify(global));
+    }
+    const agent = loadRawConfigDir(this.agentDir) ?? {};
+    return JSON.parse(JSON.stringify(deepMerge(global, agent)));
+  }
+
+  /**
+   * 写入配置更新。
+   *   - 只修改 agent 覆盖层（保持全局配置不变）
+   *   - 返回的 mergedRaw = global + agent 合并后的完整配置（供热重载使用）
+   */
+  updateEditableConfig(
+    updates: Record<string, unknown>,
+  ): { mergedRaw: Record<string, unknown>; sanitized: Record<string, unknown> } {
+    // 1. 读取 agent 当前覆盖 → deepMerge → normalize → 写回 agent 目录
+    const agentCurrent = loadRawConfigDir(this.agentDir);
+    const agentNext = normalizeMergedConfig(deepMerge(agentCurrent, updates));
+    writeRawConfigDir(this.agentDir, agentNext);
+
+    // 2. 合并 global + agent → 生成完整的 mergedRaw
+    let mergedRaw: any;
+    if (this.globalDir === this.agentDir) {
+      // 单目录模式：agentNext 即为完整配置
+      mergedRaw = agentNext;
+    } else {
+      const global = loadRawConfigDir(this.globalDir) ?? {};
+      mergedRaw = normalizeMergedConfig(deepMerge(global, agentNext));
+    }
+
+    return {
+      mergedRaw,
+      sanitized: sanitizeConfig(mergedRaw),
+    };
+  }
+
+  /** 返回 agent 配置目录路径（兼容 ConfigManagerLike.getConfigDir） */
+  getConfigDir(): string {
+    return this.agentDir;
+  }
+}

@@ -131,8 +131,8 @@ export async function getAgents(): Promise<{ agents: Array<{ name: string; descr
 }
 
 export interface AgentStatusResponse {
-  exists: boolean
-  enabled: boolean
+  // 多 Agent 配置分层重构：移除 exists / enabled 字段
+  // 后端不再返回这些字段，保留接口兼容（前端忽略即可）
   agents: Array<{ name: string; description?: string; dataDir?: string }>
   manifestPath: string
 }
@@ -142,19 +142,8 @@ export async function getAgentStatus(): Promise<AgentStatusResponse> {
   return res.json()
 }
 
-export async function toggleAgentEnabled(enabled: boolean): Promise<{ success: boolean; message: string }> {
-  const res = await request('/api/agents/toggle', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled }),
-  })
-  return res.json()
-}
-
-export async function initAgentManifest(): Promise<{ success: boolean; message: string }> {
-  const res = await request('/api/agents/init', { method: 'POST' })
-  return res.json()
-}
+// 多 Agent 配置分层重构：移除 toggleAgentEnabled 和 initAgentManifest
+// 不再有 enabled 开关和 createManifest API
 
 export async function createAgentDef(name: string, description?: string): Promise<{ success: boolean; message: string }> {
   const res = await request('/api/agents/create', {

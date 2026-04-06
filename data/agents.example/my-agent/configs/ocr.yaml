@@ -1,9 +1,0 @@
-# OCR 配置（可选）
-# 当主模型不支持图片输入时，Iris 会调用这里配置的 openai-compatible vision 模型提取文字与图片内容，
-# 再把提取结果发送给主对话模型。
-# 删除整个文件即可关闭 OCR 回退。
-
-provider: openai-compatible
-apiKey: your-api-key-here
-baseUrl: https://api.openai.com/v1
-model: gpt-4o-mini

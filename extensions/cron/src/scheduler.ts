@@ -176,7 +176,8 @@ export class CronScheduler {
   /** [cron 重构] 全局任务板（替代原 agentTaskRegistry），用于后台任务注册/生命周期管理 */
   private taskBoard: TaskBoardLike | null = null;
   /** [cron 重构] 当前 Agent 名称，注册任务时标识 sourceAgent / targetAgent */
-  private agentName: string = '__global__';
+  // 多 Agent 配置分层重构：默认值从 __global__ 改为 master
+  private agentName: string = 'master';
   /** 后台执行配置 */
   private backgroundConfig: CronBackgroundConfig;
   /** 执行记录持久化目录 */
@@ -199,7 +200,7 @@ export class CronScheduler {
    * @param api Iris API 实例（用于投递通知和获取数据目录）
    * @param config 调度器配置（缺省使用默认值）
    * @param taskBoard 全局任务板（可选，不提供时跳过后台执行）
-   * @param agentName 当前 Agent 名称（可选，默认 '__global__'）
+   * @param agentName 当前 Agent 名称（可选，默认 'master'）
    * @param backgroundConfig 后台执行配置（可选，缺省使用默认值）
    */
   constructor(
@@ -212,7 +213,8 @@ export class CronScheduler {
     this.api = api;
     this.config = config ? { ...config } : { ...DEFAULT_SCHEDULER_CONFIG };
     this.taskBoard = taskBoard ?? null;
-    this.agentName = agentName ?? '__global__';
+    // 多 Agent 配置分层重构：默认值从 __global__ 改为 master
+    this.agentName = agentName ?? 'master';
     this.backgroundConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
 
     // 根据 api.dataDir 确定持久化文件路径

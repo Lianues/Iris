@@ -1,5 +1,9 @@
 /**
  * 多 Agent 系统类型定义
+ *
+ * 多 Agent 配置分层重构：移除 AgentManifest.enabled 字段。
+ * agents.yaml 存在即生效，不再需要 enabled 开关。
+ * 系统永远以 agent 为单位运行，至少有一个 master agent。
  */
 
 /** 单个 Agent 定义 */
@@ -12,10 +16,13 @@ export interface AgentDefinition {
   dataDir?: string;
 }
 
-/** agents.yaml 文件结构 */
+/**
+ * agents.yaml 文件结构
+ *
+ * 多 Agent 配置分层重构：移除 enabled 字段。
+ * agents.yaml 存在即表示多 Agent 模式已配置，不需要额外开关。
+ */
 export interface AgentManifest {
-  /** 全局开关：是否启用多 Agent 模式 */
-  enabled: boolean;
   /** Agent 定义列表 */
   agents: Record<string, Omit<AgentDefinition, 'name'>>;
 }

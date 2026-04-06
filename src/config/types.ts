@@ -310,6 +310,19 @@ export interface SummaryConfig {
   userPrompt: string;
 }
 
+/**
+ * 全局配置（进程级，IrisHost 持有）。
+ *
+ * 多 Agent 配置分层重构：将进程级基础设施配置从 AppConfig 中拆分出来。
+ * LLM、OCR、Storage 属于全局独占资源，所有 Agent 共享，不需要每个 Agent 各配一份。
+ */
+export interface GlobalConfig {
+  llm: LLMRegistryConfig;
+  ocr?: OCRConfig;
+  /** 存储引擎类型选择是进程级决策，Agent 只需独立的路径 */
+  storage: StorageConfig;
+}
+
 export interface AppConfig {
   [key: string]: unknown;
   llm: LLMRegistryConfig;
@@ -323,7 +336,13 @@ export interface AppConfig {
   modes?: import('../modes/types').ModeDefinition[];
   /** 子代理配置（可选，对应 sub-agents.yaml） */
   subAgents?: SubAgentsConfig;
-  /** 插件配置（可选，对应 plugins.yaml） */
+  /**
+   * 插件声明列表（可选，对应 plugins.yaml）。全局独占配置，agent 层不可覆盖。
+   *
+   * 注意：这里的 "plugin" 是 extension 的一种贡献角色，不是独立于 extension 的系统。
+   * 每个条目的 name 对应 extensions/ 下一个有 plugin 贡献的 extension。
+   * 详见 src/config/plugins.ts 顶部注释。
+   */
   plugins?: Array<{ name: string; type?: 'local' | 'npm' | 'inline'; enabled?: boolean; priority?: number; config?: Record<string, unknown> }>;
   /** 上下文压缩配置（对应 summary.yaml） */
   summary: SummaryConfig;

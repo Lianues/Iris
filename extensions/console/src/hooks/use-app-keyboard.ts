@@ -1,4 +1,5 @@
 import { useKeyboard } from '@opentui/react';
+import type { AgentDefinitionLike } from '@irises/extension-sdk';
 import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolInvocation } from '@irises/extension-sdk';
 import type { TextInputState, TextInputActions } from './use-text-input';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
@@ -73,6 +74,9 @@ interface UseAppKeyboardOptions {
   queueEditActions: TextInputActions;
   onToggleThoughts: () => void;
   toolListItems: ToolInvocation[];
+  /** agent-list 视图用 */
+  agentList: AgentDefinitionLike[];
+  onSelectAgent?: (agentName: string) => void;
 }
 
 function closeConfirm(
@@ -125,6 +129,8 @@ export function useAppKeyboard({
   queueEditActions,
   onToggleThoughts,
   toolListItems,
+  agentList,
+  onSelectAgent,
 }: UseAppKeyboardOptions) {
   useKeyboard((key) => {
     if (key.ctrl && key.name === 'c') {
@@ -168,6 +174,24 @@ export function useAppKeyboard({
         const selected = toolListItems[selectedIndex];
         if (selected) {
           onOpenToolDetail(selected.id);
+        }
+      }
+      return;
+    }
+
+    // ── agent-list 视图 ──
+    // 修改目的：agent 选择现在是 OpenTUI React viewMode，与 model-list 同级处理，
+    // 不再用原始 ANSI+stdin 的方式，彻底消除 stdin/stdout 争夺和日志泄漏。
+    if (viewMode === 'agent-list') {
+      if (key.name === 'escape') {
+        setViewMode('chat');
+      } else if (key.name === 'up') setSelectedIndex((prev) => Math.max(0, prev - 1));
+      else if (key.name === 'down') setSelectedIndex((prev) => Math.min(agentList.length - 1, prev + 1));
+      else if (key.name === 'return') {
+        const selected = agentList[selectedIndex];
+        if (selected) {
+          onSelectAgent?.(selected.name);
+          setViewMode('chat');
         }
       }
       return;

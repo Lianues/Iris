@@ -121,6 +121,7 @@ export type {
   AgentNetworkLike,
   BootstrapExtensionRegistryLike,
   ConfigManagerLike,
+  RawEditableConfig,
   ConfigContribution,
   ConfigContributionRegistryLike,
   ConfigFieldSchema,

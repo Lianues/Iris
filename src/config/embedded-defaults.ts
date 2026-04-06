@@ -189,7 +189,14 @@ types:
 # model: gpt-4o-mini
 `,
 
+  // plugins.yaml 声明哪些 extension 的 plugin 角色需要被激活（如 cron、memory）。
+  // 注意：extension 是打包单位，plugin 和 platform 是它可以贡献的两种角色。
+  // platform 角色（console、web 等）由 registerExtensionPlatforms() 自动发现，不需要写在这里。
+  // plugin 角色（cron、memory 等）不会自动加载，必须在此文件中显式声明。
+  // 全局独占配置，所有 agent 共享。
   'plugins.yaml': `# 插件配置
+# 声明哪些扩展的 plugin 需要被激活。
+# platform 类扩展（console、web）自动注册，不需要写在这里。
 # plugins:
 #   - name: my-tool
 #     enabled: true
