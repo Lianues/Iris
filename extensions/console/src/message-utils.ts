@@ -65,7 +65,7 @@ export function applyToolInvocationsToParts(parts: MessagePart[], invocations: T
 export function appendAssistantParts(prev: ChatMessage[], partsToAppend: MessagePart[], meta?: MessageMeta): ChatMessage[] {
   const normalizedParts = mergeMessageParts(partsToAppend);
   if (normalizedParts.length === 0) return prev;
-  if (prev.length > 0 && prev[prev.length - 1].role === 'assistant') {
+  if (prev.length > 0 && prev[prev.length - 1].role === 'assistant' && !prev[prev.length - 1].isError) {
     const copy = [...prev];
     const last = copy[copy.length - 1];
     copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...last.parts, ...normalizedParts]), ...meta };

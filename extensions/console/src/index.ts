@@ -236,6 +236,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private originalSettingsController: ConsoleSettingsController | null = null;
   /** 远程连接前保存的原始 agentName */
   private originalAgentName?: string;
+  /** 当前是否正在生成响应（用于阻止 addErrorMessage 破坏流式占位消息） */
+  private _isGenerating = false;
 
   constructor(backend: IrisBackendLike, options: ConsolePlatformOptions) {
     super();
@@ -975,7 +977,10 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       // Ctrl+T 无指定目标：打开工具列表
       const all = Array.from(this._activeHandles.values());
       if (all.length === 0) {
-        this.appHandle?.addErrorMessage('当前会话没有工具执行记录。');
+        // 生成响应期间不添加错误消息，避免破坏流式占位消息导致回复内容与错误混合
+        if (!this._isGenerating) {
+          this.appHandle?.addErrorMessage('当前会话没有工具执行记录。');
+        }
         return;
       }
       // 收集所有工具的快照，按创建时间排序
@@ -1214,6 +1219,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async handleSummarize(): Promise<{ ok: boolean; message: string }> {
     this.appHandle?.setGeneratingLabel('compressing context...');
+    this._isGenerating = true;
     this.appHandle?.setGenerating(true);
     try {
       const summaryText = await this.backend.summarize?.(this.sessionId) ?? '';
@@ -1226,6 +1232,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.appHandle?.addErrorMessage(`Context compression failed: ${detail}`);
       return { ok: false, message: detail };
     } finally {
+      this._isGenerating = false;
       this.appHandle?.setGenerating(false);
     }
   }
@@ -1239,6 +1246,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
    * 3. 队列排空或被 abort 后，取消生成状态
    */
   private async handleInput(text: string): Promise<void> {
+    this._isGenerating = true;
     this.appHandle?.setGenerating(true);
 
     let currentText: string | undefined = text;
@@ -1255,6 +1263,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       currentText = this.appHandle?.drainQueue();
     }
 
+    this._isGenerating = false;
     this.appHandle?.setGenerating(false);
   }
 }

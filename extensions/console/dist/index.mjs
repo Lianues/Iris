@@ -1219,7 +1219,16 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       if (key.name === "tab") {
         const current = filtered[selectedIndex];
         if (current) {
-          applySelection(isExactCommandValue(value, current) ? selectedIndex - 1 : selectedIndex);
+          if (isExactCommandValue(value, current)) {
+            const nextIndex = ((selectedIndex - 1) % filtered.length + filtered.length) % filtered.length;
+            const nextCmd = filtered[nextIndex];
+            if (nextCmd) {
+              inputActions.setValue(getCommandInput(nextCmd));
+              applySelection(nextIndex);
+            }
+          } else {
+            inputActions.setValue(getCommandInput(current));
+          }
         }
         return;
       }
@@ -6529,7 +6538,7 @@ function appendAssistantParts(prev, partsToAppend, meta) {
   const normalizedParts = mergeMessageParts(partsToAppend);
   if (normalizedParts.length === 0)
     return prev;
-  if (prev.length > 0 && prev[prev.length - 1].role === "assistant") {
+  if (prev.length > 0 && prev[prev.length - 1].role === "assistant" && !prev[prev.length - 1].isError) {
     const copy = [...prev];
     const last = copy[copy.length - 1];
     copy[copy.length - 1] = { ...last, parts: mergeMessageParts([...last.parts, ...normalizedParts]), ...meta };
@@ -6658,7 +6667,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
         const notifDesc = notificationContextRef.current.description;
         setMessages((prev) => {
           const last = prev[prev.length - 1];
-          if (last?.role === "assistant" && !isNotif)
+          if (last?.role === "assistant" && !isNotif && !last.isError)
             return prev;
           return [...prev, {
             id: nextMsgId(),
@@ -6711,6 +6720,9 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
           if (last.role !== "assistant")
             return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
           if (isNotif && !last.isNotification) {
+            return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
+          }
+          if (last.isError) {
             return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
           }
           const copy = [...prev];
@@ -8380,6 +8392,7 @@ class ConsolePlatform extends PlatformAdapter {
   originalApi = null;
   originalSettingsController = null;
   originalAgentName;
+  _isGenerating = false;
   constructor(backend, options) {
     super();
     this.backend = backend;
@@ -8955,7 +8968,9 @@ ${summaryText}`;
     if (!toolId) {
       const all = Array.from(this._activeHandles.values());
       if (all.length === 0) {
-        this.appHandle?.addErrorMessage("当前会话没有工具执行记录。");
+        if (!this._isGenerating) {
+          this.appHandle?.addErrorMessage("当前会话没有工具执行记录。");
+        }
         return;
       }
       const tools = all.map((h) => h.getSnapshot()).sort((a, b) => a.createdAt - b.createdAt);
@@ -9157,6 +9172,7 @@ ${summaryText}`;
   }
   async handleSummarize() {
     this.appHandle?.setGeneratingLabel("compressing context...");
+    this._isGenerating = true;
     this.appHandle?.setGenerating(true);
     try {
       const summaryText = await this.backend.summarize?.(this.sessionId) ?? "";
@@ -9171,10 +9187,12 @@ ${summaryText}`;
       this.appHandle?.addErrorMessage(`Context compression failed: ${detail}`);
       return { ok: false, message: detail };
     } finally {
+      this._isGenerating = false;
       this.appHandle?.setGenerating(false);
     }
   }
   async handleInput(text) {
+    this._isGenerating = true;
     this.appHandle?.setGenerating(true);
     let currentText = text;
     while (currentText) {
@@ -9187,6 +9205,7 @@ ${summaryText}`;
       }
       currentText = this.appHandle?.drainQueue();
     }
+    this._isGenerating = false;
     this.appHandle?.setGenerating(false);
   }
 }

@@ -130,7 +130,18 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
       if (key.name === 'tab') {
         const current = filtered[selectedIndex];
         if (current) {
-          applySelection(isExactCommandValue(value, current) ? selectedIndex - 1 : selectedIndex);
+          if (isExactCommandValue(value, current)) {
+            // 输入已匹配当前选中项，循环到下一个并补全
+            const nextIndex = ((selectedIndex - 1) % filtered.length + filtered.length) % filtered.length;
+            const nextCmd = filtered[nextIndex];
+            if (nextCmd) {
+              inputActions.setValue(getCommandInput(nextCmd));
+              applySelection(nextIndex);
+            }
+          } else {
+            // 补全当前选中项的文本到输入栏
+            inputActions.setValue(getCommandInput(current));
+          }
         }
         return;
       }

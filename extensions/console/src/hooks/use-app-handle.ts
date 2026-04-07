@@ -187,7 +187,8 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
           const last = prev[prev.length - 1];
           // 普通 turn 内的多轮 tool loop 复用同一条 assistant 消息（stream:start 在同一 turn 内多次调用）。
           // notification turn 必须创建新消息，不能合并到上一轮用户 turn 的 assistant 消息中。
-          if (last?.role === 'assistant' && !isNotif) return prev;
+          // 错误消息不可复用为流式占位，否则后续内容会混入错误消息。
+          if (last?.role === 'assistant' && !isNotif && !last.isError) return prev;
           return [...prev, {
             id: nextMsgId(),
             role: 'assistant',
@@ -236,6 +237,11 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }: UseAppH
           // notification turn 不应合并到上一轮非-notification 的 assistant 消息中，
           // 否则通知内容会混入普通回复，NotificationPayloadBlock 也不会渲染。
           if (isNotif && !last.isNotification) {
+            return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta, ...notifMeta }];
+          }
+          // 不合并到错误消息中：流式期间若有 addErrorMessage 插入了 isError 消息，
+          // 应创建新的 assistant 消息保存 LLM 回复，避免内容与错误混合后被吞掉。
+          if (last.isError) {
             return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta, ...notifMeta }];
           }
           const copy = [...prev];
