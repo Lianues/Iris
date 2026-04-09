@@ -27,6 +27,8 @@ export const COMMANDS: Command[] = [
   { name: '/remote',      description: '连接远程 Iris 实例' },
   { name: '/disconnect', description: '断开远程连接', remoteOnly: true, color: '#fdcb6e' },
   { name: '/agent',    description: '切换 Agent（多 Agent 模式）' },
+  { name: '/memory',   description: '查看长期记忆' },
+  { name: '/dream',    description: '整理长期记忆（合并冗余、清理过时）' },
   { name: '/queue',    description: '查看/管理排队消息' },
   { name: '/exit',     description: '退出应用' },
 ];

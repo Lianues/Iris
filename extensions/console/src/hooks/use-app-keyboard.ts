@@ -9,6 +9,7 @@ import { clearRedo, type UndoRedoStack } from '../undo-redo';
 import type { UseModelStateReturn } from './use-model-state';
 import { appendCommandMessage } from '../message-utils';
 import type { QueuedMessage } from './use-message-queue';
+import { filterMemories, nextFilter, type MemoryItem, type MemoryFilter } from '../components/MemoryListView';
 
 type SetState<T> = Dispatch<SetStateAction<T>>;
 
@@ -77,6 +78,16 @@ interface UseAppKeyboardOptions {
   /** agent-list 视图用 */
   agentList: AgentDefinitionLike[];
   onSelectAgent?: (agentName: string) => void;
+  /** memory-list 视图用 */
+  memoryList: MemoryItem[];
+  memoryFilter: MemoryFilter;
+  setMemoryFilter: SetState<MemoryFilter>;
+  memoryExpandedId: number | null;
+  setMemoryExpandedId: SetState<number | null>;
+  memoryPendingDeleteId: number | null;
+  setMemoryPendingDeleteId: SetState<number | null>;
+  setMemoryList: SetState<MemoryItem[]>;
+  onDeleteMemory?: (id: number) => Promise<boolean>;
 }
 
 function closeConfirm(
@@ -131,6 +142,15 @@ export function useAppKeyboard({
   toolListItems,
   agentList,
   onSelectAgent,
+  memoryList,
+  memoryFilter,
+  setMemoryFilter,
+  memoryExpandedId,
+  setMemoryExpandedId,
+  memoryPendingDeleteId,
+  setMemoryPendingDeleteId,
+  setMemoryList,
+  onDeleteMemory,
 }: UseAppKeyboardOptions) {
   useKeyboard((key) => {
     if (key.ctrl && key.name === 'c') {
@@ -174,6 +194,54 @@ export function useAppKeyboard({
         const selected = toolListItems[selectedIndex];
         if (selected) {
           onOpenToolDetail(selected.id);
+        }
+      }
+      return;
+    }
+
+    // ── memory-list 视图 ──
+    if (viewMode === 'memory-list') {
+      const filtered = filterMemories(memoryList, memoryFilter);
+      if (key.name === 'escape') {
+        if (memoryPendingDeleteId !== null) {
+          setMemoryPendingDeleteId(null);
+        } else {
+          setViewMode('chat');
+        }
+      } else if (key.name === 'up') {
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+        setMemoryPendingDeleteId(null);
+      } else if (key.name === 'down') {
+        setSelectedIndex((prev) => Math.min(filtered.length - 1, prev + 1));
+        setMemoryPendingDeleteId(null);
+      } else if (key.name === 'return') {
+        const item = filtered[selectedIndex];
+        if (item) setMemoryExpandedId(memoryExpandedId === item.id ? null : item.id);
+      } else if (key.name === 'tab') {
+        const next = nextFilter(memoryFilter);
+        setMemoryFilter(next);
+        setSelectedIndex(0);
+        setMemoryExpandedId(null);
+        setMemoryPendingDeleteId(null);
+      } else if (key.name === 'd') {
+        const item = filtered[selectedIndex];
+        if (!item) return;
+        if (memoryPendingDeleteId === item.id) {
+          // confirm delete
+          void onDeleteMemory?.(item.id).then((ok) => {
+            if (ok) {
+              setMemoryList((prev) => prev.filter((m) => m.id !== item.id));
+              setMemoryPendingDeleteId(null);
+              setMemoryExpandedId(null);
+              // adjust index if needed
+              const newFiltered = filterMemories(memoryList.filter((m) => m.id !== item.id), memoryFilter);
+              if (selectedIndex >= newFiltered.length) {
+                setSelectedIndex(Math.max(0, newFiltered.length - 1));
+              }
+            }
+          });
+        } else {
+          setMemoryPendingDeleteId(item.id);
         }
       }
       return;

@@ -1,4 +1,5 @@
 import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta } from '@irises/extension-sdk';
+import type { MemoryItem } from './components/MemoryListView';
 import type { AgentDefinitionLike } from '@irises/extension-sdk';
 import type { ConsoleSettingsTabDefinition } from '@irises/extension-sdk/plugin';
 import type { SwitchModelResult, ThinkingEffortLevel } from './app-types';
@@ -37,6 +38,9 @@ export interface AppProps {
   onListAgents?: () => AgentDefinitionLike[];
   /** 用户在 agent-list 视图中确认选择后，执行实际的 Agent 切换 */
   onSelectAgent?: (agentName: string) => void;
+  onDream?: () => Promise<{ ok: boolean; message: string }>;
+  onListMemories?: () => Promise<MemoryItem[]>;
+  onDeleteMemory?: (id: number) => Promise<boolean>;
   onRemoteConnect?: (name?: string) => void;
   onRemoteDisconnect?: () => void;
   /** 远程连接的主机地址（非空时 StatusBar 显示远程标识） */

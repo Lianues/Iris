@@ -12,8 +12,10 @@ import type {
 import { appendCommandMessage } from '../message-utils';
 import { clearRedo, performRedo, performUndo, type UndoRedoStack } from '../undo-redo';
 import type { UseModelStateReturn } from './use-model-state';
+import type { MemoryItem, MemoryFilter } from '../components/MemoryListView';
 
 type SetMessages = Dispatch<SetStateAction<ChatMessage[]>>;
+type SetMemoryList = Dispatch<SetStateAction<MemoryItem[]>>;
 
 type SetViewMode = Dispatch<SetStateAction<ViewMode>>;
 type SetSessionList = Dispatch<SetStateAction<SessionMeta[]>>;
@@ -40,6 +42,12 @@ interface UseCommandDispatchOptions {
   /** 获取可切换的 Agent 列表，返回后由 /agent 命令切换到 agent-list 视图 */
   onListAgents?: () => AgentDefinitionLike[];
   setAgentList: SetAgentList;
+  onDream?: () => Promise<{ ok: boolean; message: string }>;
+  onListMemories?: () => Promise<MemoryItem[]>;
+  setMemoryList: SetMemoryList;
+  setMemoryFilter: Dispatch<SetStateAction<MemoryFilter>>;
+  setMemoryExpandedId: Dispatch<SetStateAction<number | null>>;
+  setMemoryPendingDeleteId: Dispatch<SetStateAction<number | null>>;
   onRemoteConnect?: (name?: string) => void;
   onRemoteDisconnect?: () => void;
   isRemote?: boolean;
@@ -80,6 +88,13 @@ export function useCommandDispatch({
   onExit,
   onListAgents,
   setAgentList,
+
+  onDream,
+  onListMemories,
+  setMemoryList,
+  setMemoryFilter,
+  setMemoryExpandedId,
+  setMemoryPendingDeleteId,
   onRemoteConnect,
   onRemoteDisconnect,
   isRemote,
@@ -229,6 +244,52 @@ export function useCommandDispatch({
       return;
     }
 
+    // ── /memory 命令 — 显示记忆列表 ──
+    if (text === '/memory') {
+      if (!onListMemories) {
+        appendCommandMessage(setMessages, 'Memory system not enabled.');
+        return;
+      }
+      void onListMemories().then((list) => {
+        setMemoryList(list);
+        setMemoryFilter('all');
+        setMemoryExpandedId(null);
+        setMemoryPendingDeleteId(null);
+        setSelectedIndex(0);
+        setViewMode('memory-list');
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `Failed to load memories: ${err}`, { isError: true });
+      });
+      return;
+    }
+
+    // ── /dream 命令 — 手动触发记忆归纳整理 ──
+    if (text === '/dream') {
+      if (!onDream) {
+        appendCommandMessage(setMessages, '记忆系统未启用。请先在 /memory 中开启。');
+        return;
+      }
+      appendCommandMessage(setMessages, 'Iris 做梦中...');
+      void onDream().then(async ({ ok, message }) => {
+        appendCommandMessage(setMessages, message, ok ? undefined : { isError: true });
+        // 归纳完成后自动打开记忆列表
+        if (ok && onListMemories) {
+          try {
+            const list = await onListMemories();
+            setMemoryList(list);
+            setMemoryFilter('all');
+            setMemoryExpandedId(null);
+            setMemoryPendingDeleteId(null);
+            setSelectedIndex(0);
+            setViewMode('memory-list');
+          } catch { /* ignore */ }
+        }
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `归纳失败: ${err}`, { isError: true });
+      });
+      return;
+    }
+
     // ── /queue 命令 ────────────────────────────────────────
     if (text === '/queue') {
       if (queueSize === 0) {
@@ -307,6 +368,7 @@ export function useCommandDispatch({
     onSubmit,
     onListAgents,
     setAgentList,
+    onDream,
     onSwitchModel,
     onSummarize,
     onUndo,

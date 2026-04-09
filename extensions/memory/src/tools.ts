@@ -1,15 +1,20 @@
 /**
  * 记忆系统 LLM 工具
  *
- * 提供 memory_search / memory_add / memory_delete 三个工具，
+ * 提供 memory_search / memory_add / memory_update / memory_delete 四个工具，
  * 让 LLM 自主决定何时读写长期记忆。
  */
 
 import type { ToolDefinition } from '@irises/extension-sdk';
-import { MemoryProvider } from './base.js';
+import type { MemoryProvider } from './base.js';
+import type { MemoryType } from './types.js';
+import { MEMORY_TYPES, parseMemoryType } from './types.js';
+import { memoryAge } from './utils/age.js';
 
 /** memory 工具名称集合，供外部引用 */
-export const MEMORY_TOOL_NAMES = new Set(['memory_search', 'memory_add', 'memory_delete']);
+export const MEMORY_TOOL_NAMES = new Set([
+  'memory_search', 'memory_add', 'memory_update', 'memory_delete',
+]);
 
 /** 根据 MemoryProvider 实例创建记忆工具数组 */
 export function createMemoryTools(provider: MemoryProvider): ToolDefinition[] {
@@ -17,27 +22,45 @@ export function createMemoryTools(provider: MemoryProvider): ToolDefinition[] {
     parallel: true,
     declaration: {
       name: 'memory_search',
-      description: '搜索长期记忆中的相关信息。当需要回忆用户偏好、历史事实或之前保存的信息时使用。',
+      description: 'Search long-term memory for relevant information. Use when you need to recall user preferences, past decisions, project context, or previously saved knowledge.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: '搜索关键词' },
-          limit: { type: 'number', description: '返回数量，默认 5' },
+          query: { type: 'string', description: 'Search keywords or natural language query' },
+          type: {
+            type: 'string',
+            description: 'Filter by memory type',
+            enum: [...MEMORY_TYPES],
+          },
+          limit: { type: 'number', description: 'Max results (default 10)' },
         },
         required: ['query'],
       },
     },
     handler: async (args) => {
       const query = args.query as string;
-      const limit = (args.limit as number) || 5;
-      const results = await provider.search(query, limit);
-      if (results.length === 0) {
-        return { message: '未找到相关记忆', results: [] };
+      const typeFilter = parseMemoryType(args.type);
+      // 当有 type 过滤时多取一些，补偿 post-filter 损耗
+      const requestLimit = (args.limit as number) || 10;
+      const fetchLimit = typeFilter ? requestLimit * 3 : requestLimit;
+      const results = await provider.search(query, fetchLimit);
+
+      // 按 type 过滤后截断到请求的 limit
+      const filtered = typeFilter
+        ? results.filter(m => m.type === typeFilter).slice(0, requestLimit)
+        : results.slice(0, requestLimit);
+
+      if (filtered.length === 0) {
+        return { message: 'No relevant memories found.', results: [] };
       }
       return {
-        message: `找到 ${results.length} 条相关记忆`,
-        results: results.map(m => ({
-          id: m.id, content: m.content, category: m.category,
+        message: `Found ${filtered.length} relevant memories.`,
+        results: filtered.map(m => ({
+          id: m.id,
+          name: m.name || undefined,
+          type: m.type,
+          content: m.content,
+          age: memoryAge(m.updatedAt),
         })),
       };
     },
@@ -46,15 +69,22 @@ export function createMemoryTools(provider: MemoryProvider): ToolDefinition[] {
   const memoryAdd: ToolDefinition = {
     declaration: {
       name: 'memory_add',
-      description: '将重要信息保存到长期记忆。用于记住用户偏好、重要事实、关键决策等需要跨会话保留的信息。',
+      description: [
+        'Save important information to long-term memory for cross-session persistence.',
+        'Use for: user preferences/profile (type=user), behavioral guidance (type=feedback),',
+        'project context/decisions (type=project), external references (type=reference).',
+        'Before adding, search existing memories to avoid duplicates — update instead if a related memory exists.',
+      ].join(' '),
       parameters: {
         type: 'object',
         properties: {
-          content: { type: 'string', description: '记忆内容' },
-          category: {
+          content: { type: 'string', description: 'Memory content (the actual information to remember)' },
+          name: { type: 'string', description: 'Short identifier (e.g. "user_role", "feedback_testing"). Used for indexing.' },
+          description: { type: 'string', description: 'One-line description — used for relevance matching in future conversations' },
+          type: {
             type: 'string',
-            description: '分类：user / fact / preference / note',
-            enum: ['user', 'fact', 'preference', 'note'],
+            description: 'Memory type: user (profile/preferences), feedback (behavioral guidance), project (context/decisions), reference (external pointers)',
+            enum: [...MEMORY_TYPES],
           },
         },
         required: ['content'],
@@ -62,20 +92,58 @@ export function createMemoryTools(provider: MemoryProvider): ToolDefinition[] {
     },
     handler: async (args) => {
       const content = args.content as string;
-      const category = (args.category as string) || 'note';
-      const id = await provider.add(content, category);
-      return { message: `记忆已保存`, id, content, category };
+      const name = (args.name as string) || '';
+      const description = (args.description as string) || '';
+      const type = parseMemoryType(args.type) ?? 'reference';
+
+      const id = await provider.add({ content, name, description, type });
+      return { message: 'Memory saved.', id, name, type };
+    },
+  };
+
+  const memoryUpdate: ToolDefinition = {
+    declaration: {
+      name: 'memory_update',
+      description: 'Update an existing memory. Use when information has changed or needs correction. Prefer updating over creating duplicates.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'number', description: 'Memory ID to update' },
+          content: { type: 'string', description: 'New content (omit to keep current)' },
+          name: { type: 'string', description: 'New name (omit to keep current)' },
+          description: { type: 'string', description: 'New description (omit to keep current)' },
+          type: {
+            type: 'string',
+            description: 'New type (omit to keep current)',
+            enum: [...MEMORY_TYPES],
+          },
+        },
+        required: ['id'],
+      },
+    },
+    handler: async (args) => {
+      const id = args.id as number;
+      const input: Record<string, unknown> = { id };
+      if (args.content !== undefined) input.content = args.content;
+      if (args.name !== undefined) input.name = args.name;
+      if (args.description !== undefined) input.description = args.description;
+      if (args.type !== undefined) input.type = parseMemoryType(args.type);
+
+      const success = await provider.update(input as any);
+      return success
+        ? { message: `Memory #${id} updated.` }
+        : { message: `Memory #${id} not found.` };
     },
   };
 
   const memoryDelete: ToolDefinition = {
     declaration: {
       name: 'memory_delete',
-      description: '删除一条不再需要的记忆。',
+      description: 'Delete a memory that is no longer relevant or accurate.',
       parameters: {
         type: 'object',
         properties: {
-          id: { type: 'number', description: '记忆 ID' },
+          id: { type: 'number', description: 'Memory ID to delete' },
         },
         required: ['id'],
       },
@@ -84,10 +152,10 @@ export function createMemoryTools(provider: MemoryProvider): ToolDefinition[] {
       const id = args.id as number;
       const success = await provider.delete(id);
       return success
-        ? { message: `记忆 #${id} 已删除` }
-        : { message: `记忆 #${id} 不存在` };
+        ? { message: `Memory #${id} deleted.` }
+        : { message: `Memory #${id} not found.` };
     },
   };
 
-  return [memorySearch, memoryAdd, memoryDelete];
+  return [memorySearch, memoryAdd, memoryUpdate, memoryDelete];
 }

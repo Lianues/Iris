@@ -551,12 +551,16 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => this.handleSaveSettings(snapshot),
         onResetConfig: () => this.handleResetConfig(),
         onExit: () => {
-          this.stop();
-          this.exitResolve?.('exit');
+          void this.stop().then(() => {
+            this.exitResolve?.('exit');
+          });
         },
         onSummarize: () => this.handleSummarize(),
         onListAgents: () => this.handleListAgents(),
         onSelectAgent: (name: string) => this.handleSelectAgent(name),
+        onDream: () => this.handleDream(),
+        onListMemories: () => this.handleListMemories(),
+        onDeleteMemory: (id: number) => this.handleDeleteMemory(id),
         onRemoteConnect: (name?: string) => this.handleRemoteConnect(name),
         onRemoteDisconnect: () => this.handleRemoteDisconnect(),
         remoteHost: this._remoteHost || undefined,
@@ -580,9 +584,61 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   }
 
   async stop(): Promise<void> {
-    // OpenTUI 的 destroy() 会清理交替屏幕、恢复光标等
+    // 幂等保护：onExit 和 shutdown() 都会调用 stop()，
+    // 双重 destroy() 会向已恢复的终端重复写入 ANSI 转义序列导致异常。
+    if (!this.renderer) return;
+    const r = this.renderer;
+    this.renderer = undefined as any;
     this.disposeResizeWatcher?.();
-    this.renderer?.destroy();
+
+    if (process.platform === 'win32') {
+      // Windows workaround: bun 在 destroy() 中写入 \x1b[?1049l（退出交替屏幕）
+      // 会导致 cmd.exe / 终端窗口崩溃关闭。
+      // 跳过 renderer.destroy()，只手动恢复 raw mode。
+      try {
+        if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      } catch { /* ignore */ }
+      try { process.stdin.pause(); } catch { /* ignore */ }
+      // 立即关闭鼠标和 bracketed paste（这些不触发崩溃）
+      const { writeSync } = require('fs');
+      try {
+        writeSync(1,
+          '\x1b[?1000l'   // 关闭鼠标
+          + '\x1b[?1002l'
+          + '\x1b[?1006l'
+          + '\x1b[?2004l'  // 关闭 bracketed paste
+          + '\x1b[0m'      // 重置颜色
+        );
+      } catch { /* ignore */ }
+      // 退出交替屏幕 + 恢复光标放在 process.on('exit')。
+      // bun 直接写 \x1b[?1049l 会导致 cmd.exe 崩溃，
+      // 所以用 spawnSync 让子进程（node/powershell）来写，绕过 bun 的 bug。
+      // 如果子进程也失败则回退到 \x1b[2J 清屏。
+      process.on('exit', () => {
+        const { spawnSync } = require('child_process');
+        const seq = '\x1b[?1049l\x1b[?25h';
+        try {
+          // 优先尝试 node（项目环境通常有）
+          const r1 = spawnSync('node', ['-e', `process.stdout.write(${JSON.stringify(seq)})`],
+            { stdio: 'inherit', timeout: 2000, windowsHide: true });
+          if (r1.status === 0) return;
+        } catch { /* ignore */ }
+        try {
+          // 回退到 PowerShell（Windows 10 自带）
+          const psCmd = `[Console]::Write([char]27 + '[?1049l' + [char]27 + '[?25h')`;
+          const r2 = spawnSync('powershell', ['-NoProfile', '-Command', psCmd],
+            { stdio: 'inherit', timeout: 2000, windowsHide: true });
+          if (r2.status === 0) return;
+        } catch { /* ignore */ }
+        // 最终回退：直接清屏（会丢失之前的终端记录，但至少不残留 TUI）
+        try { writeSync(1, '\x1b[2J\x1b[H\x1b[?25h'); } catch { /* ignore */ }
+      });
+    } else {
+      r.destroy();
+    }
+
+    // 等待终端 I/O flush
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
 
   /**
@@ -1214,6 +1270,40 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       return { success: true, message: '配置已重置' };
     } catch (e) {
       return { success: false, message: String(e) };
+    }
+  }
+
+  private async handleDream(): Promise<{ ok: boolean; message: string }> {
+    const mem = (this.api as any)?.memory;
+    if (!mem?.dream) {
+      return { ok: false, message: '记忆系统未启用。请先在 /memory 中开启。' };
+    }
+
+    try {
+      const result = await mem.dream();
+      return { ok: result.ok, message: result.message };
+    } catch (err) {
+      return { ok: false, message: `归纳失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  private async handleListMemories(): Promise<any[]> {
+    const mem = (this.api as any)?.memory;
+    if (!mem?.list) return [];
+    try {
+      return await mem.list(undefined, 500);
+    } catch {
+      return [];
+    }
+  }
+
+  private async handleDeleteMemory(id: number): Promise<boolean> {
+    const mem = (this.api as any)?.memory;
+    if (!mem?.delete) return false;
+    try {
+      return await mem.delete(id);
+    } catch {
+      return false;
     }
   }
 

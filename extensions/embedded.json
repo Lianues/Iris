@@ -4,6 +4,9 @@
       "name": "cron"
     },
     {
+      "name": "memory"
+    },
+    {
       "name": "web"
     },
     {

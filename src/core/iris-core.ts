@@ -508,7 +508,7 @@ export class IrisCore {
           }
           const merged = updateEditableConfig(configDir, { net: netUpdate });
           const ctx: RuntimeConfigReloadContext = {
-            backend, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
+            backend, pluginManager, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
           };
           await applyRuntimeConfigReload(ctx, merged.mergedRaw);
           return { success: true };
@@ -543,7 +543,7 @@ export class IrisCore {
           applyRuntimeConfigReload: async (mergedConfig: Record<string, unknown>) => {
             try {
               const ctx: RuntimeConfigReloadContext = {
-                backend, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
+                backend, pluginManager, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
               };
               await applyRuntimeConfigReload(ctx, mergedConfig);
               return { success: true };

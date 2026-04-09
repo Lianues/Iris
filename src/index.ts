@@ -184,25 +184,30 @@ async function main() {
     await Promise.all(backgroundPlatforms.map(p => p.start()));
   }
 
-  // 4. 信号处理
+  // 4. 优雅关闭
   let isShuttingDown = false;
-  const exit = async () => {
+  const shutdown = async () => {
     if (isShuttingDown) return;
     isShuttingDown = true;
     await Promise.all(allPlatforms.map(p => p.stop())).catch(() => {});
     await host.shutdown();
-    process.exit(0);
   };
-  process.on('SIGINT', () => exit());
-  process.on('SIGTERM', () => exit());
 
   // 5. 前台平台处理
   if (foregroundPlatform) {
+    // 前台平台（Console TUI）自己处理 Ctrl+C（exitOnCtrlC: false + useKeyboard）
+    // SIGINT 必须被吞掉，否则 Windows 下 Ctrl+C 同时触发 TUI 退出 + 进程信号退出，终端崩溃
+    process.on('SIGINT', () => { /* Console TUI 内部处理，此处忽略 */ });
+    process.on('SIGTERM', () => void shutdown());
+
     await foregroundPlatform.start();
-    // Agent 切换由前台平台内部处理（Console 通过 agentNetwork + listAgents 完成切换后重启 TUI）
-    // waitForExit() 仅在用户选择退出时 resolve
     await (foregroundPlatform as PlatformAdapter & ForegroundPlatform).waitForExit();
-    await exit();
+    await shutdown();
+    process.exit(0);
+  } else {
+    // 无前台平台（纯后台服务模式）：信号直接触发关闭
+    process.on('SIGINT', () => void shutdown());
+    process.on('SIGTERM', () => void shutdown());
   }
 }
 

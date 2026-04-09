@@ -12,6 +12,8 @@ interface ChatMessageListProps {
   retryInfo: RetryInfo | null;
   modelName: string;
   generatingLabel?: string;
+  /** 有待审批/待应用的工具时暂停计时 */
+  timerPaused?: boolean;
   /** Ctrl+O 按下时递增，仅最后一条 assistant 消息响应 */
   thoughtsToggleSignal?: number;
 }
@@ -24,6 +26,7 @@ export function ChatMessageList({
   retryInfo,
   modelName,
   generatingLabel,
+  timerPaused,
   thoughtsToggleSignal,
 }: ChatMessageListProps) {
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
@@ -52,7 +55,7 @@ export function ChatMessageList({
         if (isLastActive && !hasVisibleContent) {
           return (
             <box key={message.id} flexDirection="column" paddingBottom={1}>
-              <GeneratingTimer isGenerating={isGenerating} retryInfo={retryInfo} label={generatingLabel} />
+              <GeneratingTimer isGenerating={isGenerating} retryInfo={retryInfo} label={generatingLabel} paused={timerPaused} />
             </box>
           );
         }
@@ -67,7 +70,7 @@ export function ChatMessageList({
               thoughtsToggleSignal={index === lastAssistantIndex ? thoughtsToggleSignal : undefined}
             />
             {isLastActive && isStreaming && streamingParts.length === 0 ? (
-              <GeneratingTimer isGenerating={isGenerating} retryInfo={retryInfo} label={generatingLabel} />
+              <GeneratingTimer isGenerating={isGenerating} retryInfo={retryInfo} label={generatingLabel} paused={timerPaused} />
             ) : null}
           </box>
         );
@@ -75,7 +78,7 @@ export function ChatMessageList({
 
       {isGenerating && !lastIsActiveAssistant && streamingParts.length === 0 ? (
         <box flexDirection="column" paddingBottom={1}>
-          <GeneratingTimer isGenerating={isGenerating} retryInfo={retryInfo} label={generatingLabel} />
+          <GeneratingTimer isGenerating={isGenerating} retryInfo={retryInfo} label={generatingLabel} paused={timerPaused} />
         </box>
       ) : null}
     </scrollbox>

@@ -3,10 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --external=better-sqlite3"
+    "build": "bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm"
   },
   "dependencies": {
-    "@irises/extension-sdk": "file:../../packages/extension-sdk",
-    "better-sqlite3": "*"
+    "@irises/extension-sdk": "file:../../packages/extension-sdk"
   }
 }

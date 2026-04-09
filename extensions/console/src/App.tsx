@@ -21,6 +21,7 @@ import { ModelListView } from './components/ModelListView';
 import { QueueListView } from './components/QueueListView';
 import { ToolListView } from './components/ToolListView';
 import { SessionListView } from './components/SessionListView';
+import { MemoryListView, type MemoryItem, type MemoryFilter } from './components/MemoryListView';
 import { SettingsView } from './components/SettingsView';
 import { type ConfirmChoice, type PendingConfirm, type SettingsInitialSection, type ThinkingEffortLevel, type ViewMode } from './app-types';
 import type { AppProps } from './app-props';
@@ -72,6 +73,9 @@ export function App({
   modelName,
   contextWindow,
   pluginSettingsTabs,
+  onDream,
+  onListMemories,
+  onDeleteMemory,
   onRemoteConnect,
   onRemoteDisconnect,
   remoteHost,
@@ -89,6 +93,12 @@ export function App({
   const [confirmChoice, setConfirmChoice] = useState<ConfirmChoice>('confirm');
   const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffortLevel>('none');
   const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState(0);
+
+  // 记忆列表状态
+  const [memoryList, setMemoryList] = useState<MemoryItem[]>([]);
+  const [memoryFilter, setMemoryFilter] = useState<MemoryFilter>('all');
+  const [memoryExpandedId, setMemoryExpandedId] = useState<number | null>(null);
+  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState<number | null>(null);
 
   // 队列编辑状态（复用 useTextInput 获得完整光标和编辑能力）
   const [queueEditingId, setQueueEditingId] = useState<string | null>(null);
@@ -156,6 +166,12 @@ export function App({
     onExit,
     onListAgents,
     setAgentList,
+    onDream,
+    onListMemories,
+    setMemoryList,
+    setMemoryFilter,
+    setMemoryExpandedId,
+    setMemoryPendingDeleteId,
     onRemoteConnect,
     onRemoteDisconnect,
     isRemote: !!remoteHost,
@@ -255,6 +271,15 @@ export function App({
     toolListItems: appState.toolListItems,
     agentList,
     onSelectAgent,
+    memoryList,
+    memoryFilter,
+    setMemoryFilter,
+    memoryExpandedId,
+    setMemoryExpandedId,
+    memoryPendingDeleteId,
+    setMemoryPendingDeleteId,
+    setMemoryList,
+    onDeleteMemory,
   });
 
   const currentApply = appState.isGenerating ? appState.pendingApplies[0] : undefined;
@@ -282,6 +307,18 @@ export function App({
 
   if (viewMode === 'agent-list') {
     return <AgentListView agents={agentList} selectedIndex={selectedIndex} currentAgentName={agentName} />;
+  }
+
+  if (viewMode === 'memory-list') {
+    return (
+      <MemoryListView
+        memories={memoryList}
+        selectedIndex={selectedIndex}
+        expandedId={memoryExpandedId}
+        filter={memoryFilter}
+        pendingDeleteId={memoryPendingDeleteId}
+      />
+    );
   }
 
   if (viewMode === 'queue-list') {
@@ -346,6 +383,7 @@ export function App({
           retryInfo={appState.retryInfo}
           modelName={modelState.currentModelName}
           generatingLabel={appState.generatingLabel}
+          timerPaused={appState.pendingApprovals.length > 0 || appState.pendingApplies.length > 0}
           thoughtsToggleSignal={thoughtsToggleSignal}
         />
       ) : null}

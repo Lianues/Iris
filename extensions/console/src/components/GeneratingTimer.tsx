@@ -18,15 +18,24 @@ interface GeneratingTimerProps {
   isGenerating: boolean;
   retryInfo?: RetryInfo | null;
   label?: string;
+  /** 有待审批/待应用的工具时暂停计时 */
+  paused?: boolean;
 }
 
-export function GeneratingTimer({ isGenerating, retryInfo, label }: GeneratingTimerProps) {
+export function GeneratingTimer({ isGenerating, retryInfo, label, paused }: GeneratingTimerProps) {
   const [time, setTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const active = isGenerating && !paused;
 
   useEffect(() => {
     if (isGenerating) {
       setTime(0);
+    }
+  }, [isGenerating]);
+
+  useEffect(() => {
+    if (active) {
       timerRef.current = setInterval(() => {
         setTime(t => +(t + 0.1).toFixed(1));
       }, 100);
@@ -42,7 +51,7 @@ export function GeneratingTimer({ isGenerating, retryInfo, label }: GeneratingTi
         timerRef.current = null;
       }
     };
-  }, [isGenerating]);
+  }, [active]);
 
   if (!isGenerating) return null;
 

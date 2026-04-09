@@ -197,7 +197,9 @@ types:
   'plugins.yaml': `# 插件配置
 # 声明哪些扩展的 plugin 需要被激活。
 # platform 类扩展（console、web）自动注册，不需要写在这里。
-# plugins:
+plugins:
+  - name: memory
+    enabled: true
 #   - name: my-tool
 #     enabled: true
 `,

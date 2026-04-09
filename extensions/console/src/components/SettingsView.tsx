@@ -420,6 +420,8 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
   const selectedSelectableIndex = useMemo(() => {
     return selectableRows.findIndex((row: SettingsRow) => row.id === selectedRowId);
   }, [selectableRows, selectedRowId]);
+  const sectionSelectableRows = useMemo(() => selectableRows.filter((row: SettingsRow) => row.section === currentSection), [selectableRows, currentSection]);
+  const selectedSectionIndex = useMemo(() => sectionSelectableRows.findIndex((row: SettingsRow) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -789,16 +791,16 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       return;
     }
 
-    const currentIndex = selectedSelectableIndex >= 0 ? selectedSelectableIndex : 0;
+    const currentIndex = selectedSectionIndex >= 0 ? selectedSectionIndex : 0;
 
     if (key.name === 'up') {
-      const prev = selectableRows[Math.max(0, currentIndex - 1)];
+      const prev = sectionSelectableRows[Math.max(0, currentIndex - 1)];
       if (prev) setSelectedRowId(prev.id);
       setPendingLeaveConfirm(false);
       return;
     }
     if (key.name === 'down') {
-      const next = selectableRows[Math.min(selectableRows.length - 1, currentIndex + 1)];
+      const next = sectionSelectableRows[Math.min(sectionSelectableRows.length - 1, currentIndex + 1)];
       if (next) setSelectedRowId(next.id);
       setPendingLeaveConfirm(false);
       return;
