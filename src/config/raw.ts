@@ -23,6 +23,7 @@ export const CONFIG_SECTION_KEYS = [
   'summary',
   'plugins',
   'net',
+  'safety',
 ] as const;
 
 export type ConfigSectionKey = typeof CONFIG_SECTION_KEYS[number];

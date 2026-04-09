@@ -25,6 +25,13 @@ import type { ToolAttachment, ToolExecutionContext } from '../types';
 import { ToolPolicyConfig, ToolsConfig } from '../config';
 import type { BeforeToolExecInterceptor, AfterToolExecInterceptor } from '../extension';
 import type { ToolExecutionHandle } from './handle';
+import type { SafetyEngineReadonly, ReviewServiceLike } from '@irises/extension-sdk';
+
+/** 安全上下文（由 ToolLoop 透传） */
+export interface SafetyContext {
+  engine: SafetyEngineReadonly;
+  reviewService?: ReviewServiceLike;
+}
 
 const logger = createLogger('ToolScheduler');
 
@@ -375,6 +382,7 @@ async function executeSingle(
   beforeToolExec?: BeforeToolExecInterceptor,
   afterToolExec?: AfterToolExecInterceptor,
   onAttachments?: (attachments: ToolAttachment[]) => void,
+  safetyCtx?: SafetyContext,
 ): Promise<FunctionResponsePart> {
   const toolName = call.functionCall.name;
 
@@ -406,6 +414,107 @@ async function executeSingle(
   const autoApproved = globalSkipConfirmation || shouldAutoApprove(call, effectivePolicy);
   const interactiveApproval = canUseInteractiveApproval(toolState, invocationId);
 
+  // ── 安全引擎评估 ──
+  // 两道独立的门：AI Review（reviewer 数）+ User Confirm（是否需要人确认）
+  // 安全引擎 confirmRequired 可以覆盖 autoApproved（强制走审批流程）
+  let safetyOverrideConfirm = false;
+  let safetyDenyContext: { denied: true; reasons: string } | undefined;
+
+  if (safetyCtx?.engine.isEnabled()) {
+    const toolDef = registry.get(toolName);
+    const decision = safetyCtx.engine.evaluate(toolName, toolDef?.risk);
+
+    // 门1: AI Review
+    if (decision.reviewerCount > 0) {
+      if (!safetyCtx.reviewService) {
+        // [安全修复] Fail-closed: ReviewService 未注入时拒绝执行，而非静默跳过
+        const failMsg = `安全引擎要求 ${decision.reviewerCount} 个 reviewer 审阅工具 ${toolName}，但 ReviewService 未注入。Fail-closed: 拒绝执行。`;
+        logger.warn(failMsg);
+        if (toolState && invocationId) {
+          toolState.transition(invocationId, 'error', { error: `[安全基础设施缺失] ${failMsg}` });
+        }
+        return {
+          functionResponse: {
+            name: toolName,
+            callId: call.functionCall.callId,
+            response: { error: `[安全基础设施缺失] ${failMsg}` },
+          },
+        };
+      } else {
+        const reviewResult = await safetyCtx.reviewService.review({
+          subject: `tool:${toolName}`,
+          payload: { toolName, args: call.functionCall.args, risk: toolDef?.risk },
+          instruction: [
+            `Evaluate if this tool call is safe to execute.`,
+            `Tool risk level: ${decision.riskLevel}.`,
+            toolDef?.risk?.description ? `Risk description: ${toolDef.risk.description}` : '',
+          ].filter(Boolean).join(' '),
+          reviewerCount: decision.reviewerCount,
+          // 聚合策略按风险等级动态选择：
+          // - 单 reviewer: raw（直通）
+          // - critical: any_deny（一票否决，最保守）
+          // - high: unanimous（需全票通过）
+          // - 其他: majority（多数决）
+          aggregation: decision.reviewerCount === 1
+            ? 'raw'
+            : decision.riskLevel === 'critical'
+              ? 'any_deny'
+              : decision.riskLevel === 'high'
+                ? 'unanimous'
+                : 'majority',
+        });
+
+        if (reviewResult.decision === 'deny') {
+          const reasons = reviewResult.verdicts
+            .filter(v => v.decision === 'deny')
+            .map(v => v.reason)
+            .join('; ');
+
+          // 如果没有 confirm 门 → 直接拒绝
+          if (!decision.confirmRequired) {
+            if (toolState && invocationId) {
+              toolState.transition(invocationId, 'error', { error: `[安全审阅拒绝] ${reasons}` });
+            }
+            return {
+              functionResponse: {
+                name: toolName,
+                callId: call.functionCall.callId,
+                response: { error: `[安全审阅拒绝] ${reasons}` },
+              },
+            };
+          }
+          // 有 confirm 门 → 保存拒绝上下文，用户审批时可以看到 AI 的拒绝理由
+          safetyDenyContext = { denied: true, reasons };
+          logger.info(`安全审阅拒绝工具 ${toolName}，等待用户确认覆盖: ${reasons}`);
+        } else if (reviewResult.decision === 'abstain') {
+          // [安全修复] Fail-closed: 全部 reviewer 弃权（通常是 LLM API 故障/解析失败）
+          // 视为基础设施故障，拒绝执行，而非静默放行
+          const abstainMsg = `安全审阅基础设施异常：${decision.reviewerCount} 个 reviewer 全部弃权（可能是 LLM API 故障或响应解析失败），工具 ${toolName} 被拒绝执行。`;
+          logger.warn(abstainMsg);
+          if (toolState && invocationId) {
+            toolState.transition(invocationId, 'error', { error: `[安全审阅异常] ${abstainMsg}` });
+          }
+          return {
+            functionResponse: {
+              name: toolName,
+              callId: call.functionCall.callId,
+              response: { error: `[安全审阅异常] ${abstainMsg}` },
+            },
+          };
+        }
+      }
+    }
+
+    // 门2: User Confirm — 覆盖 autoApproved 强制走审批
+    if (decision.confirmRequired) {
+      safetyOverrideConfirm = true;
+    }
+  }
+
+  // 安全引擎的 confirmRequired 可以强制进入审批流程（即使 autoApproved = true）
+  // 但 globalSkipConfirmation（autoApproveAll）作为最高优先级逃生舱保留
+  const effectiveAutoApproved = safetyOverrideConfirm ? globalSkipConfirmation : autoApproved;
+
   // 追踪用户是否通过交互审批明确批准了此次调用（用于 shell 安全分类器覆盖）
   let userExplicitlyApproved = false;
 
@@ -434,7 +543,7 @@ async function executeSingle(
     }
   }
 
-  if (!autoApproved) {
+  if (!effectiveAutoApproved) {
     // [安全修复] 非交互上下文不能等待人工确认，否则后台委派 / 子代理会永久卡死。
     if (!interactiveApproval) {
       // Shell/bash: handler 有自己的安全流水线（分类器/force），不在 scheduler 层硬拦截。
@@ -457,8 +566,19 @@ async function executeSingle(
 
   if (interactiveApproval && toolState && invocationId) {
     // ── 一类审批：autoApprove 控制，底部 Y/N ──
-    if (!autoApproved) {
-      toolState.transition(invocationId, 'awaiting_approval');
+    if (!effectiveAutoApproved) {
+      // 安全审阅拒绝时，将拒绝理由附加到审批上下文，供平台层展示给用户
+      // 同时标记 safetyConfirmRequired，让 autoApproveHandle 知道此审批由安全引擎驱动，不应自动放行
+      const approvalProgress: Record<string, unknown> = {};
+      if (safetyOverrideConfirm) {
+        approvalProgress.safetyConfirmRequired = true;
+      }
+      if (safetyDenyContext) {
+        approvalProgress.safetyReview = safetyDenyContext;
+      }
+      toolState.transition(invocationId, 'awaiting_approval', {
+        progress: Object.keys(approvalProgress).length > 0 ? approvalProgress : undefined,
+      });
       const approved = await toolState.waitForApproval(invocationId, signal);
       if (!approved) {
         return {
@@ -489,7 +609,7 @@ async function executeSingle(
         };
       }
       // applied → 状态已被 handle.apply() 转为 executing
-    } else if (autoApproved) {
+    } else if (effectiveAutoApproved) {
       // 两类审批都跳过时才需要手动设置 executing
       toolState.transition(invocationId, 'executing');
     }
@@ -782,6 +902,7 @@ export async function executePlan(
   beforeToolExec?: BeforeToolExecInterceptor,
   afterToolExec?: AfterToolExecInterceptor,
   onAttachments?: (attachments: ToolAttachment[]) => void,
+  safetyCtx?: SafetyContext,
 ): Promise<FunctionResponsePart[]> {
   const responseParts: FunctionResponsePart[] = new Array(calls.length);
 
@@ -812,7 +933,7 @@ export async function executePlan(
 
       const results = await Promise.all(
         batch.indices.map(i =>
-          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments)
+          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments, safetyCtx)
         ),
       );
       for (let j = 0; j < batch.indices.length; j++) {
@@ -820,7 +941,7 @@ export async function executePlan(
       }
     } else {
       for (const i of batch.indices) {
-        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments);
+        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments, safetyCtx);
       }
     }
   }

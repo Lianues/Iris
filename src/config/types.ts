@@ -348,6 +348,8 @@ export interface AppConfig {
   summary: SummaryConfig;
   /** 多端互联配置（对应 net.yaml，可选） */
   net?: NetConfig;
+  /** 安全系统配置（对应 safety.yaml，可选） */
+  safety?: import('@irises/extension-sdk').SafetyConfig;
 }
 
 /** 子代理类型定义（配置文件格式） */

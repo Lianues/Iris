@@ -5,6 +5,7 @@
 import type { PluginHook } from '../../extension';
 import type { ToolLoopConfig } from '../tool-loop';
 import { createLogger } from '../../logger';
+import { getActivePlatformType, getActivePlatformUserId } from './session-context';
 
 const logger = createLogger('Backend');
 
@@ -28,10 +29,19 @@ export function buildPluginHookConfig(
   const beforeToolExecHooks = hooks.filter(h => h.onBeforeToolExec);
   if (beforeToolExecHooks.length > 0) {
     config.beforeToolExec = async (toolName, args) => {
+      // 从 AsyncLocalStorage 读取平台上下文，注入到 hook params
+      const platformType = getActivePlatformType();
+      const platformUserId = getActivePlatformUserId();
+
       let currentArgs = args;
       for (const hook of beforeToolExecHooks) {
         try {
-          const result = await hook.onBeforeToolExec!({ toolName, args: currentArgs });
+          const result = await hook.onBeforeToolExec!({
+            toolName,
+            args: currentArgs,
+            platformType,
+            platformUserId,
+          });
           if (result) {
             if (result.blocked) return result;
             if (result.args) currentArgs = result.args;

@@ -69,6 +69,8 @@ export interface QueuedMessage {
   documents?: DocumentInput[];
   /** 来源平台名称（可选） */
   platformName?: string;
+  /** 平台侧用户标识（可选） */
+  platformUserId?: string;
 }
 
 // ============ 消息队列 ============

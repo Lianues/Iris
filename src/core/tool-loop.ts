@@ -20,6 +20,7 @@
 import { ToolRegistry } from '../tools/registry';
 import { ToolStateManager } from '../tools/state';
 import { buildExecutionPlan, executePlan } from '../tools/scheduler';
+import type { SafetyContext } from '../tools/scheduler';
 import type { StreamingToolExecutor } from '../tools/streaming-executor';
 import { ToolsConfig, ToolPolicyConfig } from '../config';
 import type { SkillContextModifier } from '../config/types';
@@ -59,6 +60,8 @@ export interface ToolLoopConfig {
   beforeLLMCall?: BeforeLLMCallInterceptor;
   /** 插件 LLM 响应后拦截器（由 Backend 从插件钩子组合生成） */
   afterLLMCall?: AfterLLMCallInterceptor;
+  /** 安全上下文（安全引擎 + ReviewService） */
+  safetyCtx?: SafetyContext;
 }
 
 /** ToolLoop 执行结果 */
@@ -438,6 +441,7 @@ export class ToolLoop {
         this.config.beforeToolExec,
         this.config.afterToolExec,
         onAttachments,
+        this.config.safetyCtx,
       );
     }
 
@@ -453,6 +457,7 @@ export class ToolLoop {
       this.config.beforeToolExec,
       this.config.afterToolExec,
       onAttachments,
+      this.config.safetyCtx,
     );
   }
 }

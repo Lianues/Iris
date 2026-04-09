@@ -11,7 +11,7 @@ import { createLogger } from '../logger';
 import type { ToolRegistry } from '../tools/registry';
 import type { ModeRegistry } from '../modes/registry';
 import type { PromptAssembler } from '../prompt/assembler';
-import type { AppConfig } from '../config/types';
+import type { AppConfig, SkillDefinition } from '../config/types';
 import type { LLMRouter } from '../llm/router';
 import type { BootstrapExtensionRegistry } from '../bootstrap/extensions';
 import type { IrisPlugin, PluginEntry, InlinePluginEntry, PluginHook, IrisAPI } from '@irises/extension-sdk';
@@ -252,6 +252,30 @@ export class PluginManager {
       hooks.push(...loaded.hooks);
     }
     return hooks.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+  }
+
+  /**
+   * 获取所有插件程序化注册的 Skill 的聚合 Map。
+   * 如果多个插件注册了同名 Skill，后注册的覆盖先注册的（按插件优先级排序）。
+   */
+  getAggregatedPluginSkills(): Map<string, SkillDefinition> {
+    const merged = new Map<string, SkillDefinition>();
+    for (const loaded of this.plugins.values()) {
+      for (const [name, skill] of loaded.context.getPluginSkills()) {
+        merged.set(name, skill);
+      }
+    }
+    return merged;
+  }
+
+  /**
+   * 为所有已加载插件的 PluginContext 设置 Skill 变化回调。
+   * 当任何插件注册/注销 Skill 时触发回调。
+   */
+  setOnPluginSkillsChanged(callback: () => void): void {
+    for (const loaded of this.plugins.values()) {
+      loaded.context.setOnPluginSkillsChanged(callback);
+    }
   }
 
   /** 列出已加载的插件信息 */

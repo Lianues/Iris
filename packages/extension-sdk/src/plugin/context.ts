@@ -21,7 +21,7 @@ import type {
   PlatformFactory,
   StorageFactory,
 } from './types.js';
-import type { ServiceRegistryLike } from './service.js';
+import type { Disposable, ServiceRegistryLike } from './service.js';
 import type { ConfigContributionRegistryLike } from './config-contribution.js';
 
 export type ToolWrapper = (
@@ -39,7 +39,14 @@ export interface PluginHook {
   priority?: number;
   onBeforeChat?(params: { sessionId: string; text: string }): Promise<{ text: string } | undefined> | { text: string } | undefined;
   onAfterChat?(params: { sessionId: string; content: string }): Promise<{ content: string } | undefined> | { content: string } | undefined;
-  onBeforeToolExec?(params: { toolName: string; args: Record<string, unknown> }): Promise<ToolExecInterception | undefined> | ToolExecInterception | undefined;
+  onBeforeToolExec?(params: {
+    toolName: string;
+    args: Record<string, unknown>;
+    /** Platform type that triggered this action (e.g., 'telegram', 'discord', 'web', 'console') */
+    platformType?: string;
+    /** Platform-specific user identifier */
+    platformUserId?: string;
+  }): Promise<ToolExecInterception | undefined> | ToolExecInterception | undefined;
   onAfterToolExec?(params: { toolName: string; args: Record<string, unknown>; result: unknown; durationMs: number }): Promise<{ result: unknown } | undefined> | { result: unknown } | undefined;
   onBeforeLLMCall?(params: { request: LLMRequest; round: number }): Promise<{ request: LLMRequest } | undefined> | { request: LLMRequest } | undefined;
   onAfterLLMCall?(params: { content: Content; round: number }): Promise<{ content: Content } | undefined> | { content: Content } | undefined;
@@ -53,6 +60,31 @@ export interface PluginHook {
    * @param params.rawMergedConfig 合并后的原始配置数据（未经类型解析）
    */
   onConfigReload?(params: { config: Readonly<Record<string, unknown>>; rawMergedConfig: Record<string, unknown> }): Promise<void> | void;
+}
+
+/**
+ * 插件程序化 Skill 定义。
+ *
+ * 插件可通过 `PluginContext.registerSkill()` 注册 Skill，
+ * 优先级低于文件系统 Skill（用户可通过同名文件覆盖）。
+ */
+export interface PluginSkillDefinition {
+  /** Skill 名称（需匹配 ^[a-zA-Z0-9_-]{1,64}$） */
+  name: string;
+  /** Skill 描述 */
+  description: string;
+  /** 模型触发条件描述（写入工具声明帮助模型判断何时使用） */
+  whenToUse?: string;
+  /** 激活时自动放行的工具名称列表 */
+  allowedTools?: string[];
+  /** 模型覆盖（使用此 skill 时切换到指定模型） */
+  model?: string;
+  /** 执行模式：'inline'（注入对话，默认）或 'fork'（独立子代理） */
+  context?: 'inline' | 'fork';
+  /** Skill 内容（markdown body） */
+  content: string;
+  /** 来源插件名称（自动填充，无需手动设置） */
+  pluginName?: string;
 }
 
 export interface PreBootstrapContext {
@@ -118,6 +150,14 @@ export interface PluginContext {
   ensureConfigFile(filename: string, content: string): boolean;
   /** 从宿主配置目录读取指定 YAML 配置段（不含 .yaml 后缀） */
   readConfigSection(section: string): Record<string, unknown> | undefined;
+
+  // ── Skill 注册 ──
+
+  /**
+   * 程序化注册 Skill（优先级低于文件系统 Skill，用户可通过同名文件覆盖）。
+   * 返回 Disposable，调用 dispose() 可注销该 Skill。
+   */
+  registerSkill(definition: PluginSkillDefinition): Disposable;
 
   // ── 插件间协作 ──
 

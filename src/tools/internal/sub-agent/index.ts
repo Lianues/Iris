@@ -29,6 +29,7 @@ import { ToolExecutionHandle } from '../../handle';
 import { SubAgentTypeRegistry, SubAgentTypeConfig } from './types';
 import type { CrossAgentTaskBoard } from '@/core/cross-agent-task-board';
 import { createTaskId } from '@/core/cross-agent-task-board';
+import type { SafetyContext } from '@/tools/scheduler';
 
 // 统一导出类型层
 export type { SubAgentTypeConfig } from './types';
@@ -76,6 +77,8 @@ export interface SubAgentToolDeps {
    */
   agentName?: string;
   toolState?: ToolStateManager;
+  /** 安全上下文（子代理继承父级安全策略） */
+  safetyCtx?: SafetyContext;
 }
 
 /** 工具名称常量 */
@@ -357,6 +360,8 @@ ${typeDescriptions}
           toolsConfig: resolveInheritedToolsConfig(deps),
           retryOnError: deps.retryOnError,
           maxRetries: deps.maxRetries,
+          // [安全修复] 子代理继承父级安全上下文，确保安全门不被绕过
+          safetyCtx: deps.safetyCtx,
         }, childToolState);
 
         // onChunk/onTokens 回调直接调用 reportProgress 推送进度，
@@ -420,6 +425,8 @@ async function runSubAgentAsync(
     toolsConfig: resolveInheritedToolsConfig(deps),
     retryOnError: deps.retryOnError,
     maxRetries: deps.maxRetries,
+    // [安全修复] 异步子代理同样继承父级安全上下文
+    safetyCtx: deps.safetyCtx,
   });
 
   // 使用共用的流式 LLM 调用器，回调指向 taskBoard（驱动 StatusBar）

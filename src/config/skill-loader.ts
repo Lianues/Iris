@@ -208,26 +208,38 @@ function scanSkillsDir(skillsDir: string): SkillDefinition[] {
 }
 
 /**
- * 从文件系统加载 Skill 定义。
+ * 从文件系统加载 Skill 定义，并可选合并插件程序化注册的 Skill。
  *
  * 扫描路径：
  *   1. dataDir/skills/     — 全局 Skill（~/.iris/skills/）
  *   2. cwd/.agents/skills/ — 项目级 Skill
  *
+ * 优先级（从高到低）：
+ *   1. system.yaml 内联 Skill（由调用方在合并后覆盖）
+ *   2. 项目级文件系统 Skill
+ *   3. 全局文件系统 Skill
+ *   4. 插件程序化 Skill（pluginSkills，优先级最低，用户可通过同名文件覆盖）
+ *
  * @param dataDir  数据目录（默认 ~/.iris/）
- * @returns 扫描到的 SkillDefinition 数组（项目级优先于全局）
+ * @param pluginSkills  插件程序化注册的 Skill（可选）
+ * @returns 扫描到的 SkillDefinition 数组（文件系统 Skill 优先于插件 Skill）
  */
-export function loadSkillsFromFilesystem(dataDir: string): SkillDefinition[] {
+export function loadSkillsFromFilesystem(dataDir: string, pluginSkills?: Map<string, SkillDefinition>): SkillDefinition[] {
   const globalDir = path.join(dataDir, 'skills');
   const projectDir = path.join(getSessionCwd(), '.agents', 'skills');
 
-  // 全局 Skill 先加载，项目级后加载（同名时项目级覆盖全局）
-  const globalSkills = scanSkillsDir(globalDir);
-  const projectSkills = scanSkillsDir(projectDir);
-
-  // 合并：项目级覆盖全局同名
+  // 插件 Skill 先加载（优先级最低）
   const merged = new Map<string, SkillDefinition>();
+  if (pluginSkills) {
+    for (const [name, skill] of pluginSkills) merged.set(name, skill);
+  }
+
+  // 全局 Skill 覆盖插件 Skill
+  const globalSkills = scanSkillsDir(globalDir);
   for (const s of globalSkills) merged.set(s.name, s);
+
+  // 项目级 Skill 覆盖全局 Skill
+  const projectSkills = scanSkillsDir(projectDir);
   for (const s of projectSkills) merged.set(s.name, s);
 
   return Array.from(merged.values());

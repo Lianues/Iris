@@ -41,6 +41,9 @@ import { ModeRegistry, DEFAULT_MODE, DEFAULT_MODE_NAME } from '../modes';
 import { PromptAssembler } from '../prompt/assembler';
 import { CrossAgentTaskBoard } from './cross-agent-task-board';
 import { ToolLoop } from './tool-loop';
+import { SafetyEngine } from '../safety/engine';
+import { ReviewService } from '../review/service';
+import type { SafetyContext } from '../tools/scheduler';
 import { createHistorySearchTool } from '../tools/internal/history_search';
 import { createReadSkillTool } from '../tools/internal/read_skill';
 import { createInvokeSkillTool } from '../tools/internal/invoke_skill';
@@ -244,6 +247,15 @@ export class IrisCore {
       ocrService = await ocrFactory(config.ocr) as OCRProvider;
     }
 
+    // ---- 2.7 创建安全引擎（opt-in，未配置时零开销） ----
+    const safetyEngine = new SafetyEngine(config.safety);
+    const reviewService = safetyEngine.isEnabled()
+      ? new ReviewService(router)
+      : undefined;
+    const safetyCtx: SafetyContext | undefined = safetyEngine.isEnabled()
+      ? { engine: safetyEngine, reviewService }
+      : undefined;
+
     // ---- 3. 注册工具 ----
     const tools = new ToolRegistry();
     setToolLimits(config.tools.limits);
@@ -322,6 +334,21 @@ export class IrisCore {
     const hasSubAgents = subAgentTypes.getAll().length > 0;
     const asyncSubAgentsEnabled = config.system.asyncSubAgents === true && hasSubAgents;
 
+    // 合并 config.system.skills 与插件程序化注册的 Skill。
+    // 插件 Skill 优先级最低，被文件系统 / YAML 同名 Skill 覆盖。
+    let initialSkills = config.system.skills;
+    if (pluginManager) {
+      const pluginSkillMap = pluginManager.getAggregatedPluginSkills();
+      if (pluginSkillMap.size > 0) {
+        const merged = new Map<string, import('../config/types').SkillDefinition>();
+        for (const [name, skill] of pluginSkillMap) merged.set(name, skill);
+        if (initialSkills) {
+          for (const s of initialSkills) merged.set(s.name, s);  // config skills 覆盖 plugin skills
+        }
+        initialSkills = Array.from(merged.values());
+      }
+    }
+
     const taskBoard = options.taskBoard ?? new CrossAgentTaskBoard();
     const backend = new Backend(router, storage, tools, toolState, prompt, {
       maxToolRounds: config.system.maxToolRounds,
@@ -334,13 +361,16 @@ export class IrisCore {
       ocrService,
       summaryModelName: config.llm.summaryModelName,
       summaryConfig: config.summary,
-      skills: config.system.skills,
+      skills: initialSkills,
       configDir,
       rememberPlatformModel: config.llm.rememberPlatformModel,
       asyncSubAgents: asyncSubAgentsEnabled,
     }, modeRegistry);
 
     backend.setTaskBoard(taskBoard);
+    if (safetyCtx) {
+      backend.setSafetyCtx(safetyCtx);
+    }
     // 多 Agent 配置分层重构：移除 __global__ fallback，所有 agent 都有明确名称（至少 master）
     taskBoard.registerBackend(options.agentName ?? 'master', backend);
 
@@ -355,6 +385,7 @@ export class IrisCore {
         toolState,
         subAgentTypes,
         maxDepth: config.system.maxAgentDepth,
+        safetyCtx,
         ...(asyncSubAgentsEnabled ? {
           getSessionId: () => backend.getActiveSessionId(),
           taskBoard,
@@ -424,9 +455,20 @@ export class IrisCore {
     // 启动 Skill 目录文件系统监听
     const effectiveDataDir = agentPaths?.dataDir || globalDataDir;
     const inlineSkills = config.system.skills?.filter(s => s.path.startsWith('inline:'));
+
+    // 获取插件程序化注册的 Skill 的闭包（每次调用都聚合最新状态）
+    const getPluginSkills = () => pluginManager?.getAggregatedPluginSkills();
+
     const stopSkillWatcher = createSkillWatcher(effectiveDataDir, () => {
-      backend.reloadSkillsFromFilesystem(effectiveDataDir, inlineSkills);
+      backend.reloadSkillsFromFilesystem(effectiveDataDir, inlineSkills, getPluginSkills());
     });
+
+    // 设置插件 Skill 变化回调：当任何插件注册/注销 Skill 时，触发 Backend 重新加载
+    if (pluginManager) {
+      pluginManager.setOnPluginSkillsChanged(() => {
+        backend.reloadSkillsFromFilesystem(effectiveDataDir, inlineSkills, getPluginSkills());
+      });
+    }
 
     // 将插件钩子注入 Backend
     const eventBus = new PluginEventBus();
@@ -601,8 +643,8 @@ export class IrisCore {
         };
         return new ToolLoop(loopOptions.tools as ToolRegistry, loopPrompt, loopConfig);
       },
-      registerRoute,
-      registerPanel,
+      registerWebRoute: registerRoute,
+      registerWebPanel: registerPanel,
       agentNetwork: options.agentNetwork,
       registerConsoleSettingsTab,
       getConsoleSettingsTabs: () => consoleSettingsTabs,

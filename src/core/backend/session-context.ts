@@ -21,6 +21,10 @@ export interface SessionExecutionContext {
   sessionId: string;
   /** per-session 工作目录 */
   cwd: string;
+  /** 来源平台类型（e.g., 'telegram', 'discord', 'web', 'console'） */
+  platformType?: string;
+  /** 平台侧用户标识 */
+  platformUserId?: string;
 }
 
 // ============ 全局状态 ============
@@ -61,6 +65,26 @@ export function getSessionCwd(): string {
  */
 export function getActiveSessionId(): string | undefined {
   return sessionContext.getStore()?.sessionId;
+}
+
+/**
+ * 获取当前 turn 的来源平台类型。
+ *
+ * 仅在 turn 执行期间可用（AsyncLocalStorage 上下文内），
+ * 否则返回 undefined。
+ */
+export function getActivePlatformType(): string | undefined {
+  return sessionContext.getStore()?.platformType;
+}
+
+/**
+ * 获取当前 turn 的平台用户标识。
+ *
+ * 仅在 turn 执行期间可用（AsyncLocalStorage 上下文内），
+ * 否则返回 undefined。
+ */
+export function getActivePlatformUserId(): string | undefined {
+  return sessionContext.getStore()?.platformUserId;
 }
 
 /**

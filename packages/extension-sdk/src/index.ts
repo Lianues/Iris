@@ -99,6 +99,33 @@ export type {
   ToolStatus,
 } from './tool.js';
 
+export type {
+  RiskLevel,
+  ReviewIntensityConfig,
+  SafetyConfig,
+  SafetyDecision,
+  SafetyEngineLike,
+  SafetyEngineReadonly,
+  SafetyMode,
+  ToolRiskMetadata,
+} from './safety.js';
+
+export {
+  BUILTIN_SAFETY_MODES,
+  DEFAULT_REVIEW_COEFFICIENTS,
+  RISK_LEVELS,
+} from './safety.js';
+
+export type {
+  AggregationStrategy,
+  ReviewAggregation,
+  ReviewDecision,
+  ReviewRequest,
+  ReviewServiceConfig,
+  ReviewServiceLike,
+  ReviewVerdict,
+} from './review.js';
+
 export {
   createExtensionLogger,
   setExtensionLogLevel,
@@ -155,6 +182,7 @@ export type {
   PluginInfoLike,
   PluginLogger,
   PluginManagerLike,
+  PluginSkillDefinition,
   PreBootstrapContext,
   PromptAssemblerLike,
   ServiceDescriptor,

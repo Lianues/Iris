@@ -109,6 +109,7 @@ export interface IrisBackendLike {
     images?: ImageInput[],
     documents?: DocumentInput[],
     platform?: string,
+    platformUserId?: string,
   ): Promise<unknown>;
   isStreamEnabled(): boolean;
   clearSession(sessionId: string): Promise<void>;
@@ -218,8 +219,9 @@ export class BackendHandle implements IrisBackendLike {
     images?: ImageInput[],
     documents?: DocumentInput[],
     platform?: string,
+    platformUserId?: string,
   ): Promise<unknown> {
-    return this._backend.chat(sessionId, text, images, documents, platform);
+    return this._backend.chat(sessionId, text, images, documents, platform, platformUserId);
   }
 
   isStreamEnabled(): boolean { return this._backend.isStreamEnabled(); }

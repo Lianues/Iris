@@ -60,6 +60,8 @@ export interface ToolDefinition {
   declaration: FunctionDeclaration;
   handler: ToolHandler;
   parallel?: ToolParallelPolicy;
+  /** 工具风险声明（可选，默认 level: 'low'） */
+  risk?: import('./safety.js').ToolRiskMetadata;
 }
 
 

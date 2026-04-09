@@ -162,4 +162,6 @@ export interface ToolDefinition {
    * 默认 false（串行）。仅适用于可以安全并行的调用。
    */
   parallel?: ToolParallelPolicy;
+  /** 工具风险声明（可选，默认 level: 'low'） */
+  risk?: import('@irises/extension-sdk').ToolRiskMetadata;
 }

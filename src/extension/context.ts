@@ -7,7 +7,7 @@
 
 import type { ToolDefinition, Part } from '../types';
 import type { ModeDefinition } from '../modes/types';
-import type { AppConfig } from '../config/types';
+import type { AppConfig, SkillDefinition, SkillContextModifier } from '../config/types';
 import type { ToolRegistry } from '../tools/registry';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -15,7 +15,7 @@ import { parse as parseYAML } from 'yaml';
 import type { ModeRegistry } from '../modes/registry';
 import type { PromptAssembler } from '../prompt/assembler';
 import type { LLMRouter } from '../llm/router';
-import type { PluginContext, PluginHook, PluginLogger, ToolWrapper, IrisAPI, PluginEventBusLike, PluginManagerLike, ServiceRegistryLike, ConfigContributionRegistryLike } from '@irises/extension-sdk';
+import type { PluginContext, PluginHook, PluginLogger, PluginSkillDefinition, ToolWrapper, IrisAPI, PluginEventBusLike, PluginManagerLike, Disposable, ServiceRegistryLike, ConfigContributionRegistryLike } from '@irises/extension-sdk';
 import { createLogger } from '../logger';
 import type { PlatformAdapter } from '@irises/extension-sdk';
 
@@ -23,6 +23,10 @@ export class PluginContextImpl {
   private hooks: PluginHook[] = [];
   private readyCallbacks: Array<(api: IrisAPI) => void | Promise<void>> = [];
   private _platformReadyCallbacks: Array<(platforms: ReadonlyMap<string, PlatformAdapter>, api: IrisAPI) => void | Promise<void>> = [];
+  /** 插件程序化注册的 Skill（name → SkillDefinition） */
+  private _pluginSkills = new Map<string, SkillDefinition>();
+  /** Skill 变化回调（由外部设置，注册/注销时通知 Backend 刷新） */
+  private _onPluginSkillsChanged?: () => void;
 
   constructor(
     private pluginName: string,
@@ -93,6 +97,48 @@ export class PluginContextImpl {
 
   removeSystemPromptPart(part: Part): void {
     this.promptAssembler.removeSystemPart(part);
+  }
+
+  // ---- Skill 注册 ----
+
+  registerSkill(definition: PluginSkillDefinition): Disposable {
+    const name = definition.name;
+
+    // 校验名称格式
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
+      throw new Error(`registerSkill: Skill 名称 "${name}" 不合法（需匹配 ^[a-zA-Z0-9_-]{1,64}$）`);
+    }
+
+    // 将 PluginSkillDefinition 转换为内部 SkillDefinition
+    const mode = definition.context === 'fork' ? 'fork' as const : 'inline' as const;
+    const contextModifier: SkillContextModifier | undefined =
+      (definition.allowedTools || definition.model) ? {
+        autoApproveTools: definition.allowedTools,
+        modelOverride: definition.model,
+      } : undefined;
+
+    const skillDef: SkillDefinition = {
+      name,
+      description: definition.description,
+      content: definition.content,
+      path: `plugin:${definition.pluginName ?? this.pluginName}:${name}`,
+      allowedTools: definition.allowedTools,
+      model: definition.model,
+      mode,
+      whenToUse: definition.whenToUse,
+      userInvocable: true,
+      contextModifier,
+    };
+
+    this._pluginSkills.set(name, skillDef);
+    this._onPluginSkillsChanged?.();
+
+    return {
+      dispose: () => {
+        this._pluginSkills.delete(name);
+        this._onPluginSkillsChanged?.();
+      },
+    };
   }
 
   // ---- 延迟初始化 ----
@@ -203,5 +249,15 @@ export class PluginContextImpl {
   /** 获取插件注册的 onPlatformsReady 回调 */
   getPlatformReadyCallbacks(): Array<(platforms: ReadonlyMap<string, PlatformAdapter>, api: IrisAPI) => void | Promise<void>> {
     return this._platformReadyCallbacks;
+  }
+
+  /** 获取插件程序化注册的所有 Skill */
+  getPluginSkills(): Map<string, SkillDefinition> {
+    return this._pluginSkills;
+  }
+
+  /** 设置 Skill 变化回调（由 PluginManager / IrisCore 在 ready 阶段注入） */
+  setOnPluginSkillsChanged(callback: () => void): void {
+    this._onPluginSkillsChanged = callback;
   }
 }

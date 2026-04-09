@@ -39,6 +39,7 @@ import { ModeRegistry, ModeDefinition, applyToolFilter } from '../../modes';
 import type { OCRProvider } from '../../ocr';
 import { isOCRTextPart } from '../../ocr';
 import { ToolLoop, ToolLoopConfig, LLMCaller } from '../tool-loop';
+import type { SafetyContext } from '../../tools/scheduler';
 import { createLogger } from '../../logger';
 import { sanitizeHistory } from '../history-sanitizer';
 import { estimateTokenCount } from 'tokenx';
@@ -230,6 +231,11 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.toolLoopConfig.afterLLMCall = hookConfig.afterLLMCall;
   }
 
+  /** 注入安全上下文（由 bootstrap 在安全引擎创建后调用） */
+  setSafetyCtx(ctx: SafetyContext): void {
+    this.toolLoopConfig.safetyCtx = ctx;
+  }
+
   /**
    * 注入全局任务板，将 board 生命周期事件转发为 BackendEvents。
    * 替代原 setAgentTaskRegistry，使用 CrossAgentTaskBoard 替代 per-Agent AgentTaskRegistry。
@@ -318,7 +324,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
    *   因此 await chat() 的行为与改造前一致——等到 turn 结束才返回。
    *   这保证了所有平台层的 await backend.chat() 调用无需修改。
    */
-  async chat(sessionId: string, text: string, images?: ImageInput[], documents?: DocumentInput[], platformName?: string): Promise<void> {
+  async chat(sessionId: string, text: string, images?: ImageInput[], documents?: DocumentInput[], platformName?: string, platformUserId?: string): Promise<void> {
     // 插件钩子: onBeforeChat（可修改用户消息文本）
     // 注意：钩子在入队前执行，确保修改后的文本被队列存储。
     for (const hook of this.pluginHooks) {
@@ -338,6 +344,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       images,
       documents,
       platformName,
+      platformUserId,
     });
 
     // 返回一个 Promise，在本条消息对应的 turn 完成后 resolve。
@@ -673,8 +680,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     return this.skills.find(s => s.name === name);
   }
 
-  reloadSkillsFromFilesystem(dataDir: string, inlineSkills?: SkillDefinition[]): void {
-    const fsSkills: SkillDefinition[] = loadSkillsFromFilesystem(dataDir);
+  reloadSkillsFromFilesystem(dataDir: string, inlineSkills?: SkillDefinition[], pluginSkills?: Map<string, SkillDefinition>): void {
+    const fsSkills: SkillDefinition[] = loadSkillsFromFilesystem(dataDir, pluginSkills);
 
     const merged = new Map<string, SkillDefinition>();
     for (const s of fsSkills) merged.set(s.name, s);
@@ -959,6 +966,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         const execCtx: SessionExecutionContext = {
           sessionId: msg.sessionId,
           cwd: getRememberedCwd(msg.sessionId),
+          platformType: msg.platformName,
+          platformUserId: msg.platformUserId,
         };
         await sessionContext.run(execCtx, () =>
           agentContext.run('main', () =>

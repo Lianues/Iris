@@ -93,15 +93,28 @@ export function formatToolStatusLine(
  * 适用于不支持交互式审批 UI 的平台（如 QQ、微信等）。
  * 在 handle 进入 awaiting_approval 时自动 approve。
  *
+ * 例外：当安全引擎标记了 safetyConfirmRequired 时，主动拒绝（approve(false)）。
+ * 因为该平台无法提供交互式确认 UI，安全确认门无法履行，必须干净拒绝而非挂起。
+ *
  * 用法：backend.on('tool:execute', (sid, handle) => { autoApproveHandle(handle); });
  */
 export function autoApproveHandle(handle: ToolExecutionHandleLike): void {
-  if (handle.status === 'awaiting_approval') {
+  const handleApproval = () => {
+    const snapshot = handle.getSnapshot();
+    // 安全引擎要求人工确认时，主动拒绝（平台无交互审批 UI，不能挂起）
+    if (snapshot.progress?.safetyConfirmRequired) {
+      try { handle.approve(false); } catch { /* 并发状态转换 */ }
+      return;
+    }
     try { handle.approve(true); } catch { /* 并发状态转换 */ }
+  };
+
+  if (handle.status === 'awaiting_approval') {
+    handleApproval();
   }
   handle.on('state', (status) => {
     if (status === 'awaiting_approval') {
-      try { handle.approve(true); } catch { /* 并发状态转换 */ }
+      handleApproval();
     }
   });
 }
