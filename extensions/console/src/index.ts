@@ -43,6 +43,8 @@ import { ConsoleSettingsController, ConsoleSettingsSaveResult, ConsoleSettingsSn
 import { configureBundledOpenTuiTreeSitter } from './opentui-runtime';
 import { attachCompiledResizeWatcher } from './resize-watcher';
 import { ICONS } from './terminal-compat';
+import type { ConsoleConfig } from './console-config';
+import { resolveConsoleConfig } from './console-config';
 
 /** 从 shell 命令生成前缀通配模式（如 "npm install express" → "npm install *"） */
 function generateCommandPattern(command: string): string {
@@ -190,6 +192,8 @@ export interface ConsolePlatformOptions {
   api?: IrisAPI;
   /** 是否为编译后的二进制 */
   isCompiledBinary?: boolean;
+  /** Console 平台配置 */
+  consoleConfig: ConsoleConfig;
 }
 
 export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatform {
@@ -214,6 +218,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private api?: IrisAPI;
   private _activeHandles: Map<string, any> = new Map();
   private isCompiledBinary: boolean;
+  private consoleConfig: ConsoleConfig;
 
   /** 当前响应周期内的工具调用 ID 集合 */
   private currentToolIds = new Set<string>();
@@ -257,6 +262,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.initWarnings = options.initWarnings ?? [];
     this.api = options.api;
     this.isCompiledBinary = options.isCompiledBinary ?? false;
+    this.consoleConfig = options.consoleConfig;
     this.settingsController = new ConsoleSettingsController({
       backend,
       configManager: options.api?.configManager,
@@ -324,9 +330,11 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
           .filter((h: any) => this.currentToolIds.has(h.id))
           .map((h: any) => {
             const snapshot = h.getSnapshot();
-            const childHandles = h.getChildren?.() ?? [];
-            if (childHandles.length > 0) {
-              snapshot.children = childHandles.map((ch: any) => ch.getSnapshot());
+            if (this.consoleConfig.expandSubAgentTools) {
+              const childHandles = h.getChildren?.() ?? [];
+              if (childHandles.length > 0) {
+                snapshot.children = childHandles.map((ch: any) => ch.getSnapshot());
+              }
             }
             return snapshot;
           });
@@ -1490,6 +1498,10 @@ interface ConsoleFactoryContext {
 export default async function consoleFactory(rawContext: Record<string, unknown>): Promise<ConsolePlatform> {
   const context = rawContext as unknown as ConsoleFactoryContext;
 
+  // 读取 platform.yaml 中的 console: 配置段
+  const platformCfg = (context.config?.platform as Record<string, unknown> | undefined)?.console;
+  const consoleConfig = resolveConsoleConfig(platformCfg as Record<string, unknown> | undefined);
+
   if (typeof (globalThis as { Bun?: unknown }).Bun === 'undefined') {
     console.error(
       '[Iris] Console 平台需要 Bun 运行时。\n'
@@ -1515,5 +1527,6 @@ export default async function consoleFactory(rawContext: Record<string, unknown>
     extensions: context.extensions,
     api: context.api,
     isCompiledBinary: context.isCompiledBinary ?? false,
+    consoleConfig,
   });
 }
