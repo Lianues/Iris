@@ -1,10 +1,11 @@
 /**
  * 投递策略判断模块
  *
- * 实现三层投递门控：
+ * 实现四层投递门控：
  * 1. 任务自身属性（enabled / silent 等）
  * 2. 用户全局偏好（quietHours / skipIfRecentActivity）
- * 3. agent 自主判断（通过 silent 模式的 prompt 注入实现，不在此处理）
+ * 3. 条件变量检查（conditionKey → GlobalStore）
+ * 4. agent 自主判断（通过 silent 模式的 prompt 注入实现，不在此处理）
  */
 
 import type {
@@ -13,6 +14,7 @@ import type {
   DeliveryDecision,
   TimeWindow,
 } from './types.js';
+import type { GlobalStoreLike } from '@irises/extension-sdk';
 
 /**
  * 解析 HH:MM 格式的时间字符串，返回今天对应的分钟数（0-1439）
@@ -94,10 +96,12 @@ function hasRecentActivity(
  * 1. 任务未启用 → 跳过
  * 2. 安静时段检查（urgent 可穿透）
  * 3. 近期活跃检查
+ * 4. 条件变量检查（conditionKey → GlobalStore）
  *
  * @param job 待投递的任务
  * @param config 调度器配置
  * @param lastActivityMap 会话最后活跃时间映射
+ * @param globalStore 全局变量存储（可选，用于 conditionKey 检查）
  * @param now 当前时间（可注入，方便测试）
  * @returns 投递判断结果
  */
@@ -105,6 +109,7 @@ export function shouldSkip(
   job: ScheduledJob,
   config: SchedulerConfig,
   lastActivityMap: Map<string, number>,
+  globalStore?: GlobalStoreLike,
   now?: Date,
 ): DeliveryDecision {
   const currentDate = now ?? new Date();
@@ -135,6 +140,17 @@ export function shouldSkip(
       skip: true,
       reason: `会话 ${targetSessionId} 在 ${config.skipIfRecentActivity.withinMinutes} 分钟内有活动，跳过任务 "${job.name}"`,
     };
+  }
+
+  // 第四层：条件变量检查
+  if (job.conditionKey && globalStore) {
+    const conditionValue = globalStore.get(job.conditionKey);
+    if (!conditionValue) {
+      return {
+        skip: true,
+        reason: `条件变量 "${job.conditionKey}" 为 ${conditionValue === undefined ? '未定义' : String(conditionValue)}，跳过任务 "${job.name}"`,
+      };
+    }
   }
 
   // 全部通过，允许投递

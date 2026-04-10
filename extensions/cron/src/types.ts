@@ -49,6 +49,14 @@ export interface ScheduledJob {
   silent: boolean;
   /** 紧急任务：可穿透安静时段 */
   urgent: boolean;
+  /**
+   * 条件触发变量名（可选）。
+   * 指向 GlobalStore 中的一个 key，触发时读取其值：
+   * - truthy → 执行任务
+   * - falsy / undefined → 跳过本次执行
+   * 调用方可自行设定该变量的值来实现概率触发、好感度阈值等逻辑。
+   */
+  conditionKey?: string;
   /** 是否启用 */
   enabled: boolean;
   /** 创建时间戳 */
@@ -76,6 +84,7 @@ export interface CreateJobParams {
   delivery?: Partial<DeliveryConfig>;
   silent?: boolean;
   urgent?: boolean;
+  conditionKey?: string;
   createdInSession: string;
 }
 
@@ -87,6 +96,7 @@ export interface UpdateJobParams {
   delivery?: Partial<DeliveryConfig>;
   silent?: boolean;
   urgent?: boolean;
+  conditionKey?: string;
 }
 
 // ============ 插件配置 ============

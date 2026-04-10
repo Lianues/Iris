@@ -183,6 +183,14 @@ export const manageScheduledTasksTool: ToolDefinition = {
           type: 'boolean',
           description: '是否为紧急任务（可穿透安静时段）',
         },
+        condition_key: {
+          type: 'string',
+          description:
+            '条件触发变量名（可选）。指向 GlobalStore 中的一个 key，' +
+            '触发时读取其值——truthy 则执行，falsy 或未定义则跳过。\n' +
+            '调用方可通过 manage_variables 工具自行设定该变量的值，' +
+            '实现概率触发、好感度阈值等自定义条件逻辑。',
+        },
       },
       required: ['action'],
     },
@@ -255,6 +263,7 @@ export const manageScheduledTasksTool: ToolDefinition = {
           },
           silent: (args.silent as boolean) ?? false,
           urgent: (args.urgent as boolean) ?? false,
+          conditionKey: args.condition_key as string | undefined,
           createdInSession: currentSessionId,
         };
 
@@ -270,6 +279,7 @@ export const manageScheduledTasksTool: ToolDefinition = {
             instruction: job.instruction,
             silent: job.silent,
             urgent: job.urgent,
+            conditionKey: job.conditionKey,
             enabled: job.enabled,
             createdAt: new Date(job.createdAt).toISOString(),
           },
@@ -290,6 +300,7 @@ export const manageScheduledTasksTool: ToolDefinition = {
           updateParams.instruction = args.instruction as string;
         if (args.silent !== undefined) updateParams.silent = args.silent as boolean;
         if (args.urgent !== undefined) updateParams.urgent = args.urgent as boolean;
+        if (args.condition_key !== undefined) updateParams.conditionKey = args.condition_key as string;
 
         // 如果同时提供了调度类型和值，则更新调度配置
         if (args.schedule_type && args.schedule_value) {
