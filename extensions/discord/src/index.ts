@@ -28,6 +28,7 @@ export class DiscordPlatform extends PlatformAdapter {
   private typingTimers = new Map<string, ReturnType<typeof setInterval>>();
   private streamMessages = new Map<string, Message>();   // 流式模式：已发送的消息引用（用于编辑）
   private editTimers = new Map<string, ReturnType<typeof setTimeout>>(); // 流式编辑节流定时器
+  private streamBaseTexts = new Map<string, string>(); // 工具调用前已累积的文本（跨 turn 拼接）
   private pairingStore: PairingStore | null = null;
   private pairingGuard: PairingGuard | null = null;
 
@@ -63,13 +64,22 @@ export class DiscordPlatform extends PlatformAdapter {
 
     // 流式模式：缓存文本 + 定期编辑消息实时展示
     this.backend.on('assistant:content', (sid: string, content: Content) => {
-      const text = extractText(content.parts ?? []);
-      if (!text) return;
-      this.pendingTexts.set(sid, text);
+      const turnText = extractText(content.parts ?? []);
+      if (!turnText) return;
+
+      // 拼接工具调用前已累积的文本，防止跨 turn 覆盖
+      const base = this.streamBaseTexts.get(sid);
+      this.pendingTexts.set(sid, base ? `${base}\n\n${turnText}` : turnText);
 
       if (this.backend.isStreamEnabled()) {
         this.scheduleStreamEdit(sid);
       }
+    });
+
+    // 工具开始执行 → 当前 turn 文本已完整，保存为 base 供下个 turn 拼接
+    this.backend.on('tool:execute', (sid: string) => {
+      const text = this.pendingTexts.get(sid);
+      if (text) this.streamBaseTexts.set(sid, text);
     });
 
     this.backend.on('error', (sid: string, error: string) => {
@@ -81,6 +91,7 @@ export class DiscordPlatform extends PlatformAdapter {
 
     this.backend.on('done', (sid: string) => {
       this.stopTyping(sid);
+      this.streamBaseTexts.delete(sid);
       if (!this.backend.isStreamEnabled()) return;
 
       const text = this.pendingTexts.get(sid);
@@ -243,6 +254,7 @@ export class DiscordPlatform extends PlatformAdapter {
       this.editTimers.delete(sid);
     }
     this.streamMessages.delete(sid);
+    this.streamBaseTexts.delete(sid);
   }
 
   // ============ Discord 专属工具 ============

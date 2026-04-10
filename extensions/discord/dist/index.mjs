@@ -75296,6 +75296,7 @@ class DiscordPlatform extends PlatformAdapter {
   typingTimers = new Map;
   streamMessages = new Map;
   editTimers = new Map;
+  streamBaseTexts = new Map;
   pairingStore = null;
   pairingGuard = null;
   constructor(backend, config) {
@@ -75324,13 +75325,21 @@ class DiscordPlatform extends PlatformAdapter {
       this.sendToChannel(sid, text);
     });
     this.backend.on("assistant:content", (sid, content) => {
-      const text = extractText(content.parts ?? []);
-      if (!text)
+      const turnText = extractText(content.parts ?? []);
+      if (!turnText)
         return;
-      this.pendingTexts.set(sid, text);
+      const base = this.streamBaseTexts.get(sid);
+      this.pendingTexts.set(sid, base ? `${base}
+
+${turnText}` : turnText);
       if (this.backend.isStreamEnabled()) {
         this.scheduleStreamEdit(sid);
       }
+    });
+    this.backend.on("tool:execute", (sid) => {
+      const text = this.pendingTexts.get(sid);
+      if (text)
+        this.streamBaseTexts.set(sid, text);
     });
     this.backend.on("error", (sid, error) => {
       this.stopTyping(sid);
@@ -75340,6 +75349,7 @@ class DiscordPlatform extends PlatformAdapter {
     });
     this.backend.on("done", (sid) => {
       this.stopTyping(sid);
+      this.streamBaseTexts.delete(sid);
       if (!this.backend.isStreamEnabled())
         return;
       const text = this.pendingTexts.get(sid);
@@ -75459,6 +75469,7 @@ class DiscordPlatform extends PlatformAdapter {
       this.editTimers.delete(sid);
     }
     this.streamMessages.delete(sid);
+    this.streamBaseTexts.delete(sid);
   }
   createDiscordTools() {
     return [
