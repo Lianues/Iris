@@ -546,7 +546,7 @@ import React10 from "react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// extensions/console/node_modules/@irises/extension-sdk/dist/platform.js
+// extensions/console/node_modules/irises-extension-sdk/dist/platform.js
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -672,7 +672,7 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// extensions/console/node_modules/@irises/extension-sdk/dist/logger.js
+// extensions/console/node_modules/irises-extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -3369,7 +3369,7 @@ import { useMemo as useMemo3 } from "react";
 import * as fs2 from "fs";
 import * as path2 from "path";
 
-// extensions/console/node_modules/@irises/extension-sdk/dist/tool-utils.js
+// extensions/console/node_modules/irises-extension-sdk/dist/tool-utils.js
 import * as fs from "node:fs";
 import * as path from "node:path";
 function normalizeLineEndings(text) {
