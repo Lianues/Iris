@@ -15,7 +15,7 @@ import { parse as parseYAML } from 'yaml';
 import type { ModeRegistry } from '../modes/registry';
 import type { PromptAssembler } from '../prompt/assembler';
 import type { LLMRouter } from '../llm/router';
-import type { PluginContext, PluginHook, PluginLogger, ToolWrapper, IrisAPI, PluginEventBusLike, PluginManagerLike, ServiceRegistryLike, ConfigContributionRegistryLike } from '@irises/extension-sdk';
+import type { PluginContext, PluginHook, PluginLogger, ToolWrapper, IrisAPI, PluginEventBusLike, PluginManagerLike, ServiceRegistryLike, ConfigContributionRegistryLike, GlobalStoreLike } from '@irises/extension-sdk';
 import { createLogger } from '../logger';
 import type { PlatformAdapter } from '@irises/extension-sdk';
 
@@ -33,6 +33,7 @@ export class PluginContextImpl {
     private promptAssembler: PromptAssembler,
     private _serviceRegistry: ServiceRegistryLike,
     private _configContributions: ConfigContributionRegistryLike,
+    private _globalStore: GlobalStoreLike,
     private pluginConfig?: Record<string, unknown>,
     private extensionRootDir?: string,
     private configDir?: string,
@@ -186,6 +187,10 @@ export class PluginContextImpl {
 
   getConfigContributions(): ConfigContributionRegistryLike {
     return this._configContributions;
+  }
+
+  getGlobalStore(): GlobalStoreLike {
+    return this._globalStore;
   }
 
   // ---- 内部方法（供 PluginManager 使用） ----

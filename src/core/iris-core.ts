@@ -585,6 +585,7 @@ export class IrisCore {
       eventBus,
       services: pluginManager.getServiceRegistry(),
       configContributions: pluginManager.getConfigContributionRegistry(),
+      globalStore: pluginManager.getGlobalStore(),
       taskBoard,
       // 多 Agent 配置分层重构：移除 __global__ fallback
       agentName: options.agentName ?? 'master',
@@ -635,6 +636,9 @@ export class IrisCore {
 
       if (pluginManager.size > 0) {
         backend.setPluginHooks(pluginManager.getHooks());
+        // 在 notifyReady 之前初始化 GlobalStore 持久化，
+        // 确保插件 onReady 回调执行时已能读取到磁盘上的已有变量。
+        pluginManager.getGlobalStore().initPersistence(agentPaths?.dataDir || globalDataDir);
         await pluginManager.notifyReady(irisAPI);
       }
 

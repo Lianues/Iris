@@ -23,6 +23,7 @@ import type {
 } from './types.js';
 import type { ServiceRegistryLike } from './service.js';
 import type { ConfigContributionRegistryLike } from './config-contribution.js';
+import type { GlobalStoreLike } from './global-store.js';
 
 export type ToolWrapper = (
   original: ToolHandler,
@@ -131,6 +132,8 @@ export interface PluginContext {
   getServiceRegistry(): ServiceRegistryLike;
   /** 获取配置贡献注册中心（统一配置 schema 注册与查询） */
   getConfigContributions(): ConfigContributionRegistryLike;
+  /** 获取全局键值存储（跨插件共享状态） */
+  getGlobalStore(): GlobalStoreLike;
 }
 
 export interface IrisPlugin {

@@ -6,3 +6,4 @@ export * from './api.js';
 export * from './context.js';
 export * from './service.js';
 export * from './config-contribution.js';
+export * from './global-store.js';

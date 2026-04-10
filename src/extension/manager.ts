@@ -26,6 +26,7 @@ import {
 import type { ResolvedLocalPlugin } from '@irises/extension-sdk';
 import { ServiceRegistry } from './service-registry';
 import { ConfigContributionRegistry } from './config-contribution-registry';
+import { GlobalStore } from './global-store';
 
 const logger = createLogger('PluginManager');
 
@@ -45,6 +46,7 @@ export class PluginManager {
   private prepared: PreparedPlugin[] = [];
   private _serviceRegistry = new ServiceRegistry();
   private _configContributions = new ConfigContributionRegistry();
+  private _globalStore = new GlobalStore();
 
   /** 在 notifyReady 中缓存 IrisAPI 引用，供 notifyPlatformsReady 使用 */
   private _api?: IrisAPI;
@@ -72,6 +74,9 @@ export class PluginManager {
 
   /** 获取配置贡献注册中心（供 bootstrap 构建 IrisAPI 使用） */
   getConfigContributionRegistry(): ConfigContributionRegistry { return this._configContributions; }
+
+  /** 获取全局键值存储（供 bootstrap 构建 IrisAPI 使用） */
+  getGlobalStore(): GlobalStore { return this._globalStore; }
 
   /**
    * 预加载所有配置中启用的插件。
@@ -385,6 +390,7 @@ export class PluginManager {
       internals.prompt,
       this._serviceRegistry,
       this._configContributions,
+      this._globalStore,
       prepared.pluginConfig,
       prepared.extensionRootDir,
       this._configDir,

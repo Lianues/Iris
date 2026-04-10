@@ -128,6 +128,7 @@ export type {
   DeleteCodeEntryLike,
   Disposable,
   ExtensionManagerLike,
+  GlobalStoreLike,
   InlinePluginEntry,
   InsertEntryLike,
   IrisAPI,
