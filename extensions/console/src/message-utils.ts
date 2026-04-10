@@ -46,6 +46,9 @@ export function mergeMessageParts(parts: MessagePart[]): MessagePart[] {
  * appendLeftover=false 时，多余的 invocations 被忽略（避免在流式阶段插入尚未定位的工具）。
  */
 export function applyToolInvocationsToParts(parts: MessagePart[], invocations: ToolInvocation[], appendLeftover = true): MessagePart[] {
+  // 终态状态集合 — 与 src/types/tool.ts 中的 TERMINAL_TOOL_STATUSES 保持一致
+  const isTerminal = (s: string) => s === 'success' || s === 'warning' || s === 'error';
+
   const nextParts: MessagePart[] = [];
   let cursor = 0;
   for (const part of parts) {
@@ -53,6 +56,14 @@ export function applyToolInvocationsToParts(parts: MessagePart[], invocations: T
       nextParts.push(part);
       continue;
     }
+    // 跳过所有工具都已处于终态的 tool_use part（来自前一轮 tool loop）。
+    // 防止游标式按位置映射将当前轮的 invocations 错误地填入前一轮已完成的槽位，
+    // 避免连续 sub_agent 调用时第二个被拼接显示到第一个里面。
+    if (part.tools.length > 0 && part.tools.every(t => isTerminal(t.status))) {
+      nextParts.push(part);
+      continue;
+    }
+
     const expectedCount = Math.max(1, part.tools.length);
     const assigned = invocations.slice(cursor, cursor + expectedCount);
     cursor += assigned.length;
