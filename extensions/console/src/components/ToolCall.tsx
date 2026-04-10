@@ -129,6 +129,13 @@ export function ToolCall({ invocation }: ToolCallProps) {
       {status === 'error' && error && (
         <text fg={C.error}><em>  {error}</em></text>
       )}
+      {invocation.children && invocation.children.length > 0 && (
+        <box flexDirection="column" paddingLeft={2}>
+          {invocation.children.map(child => (
+            <ToolCall key={child.id} invocation={child} />
+          ))}
+        </box>
+      )}
       {Renderer && result != null && (
         <box paddingLeft={2}>
           {Renderer({ toolName, args, result }) as React.ReactNode}

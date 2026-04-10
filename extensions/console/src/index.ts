@@ -322,7 +322,14 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       const refreshUI = () => {
         const invocations = Array.from(this._activeHandles.values())
           .filter((h: any) => this.currentToolIds.has(h.id))
-          .map((h: any) => h.getSnapshot());
+          .map((h: any) => {
+            const snapshot = h.getSnapshot();
+            const childHandles = h.getChildren?.() ?? [];
+            if (childHandles.length > 0) {
+              snapshot.children = childHandles.map((ch: any) => ch.getSnapshot());
+            }
+            return snapshot;
+          });
         this.appHandle?.setToolInvocations(invocations);
         this.refreshToolDetailIfNeeded();
       };
