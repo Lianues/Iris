@@ -50,19 +50,27 @@ export interface ScheduledJob {
   /** 紧急任务：可穿透安静时段 */
   urgent: boolean;
   /**
-   * 条件触发变量名（可选）。
-   * 指向 GlobalStore 中的一个 key，触发时读取其值：
-   * - truthy → 执行任务
-   * - falsy / undefined → 跳过本次执行
-   * 调用方可自行设定该变量的值来实现概率触发、好感度阈值等逻辑。
+   * 条件表达式（可选）。
+   * 使用 JS 表达式语法，每次触发时求值，结果为 truthy 才执行任务。
+   *
+   * 可用变量（自动从 GlobalStore 读取）：
+   *   agent.xxx   — agent 作用域变量（跨对话持久）
+   *   session.xxx — 当前会话变量
+   *   global.xxx  — 全局变量
+   *   vars.xxx    — agent 的简写（等同 agent.xxx）
+   *
+   * 内置函数：
+   *   random()  — 0-1 随机数
+   *   now()     — 当前时间戳（毫秒）
+   *   hour()    — 当前小时 (0-23)
+   *   day()     — 当前星期 (0=周日, 6=周六)
+   *
+   * 示例：
+   *   "agent.好感度 > 80 && random() < 0.5"
+   *   "vars.信任度 >= 60 || vars.好感度 >= 90"
+   *   "hour() >= 9 && hour() <= 22 && random() < 0.3"
    */
-  conditionKey?: string;
-  /**
-   * 触发概率（可选，0-1）。
-   * 每次触发时独立掷骰子，Math.random() < probability 时执行，否则跳过。
-   * 1 = 必定执行（默认），0.5 = 50%概率，0 = 永不执行。
-   */
-  probability?: number;
+  condition?: string;
   /** 是否启用 */
   enabled: boolean;
   /** 创建时间戳 */
@@ -90,8 +98,7 @@ export interface CreateJobParams {
   delivery?: Partial<DeliveryConfig>;
   silent?: boolean;
   urgent?: boolean;
-  conditionKey?: string;
-  probability?: number;
+  condition?: string;
   createdInSession: string;
 }
 
@@ -103,8 +110,7 @@ export interface UpdateJobParams {
   delivery?: Partial<DeliveryConfig>;
   silent?: boolean;
   urgent?: boolean;
-  conditionKey?: string;
-  probability?: number;
+  condition?: string;
 }
 
 // ============ 插件配置 ============

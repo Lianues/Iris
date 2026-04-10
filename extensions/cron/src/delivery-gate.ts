@@ -2,9 +2,9 @@
  * 投递策略判断模块
  *
  * 实现四层投递门控：
- * 1. 任务自身属性（enabled / silent 等）
+ * 1. 任务自身属性（enabled）
  * 2. 用户全局偏好（quietHours / skipIfRecentActivity）
- * 3. 条件变量检查（conditionKey → GlobalStore）
+ * 3. 条件表达式求值（condition → JS 表达式 + GlobalStore 变量）
  * 4. agent 自主判断（通过 silent 模式的 prompt 注入实现，不在此处理）
  */
 
@@ -15,12 +15,12 @@ import type {
   TimeWindow,
 } from './types.js';
 import type { GlobalStoreLike } from '@irises/extension-sdk';
+import { createPluginLogger } from '@irises/extension-sdk';
 
-/**
- * 解析 HH:MM 格式的时间字符串，返回今天对应的分钟数（0-1439）
- * @param time HH:MM 格式字符串
- * @returns 从 00:00 开始计算的分钟数
- */
+const logger = createPluginLogger('cron', 'condition');
+
+// ============ 时间工具 ============
+
 function parseTimeToMinutes(time: string): number {
   const parts = time.split(':');
   const hours = parseInt(parts[0], 10);
@@ -31,51 +31,25 @@ function parseTimeToMinutes(time: string): number {
   return hours * 60 + minutes;
 }
 
-/**
- * 判断当前时间是否在指定的时间窗口内
- * 正确处理跨午夜的情况（如 23:00 - 07:00）
- * @param now 当前时间
- * @param window 时间窗口
- * @returns 是否在窗口内
- */
 function isInTimeWindow(now: Date, window: TimeWindow): boolean {
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const startMinutes = parseTimeToMinutes(window.start);
   const endMinutes = parseTimeToMinutes(window.end);
-
   if (startMinutes <= endMinutes) {
-    // 不跨午夜：如 09:00 - 17:00
     return currentMinutes >= startMinutes && currentMinutes < endMinutes;
   } else {
-    // 跨午夜：如 23:00 - 07:00，即 23:00-23:59 或 00:00-06:59
     return currentMinutes >= startMinutes || currentMinutes < endMinutes;
   }
 }
 
-/**
- * 检查当前时间是否在安静时段内
- * @param config 调度器配置
- * @param now 当前时间（可注入，方便测试）
- * @returns 是否在安静时段
- */
 function isInQuietHours(config: SchedulerConfig, now: Date): boolean {
   if (!config.quietHours.enabled) return false;
   for (const window of config.quietHours.windows) {
-    if (isInTimeWindow(now, window)) {
-      return true;
-    }
+    if (isInTimeWindow(now, window)) return true;
   }
   return false;
 }
 
-/**
- * 检查目标会话是否有近期活动
- * @param config 调度器配置
- * @param sessionId 目标会话 ID
- * @param lastActivityMap 会话最后活跃时间映射
- * @param now 当前时间戳
- * @returns 是否有近期活动
- */
 function hasRecentActivity(
   config: SchedulerConfig,
   sessionId: string,
@@ -89,6 +63,74 @@ function hasRecentActivity(
   return (now - lastActivity) < thresholdMs;
 }
 
+// ============ 条件表达式求值 ============
+
+/**
+ * 求值条件表达式。
+ *
+ * 为表达式注入以下上下文变量：
+ *   agent   / vars  — agent 作用域变量（跨对话持久）
+ *   session         — 当前会话变量
+ *   global          — 全局变量（非作用域前缀）
+ *   random()        — 0-1 随机数
+ *   now()           — 当前时间戳（毫秒）
+ *   hour()          — 当前小时 (0-23)
+ *   day()           — 当前星期 (0=周日, 6=周六)
+ *   Math / Date     — 标准库
+ *
+ * @returns 求值结果：{ pass: boolean, detail: string }
+ */
+function evaluateCondition(
+  expression: string,
+  globalStore: GlobalStoreLike,
+  agentName: string,
+  sessionId?: string,
+): { pass: boolean; detail: string } {
+  // 构建各作用域的变量快照
+  const agentVars = globalStore.agent(agentName).getAll();
+  const sessionVars = sessionId
+    ? globalStore.session(sessionId).getAll()
+    : {};
+  // 全局变量：只取不带作用域前缀的 key
+  const globalVars: Record<string, unknown> = {};
+  for (const key of globalStore.keys()) {
+    if (!key.startsWith('@')) {
+      globalVars[key] = globalStore.get(key);
+    }
+  }
+
+  try {
+    // 用 new Function 构建沙箱表达式求值器
+    const fn = new Function(
+      'agent', 'session', 'global', 'vars',
+      'random', 'now', 'hour', 'day',
+      'Math', 'Date',
+      `"use strict"; return (${expression})`,
+    );
+
+    const result = fn(
+      agentVars,
+      sessionVars,
+      globalVars,
+      agentVars, // vars = agent 的简写
+      () => Math.random(),
+      () => Date.now(),
+      () => new Date().getHours(),
+      () => new Date().getDay(),
+      Math,
+      Date,
+    );
+
+    return { pass: !!result, detail: `表达式求值结果: ${result}` };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`条件表达式求值失败: "${expression}", error: ${msg}`);
+    return { pass: false, detail: `表达式错误: ${msg}` };
+  }
+}
+
+// ============ 主入口 ============
+
 /**
  * 主入口：判断是否应该跳过本次任务投递
  *
@@ -96,20 +138,16 @@ function hasRecentActivity(
  * 1. 任务未启用 → 跳过
  * 2. 安静时段检查（urgent 可穿透）
  * 3. 近期活跃检查
- * 4. 条件变量检查（conditionKey → GlobalStore）
- *
- * @param job 待投递的任务
- * @param config 调度器配置
- * @param lastActivityMap 会话最后活跃时间映射
- * @param globalStore 全局变量存储（可选，用于 conditionKey 检查）
- * @param now 当前时间（可注入，方便测试）
- * @returns 投递判断结果
+ * 4. 条件表达式求值（condition → JS 表达式）
  */
 export function shouldSkip(
   job: ScheduledJob,
   config: SchedulerConfig,
   lastActivityMap: Map<string, number>,
-  globalStore?: GlobalStoreLike,
+  context?: {
+    globalStore?: GlobalStoreLike;
+    agentName?: string;
+  },
   now?: Date,
 ): DeliveryDecision {
   const currentDate = now ?? new Date();
@@ -122,9 +160,8 @@ export function shouldSkip(
 
   // 第二层：安静时段检查
   if (isInQuietHours(config, currentDate)) {
-    // urgent 任务可以穿透安静时段
     if (job.urgent && config.quietHours.allowUrgent) {
-      // 紧急任务允许穿透，不跳过
+      // 紧急任务允许穿透
     } else {
       return {
         skip: true,
@@ -133,7 +170,7 @@ export function shouldSkip(
     }
   }
 
-  // 第三层（用户全局偏好）：近期活跃检查
+  // 第三层：近期活跃检查
   const targetSessionId = job.delivery.sessionId ?? job.sessionId;
   if (hasRecentActivity(config, targetSessionId, lastActivityMap, currentTimestamp)) {
     return {
@@ -142,28 +179,22 @@ export function shouldSkip(
     };
   }
 
-  // 第四层：条件变量检查
-  if (job.conditionKey && globalStore) {
-    const conditionValue = globalStore.get(job.conditionKey);
-    if (!conditionValue) {
+  // 第四层：条件表达式求值
+  if (job.condition && context?.globalStore) {
+    const { pass, detail } = evaluateCondition(
+      job.condition,
+      context.globalStore,
+      context.agentName ?? 'master',
+      targetSessionId,
+    );
+    if (!pass) {
       return {
         skip: true,
-        reason: `条件变量 "${job.conditionKey}" 为 ${conditionValue === undefined ? '未定义' : String(conditionValue)}，跳过任务 "${job.name}"`,
+        reason: `条件未满足: "${job.condition}" — ${detail}，跳过任务 "${job.name}"`,
       };
     }
   }
 
-  // 第五层：概率检查
-  if (job.probability !== undefined && job.probability < 1) {
-    const roll = Math.random();
-    if (roll >= job.probability) {
-      return {
-        skip: true,
-        reason: `概率未命中 (${(job.probability * 100).toFixed(0)}%, roll=${(roll * 100).toFixed(1)}%)，跳过任务 "${job.name}"`,
-      };
-    }
-  }
-
-  // 全部通过，允许投递
+  // 全部通过
   return { skip: false };
 }

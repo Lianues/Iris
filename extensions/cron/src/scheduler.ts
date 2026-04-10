@@ -302,8 +302,7 @@ export class CronScheduler {
       },
       silent: params.silent ?? false,
       urgent: params.urgent ?? false,
-      conditionKey: params.conditionKey,
-      probability: params.probability,
+      condition: params.condition,
       enabled: true,
       createdAt: Date.now(),
       createdInSession: params.createdInSession,
@@ -340,8 +339,7 @@ export class CronScheduler {
     }
     if (params.silent !== undefined) job.silent = params.silent;
     if (params.urgent !== undefined) job.urgent = params.urgent;
-    if (params.conditionKey !== undefined) job.conditionKey = params.conditionKey || undefined;
-    if (params.probability !== undefined) job.probability = params.probability;
+    if (params.condition !== undefined) job.condition = params.condition || undefined;
 
     // [Phase 3] 更新会改变后续调度/执行语义，因此先 kill 当前关联的 TaskBoard 任务，
     // 再按新配置重新注册，避免旧 executor 继续执行过期参数。
@@ -650,7 +648,10 @@ export class CronScheduler {
       return;
     }
 
-    const decision = shouldSkip(currentJob, this.config, this.lastActivityMap, this.api.globalStore);
+    const decision = shouldSkip(currentJob, this.config, this.lastActivityMap, {
+      globalStore: this.api.globalStore,
+      agentName: this.agentName,
+    });
     if (decision.skip) {
       currentJob.lastRunAt = Date.now();
       currentJob.lastRunStatus = 'skipped';

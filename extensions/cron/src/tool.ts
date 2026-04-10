@@ -183,19 +183,21 @@ export const manageScheduledTasksTool: ToolDefinition = {
           type: 'boolean',
           description: '是否为紧急任务（可穿透安静时段）',
         },
-        condition_key: {
+        condition: {
           type: 'string',
           description:
-            '条件触发变量名（可选）。指向 GlobalStore 中的一个 key，' +
-            '触发时读取其值——truthy 则执行，falsy 或未定义则跳过。\n' +
-            '调用方可通过 manage_variables 工具自行设定该变量的值，' +
-            '实现概率触发、好感度阈值等自定义条件逻辑。',
-        },
-        probability: {
-          type: 'number',
-          description:
-            '触发概率（可选，0-1）。每次触发时独立掷骰子，' +
-            '如 0.5 表示 50% 概率执行。不填则默认 100% 执行。',
+            '条件表达式（可选）。JS 语法，触发时求值，truthy 才执行。\n' +
+            '可用变量（从 GlobalStore 自动读取）：\n' +
+            '  agent.xxx / vars.xxx — agent 作用域（跨对话持久）\n' +
+            '  session.xxx — 当前会话变量\n' +
+            '  global.xxx — 全局变量\n' +
+            '内置函数：\n' +
+            '  random() — 0-1 随机数\n' +
+            '  now() — 时间戳(ms)  hour() — 当前小时  day() — 星期\n' +
+            '示例：\n' +
+            '  "agent.好感度 > 80 && random() < 0.5"\n' +
+            '  "vars.信任度 >= 60 || vars.好感度 >= 90"\n' +
+            '  "hour() >= 9 && hour() <= 22"',
         },
       },
       required: ['action'],
@@ -269,8 +271,7 @@ export const manageScheduledTasksTool: ToolDefinition = {
           },
           silent: (args.silent as boolean) ?? false,
           urgent: (args.urgent as boolean) ?? false,
-          conditionKey: args.condition_key as string | undefined,
-          probability: args.probability as number | undefined,
+          condition: args.condition as string | undefined,
           createdInSession: currentSessionId,
         };
 
@@ -286,8 +287,7 @@ export const manageScheduledTasksTool: ToolDefinition = {
             instruction: job.instruction,
             silent: job.silent,
             urgent: job.urgent,
-            conditionKey: job.conditionKey,
-            probability: job.probability,
+            condition: job.condition,
             enabled: job.enabled,
             createdAt: new Date(job.createdAt).toISOString(),
           },
@@ -308,8 +308,7 @@ export const manageScheduledTasksTool: ToolDefinition = {
           updateParams.instruction = args.instruction as string;
         if (args.silent !== undefined) updateParams.silent = args.silent as boolean;
         if (args.urgent !== undefined) updateParams.urgent = args.urgent as boolean;
-        if (args.condition_key !== undefined) updateParams.conditionKey = args.condition_key as string;
-        if (args.probability !== undefined) updateParams.probability = args.probability as number;
+        if (args.condition !== undefined) updateParams.condition = args.condition as string;
 
         // 如果同时提供了调度类型和值，则更新调度配置
         if (args.schedule_type && args.schedule_value) {
