@@ -39,6 +39,8 @@ export interface ToolInvocation {
   parentToolId?: string;
   /** 嵌套深度（顶层=0，子代理内部=1...） */
   depth?: number;
+  /** 子工具调用列表（运行时由平台层填充，sub_agent 等嵌套工具的内部调用） */
+  children?: ToolInvocation[];
 }
 
 /**

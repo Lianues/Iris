@@ -76,6 +76,12 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
       const first = patterns[0] ?? '';
       return first ? `"${first}"` : '';
     }
+    case 'sub_agent': {
+      const type = String(args.type || 'general-purpose');
+      const prompt = String(args.prompt || '');
+      const preview = prompt.length > 40 ? `${prompt.slice(0, 40)}${ICONS.ellipsis}` : prompt;
+      return type !== 'general-purpose' ? type : preview;
+    }
     default:
       return '';
   }
@@ -85,11 +91,18 @@ export function ToolCall({ invocation }: ToolCallProps) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
 
   // 通用进度字段（由 handler yield 的中间值填充，scheduler 推送到 ToolStateManager.progress）
-  // 各工具自行定义结构，如 sub_agent: { tokens: number, frame: number }
+  // 各工具自行定义结构，如 sub_agent: { tokens: number, frame: number, streamingText: string }
   const progress = invocation.progress as Record<string, unknown> | undefined;
   const progressTokens = typeof progress?.tokens === 'number' ? progress.tokens : undefined;
   const progressFrame = typeof progress?.frame === 'number' ? progress.frame : undefined;
   const hasProgress = progress != null;
+  // sub_agent 专用：实时状态行
+  //   childStatus  — 子代理内部正在执行的工具摘要（工具执行期间）
+  //   streamingText — 子代理 LLM 流式输出的最后一行（LLM 生成期间）
+  // childStatus 优先：工具正在跑时显示工具名，LLM 生成时显示文本预览
+  const childStatus = typeof progress?.childStatus === 'string' ? progress.childStatus : '';
+  const streamingText = typeof progress?.streamingText === 'string' ? progress.streamingText : '';
+  const subAgentStatusLine = childStatus || streamingText;
 
   const isFinal = TERMINAL_STATUSES.has(status);
   const isExecuting = status === 'executing';
@@ -128,6 +141,10 @@ export function ToolCall({ invocation }: ToolCallProps) {
       </box>
       {status === 'error' && error && (
         <text fg={C.error}><em>  {error}</em></text>
+      )}
+      {/* sub_agent 执行中：显示当前子工具 或 LLM 文本预览 */}
+      {isExecuting && toolName === 'sub_agent' && subAgentStatusLine.length > 0 && (
+        <text><span fg={C.dim}><em>  {subAgentStatusLine}</em></span></text>
       )}
       {invocation.children && invocation.children.length > 0 && (
         <box flexDirection="column" paddingLeft={2}>

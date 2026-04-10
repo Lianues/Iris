@@ -15,7 +15,8 @@
  */
 
 import { ToolDefinition } from '@/types';
-import type { Content, Part, LLMRequest, UsageMetadata, ToolExecutionContext } from '@/types';
+import type { Content, Part, LLMRequest, UsageMetadata, ToolExecutionContext, ToolStateChangeEvent } from '@/types';
+import { TERMINAL_TOOL_STATUSES } from '@/types';
 import { appendMergedPart } from '@/core/backend/stream';
 import type { ToolsConfig } from '@/config';
 import { LLMRouter } from '@/llm/router';
@@ -37,6 +38,43 @@ export {
 } from './types';
 
 const logger = createLogger('SubAgent');
+
+/**
+ * 从文本缓冲区提取最后一行非空文本作为状态预览。
+ * 用于在父工具卡片中显示子代理 LLM 正在生成的内容。
+ */
+function getLastLine(text: string, maxLen: number = 60): string {
+  if (!text) return '';
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return '';
+  const last = lines[lines.length - 1];
+  return last.length > maxLen ? last.slice(0, maxLen) + '...' : last;
+}
+
+/**
+ * 构建子工具的单行状态摘要，用于在父 sub_agent 工具卡片中显示。
+ * 格式：`toolName argHint`，例如 `read_file src/index.ts`、`shell "npm install..."`
+ */
+function buildChildToolSummary(toolName: string, args: Record<string, unknown>, maxLen: number = 50): string {
+  let hint = '';
+  if (toolName === 'shell' || toolName === 'bash') {
+    const cmd = String(args.command || '');
+    hint = cmd ? `"${cmd.slice(0, 40)}"` : '';
+  } else if (typeof args.query === 'string') {
+    hint = `"${args.query.slice(0, 30)}"`;
+  } else if (typeof args.path === 'string') {
+    hint = args.path;
+  } else if (Array.isArray(args.files) && args.files.length > 0) {
+    const first = args.files[0];
+    if (first && typeof first === 'object') {
+      hint = String((first as Record<string, unknown>).path || '');
+    }
+  } else if (typeof args.prompt === 'string') {
+    hint = args.prompt.slice(0, 30);
+  }
+  const full = hint ? `${toolName} ${hint}` : toolName;
+  return full.length > maxLen ? full.slice(0, maxLen) + '...' : full;
+}
 
 export interface SubAgentToolDeps {
   /** 动态获取 router（支持热重载后取到最新实例） */
@@ -119,7 +157,7 @@ function resolveInheritedToolsConfig(deps: SubAgentToolDeps): ToolsConfig {
 function createStreamingLLMCaller(
   deps: SubAgentToolDeps,
   typeConfig: SubAgentTypeConfig,
-  onChunk?: () => void,
+  onChunk?: (textDelta?: string) => void,
   onTokens?: (tokens: number) => void,
 ): LLMCaller {
   return async (request, modelName, signal) => {
@@ -129,18 +167,26 @@ function createStreamingLLMCaller(
       const parts: Part[] = [];
       let usageMetadata: UsageMetadata | undefined;
       for await (const chunk of router.chatStream(request, modelName, signal)) {
-        // chunk 心跳回调：驱动 spinner 动画（只有真正有数据流动时才触发）
-        onChunk?.();
+        // 提取当前 chunk 的文本增量，供 onChunk 回调传递给调用方
+        let textDelta: string | undefined;
         if (chunk.partsDelta && chunk.partsDelta.length > 0) {
           for (const part of chunk.partsDelta) {
+            if ('text' in part && typeof (part as any).text === 'string') {
+              textDelta = (textDelta || '') + (part as any).text;
+            }
             appendMergedPart(parts, part, Date.now());
           }
         } else {
-          if (chunk.textDelta) appendMergedPart(parts, { text: chunk.textDelta }, Date.now());
+          if (chunk.textDelta) {
+            textDelta = chunk.textDelta;
+            appendMergedPart(parts, { text: chunk.textDelta }, Date.now());
+          }
           if (chunk.functionCalls) {
             for (const fc of chunk.functionCalls) appendMergedPart(parts, fc, Date.now());
           }
         }
+        // chunk 心跳回调：驱动 spinner 动画 + 传递文本增量
+        onChunk?.(textDelta);
         if (chunk.usageMetadata) {
           usageMetadata = chunk.usageMetadata;
           // token 更新回调：实时推送 token 计数
@@ -331,6 +377,12 @@ ${typeDescriptions}
       return agentContext.run(syncLabel, async () => {
         let frame = 0;
         let tokens = 0;
+        // 跟踪子代理 LLM 的流式文本输出，用于在父工具卡片中展示实时预览。
+        // 保留最近 1000 字符，通过 progress.streamingText 推送给前端。
+        let textBuffer = '';
+        // 跟踪子代理内部最新正在执行的工具，通过 progress.childStatus 推送给前端。
+        // LLM 开始生成时自动清空（onChunk 带 textDelta 时），工具启动时填充。
+        let childStatus = '';
 
         const tc = typeConfig!;
         const subPrompt = new PromptAssembler();
@@ -349,6 +401,22 @@ ${typeDescriptions}
           });
         }
 
+        // 监听子工具状态变化，跟踪最新执行中的工具信息。
+        // 工具进入 executing 时记录其摘要，工具全部完成时清空。
+        const reportProgress = context?.reportProgress;
+        if (childToolState) {
+          childToolState.on('stateChange', (event: ToolStateChangeEvent) => {
+            const inv = event.invocation;
+            if (inv.status === 'executing' && event.previousStatus !== 'executing') {
+              childStatus = buildChildToolSummary(inv.toolName, inv.args);
+            } else if (TERMINAL_TOOL_STATUSES.has(inv.status)) {
+              // 当前工具完成，若没有其他活跃工具则清空
+              if (!childToolState.hasActive()) childStatus = '';
+            }
+            reportProgress?.({ tokens, frame, streamingText: getLastLine(textBuffer), childStatus });
+          });
+        }
+
         const loop = new ToolLoop(subTools, subPrompt, {
           maxRounds: tc.maxToolRounds,
           // [权限修复] 子代理需要继承完整 toolsConfig，而不是只有 permissions。
@@ -359,15 +427,20 @@ ${typeDescriptions}
           maxRetries: deps.maxRetries,
         }, childToolState);
 
-        // onChunk/onTokens 回调直接调用 reportProgress 推送进度，
-        // 与异步子代理调用 AgentTaskRegistry.emitChunkHeartbeat/updateTokens 的时机对齐。
-        const reportProgress = context?.reportProgress;
         const callLLM = createStreamingLLMCaller(
           deps, tc,
-          // TODO: createStreamingLLMCaller 的 onChunk 签名为 () => void，暂无法推送 LLM 对话内容到父 Handle 输出流。
-          // 后续可改为 (chunk?: string) => void 以支持 context.appendOutput({ type: 'chat', content: chunk })
-          () => { frame++; reportProgress?.({ tokens, frame }); },
-          (t) => { tokens = t; reportProgress?.({ tokens, frame }); },
+          // onChunk 回调：接收 LLM 文本增量，累积到 textBuffer 并推送进度。
+          // LLM 开始生成新文本时清空 childStatus，让 streamingText 取代显示。
+          (textDelta) => {
+            if (textDelta) {
+              textBuffer += textDelta;
+              if (textBuffer.length > 1000) textBuffer = textBuffer.slice(-1000);
+              childStatus = '';
+            }
+            frame++;
+            reportProgress?.({ tokens, frame, streamingText: getLastLine(textBuffer), childStatus });
+          },
+          (t) => { tokens = t; reportProgress?.({ tokens, frame, streamingText: getLastLine(textBuffer), childStatus }); },
         );
 
         const runResult = await loop.run(
