@@ -5,15 +5,10 @@
  * - activate: 注册工具、钩子、初始化调度器、注册 Web 路由和 Settings Tab
  * - deactivate: 停止调度器
  *
- * 配置来源（两层合并）：
- * - 用户配置目录的 cron.yaml（由 config-template.ts 模板首次释放）
- * - manifest.json 中 configFile 指向的 config.yaml（仓库附带的精简版）
+ * 配置来源：用户配置目录的 cron.yaml（由 config-template.ts 模板首次释放）
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
 import { definePlugin, createPluginLogger } from '@irises/extension-sdk';
-// [cron 重构] 删除 PluginEventBusLike import（不再使用 eventBus 广播）
 import type { PluginContext, IrisAPI } from '@irises/extension-sdk';
 import { CronScheduler } from './scheduler.js';
 import {
@@ -24,6 +19,7 @@ import {
 import type { SchedulerConfig, CronBackgroundConfig } from './types.js';
 import { DEFAULT_SCHEDULER_CONFIG, DEFAULT_BACKGROUND_CONFIG } from './types.js';
 import { buildDefaultConfigTemplate } from './config-template.js';
+
 
 const logger = createPluginLogger('cron');
 
@@ -43,10 +39,9 @@ export default definePlugin({
     // 1. 释放默认配置模板到用户配置目录（已存在则不覆盖）
     ctx.ensureConfigFile?.('cron.yaml', buildDefaultConfigTemplate());
 
-    // 2. 读取配置：用户配置目录 cron.yaml（优先） + 插件级 config.yaml（兜底）
+    // 2. 读取用户配置目录的 cron.yaml
     const rawSection = ctx.readConfigSection?.('cron') as Record<string, unknown> | undefined;
-    const pluginConfig = ctx.getPluginConfig<Record<string, unknown>>();
-    const mergedRaw = { ...pluginConfig, ...rawSection };
+    const mergedRaw = rawSection ?? {};
     const config = resolveConfig(mergedRaw);
     const bgConfig = resolveBackgroundConfig(mergedRaw?.backgroundExecution as Record<string, unknown> | undefined);
 
@@ -371,16 +366,7 @@ function registerSettingsTab(api: IrisAPI, ctx: PluginContext): void {
         // 热更新调度器内存中的配置
         schedulerInstance?.updateConfig(newConfig);
 
-        // 将配置写回 config.yaml 文件
-        const extRootDir = ctx.getExtensionRootDir();
-        if (extRootDir) {
-          const configPath = path.join(extRootDir, 'config.yaml');
-          const yaml = buildConfigYaml(newConfig);
-          fs.writeFileSync(configPath, yaml, 'utf-8');
-          logger.info('配置已写回 config.yaml');
-        }
-
-        return { success: true };
+        return { success: true, message: '配置已生效（如需持久化请编辑 cron.yaml）' };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error(`保存配置失败: ${msg}`);
@@ -453,44 +439,4 @@ function resolveBackgroundConfig(
       ? raw.retentionCount
       : DEFAULT_BACKGROUND_CONFIG.retentionCount,
   };
-}
-
-/**
- * 将 SchedulerConfig 序列化为 YAML 格式字符串
- * 手动拼接以避免引入外部 YAML 库。
- * @param config 调度器配置
- * @returns YAML 格式的配置字符串
- */
-function buildConfigYaml(config: SchedulerConfig): string {
-  const lines: string[] = [];
-
-  lines.push('# 定时任务调度插件配置');
-  lines.push('#');
-  lines.push('# 启用后，LLM 可通过 manage_scheduled_tasks 工具');
-  lines.push('# 创建、管理定时任务，实现自动化调度。');
-  lines.push('');
-  lines.push('# 是否启用调度器');
-  lines.push(`enabled: ${config.enabled}`);
-  lines.push('');
-  lines.push('# 安静时段配置');
-  lines.push('# 在安静时段内，非紧急任务将被跳过');
-  lines.push('quietHours:');
-  lines.push(`  enabled: ${config.quietHours.enabled}`);
-  lines.push('  windows:');
-  for (const w of config.quietHours.windows) {
-    lines.push(`    - start: "${w.start}"`);
-    lines.push(`      end: "${w.end}"`);
-  }
-  lines.push('  # 是否允许紧急任务穿透安静时段');
-  lines.push(`  allowUrgent: ${config.quietHours.allowUrgent}`);
-  lines.push('');
-  lines.push('# 跳过近期活跃会话');
-  lines.push('# 如果目标会话在指定分钟内有过活动，则跳过本次投递');
-  lines.push('skipIfRecentActivity:');
-  lines.push(`  enabled: ${config.skipIfRecentActivity.enabled}`);
-  lines.push(
-    `  withinMinutes: ${config.skipIfRecentActivity.withinMinutes}`,
-  );
-
-  return lines.join('\n') + '\n';
 }

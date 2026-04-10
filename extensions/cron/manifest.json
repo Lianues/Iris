@@ -3,12 +3,10 @@
   "version": "0.1.0",
   "description": "定时任务调度插件 — Cron / Interval / Once 三种调度模式",
   "plugin": {
-    "entry": "dist/index.mjs",
-    "configFile": "config.yaml"
+    "entry": "dist/index.mjs"
   },
   "distribution": {
     "files": [
-      "config.yaml",
       "dist/index.mjs",
       "package.json"
     ]
