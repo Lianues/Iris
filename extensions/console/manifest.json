@@ -13,7 +13,6 @@
   "distribution": {
     "files": [
       "dist/index.mjs",
-      "dist/index.mjs.map",
       "package.json"
     ]
   }

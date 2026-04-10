@@ -113,6 +113,23 @@ if (fs.existsSync(distBinDir)) {
 const opentuiVersion = pkg.optionalDependencies?.["@opentui/core"] ?? "latest"
 await $`bun install --os="*" --cpu="*" @opentui/core@${opentuiVersion}`
 
+// bun install 对 file: 依赖仅拷贝部分子目录，丢失 package.json、dist 根级 .js 等关键文件。
+// 修补：检测到残缺时用 cpSync 完整覆盖 node_modules 中的 @irises/extension-sdk。
+function patchExtensionSdkInNodeModules(nodeModulesDir: string): void {
+  const sdkSource = path.join(rootDir, "packages", "extension-sdk")
+  const sdkInstalled = path.join(nodeModulesDir, "@irises", "extension-sdk")
+  // 无条件覆盖：bun 的 .l2s 链接缓存可能基于残缺副本，仅检查单个文件不够可靠
+  if (fs.existsSync(sdkInstalled)) {
+    fs.rmSync(sdkInstalled, { recursive: true, force: true })
+    fs.cpSync(sdkSource, sdkInstalled, { recursive: true, dereference: true })
+    console.log(`✓ patched @irises/extension-sdk in ${path.relative(rootDir, nodeModulesDir)}`)
+  }
+}
+
+{
+  patchExtensionSdkInNodeModules(path.join(rootDir, "node_modules"))
+}
+
 await prepareOpenTuiRuntime(opentuiRuntimeStagingDir)
 console.log("✓ OpenTUI tree-sitter runtime prepared")
 
@@ -363,6 +380,13 @@ function copyDirectoryIfExists(sourceDir: string, targetDir: string, label: stri
 const embeddedExtensions = loadEmbeddedExtensionBuildTargets()
 const binaries: Record<string, string> = {}
 
+// 修补内嵌扩展 node_modules 中残缺的 @irises/extension-sdk
+{
+  for (const ext of embeddedExtensions) {
+    patchExtensionSdkInNodeModules(path.join(ext.sourceDir, "node_modules"))
+  }
+}
+
 await buildEmbeddedExtensions(embeddedExtensions)
 
 for (const target of targets) {
@@ -381,7 +405,7 @@ for (const target of targets) {
       outfile: `dist/bin/${dirName}/bin/iris`,
       target: compileTarget,
       define: {
-        IRIS_VERSION: `'${version}'`,
+        "globalThis.IRIS_VERSION": `'${version}'`,
       },
       external: ["chromium-bidi", "electron"],
     })
