@@ -720,13 +720,13 @@ var require_tslib = __commonJS((exports, module) => {
       }
       return next();
     };
-    __rewriteRelativeImportExtension = function(path, preserveJsx) {
-      if (typeof path === "string" && /^\.\.?\//.test(path)) {
-        return path.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function(m, tsx, d, ext, cm) {
+    __rewriteRelativeImportExtension = function(path3, preserveJsx) {
+      if (typeof path3 === "string" && /^\.\.?\//.test(path3)) {
+        return path3.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function(m, tsx, d, ext, cm) {
           return tsx ? preserveJsx ? ".jsx" : ".js" : d && (!ext || !cm) ? m : d + ext + "." + cm.toLowerCase() + "js";
         });
       }
-      return path;
+      return path3;
     };
     exporter("__extends", __extends);
     exporter("__assign", __assign);
@@ -1551,14 +1551,14 @@ var require_util = __commonJS((exports, module) => {
       }
       const port = url.port != null ? url.port : url.protocol === "https:" ? 443 : 80;
       let origin = url.origin != null ? url.origin : `${url.protocol || ""}//${url.hostname || ""}:${port}`;
-      let path = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
+      let path3 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
       if (origin[origin.length - 1] === "/") {
         origin = origin.slice(0, origin.length - 1);
       }
-      if (path && path[0] !== "/") {
-        path = `/${path}`;
+      if (path3 && path3[0] !== "/") {
+        path3 = `/${path3}`;
       }
-      return new URL(`${origin}${path}`);
+      return new URL(`${origin}${path3}`);
     }
     if (!isHttpOrHttpsPrefixed(url.origin || url.protocol)) {
       throw new InvalidArgumentError("Invalid URL protocol: the URL must start with `http:` or `https:`.");
@@ -1988,29 +1988,29 @@ var require_diagnostics = __commonJS((exports, module) => {
     });
     diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
       const {
-        request: { method, path, origin }
+        request: { method, path: path3, origin }
       } = evt;
-      debuglog("sending request to %s %s/%s", method, origin, path);
+      debuglog("sending request to %s %s/%s", method, origin, path3);
     });
     diagnosticsChannel.channel("undici:request:headers").subscribe((evt) => {
       const {
-        request: { method, path, origin },
+        request: { method, path: path3, origin },
         response: { statusCode }
       } = evt;
-      debuglog("received response to %s %s/%s - HTTP %d", method, origin, path, statusCode);
+      debuglog("received response to %s %s/%s - HTTP %d", method, origin, path3, statusCode);
     });
     diagnosticsChannel.channel("undici:request:trailers").subscribe((evt) => {
       const {
-        request: { method, path, origin }
+        request: { method, path: path3, origin }
       } = evt;
-      debuglog("trailers received from %s %s/%s", method, origin, path);
+      debuglog("trailers received from %s %s/%s", method, origin, path3);
     });
     diagnosticsChannel.channel("undici:request:error").subscribe((evt) => {
       const {
-        request: { method, path, origin },
+        request: { method, path: path3, origin },
         error
       } = evt;
-      debuglog("request to %s %s/%s errored - %s", method, origin, path, error.message);
+      debuglog("request to %s %s/%s errored - %s", method, origin, path3, error.message);
     });
     isClientSet = true;
   }
@@ -2038,9 +2038,9 @@ var require_diagnostics = __commonJS((exports, module) => {
       });
       diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
         const {
-          request: { method, path, origin }
+          request: { method, path: path3, origin }
         } = evt;
-        debuglog("sending request to %s %s/%s", method, origin, path);
+        debuglog("sending request to %s %s/%s", method, origin, path3);
       });
     }
     diagnosticsChannel.channel("undici:websocket:open").subscribe((evt) => {
@@ -2096,7 +2096,7 @@ var require_request = __commonJS((exports, module) => {
 
   class Request {
     constructor(origin, {
-      path,
+      path: path3,
       method,
       body,
       headers,
@@ -2111,11 +2111,11 @@ var require_request = __commonJS((exports, module) => {
       expectContinue,
       servername
     }, handler) {
-      if (typeof path !== "string") {
+      if (typeof path3 !== "string") {
         throw new InvalidArgumentError("path must be a string");
-      } else if (path[0] !== "/" && !(path.startsWith("http://") || path.startsWith("https://")) && method !== "CONNECT") {
+      } else if (path3[0] !== "/" && !(path3.startsWith("http://") || path3.startsWith("https://")) && method !== "CONNECT") {
         throw new InvalidArgumentError("path must be an absolute URL or start with a slash");
-      } else if (invalidPathRegex.test(path)) {
+      } else if (invalidPathRegex.test(path3)) {
         throw new InvalidArgumentError("invalid request path");
       }
       if (typeof method !== "string") {
@@ -2181,7 +2181,7 @@ var require_request = __commonJS((exports, module) => {
       this.completed = false;
       this.aborted = false;
       this.upgrade = upgrade || null;
-      this.path = query ? buildURL(path, query) : path;
+      this.path = query ? buildURL(path3, query) : path3;
       this.origin = origin;
       this.idempotent = idempotent == null ? method === "HEAD" || method === "GET" : idempotent;
       this.blocking = blocking == null ? false : blocking;
@@ -6343,7 +6343,7 @@ var require_client_h1 = __commonJS((exports, module) => {
     return method !== "GET" && method !== "HEAD" && method !== "OPTIONS" && method !== "TRACE" && method !== "CONNECT";
   }
   function writeH1(client, request) {
-    const { method, path, host, upgrade, blocking, reset } = request;
+    const { method, path: path3, host, upgrade, blocking, reset } = request;
     let { body, headers, contentLength } = request;
     const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH" || method === "QUERY" || method === "PROPFIND" || method === "PROPPATCH";
     if (util.isFormDataLike(body)) {
@@ -6409,7 +6409,7 @@ var require_client_h1 = __commonJS((exports, module) => {
     if (blocking) {
       socket[kBlocking] = true;
     }
-    let header = `${method} ${path} HTTP/1.1\r
+    let header = `${method} ${path3} HTTP/1.1\r
 `;
     if (typeof host === "string") {
       header += `host: ${host}\r
@@ -6938,7 +6938,7 @@ var require_client_h2 = __commonJS((exports, module) => {
   }
   function writeH2(client, request) {
     const session = client[kHTTP2Session];
-    const { method, path, host, upgrade, expectContinue, signal, headers: reqHeaders } = request;
+    const { method, path: path3, host, upgrade, expectContinue, signal, headers: reqHeaders } = request;
     let { body } = request;
     if (upgrade) {
       util.errorRequest(client, request, new Error("Upgrade not supported for H2"));
@@ -7006,7 +7006,7 @@ var require_client_h2 = __commonJS((exports, module) => {
       });
       return true;
     }
-    headers[HTTP2_HEADER_PATH] = path;
+    headers[HTTP2_HEADER_PATH] = path3;
     headers[HTTP2_HEADER_SCHEME] = "https";
     const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH";
     if (body && typeof body.read === "function") {
@@ -7300,9 +7300,9 @@ var require_redirect_handler = __commonJS((exports, module) => {
         return this.handler.onHeaders(statusCode, headers, resume, statusText);
       }
       const { origin, pathname, search } = util.parseURL(new URL(this.location, this.opts.origin && new URL(this.opts.path, this.opts.origin)));
-      const path = search ? `${pathname}${search}` : pathname;
+      const path3 = search ? `${pathname}${search}` : pathname;
       this.opts.headers = cleanRequestHeaders(this.opts.headers, statusCode === 303, this.opts.origin !== origin);
-      this.opts.path = path;
+      this.opts.path = path3;
       this.opts.origin = origin;
       this.opts.maxRedirections = 0;
       this.opts.query = null;
@@ -8507,10 +8507,10 @@ var require_proxy_agent = __commonJS((exports, module) => {
       };
       const {
         origin,
-        path = "/",
+        path: path3 = "/",
         headers = {}
       } = opts;
-      opts.path = origin + path;
+      opts.path = origin + path3;
       if (!("host" in headers) && !("Host" in headers)) {
         const { host } = new URL2(origin);
         headers.host = host;
@@ -10333,20 +10333,20 @@ var require_mock_utils = __commonJS((exports, module) => {
     }
     return true;
   }
-  function safeUrl(path) {
-    if (typeof path !== "string") {
-      return path;
+  function safeUrl(path3) {
+    if (typeof path3 !== "string") {
+      return path3;
     }
-    const pathSegments = path.split("?");
+    const pathSegments = path3.split("?");
     if (pathSegments.length !== 2) {
-      return path;
+      return path3;
     }
     const qp = new URLSearchParams(pathSegments.pop());
     qp.sort();
     return [...pathSegments, qp.toString()].join("?");
   }
-  function matchKey(mockDispatch2, { path, method, body, headers }) {
-    const pathMatch = matchValue(mockDispatch2.path, path);
+  function matchKey(mockDispatch2, { path: path3, method, body, headers }) {
+    const pathMatch = matchValue(mockDispatch2.path, path3);
     const methodMatch = matchValue(mockDispatch2.method, method);
     const bodyMatch = typeof mockDispatch2.body !== "undefined" ? matchValue(mockDispatch2.body, body) : true;
     const headersMatch = matchHeaders(mockDispatch2, headers);
@@ -10368,7 +10368,7 @@ var require_mock_utils = __commonJS((exports, module) => {
   function getMockDispatch(mockDispatches, key) {
     const basePath = key.query ? buildURL(key.path, key.query) : key.path;
     const resolvedPath = typeof basePath === "string" ? safeUrl(basePath) : basePath;
-    let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path }) => matchValue(safeUrl(path), resolvedPath));
+    let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path3 }) => matchValue(safeUrl(path3), resolvedPath));
     if (matchedMockDispatches.length === 0) {
       throw new MockNotMatchedError(`Mock dispatch not matched for path '${resolvedPath}'`);
     }
@@ -10406,9 +10406,9 @@ var require_mock_utils = __commonJS((exports, module) => {
     }
   }
   function buildKey(opts) {
-    const { path, method, body, headers, query } = opts;
+    const { path: path3, method, body, headers, query } = opts;
     return {
-      path,
+      path: path3,
       method,
       body,
       headers,
@@ -10828,10 +10828,10 @@ var require_pending_interceptors_formatter = __commonJS((exports, module) => {
       });
     }
     format(pendingInterceptors) {
-      const withPrettyHeaders = pendingInterceptors.map(({ method, path, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
+      const withPrettyHeaders = pendingInterceptors.map(({ method, path: path3, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
         Method: method,
         Origin: origin,
-        Path: path,
+        Path: path3,
         "Status code": statusCode,
         Persistent: persist ? PERSISTENT : NOT_PERSISTENT,
         Invocations: timesInvoked,
@@ -15257,9 +15257,9 @@ var require_util6 = __commonJS((exports, module) => {
       }
     }
   }
-  function validateCookiePath(path) {
-    for (let i = 0;i < path.length; ++i) {
-      const code = path.charCodeAt(i);
+  function validateCookiePath(path3) {
+    for (let i = 0;i < path3.length; ++i) {
+      const code = path3.charCodeAt(i);
       if (code < 32 || code === 127 || code === 59) {
         throw new Error("Invalid cookie path");
       }
@@ -17676,11 +17676,11 @@ var require_undici = __commonJS((exports, module) => {
         if (typeof opts.path !== "string") {
           throw new InvalidArgumentError("invalid opts.path");
         }
-        let path = opts.path;
+        let path3 = opts.path;
         if (!opts.path.startsWith("/")) {
-          path = `/${path}`;
+          path3 = `/${path3}`;
         }
-        url = new URL(util.parseOrigin(url).origin + path);
+        url = new URL(util.parseOrigin(url).origin + path3);
       } else {
         if (!opts) {
           opts = typeof url === "object" ? url : {};
@@ -23782,13 +23782,13 @@ var require_tree2 = __commonJS((exports) => {
     mime: leaf.info.mime,
     extension: leaf.info.extension
   });
-  var isLeafNode = (tree, path) => tree && path.length === 0;
+  var isLeafNode = (tree, path3) => tree && path3.length === 0;
   var merge = (node, tree) => {
     if (node.bytes.length === 0)
       return tree;
-    const [currentByte, ...path] = node.bytes;
+    const [currentByte, ...path3] = node.bytes;
     const currentTree = tree.bytes[currentByte];
-    if (isLeafNode(currentTree, path)) {
+    if (isLeafNode(currentTree, path3)) {
       const matchingNode = tree.bytes[currentByte];
       tree.bytes[currentByte] = {
         ...matchingNode,
@@ -23800,9 +23800,9 @@ var require_tree2 = __commonJS((exports) => {
       return tree;
     }
     if (tree.bytes[currentByte]) {
-      tree.bytes[currentByte] = exports.merge(exports.createNode(node.typename, path, node.info), tree.bytes[currentByte]);
+      tree.bytes[currentByte] = exports.merge(exports.createNode(node.typename, path3, node.info), tree.bytes[currentByte]);
     } else {
-      tree.bytes[currentByte] = exports.createComplexNode(node.typename, path, node.info);
+      tree.bytes[currentByte] = exports.createComplexNode(node.typename, path3, node.info);
     }
     return tree;
   };
@@ -23816,7 +23816,7 @@ var require_tree2 = __commonJS((exports) => {
       bytes: {},
       matches: undefined
     };
-    const [currentKey, ...path] = bytes;
+    const [currentKey, ...path3] = bytes;
     if (bytes.length === 0) {
       return {
         matches: [
@@ -23828,7 +23828,7 @@ var require_tree2 = __commonJS((exports) => {
         bytes: {}
       };
     }
-    obj.bytes[currentKey] = exports.createComplexNode(typename, path, info);
+    obj.bytes[currentKey] = exports.createComplexNode(typename, path3, info);
     return obj;
   };
   exports.createComplexNode = createComplexNode;
@@ -27891,14 +27891,14 @@ var require_util9 = __commonJS((exports, module) => {
       }
       const port = url.port != null ? url.port : url.protocol === "https:" ? 443 : 80;
       let origin = url.origin != null ? url.origin : `${url.protocol || ""}//${url.hostname || ""}:${port}`;
-      let path = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
+      let path3 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
       if (origin[origin.length - 1] === "/") {
         origin = origin.slice(0, origin.length - 1);
       }
-      if (path && path[0] !== "/") {
-        path = `/${path}`;
+      if (path3 && path3[0] !== "/") {
+        path3 = `/${path3}`;
       }
-      return new URL(`${origin}${path}`);
+      return new URL(`${origin}${path3}`);
     }
     if (!isHttpOrHttpsPrefixed(url.origin || url.protocol)) {
       throw new InvalidArgumentError("Invalid URL protocol: the URL must start with `http:` or `https:`.");
@@ -28328,29 +28328,29 @@ var require_diagnostics2 = __commonJS((exports, module) => {
     });
     diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
       const {
-        request: { method, path, origin }
+        request: { method, path: path3, origin }
       } = evt;
-      debuglog("sending request to %s %s/%s", method, origin, path);
+      debuglog("sending request to %s %s/%s", method, origin, path3);
     });
     diagnosticsChannel.channel("undici:request:headers").subscribe((evt) => {
       const {
-        request: { method, path, origin },
+        request: { method, path: path3, origin },
         response: { statusCode }
       } = evt;
-      debuglog("received response to %s %s/%s - HTTP %d", method, origin, path, statusCode);
+      debuglog("received response to %s %s/%s - HTTP %d", method, origin, path3, statusCode);
     });
     diagnosticsChannel.channel("undici:request:trailers").subscribe((evt) => {
       const {
-        request: { method, path, origin }
+        request: { method, path: path3, origin }
       } = evt;
-      debuglog("trailers received from %s %s/%s", method, origin, path);
+      debuglog("trailers received from %s %s/%s", method, origin, path3);
     });
     diagnosticsChannel.channel("undici:request:error").subscribe((evt) => {
       const {
-        request: { method, path, origin },
+        request: { method, path: path3, origin },
         error
       } = evt;
-      debuglog("request to %s %s/%s errored - %s", method, origin, path, error.message);
+      debuglog("request to %s %s/%s errored - %s", method, origin, path3, error.message);
     });
     isClientSet = true;
   }
@@ -28378,9 +28378,9 @@ var require_diagnostics2 = __commonJS((exports, module) => {
       });
       diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
         const {
-          request: { method, path, origin }
+          request: { method, path: path3, origin }
         } = evt;
-        debuglog("sending request to %s %s/%s", method, origin, path);
+        debuglog("sending request to %s %s/%s", method, origin, path3);
       });
     }
     diagnosticsChannel.channel("undici:websocket:open").subscribe((evt) => {
@@ -28436,7 +28436,7 @@ var require_request3 = __commonJS((exports, module) => {
 
   class Request {
     constructor(origin, {
-      path,
+      path: path3,
       method,
       body,
       headers,
@@ -28451,11 +28451,11 @@ var require_request3 = __commonJS((exports, module) => {
       expectContinue,
       servername
     }, handler) {
-      if (typeof path !== "string") {
+      if (typeof path3 !== "string") {
         throw new InvalidArgumentError("path must be a string");
-      } else if (path[0] !== "/" && !(path.startsWith("http://") || path.startsWith("https://")) && method !== "CONNECT") {
+      } else if (path3[0] !== "/" && !(path3.startsWith("http://") || path3.startsWith("https://")) && method !== "CONNECT") {
         throw new InvalidArgumentError("path must be an absolute URL or start with a slash");
-      } else if (invalidPathRegex.test(path)) {
+      } else if (invalidPathRegex.test(path3)) {
         throw new InvalidArgumentError("invalid request path");
       }
       if (typeof method !== "string") {
@@ -28518,7 +28518,7 @@ var require_request3 = __commonJS((exports, module) => {
       this.completed = false;
       this.aborted = false;
       this.upgrade = upgrade || null;
-      this.path = query ? buildURL(path, query) : path;
+      this.path = query ? buildURL(path3, query) : path3;
       this.origin = origin;
       this.idempotent = idempotent == null ? method === "HEAD" || method === "GET" : idempotent;
       this.blocking = blocking == null ? false : blocking;
@@ -32677,7 +32677,7 @@ var require_client_h12 = __commonJS((exports, module) => {
     return method !== "GET" && method !== "HEAD" && method !== "OPTIONS" && method !== "TRACE" && method !== "CONNECT";
   }
   function writeH1(client, request) {
-    const { method, path, host, upgrade, blocking, reset } = request;
+    const { method, path: path3, host, upgrade, blocking, reset } = request;
     let { body, headers, contentLength } = request;
     const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH" || method === "QUERY" || method === "PROPFIND" || method === "PROPPATCH";
     if (util.isFormDataLike(body)) {
@@ -32743,7 +32743,7 @@ var require_client_h12 = __commonJS((exports, module) => {
     if (blocking) {
       socket[kBlocking] = true;
     }
-    let header = `${method} ${path} HTTP/1.1\r
+    let header = `${method} ${path3} HTTP/1.1\r
 `;
     if (typeof host === "string") {
       header += `host: ${host}\r
@@ -33272,7 +33272,7 @@ var require_client_h22 = __commonJS((exports, module) => {
   }
   function writeH2(client, request) {
     const session = client[kHTTP2Session];
-    const { method, path, host, upgrade, expectContinue, signal, headers: reqHeaders } = request;
+    const { method, path: path3, host, upgrade, expectContinue, signal, headers: reqHeaders } = request;
     let { body } = request;
     if (upgrade) {
       util.errorRequest(client, request, new Error("Upgrade not supported for H2"));
@@ -33340,7 +33340,7 @@ var require_client_h22 = __commonJS((exports, module) => {
       });
       return true;
     }
-    headers[HTTP2_HEADER_PATH] = path;
+    headers[HTTP2_HEADER_PATH] = path3;
     headers[HTTP2_HEADER_SCHEME] = "https";
     const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH";
     if (body && typeof body.read === "function") {
@@ -33634,9 +33634,9 @@ var require_redirect_handler2 = __commonJS((exports, module) => {
         return this.handler.onHeaders(statusCode, headers, resume, statusText);
       }
       const { origin, pathname, search } = util.parseURL(new URL(this.location, this.opts.origin && new URL(this.opts.path, this.opts.origin)));
-      const path = search ? `${pathname}${search}` : pathname;
+      const path3 = search ? `${pathname}${search}` : pathname;
       this.opts.headers = cleanRequestHeaders(this.opts.headers, statusCode === 303, this.opts.origin !== origin);
-      this.opts.path = path;
+      this.opts.path = path3;
       this.opts.origin = origin;
       this.opts.maxRedirections = 0;
       this.opts.query = null;
@@ -36592,20 +36592,20 @@ var require_mock_utils2 = __commonJS((exports, module) => {
     }
     return true;
   }
-  function safeUrl(path) {
-    if (typeof path !== "string") {
-      return path;
+  function safeUrl(path3) {
+    if (typeof path3 !== "string") {
+      return path3;
     }
-    const pathSegments = path.split("?");
+    const pathSegments = path3.split("?");
     if (pathSegments.length !== 2) {
-      return path;
+      return path3;
     }
     const qp = new URLSearchParams(pathSegments.pop());
     qp.sort();
     return [...pathSegments, qp.toString()].join("?");
   }
-  function matchKey(mockDispatch2, { path, method, body, headers }) {
-    const pathMatch = matchValue(mockDispatch2.path, path);
+  function matchKey(mockDispatch2, { path: path3, method, body, headers }) {
+    const pathMatch = matchValue(mockDispatch2.path, path3);
     const methodMatch = matchValue(mockDispatch2.method, method);
     const bodyMatch = typeof mockDispatch2.body !== "undefined" ? matchValue(mockDispatch2.body, body) : true;
     const headersMatch = matchHeaders(mockDispatch2, headers);
@@ -36627,7 +36627,7 @@ var require_mock_utils2 = __commonJS((exports, module) => {
   function getMockDispatch(mockDispatches, key) {
     const basePath = key.query ? buildURL(key.path, key.query) : key.path;
     const resolvedPath = typeof basePath === "string" ? safeUrl(basePath) : basePath;
-    let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path }) => matchValue(safeUrl(path), resolvedPath));
+    let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path3 }) => matchValue(safeUrl(path3), resolvedPath));
     if (matchedMockDispatches.length === 0) {
       throw new MockNotMatchedError(`Mock dispatch not matched for path '${resolvedPath}'`);
     }
@@ -36665,9 +36665,9 @@ var require_mock_utils2 = __commonJS((exports, module) => {
     }
   }
   function buildKey(opts) {
-    const { path, method, body, headers, query } = opts;
+    const { path: path3, method, body, headers, query } = opts;
     return {
-      path,
+      path: path3,
       method,
       body,
       headers,
@@ -37087,10 +37087,10 @@ var require_pending_interceptors_formatter2 = __commonJS((exports, module) => {
       });
     }
     format(pendingInterceptors) {
-      const withPrettyHeaders = pendingInterceptors.map(({ method, path, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
+      const withPrettyHeaders = pendingInterceptors.map(({ method, path: path3, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
         Method: method,
         Origin: origin,
-        Path: path,
+        Path: path3,
         "Status code": statusCode,
         Persistent: persist ? PERSISTENT : NOT_PERSISTENT,
         Invocations: timesInvoked,
@@ -41511,9 +41511,9 @@ var require_util14 = __commonJS((exports, module) => {
       }
     }
   }
-  function validateCookiePath(path) {
-    for (let i = 0;i < path.length; ++i) {
-      const code = path.charCodeAt(i);
+  function validateCookiePath(path3) {
+    for (let i = 0;i < path3.length; ++i) {
+      const code = path3.charCodeAt(i);
       if (code < 32 || code === 127 || code === 59) {
         throw new Error("Invalid cookie path");
       }
@@ -43893,11 +43893,11 @@ var require_undici2 = __commonJS((exports, module) => {
         if (typeof opts.path !== "string") {
           throw new InvalidArgumentError("invalid opts.path");
         }
-        let path = opts.path;
+        let path3 = opts.path;
         if (!opts.path.startsWith("/")) {
-          path = `/${path}`;
+          path3 = `/${path3}`;
         }
-        url = new URL(util.parseOrigin(url).origin + path);
+        url = new URL(util.parseOrigin(url).origin + path3);
       } else {
         if (!opts) {
           opts = typeof url === "object" ? url : {};
@@ -45758,8 +45758,8 @@ var require_Util = __commonJS((exports, module) => {
     await client.rest.patch(route, { body: updatedItems, reason });
     return updatedItems;
   }
-  function basename(path, ext) {
-    const res = parse(path);
+  function basename(path3, ext) {
+    const res = parse(path3);
     return ext && res.ext.startsWith(ext) ? res.name : res.base.split("?")[0];
   }
   function cleanContent(str, channel) {
@@ -47567,8 +47567,8 @@ var require_GuildTemplate = __commonJS((exports, module) => {
 // node_modules/discord.js/src/util/DataResolver.js
 var require_DataResolver = __commonJS((exports, module) => {
   var { Buffer: Buffer2 } = __require("node:buffer");
-  var fs = __require("node:fs/promises");
-  var path = __require("node:path");
+  var fs2 = __require("node:fs/promises");
+  var path3 = __require("node:path");
   var { fetch: fetch2 } = require_undici2();
   var { DiscordjsError, DiscordjsTypeError, ErrorCodes } = require_errors2();
   var Invite = require_Invite();
@@ -47596,11 +47596,11 @@ var require_DataResolver = __commonJS((exports, module) => {
         const res = await fetch2(resource);
         return { data: Buffer2.from(await res.arrayBuffer()), contentType: res.headers.get("content-type") };
       }
-      const file = path.resolve(resource);
-      const stats = await fs.stat(file);
+      const file = path3.resolve(resource);
+      const stats = await fs2.stat(file);
       if (!stats.isFile())
         throw new DiscordjsError(ErrorCodes.FileNotFound, file);
-      return { data: await fs.readFile(file) };
+      return { data: await fs2.readFile(file) };
     }
     throw new DiscordjsTypeError(ErrorCodes.ReqResourceType);
   }
@@ -49659,11 +49659,11 @@ var require__toKey = __commonJS((exports, module) => {
 var require__baseGet = __commonJS((exports, module) => {
   var castPath = require__castPath();
   var toKey = require__toKey();
-  function baseGet(object, path) {
-    path = castPath(path, object);
-    var index = 0, length = path.length;
+  function baseGet(object, path3) {
+    path3 = castPath(path3, object);
+    var index = 0, length = path3.length;
     while (object != null && index < length) {
-      object = object[toKey(path[index++])];
+      object = object[toKey(path3[index++])];
     }
     return index && index == length ? object : undefined;
   }
@@ -49673,8 +49673,8 @@ var require__baseGet = __commonJS((exports, module) => {
 // node_modules/lodash/get.js
 var require_get = __commonJS((exports, module) => {
   var baseGet = require__baseGet();
-  function get(object, path, defaultValue) {
-    var result = object == null ? undefined : baseGet(object, path);
+  function get(object, path3, defaultValue) {
+    var result = object == null ? undefined : baseGet(object, path3);
     return result === undefined ? defaultValue : result;
   }
   module.exports = get;
@@ -60271,9 +60271,9 @@ var require_ThreadManager = __commonJS((exports, module) => {
       return this.fetchActive(cache);
     }
     async fetchArchived({ type = "public", fetchAll = false, before, limit } = {}, cache = true) {
-      let path = Routes.channelThreads(this.channel.id, type);
+      let path3 = Routes.channelThreads(this.channel.id, type);
       if (type === "private" && !fetchAll) {
-        path = Routes.channelJoinedArchivedThreads(this.channel.id);
+        path3 = Routes.channelJoinedArchivedThreads(this.channel.id);
       }
       let timestamp;
       let id;
@@ -60297,7 +60297,7 @@ var require_ThreadManager = __commonJS((exports, module) => {
           }
         }
       }
-      const raw = await this.client.rest.get(path, { query });
+      const raw = await this.client.rest.get(path3, { query });
       return this.constructor._mapThreads(raw, this.client, { parent: this.channel, cache });
     }
     async fetchActive(cache = true) {
@@ -67488,7 +67488,7 @@ var require_ws = __commonJS((exports, module) => {
 
 // node_modules/@discordjs/ws/dist/index.js
 var require_dist10 = __commonJS((exports, module) => {
-  var __dirname = "/root/Iris/extensions/discord/node_modules/@discordjs/ws/dist";
+  var __dirname = "F:\\111\\Iris\\extensions\\discord\\node_modules\\@discordjs\\ws\\dist";
   var __create2 = Object.create;
   var __defProp2 = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -67587,7 +67587,7 @@ var require_dist10 = __commonJS((exports, module) => {
   var import_node_worker_threads2 = __require("worker_threads");
   var import_collection2 = require_dist9();
   var import_node_events = __require("events");
-  var import_node_path = __require("path");
+  var import_node_path3 = __require("path");
   var import_node_worker_threads = __require("worker_threads");
   var import_collection = require_dist9();
   var WorkerSendPayloadOp = /* @__PURE__ */ ((WorkerSendPayloadOp2) => {
@@ -67720,20 +67720,20 @@ var require_dist10 = __commonJS((exports, module) => {
       }
     }
     resolveWorkerPath() {
-      const path = this.options.workerPath;
-      if (!path) {
-        return (0, import_node_path.join)(__dirname, "defaultWorker.js");
+      const path3 = this.options.workerPath;
+      if (!path3) {
+        return (0, import_node_path3.join)(__dirname, "defaultWorker.js");
       }
-      if ((0, import_node_path.isAbsolute)(path)) {
-        return path;
+      if ((0, import_node_path3.isAbsolute)(path3)) {
+        return path3;
       }
-      if (/^\.\.?[/\\]/.test(path)) {
-        return (0, import_node_path.resolve)(path);
+      if (/^\.\.?[/\\]/.test(path3)) {
+        return (0, import_node_path3.resolve)(path3);
       }
       try {
-        return __require.resolve(path);
+        return __require.resolve(path3);
       } catch {
-        return (0, import_node_path.resolve)(path);
+        return (0, import_node_path3.resolve)(path3);
       }
     }
     async waitForWorkerReady(worker) {
@@ -73934,7 +73934,7 @@ var require_ShardEvents = __commonJS((exports, module) => {
 // node_modules/discord.js/src/sharding/Shard.js
 var require_Shard = __commonJS((exports, module) => {
   var EventEmitter = __require("node:events");
-  var path = __require("node:path");
+  var path3 = __require("node:path");
   var process2 = __require("node:process");
   var { setTimeout: setTimeout2, clearTimeout: clearTimeout2 } = __require("node:timers");
   var { setTimeout: sleep } = __require("node:timers/promises");
@@ -73982,14 +73982,14 @@ var require_Shard = __commonJS((exports, module) => {
       this._exitListener = this._handleExit.bind(this, undefined, timeout);
       switch (this.manager.mode) {
         case "process":
-          this.process = childProcess.fork(path.resolve(this.manager.file), this.args, {
+          this.process = childProcess.fork(path3.resolve(this.manager.file), this.args, {
             env: this.env,
             execArgv: this.execArgv,
             silent: this.silent
           }).on("message", this._handleMessage.bind(this)).on("exit", this._exitListener);
           break;
         case "worker":
-          this.worker = new Worker(path.resolve(this.manager.file), {
+          this.worker = new Worker(path3.resolve(this.manager.file), {
             workerData: this.env,
             env: SHARE_ENV,
             execArgv: this.execArgv,
@@ -74195,8 +74195,8 @@ var require_Shard = __commonJS((exports, module) => {
 // node_modules/discord.js/src/sharding/ShardingManager.js
 var require_ShardingManager = __commonJS((exports, module) => {
   var EventEmitter = __require("node:events");
-  var fs = __require("node:fs");
-  var path = __require("node:path");
+  var fs2 = __require("node:fs");
+  var path3 = __require("node:path");
   var process2 = __require("node:process");
   var { setTimeout: sleep } = __require("node:timers/promises");
   var { Collection } = require_dist6();
@@ -74220,9 +74220,9 @@ var require_ShardingManager = __commonJS((exports, module) => {
       this.file = file;
       if (!file)
         throw new DiscordjsError(ErrorCodes.ClientInvalidOption, "File", "specified.");
-      if (!path.isAbsolute(file))
-        this.file = path.resolve(process2.cwd(), file);
-      const stats = fs.statSync(this.file);
+      if (!path3.isAbsolute(file))
+        this.file = path3.resolve(process2.cwd(), file);
+      const stats = fs2.statSync(this.file);
       if (!stats.isFile())
         throw new DiscordjsError(ErrorCodes.ClientInvalidOption, "File", "a file");
       this.shardList = _options.shardList ?? "auto";
@@ -75023,16 +75023,281 @@ function createExtensionLogger(extensionName, tag) {
     }
   };
 }
+// ../../packages/extension-sdk/src/pairing/code-gen.ts
+import { randomInt } from "node:crypto";
+var CHARSET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+function generatePairingCode2(length = 6) {
+  let code = "";
+  for (let i = 0;i < length; i++) {
+    code += CHARSET[randomInt(CHARSET.length)];
+  }
+  return code;
+}
+
+// ../../packages/extension-sdk/src/pairing/guard.ts
+class PairingGuard2 {
+  platform;
+  config;
+  store;
+  constructor(platform, config, store) {
+    this.platform = platform;
+    this.config = config;
+    this.store = store;
+  }
+  check(userId, messageText, userName) {
+    if (this.config.dmPolicy === "open") {
+      return { allowed: true };
+    }
+    const platformUserId = `${this.platform}:${userId}`;
+    if (this.config.allowFrom && this.config.allowFrom.includes(platformUserId)) {
+      return { allowed: true };
+    }
+    if (this.config.admin === platformUserId) {
+      return { allowed: true };
+    }
+    const allowlist = this.store.loadAllowlist();
+    if (allowlist.some((user) => user.platform === this.platform && user.userId === userId)) {
+      return { allowed: true };
+    }
+    const admin = this.store.loadAdmin();
+    if (admin && admin.platform === this.platform && admin.userId === userId) {
+      return { allowed: true };
+    }
+    this.cleanExpiredPending();
+    if (this.config.dmPolicy === "allowlist") {
+      return {
+        allowed: false,
+        reason: "needs-pairing",
+        replyText: "需要对码验证，请联系管理员。"
+      };
+    }
+    const inputCode = messageText.trim().toUpperCase();
+    const pending = this.store.loadPending();
+    const matchIndex = pending.findIndex((item) => item.code.toUpperCase() === inputCode);
+    if (matchIndex !== -1) {
+      const matched = pending[matchIndex];
+      if (matched.platform === "*" && matched.userId === "*") {
+        const newAdmin = {
+          platform: this.platform,
+          userId,
+          userName,
+          setAt: Date.now(),
+          source: "first-pairing"
+        };
+        this.store.saveAdmin(newAdmin);
+        this.addUserToAllowlist(userId, userName);
+        pending.splice(matchIndex, 1);
+        this.store.savePending(pending);
+        return {
+          allowed: false,
+          reason: "bootstrap-success",
+          replyText: `对码成功！你已成为管理员 (ID: ${userId})。`
+        };
+      }
+      this.addUserToAllowlist(userId, userName);
+      pending.splice(matchIndex, 1);
+      this.store.savePending(pending);
+      return {
+        allowed: false,
+        reason: "pairing-success",
+        replyText: "对码成功！你已获得使用权限。"
+      };
+    }
+    return {
+      allowed: false,
+      reason: "needs-pairing",
+      replyText: "需要对码验证，请联系管理员获取对码。"
+    };
+  }
+  isAdmin(userId) {
+    const platformUserId = `${this.platform}:${userId}`;
+    if (this.config.admin === platformUserId)
+      return true;
+    const admin = this.store.loadAdmin();
+    return !!(admin && admin.platform === this.platform && admin.userId === userId);
+  }
+  generateInviteCode() {
+    const code = generatePairingCode2();
+    const pending = this.store.loadPending();
+    const platformPending = pending.filter((item) => item.platform !== "*");
+    if (platformPending.length >= 5) {
+      const oldestIndex = pending.findIndex((item) => item.platform !== "*");
+      if (oldestIndex !== -1)
+        pending.splice(oldestIndex, 1);
+    }
+    pending.push({
+      code,
+      platform: this.platform,
+      userId: "",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 3600000
+    });
+    this.store.savePending(pending);
+    return code;
+  }
+  listPending() {
+    return this.store.loadPending();
+  }
+  listUsers() {
+    return this.store.loadAllowlist();
+  }
+  transferAdmin(targetPlatform, targetUserId) {
+    const newAdmin = {
+      platform: targetPlatform,
+      userId: targetUserId,
+      setAt: Date.now(),
+      source: "transfer"
+    };
+    this.store.saveAdmin(newAdmin);
+    return true;
+  }
+  removeUser(targetPlatform, targetUserId) {
+    let allowlist = this.store.loadAllowlist();
+    const initialLength = allowlist.length;
+    allowlist = allowlist.filter((user) => !(user.platform === targetPlatform && user.userId === targetUserId));
+    if (allowlist.length !== initialLength) {
+      this.store.saveAllowlist(allowlist);
+      return true;
+    }
+    return false;
+  }
+  addUserToAllowlist(userId, userName) {
+    const allowlist = this.store.loadAllowlist();
+    if (!allowlist.some((user) => user.platform === this.platform && user.userId === userId)) {
+      allowlist.push({
+        platform: this.platform,
+        userId,
+        userName,
+        pairedAt: Date.now()
+      });
+      this.store.saveAllowlist(allowlist);
+    }
+  }
+  cleanExpiredPending() {
+    const pending = this.store.loadPending();
+    const now = Date.now();
+    const filtered = pending.filter((item) => item.expiresAt > now);
+    if (filtered.length !== pending.length) {
+      this.store.savePending(filtered);
+    }
+  }
+}
+// ../../packages/extension-sdk/src/pairing/store.ts
+import fs from "node:fs";
+import path2 from "node:path";
+
+// ../../packages/extension-sdk/src/runtime-paths.ts
+import os from "node:os";
+import path from "node:path";
+function resolveDefaultDataDir2(customDataDir) {
+  return path.resolve(customDataDir || process.env.IRIS_DATA_DIR || path.join(os.homedir(), ".iris"));
+}
+
+// ../../packages/extension-sdk/src/pairing/store.ts
+var logger = createExtensionLogger("ExtensionSDK", "PairingStore");
+var NEVER_EXPIRE = 253402272000000;
+
+class PairingStore2 {
+  credentialsDir;
+  constructor(customDataDir) {
+    this.credentialsDir = path2.join(resolveDefaultDataDir2(customDataDir), "credentials");
+    try {
+      if (!fs.existsSync(this.credentialsDir)) {
+        fs.mkdirSync(this.credentialsDir, { recursive: true });
+      }
+    } catch (error) {
+      logger.error("Failed to create credentials directory:", error);
+    }
+  }
+  getPath(filename) {
+    return path2.join(this.credentialsDir, filename);
+  }
+  loadJSON(filename, defaultValue) {
+    const filePath = this.getPath(filename);
+    if (!fs.existsSync(filePath))
+      return defaultValue;
+    try {
+      const content = fs.readFileSync(filePath, "utf-8");
+      if (!content.trim())
+        return defaultValue;
+      return JSON.parse(content);
+    } catch (error) {
+      logger.error(`Failed to load ${filename}:`, error);
+      return defaultValue;
+    }
+  }
+  saveJSON(filename, data) {
+    const filePath = this.getPath(filename);
+    const tempPath = `${filePath}.tmp`;
+    try {
+      const content = JSON.stringify(data, null, 2);
+      fs.writeFileSync(tempPath, content, "utf-8");
+      fs.renameSync(tempPath, filePath);
+    } catch (error) {
+      logger.error(`Failed to save ${filename}:`, error);
+      if (fs.existsSync(tempPath)) {
+        try {
+          fs.unlinkSync(tempPath);
+        } catch {}
+      }
+    }
+  }
+  loadPending() {
+    return this.loadJSON("pairing-pending.json", []);
+  }
+  savePending(pending) {
+    this.saveJSON("pairing-pending.json", pending);
+  }
+  loadAllowlist() {
+    return this.loadJSON("pairing-allowlist.json", []);
+  }
+  saveAllowlist(allowlist) {
+    this.saveJSON("pairing-allowlist.json", allowlist);
+  }
+  loadAdmin() {
+    return this.loadJSON("pairing-admin.json", null);
+  }
+  saveAdmin(admin) {
+    this.saveJSON("pairing-admin.json", admin);
+  }
+  needsBootstrap() {
+    return this.loadAdmin() === null;
+  }
+  getOrCreateBootstrapCode() {
+    const pending = this.loadPending();
+    const bootstrap = pending.find((item) => item.platform === "*" && item.userId === "*");
+    if (bootstrap)
+      return bootstrap.code;
+    const newCode = generatePairingCode2();
+    pending.push({
+      code: newCode,
+      platform: "*",
+      userId: "*",
+      createdAt: Date.now(),
+      expiresAt: NEVER_EXPIRE
+    });
+    this.savePending(pending);
+    return newCode;
+  }
+}
 // src/index.ts
 var import_discord = __toESM(require_src(), 1);
-var logger = createExtensionLogger("DiscordExtension", "Discord");
+import { existsSync, readFileSync } from "node:fs";
+import { basename, resolve } from "node:path";
+var logger2 = createExtensionLogger("DiscordExtension", "Discord");
 var MESSAGE_MAX_LENGTH = 2000;
+var STREAM_EDIT_INTERVAL = 1500;
 
 class DiscordPlatform extends PlatformAdapter {
   client;
   token;
   backend;
   pendingTexts = new Map;
+  typingTimers = new Map;
+  streamMessages = new Map;
+  editTimers = new Map;
+  pairingStore = null;
+  pairingGuard = null;
   constructor(backend, config) {
     super();
     this.backend = backend;
@@ -75046,9 +75311,15 @@ class DiscordPlatform extends PlatformAdapter {
       ],
       partials: [import_discord.Partials.Channel]
     });
+    if (config.pairing && config.pairing.dmPolicy !== "open") {
+      this.pairingStore = new PairingStore2;
+      this.pairingGuard = new PairingGuard2("discord", config.pairing, this.pairingStore);
+    }
   }
   async start() {
     this.backend.on("response", (sid, text) => {
+      this.stopTyping(sid);
+      this.clearStreamState(sid);
       this.pendingTexts.delete(sid);
       this.sendToChannel(sid, text);
     });
@@ -75057,30 +75328,44 @@ class DiscordPlatform extends PlatformAdapter {
       if (!text)
         return;
       this.pendingTexts.set(sid, text);
+      if (this.backend.isStreamEnabled()) {
+        this.scheduleStreamEdit(sid);
+      }
     });
     this.backend.on("error", (sid, error) => {
+      this.stopTyping(sid);
+      this.clearStreamState(sid);
       this.pendingTexts.delete(sid);
       this.sendToChannel(sid, `错误: ${error}`);
     });
     this.backend.on("done", (sid) => {
+      this.stopTyping(sid);
       if (!this.backend.isStreamEnabled())
         return;
       const text = this.pendingTexts.get(sid);
       if (!text)
         return;
       this.pendingTexts.delete(sid);
-      this.sendToChannel(sid, text);
+      this.finalizeStream(sid, text);
     });
     this.client.on("ready", () => {
-      logger.info(`已连接 | Bot: ${this.client.user?.tag}`);
+      logger2.info(`已连接 | Bot: ${this.client.user?.tag}`);
     });
     this.client.on("messageCreate", (msg) => this.handleMessage(msg));
     await this.client.login(this.token);
-    logger.info("平台已启动");
+    logger2.info("平台已启动");
+    if (this.pairingGuard && this.pairingStore?.needsBootstrap()) {
+      const code = this.pairingStore.getOrCreateBootstrapCode();
+      logger2.info("╔══════════════════════════════════════════════════════╗");
+      logger2.info("║  首次使用，请在 Discord 私聊中发送以下对码：           ║");
+      logger2.info(`║  对码: ${code}                                       ║`);
+      logger2.info("║  第一个完成对码的用户将成为管理员。                    ║");
+      logger2.info("╚══════════════════════════════════════════════════════╝");
+    }
   }
   async stop() {
     await this.client.destroy();
-    logger.info("平台已停止");
+    logger2.info("平台已停止");
   }
   async sendToChannel(sessionId, text) {
     const channelId = sessionId.replace("discord-", "");
@@ -75090,6 +75375,215 @@ class DiscordPlatform extends PlatformAdapter {
     const chunks = splitText(text, MESSAGE_MAX_LENGTH);
     for (const chunk of chunks) {
       await channel.send(chunk);
+    }
+  }
+  async startTyping(channelId) {
+    const channel = this.client.channels.cache.get(channelId);
+    if (!channel?.isTextBased())
+      return;
+    await channel.sendTyping().catch(() => {});
+    const timer = setInterval(() => {
+      channel.sendTyping().catch(() => {});
+    }, 8000);
+    this.typingTimers.set(channelId, timer);
+  }
+  refreshTyping(sid) {
+    const channelId = sid.replace("discord-", "");
+    if (this.typingTimers.has(channelId))
+      return;
+    this.startTyping(channelId);
+  }
+  stopTyping(sid) {
+    const channelId = sid.replace("discord-", "");
+    const timer = this.typingTimers.get(channelId);
+    if (!timer)
+      return;
+    clearInterval(timer);
+    this.typingTimers.delete(channelId);
+  }
+  scheduleStreamEdit(sid) {
+    if (this.editTimers.has(sid))
+      return;
+    const timer = setTimeout(async () => {
+      this.editTimers.delete(sid);
+      const text = this.pendingTexts.get(sid);
+      if (!text)
+        return;
+      const channelId = sid.replace("discord-", "");
+      const sentMsg = this.streamMessages.get(sid);
+      if (!sentMsg) {
+        try {
+          const channel = await this.client.channels.fetch(channelId);
+          if (!channel?.isTextBased())
+            return;
+          const displayText = text.length > MESSAGE_MAX_LENGTH ? text.slice(0, MESSAGE_MAX_LENGTH - 1) + "…" : text;
+          const msg = await channel.send(displayText);
+          this.streamMessages.set(sid, msg);
+          this.stopTyping(sid);
+        } catch {}
+      } else {
+        const displayText = text.length > MESSAGE_MAX_LENGTH ? text.slice(0, MESSAGE_MAX_LENGTH - 1) + "…" : text;
+        await sentMsg.edit(displayText).catch(() => {});
+      }
+    }, STREAM_EDIT_INTERVAL);
+    this.editTimers.set(sid, timer);
+  }
+  async finalizeStream(sid, text) {
+    const editTimer = this.editTimers.get(sid);
+    if (editTimer) {
+      clearTimeout(editTimer);
+      this.editTimers.delete(sid);
+    }
+    const sentMsg = this.streamMessages.get(sid);
+    this.streamMessages.delete(sid);
+    if (!sentMsg) {
+      await this.sendToChannel(sid, text);
+      return;
+    }
+    const chunks = splitText(text, MESSAGE_MAX_LENGTH);
+    await sentMsg.edit(chunks[0]).catch(() => {});
+    if (chunks.length > 1) {
+      const channelId = sid.replace("discord-", "");
+      const channel = await this.client.channels.fetch(channelId);
+      if (channel?.isTextBased()) {
+        for (let i = 1;i < chunks.length; i++) {
+          await channel.send(chunks[i]);
+        }
+      }
+    }
+  }
+  clearStreamState(sid) {
+    const editTimer = this.editTimers.get(sid);
+    if (editTimer) {
+      clearTimeout(editTimer);
+      this.editTimers.delete(sid);
+    }
+    this.streamMessages.delete(sid);
+  }
+  createDiscordTools() {
+    return [
+      {
+        declaration: {
+          name: "discord_send_file",
+          description: "发送文件或图片到当前 Discord 对话（频道或私聊）。可用于向用户展示截图、文档、日志等。",
+          parameters: {
+            type: "object",
+            properties: {
+              file_path: {
+                type: "string",
+                description: "要发送的文件路径（绝对路径或相对路径）"
+              },
+              message: {
+                type: "string",
+                description: "随文件一起发送的说明文字（可选）"
+              }
+            },
+            required: ["file_path"]
+          }
+        },
+        handler: async (args) => {
+          return this.executeSendFile(args);
+        }
+      }
+    ];
+  }
+  async executeSendFile(args) {
+    const filePath = args.file_path;
+    const message = args.message;
+    if (!filePath)
+      return { success: false, error: "缺少 file_path 参数" };
+    const sid = this.backend.getActiveSessionId?.();
+    if (!sid?.startsWith("discord-")) {
+      return { success: false, error: "当前不在 Discord 会话中" };
+    }
+    const resolved = resolve(filePath);
+    if (!existsSync(resolved)) {
+      return { success: false, error: `文件不存在: ${filePath}` };
+    }
+    const data = readFileSync(resolved);
+    const fileName = basename(resolved);
+    const channelId = sid.replace("discord-", "");
+    try {
+      const channel = await this.client.channels.fetch(channelId);
+      if (!channel?.isTextBased()) {
+        return { success: false, error: "无法找到目标频道" };
+      }
+      const attachment = new import_discord.AttachmentBuilder(data, { name: fileName });
+      await channel.send({
+        content: message || undefined,
+        files: [attachment]
+      });
+      return { success: true, fileName, fileSize: data.length };
+    } catch (err) {
+      return { success: false, error: `发送失败: ${err?.message ?? err}` };
+    }
+  }
+  async handlePairingCommand(msg, content) {
+    if (!content.startsWith("!"))
+      return false;
+    const userId = msg.author.id;
+    const parts = content.slice(1).split(/\s+/);
+    const cmd = parts[0]?.toLowerCase();
+    const args = parts.slice(1).join(" ").trim();
+    switch (cmd) {
+      case "invite": {
+        if (!this.pairingGuard.isAdmin(userId)) {
+          await msg.reply("❌ 仅管理员可执行此命令。");
+          return true;
+        }
+        const code = this.pairingGuard.generateInviteCode();
+        await msg.reply(`\uD83C\uDFAB 邀请对码已生成：\`${code}\`（1 小时内有效）
+` + "将此对码发送给你信任的用户，对方在私聊中发送即可完成配对。");
+        return true;
+      }
+      case "users": {
+        if (!this.pairingGuard.isAdmin(userId)) {
+          await msg.reply("❌ 仅管理员可执行此命令。");
+          return true;
+        }
+        const users = this.pairingGuard.listUsers();
+        if (users.length === 0) {
+          await msg.reply("\uD83D\uDCCB 白名单为空。");
+        } else {
+          const lines = users.map((u, i) => {
+            const name = u.userName || u.userId;
+            const time = new Date(u.pairedAt).toLocaleString();
+            return `${i + 1}. **${name}** (${u.platform}:${u.userId}) — ${time}`;
+          });
+          await msg.reply(`\uD83D\uDCCB **白名单用户** (${users.length}):
+${lines.join(`
+`)}`);
+        }
+        return true;
+      }
+      case "kick": {
+        if (!this.pairingGuard.isAdmin(userId)) {
+          await msg.reply("❌ 仅管理员可执行此命令。");
+          return true;
+        }
+        if (!args) {
+          await msg.reply("用法: `!kick <用户ID>`");
+          return true;
+        }
+        const ok = this.pairingGuard.removeUser("discord", args);
+        await msg.reply(ok ? `✅ 已将用户 ${args} 移出白名单。` : `❌ 未找到用户 ${args}。`);
+        return true;
+      }
+      case "transfer": {
+        if (!this.pairingGuard.isAdmin(userId)) {
+          await msg.reply("❌ 仅管理员可执行此命令。");
+          return true;
+        }
+        if (!args) {
+          await msg.reply("用法: `!transfer <用户ID>`");
+          return true;
+        }
+        this.pairingGuard.transferAdmin("discord", args);
+        await msg.reply(`✅ 管理员身份已让渡给 ${args}。`);
+        return true;
+      }
+      default:
+        return false;
     }
   }
   async handleMessage(msg) {
@@ -75107,20 +75601,52 @@ class DiscordPlatform extends PlatformAdapter {
     }
     if (!content)
       return;
+    if (this.pairingGuard && isDM) {
+      const result = this.pairingGuard.check(msg.author.id, content, msg.author.username);
+      if (!result.allowed) {
+        if (result.replyText)
+          await msg.reply(result.replyText);
+        return;
+      }
+      if (result.reason === "bootstrap-success" || result.reason === "pairing-success") {
+        if (result.replyText)
+          await msg.reply(result.replyText);
+        return;
+      }
+    }
+    if (isDM && this.pairingGuard && content.startsWith("!")) {
+      const handled = await this.handlePairingCommand(msg, content);
+      if (handled)
+        return;
+    }
+    const displayName = msg.member?.displayName || msg.author.globalName || msg.author.username;
+    const isAdmin = this.pairingGuard?.isAdmin(msg.author.id) ?? false;
+    const identifiedContent = `[${displayName}:${msg.author.id}${isAdmin ? ":admin" : ""}]: ${content}`;
     const sessionId = `discord-${msg.channelId}`;
     try {
-      await this.backend.chat(sessionId, content, undefined, undefined, "discord");
+      await this.startTyping(msg.channelId);
+      await this.backend.chat(sessionId, identifiedContent, undefined, undefined, "discord");
     } catch (err) {
-      logger.error("处理消息时出错:", err);
+      this.stopTyping(sessionId);
+      this.clearStreamState(sessionId);
+      logger2.error("处理消息时出错:", err);
     }
   }
 }
 var createDiscordPlatform = definePlatformFactory({
   platformName: "discord",
   resolveConfig: (raw) => ({
-    token: raw.token ?? ""
+    token: raw.token ?? "",
+    pairing: raw.pairing
   }),
-  create: (backend, config) => new DiscordPlatform(backend, config)
+  create: (backend, config, context) => {
+    const platform = new DiscordPlatform(backend, config);
+    const api = context.api;
+    if (api?.tools?.registerAll) {
+      api.tools.registerAll(platform.createDiscordTools());
+    }
+    return platform;
+  }
 });
 var src_default = createDiscordPlatform;
 export {

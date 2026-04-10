@@ -4,9 +4,11 @@
  * 基于 discord.js 官方 SDK。
  */
 
-import { createExtensionLogger, definePlatformFactory, extractText, PlatformAdapter, splitText, type Content, type IrisBackendLike } from 'irises-extension-sdk';
+import { createExtensionLogger, definePlatformFactory, extractText, PlatformAdapter, splitText, type Content, type IrisBackendLike, type ToolDefinition } from 'irises-extension-sdk';
 import { PairingGuard, PairingStore, type PairingConfig } from 'irises-extension-sdk/pairing';
-import { Client, GatewayIntentBits, Message, Partials } from 'discord.js';
+import { AttachmentBuilder, Client, GatewayIntentBits, Message, Partials } from 'discord.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 
 const logger = createExtensionLogger('DiscordExtension', 'Discord');
 
@@ -243,6 +245,76 @@ export class DiscordPlatform extends PlatformAdapter {
     this.streamMessages.delete(sid);
   }
 
+  // ============ Discord 专属工具 ============
+
+  /** 创建 Discord 专属工具定义（供平台工厂注册） */
+  createDiscordTools(): ToolDefinition[] {
+    return [
+      {
+        declaration: {
+          name: 'discord_send_file',
+          description: '发送文件或图片到当前 Discord 对话（频道或私聊）。可用于向用户展示截图、文档、日志等。',
+          parameters: {
+            type: 'object',
+            properties: {
+              file_path: {
+                type: 'string',
+                description: '要发送的文件路径（绝对路径或相对路径）',
+              },
+              message: {
+                type: 'string',
+                description: '随文件一起发送的说明文字（可选）',
+              },
+            },
+            required: ['file_path'],
+          },
+        },
+        handler: async (args: Record<string, unknown>) => {
+          return this.executeSendFile(args);
+        },
+      },
+    ];
+  }
+
+  /** discord_send_file 工具执行逻辑 */
+  private async executeSendFile(args: Record<string, unknown>): Promise<unknown> {
+    const filePath = args.file_path as string;
+    const message = args.message as string | undefined;
+
+    if (!filePath) return { success: false, error: '缺少 file_path 参数' };
+
+    const sid = this.backend.getActiveSessionId?.();
+    if (!sid?.startsWith('discord-')) {
+      return { success: false, error: '当前不在 Discord 会话中' };
+    }
+
+    const resolved = resolve(filePath);
+    if (!existsSync(resolved)) {
+      return { success: false, error: `文件不存在: ${filePath}` };
+    }
+
+    const data = readFileSync(resolved);
+    const fileName = basename(resolved);
+    const channelId = sid.replace('discord-', '');
+
+    try {
+      const channel = await this.client.channels.fetch(channelId);
+      if (!channel?.isTextBased()) {
+        return { success: false, error: '无法找到目标频道' };
+      }
+
+      const attachment = new AttachmentBuilder(data, { name: fileName });
+      await (channel as any).send({
+        content: message || undefined,
+        files: [attachment],
+      });
+
+      return { success: true, fileName, fileSize: data.length };
+    } catch (err: any) {
+      return { success: false, error: `发送失败: ${err?.message ?? err}` };
+    }
+  }
+
   // ============ 对码管理命令 ============
 
   /** 处理对码管理命令（!invite / !users / !kick / !transfer） */
@@ -384,7 +456,17 @@ export const createDiscordPlatform = definePlatformFactory<DiscordConfig, Discor
     token: raw.token ?? '',
     pairing: raw.pairing,
   }),
-  create: (backend, config) => new DiscordPlatform(backend, config),
+  create: (backend, config, context) => {
+    const platform = new DiscordPlatform(backend, config);
+
+    // 注册 Discord 专属工具
+    const api = context.api as { tools?: { registerAll(tools: ToolDefinition[]): void } };
+    if (api?.tools?.registerAll) {
+      api.tools.registerAll(platform.createDiscordTools());
+    }
+
+    return platform;
+  },
 });
 
 export default createDiscordPlatform;
