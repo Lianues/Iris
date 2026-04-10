@@ -227,72 +227,39 @@ function listFilesSummary(result: Record<string, unknown>): ToolSummary {
   return buildSummary(parts)
 }
 
-interface CodeResultItem {
-  path?: string
-  success?: boolean
-  line?: number
-  start_line?: number
-  end_line?: number
-  insertedLines?: number
-  deletedLines?: number
-  error?: string
-}
-
 function insertCodeSummary(result: Record<string, unknown>): ToolSummary {
-  const items = (result.results ?? []) as CodeResultItem[]
-
-  if (items.length === 0) {
+  if (!result.path) {
     return buildSummary([seg('inserted 0 lines', 'muted')])
   }
 
-  if (items.length === 1) {
-    const item = items[0]
-    if (item.success === false) {
-      return buildSummary([seg(`failed (${item.error ?? item.path ?? '?'})`, 'red')])
-    }
-    const inserted = item.insertedLines ?? 0
-    const pos = item.line != null ? ` · at L${item.line}` : ''
-    return buildSummary([
-      seg(`+${inserted} lines`, 'green'),
-      seg(`${pos} · ${item.path ?? '?'}`, 'muted'),
-    ])
+  if (result.success === false) {
+    return buildSummary([seg(`failed (${(result.error as string) ?? result.path ?? '?'})`, 'red')])
   }
 
-  const totalInserted = items.reduce((sum, i) => sum + (i.insertedLines ?? 0), 0)
-  const failCount = items.filter(i => i.success === false).length
+  const inserted = (result.insertedLines ?? 0) as number
+  const pos = result.line != null ? ` · at L${result.line}` : ''
   return buildSummary([
-    seg(`+${totalInserted} lines`, 'green'),
-    seg(` in ${items.length} files`, failCount > 0 ? 'yellow' : undefined),
+    seg(`+${inserted} lines`, 'green'),
+    seg(`${pos} · ${result.path ?? '?'}`, 'muted'),
   ])
 }
 
 function deleteCodeSummary(result: Record<string, unknown>): ToolSummary {
-  const items = (result.results ?? []) as CodeResultItem[]
-
-  if (items.length === 0) {
+  if (!result.path) {
     return buildSummary([seg('deleted 0 lines', 'muted')])
   }
 
-  if (items.length === 1) {
-    const item = items[0]
-    if (item.success === false) {
-      return buildSummary([seg(`failed (${item.error ?? item.path ?? '?'})`, 'red')])
-    }
-    const deleted = item.deletedLines ?? 0
-    const range = item.start_line != null && item.end_line != null
-      ? ` · L${item.start_line}-${item.end_line}`
-      : ''
-    return buildSummary([
-      seg(`-${deleted} lines`, 'red'),
-      seg(`${range} · ${item.path ?? '?'}`, 'muted'),
-    ])
+  if (result.success === false) {
+    return buildSummary([seg(`failed (${(result.error as string) ?? result.path ?? '?'})`, 'red')])
   }
 
-  const totalDeleted = items.reduce((sum, i) => sum + (i.deletedLines ?? 0), 0)
-  const failCount = items.filter(i => i.success === false).length
+  const deleted = (result.deletedLines ?? 0) as number
+  const range = result.start_line != null && result.end_line != null
+    ? ` · L${result.start_line}-${result.end_line}`
+    : ''
   return buildSummary([
-    seg(`-${totalDeleted} lines`, 'red'),
-    seg(` in ${items.length} files`, failCount > 0 ? 'yellow' : undefined),
+    seg(`-${deleted} lines`, 'red'),
+    seg(`${range} · ${result.path ?? '?'}`, 'muted'),
   ])
 }
 

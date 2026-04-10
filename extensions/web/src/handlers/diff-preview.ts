@@ -186,49 +186,47 @@ function buildWriteFilePreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsL
 }
 
 function buildInsertCodePreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {
-  const fileList = utils.normalizeInsertArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return { toolName: 'insert_code', title: 'Diff 审批', summary: ['参数无效。'], items: [makeMsg('', 'insert_code', 'files 参数无效。')] };
+  const a = inv.args as Record<string, unknown>;
+  const filePath = a.path as string | undefined;
+  const line = a.line as number | undefined;
+  const content = a.content as string | undefined;
+  if (!filePath || line == null) {
+    return { toolName: 'insert_code', title: 'Diff 审批', summary: ['参数无效。'], items: [makeMsg('', 'insert_code', 'path/line 参数无效。')] };
   }
-  const items: DiffPreviewItem[] = [];
-  for (const entry of fileList) {
-    try {
-      const resolved = utils.resolveProjectPath(entry.path);
-      const before = fs.readFileSync(resolved, 'utf-8');
-      const lines = before.split('\n');
-      const insertLines = entry.content.split('\n');
-      const idx = entry.line - 1;
-      const after = [...lines.slice(0, idx), ...insertLines, ...lines.slice(idx)].join('\n');
-      const diff = buildWholeFileDiff(entry.path, before, after, true);
-      items.push(diff ? makeItem(entry.path, `${entry.path} · 第 ${entry.line} 行前插入`, diff) : makeMsg(entry.path, entry.path, '无法显示 diff。'));
-    } catch (err: unknown) {
-      items.push(makeMsg(entry.path, `${entry.path} · 错误`, err instanceof Error ? err.message : String(err)));
-    }
+  try {
+    const resolved = utils.resolveProjectPath(filePath);
+    const before = fs.readFileSync(resolved, 'utf-8');
+    const lines = before.split('\n');
+    const insertLines = (content ?? '').split('\n');
+    const idx = line - 1;
+    const after = [...lines.slice(0, idx), ...insertLines, ...lines.slice(idx)].join('\n');
+    const diff = buildWholeFileDiff(filePath, before, after, true);
+    const item = diff ? makeItem(filePath, `${filePath} · 第 ${line} 行前插入`, diff) : makeMsg(filePath, filePath, '无法显示 diff。');
+    return { toolName: 'insert_code', title: 'Diff 审批', summary: [`目标文件：${filePath}`, `第 ${line} 行前插入`], items: [item] };
+  } catch (err: unknown) {
+    return { toolName: 'insert_code', title: 'Diff 审批', summary: ['错误'], items: [makeMsg(filePath, `${filePath} · 错误`, err instanceof Error ? err.message : String(err))] };
   }
-  if (items.length === 0) items.push(makeMsg('', 'insert_code', '无可预览的变更。'));
-  return { toolName: 'insert_code', title: 'Diff 审批', summary: [`共 ${fileList.length} 个操作`], items };
 }
 
 function buildDeleteCodePreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {
-  const fileList = utils.normalizeDeleteCodeArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return { toolName: 'delete_code', title: 'Diff 审批', summary: ['参数无效。'], items: [makeMsg('', 'delete_code', 'files 参数无效。')] };
+  const a = inv.args as Record<string, unknown>;
+  const filePath = a.path as string | undefined;
+  const startLine = a.start_line as number | undefined;
+  const endLine = a.end_line as number | undefined;
+  if (!filePath || startLine == null || endLine == null) {
+    return { toolName: 'delete_code', title: 'Diff 审批', summary: ['参数无效。'], items: [makeMsg('', 'delete_code', 'path/start_line/end_line 参数无效。')] };
   }
-  const items: DiffPreviewItem[] = [];
-  for (const entry of fileList) {
-    try {
-      const resolved = utils.resolveProjectPath(entry.path);
-      const before = fs.readFileSync(resolved, 'utf-8');
-      const lines = before.split('\n');
-      const after = [...lines.slice(0, entry.start_line - 1), ...lines.slice(entry.end_line)].join('\n');
-      const diff = buildWholeFileDiff(entry.path, before, after, true);
-      items.push(diff ? makeItem(entry.path, `${entry.path} · 删除 L${entry.start_line}-${entry.end_line}`, diff) : makeMsg(entry.path, entry.path, '无法显示 diff。'));
-    } catch (err: unknown) {
-      items.push(makeMsg(entry.path, `${entry.path} · 错误`, err instanceof Error ? err.message : String(err)));
-    }
+  try {
+    const resolved = utils.resolveProjectPath(filePath);
+    const before = fs.readFileSync(resolved, 'utf-8');
+    const lines = before.split('\n');
+    const after = [...lines.slice(0, startLine - 1), ...lines.slice(endLine)].join('\n');
+    const diff = buildWholeFileDiff(filePath, before, after, true);
+    const item = diff ? makeItem(filePath, `${filePath} · 删除 L${startLine}-${endLine}`, diff) : makeMsg(filePath, filePath, '无法显示 diff。');
+    return { toolName: 'delete_code', title: 'Diff 审批', summary: [`目标文件：${filePath}`, `删除 L${startLine}-${endLine}`], items: [item] };
+  } catch (err: unknown) {
+    return { toolName: 'delete_code', title: 'Diff 审批', summary: ['错误'], items: [makeMsg(filePath, `${filePath} · 错误`, err instanceof Error ? err.message : String(err))] };
   }
-  if (items.length === 0) items.push(makeMsg('', 'delete_code', '无可预览的变更。'));
-  return { toolName: 'delete_code', title: 'Diff 审批', summary: [`共 ${fileList.length} 个操作`], items };
 }
 
 function buildSearchReplacePreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {

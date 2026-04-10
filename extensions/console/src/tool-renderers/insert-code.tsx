@@ -10,7 +10,7 @@ import React from 'react';
 import { ICONS } from '../terminal-compat';
 import { ToolRendererProps } from './default.js';
 
-interface InsertCodeResultItem {
+interface InsertCodeResult {
   path?: string;
   success?: boolean;
   line?: number;
@@ -18,42 +18,22 @@ interface InsertCodeResultItem {
   error?: string;
 }
 
-interface InsertCodeResult {
-  results?: InsertCodeResultItem[];
-  successCount?: number;
-  failCount?: number;
-  totalCount?: number;
-}
-
 export function InsertCodeRenderer({ result }: ToolRendererProps) {
   const r = (result || {}) as InsertCodeResult;
-  const items = r.results || [];
-  const failCount = r.failCount ?? 0;
 
-  if (items.length === 0) {
+  if (!r.path) {
     return <text fg="#888"><em>{` ${ICONS.resultArrow}`} inserted 0 lines</em></text>;
   }
 
-  if (items.length === 1) {
-    const item = items[0];
-    if (item.success === false) {
-      return <text fg="#ff0000"><em>{` ${ICONS.resultArrow}`} failed ({item.error ?? item.path ?? '?'})</em></text>;
-    }
-    const inserted = item.insertedLines ?? 0;
-    const pos = item.line != null ? ` at L${item.line}` : '';
-    return (
-      <text fg="#888">
-        <em>{` ${ICONS.resultArrow}`} <span fg="#57ab5a">+{inserted}</span> lines{pos} ({item.path ?? '?'})</em>
-      </text>
-    );
+  if (r.success === false) {
+    return <text fg="#ff0000"><em>{` ${ICONS.resultArrow}`} failed ({r.error ?? r.path ?? '?'})</em></text>;
   }
 
-  // 多文件：汇总插入行数
-  const totalInserted = items.reduce((sum, i) => sum + (i.insertedLines ?? 0), 0);
-  const names = items.map(i => i.path ?? '?').join(', ');
+  const inserted = r.insertedLines ?? 0;
+  const pos = r.line != null ? ` at L${r.line}` : '';
   return (
-    <text fg={failCount > 0 ? '#ffff00' : '#888'}>
-      <em>{` ${ICONS.resultArrow}`} <span fg="#57ab5a">+{totalInserted}</span> lines in {items.length} files ({names})</em>
+    <text fg="#888">
+      <em>{` ${ICONS.resultArrow}`} <span fg="#57ab5a">+{inserted}</span> lines{pos} ({r.path})</em>
     </text>
   );
 }
