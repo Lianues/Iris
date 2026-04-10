@@ -17,6 +17,8 @@ export interface MemoryPluginConfig {
   maxContextBytes: number;
   /** 会话级记忆注入总字节上限 */
   sessionBudgetBytes: number;
+  /** 非 user 类型未注入记忆 <= 此数时，跳过 LLM 选择器直接注入全部 */
+  smallSetThreshold: number;
 
   // Phase 4: 跨会话归纳
   consolidation: {
@@ -36,6 +38,7 @@ export const DEFAULT_CONFIG: MemoryPluginConfig = {
   autoRecall: true,
   maxContextBytes: 20480,       // 20KB per turn
   sessionBudgetBytes: 61440,    // 60KB per session
+  smallSetThreshold: 15,
   consolidation: {
     enabled: true,
     minHours: 24,
@@ -61,6 +64,7 @@ export function resolveConfig(
     autoRecall: toBool(source.autoRecall, DEFAULT_CONFIG.autoRecall),
     maxContextBytes: toNum(source.maxContextBytes, DEFAULT_CONFIG.maxContextBytes),
     sessionBudgetBytes: toNum(source.sessionBudgetBytes, DEFAULT_CONFIG.sessionBudgetBytes),
+    smallSetThreshold: toNum(source.smallSetThreshold, DEFAULT_CONFIG.smallSetThreshold),
     consolidation: {
       enabled: toBool(consolidationRaw.enabled, DEFAULT_CONFIG.consolidation.enabled),
       minHours: toNum(consolidationRaw.minHours, DEFAULT_CONFIG.consolidation.minHours),

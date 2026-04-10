@@ -114,7 +114,7 @@ async function runConsolidation(ctx: ConsolidationContext): Promise<number> {
 
   // 1. 获取所有记忆（单次查询，避免两次调用间的竞态）
   const memories = await provider.list(undefined, 500);
-  if (memories.length === 0) return;
+  if (memories.length === 0) return 0;
 
   // 2. 从同一份数据构建清单和完整内容
   const manifestEntries = memories.map(m => ({
@@ -141,7 +141,7 @@ async function runConsolidation(ctx: ConsolidationContext): Promise<number> {
     const available = MAX_PROMPT_CHARS - manifestText.length - 2000; // 2000 留给模板
     if (available <= 0) {
       logger.warn(`记忆清单过大 (${manifestText.length} chars)，跳过归纳`);
-      return;
+      return 0;
     }
     truncatedDetails = memoryDetails.slice(0, available);
     // 在最后一个完整条目处截断（找最后一个 ### 标记）

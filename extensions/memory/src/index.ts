@@ -93,7 +93,7 @@ async function enableMemorySystem(ctx: PluginContext): Promise<void> {
     dream: () => runForcedConsolidation(),
   });
 
-  const hasSubAgents = !!cachedApi.tools.get('sub_agent');
+  const hasSubAgents = !!(cachedApi.tools as any)?.get?.('sub_agent');
   autoRecallEnabled = !hasSubAgents;
 
   const count = await activeProvider.count();
@@ -181,6 +181,8 @@ export default definePlugin({
         const injectedParts: string[] = [];
 
         // Phase 3: 智能检索 — 注入相关记忆
+        //   Phase 1: user 类型无条件注入（不受 surfacedIds 限制）
+        //   Phase 2: 其余类型走 LLM 选择或小集合直接注入
         if (autoRecallEnabled && currentConfig.autoRecall && s.lastUserText) {
           try {
             const result = await findAndFormatRelevantMemories({
@@ -189,13 +191,16 @@ export default definePlugin({
               userText: s.lastUserText,
               maxBytes: currentConfig.maxContextBytes,
               surfaced: s.surfacedIds,
+              smallSetThreshold: currentConfig.smallSetThreshold,
               logger,
             });
 
             if (result) {
               if (s.bytesUsed + result.bytes <= currentConfig.sessionBudgetBytes) {
                 s.bytesUsed += result.bytes;
+                // 非 user 记忆加入 surfacedIds，避免重复注入
                 for (const id of result.ids) s.surfacedIds.add(id);
+                // user 记忆不加入 surfacedIds — 身份信息每轮都可重新注入
                 injectedParts.push(result.text);
               }
             }
@@ -228,15 +233,23 @@ export default definePlugin({
       },
     });
 
-    // 6. 钩子：检测本轮是否有 memory 写入
+    // 6. 钩子：检测本轮是否有 memory 写入 + 动态刷新系统提示词中的记忆条数
     ctx.addHook({
       name: 'memory:detect-write',
       priority: 100,
       onAfterToolExec({ toolName }) {
         if (!activeProvider) return undefined;
-        if (toolName === 'memory_add' || toolName === 'memory_update') {
+        if (toolName === 'memory_add' || toolName === 'memory_update' || toolName === 'memory_delete') {
           const sid = getActiveTurnSessionId();
-          if (sid) getSessionState(sid).memoryWrittenThisTurn = true;
+          if (sid && (toolName === 'memory_add' || toolName === 'memory_update')) {
+            getSessionState(sid).memoryWrittenThisTurn = true;
+          }
+          // 记忆增删后刷新系统提示词中的条数，避免 LLM 看到过时的 "0 memories"
+          if (systemRulesPart) {
+            activeProvider.count().then(count => {
+              systemRulesPart!.text = buildMemorySystemRules(count);
+            });
+          }
         }
         return undefined;
       },
@@ -394,7 +407,7 @@ async function runForcedConsolidation(): Promise<{ ok: boolean; message: string;
 // ============ Console Settings Tab ============
 
 function registerSettingsTab(api: IrisAPI, ctx: PluginContext): void {
-  const registerTab = api.registerConsoleSettingsTab;
+  const registerTab = (api as any).registerConsoleSettingsTab;
   if (!registerTab) return;
 
   registerTab({
@@ -433,7 +446,7 @@ function registerSettingsTab(api: IrisAPI, ctx: PluginContext): void {
         'consolidation.minSessions': consolidation.minSessions ?? 3,
       };
     },
-    async onSave(values) {
+    async onSave(values: Record<string, unknown>) {
       try {
         if (!api.configManager) return { success: false, error: 'configManager unavailable' };
 
