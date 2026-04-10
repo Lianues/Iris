@@ -67488,7 +67488,7 @@ var require_ws = __commonJS((exports, module) => {
 
 // node_modules/@discordjs/ws/dist/index.js
 var require_dist10 = __commonJS((exports, module) => {
-  var __dirname = "C:\\Users\\Moeblack\\Repos\\Iris\\extensions\\discord\\node_modules\\@discordjs\\ws\\dist";
+  var __dirname = "/root/Iris/extensions/discord/node_modules/@discordjs/ws/dist";
   var __create2 = Object.create;
   var __defProp2 = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;

@@ -7,7 +7,13 @@
  * 提交的消息会被加入队列，等当前响应完成后自动发送下一条。
  */
 
-declare const process: { exit(code?: number): never };
+declare const process: {
+  exit(code?: number): never;
+  platform: string;
+  stdin: { isTTY?: boolean; setRawMode(mode: boolean): void; pause(): void };
+  stdout: { write(data: string): boolean };
+  on(event: string, listener: (...args: any[]) => void): void;
+};
 
 import React from 'react';
 import { createCliRenderer, type CliRenderer } from '@opentui/core';

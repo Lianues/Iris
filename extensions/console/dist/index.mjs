@@ -547,12 +547,132 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
 // ../../packages/extension-sdk/dist/platform.js
+class BackendHandle {
+  _backend;
+  _listeners = new Map;
+  constructor(backend) {
+    this._backend = backend;
+  }
+  swap(newBackend) {
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.off(event, fn);
+      }
+    }
+    this._backend = newBackend;
+    for (const [event, listeners] of this._listeners) {
+      for (const fn of listeners) {
+        this._backend.on(event, fn);
+      }
+    }
+  }
+  on(event, listener) {
+    if (!this._listeners.has(event))
+      this._listeners.set(event, new Set);
+    this._listeners.get(event).add(listener);
+    this._backend.on(event, listener);
+    return this;
+  }
+  off(event, listener) {
+    this._listeners.get(event)?.delete(listener);
+    this._backend.off(event, listener);
+    return this;
+  }
+  once(event, listener) {
+    const wrapper = (...args) => {
+      this._listeners.get(event)?.delete(wrapper);
+      listener(...args);
+    };
+    return this.on(event, wrapper);
+  }
+  chat(sessionId, text, images, documents, platform) {
+    return this._backend.chat(sessionId, text, images, documents, platform);
+  }
+  isStreamEnabled() {
+    return this._backend.isStreamEnabled();
+  }
+  clearSession(sessionId) {
+    return this._backend.clearSession(sessionId);
+  }
+  switchModel(modelName, platform) {
+    return this._backend.switchModel(modelName, platform);
+  }
+  listModels() {
+    return this._backend.listModels();
+  }
+  listSessionMetas() {
+    return this._backend.listSessionMetas();
+  }
+  abortChat(sessionId) {
+    return this._backend.abortChat(sessionId);
+  }
+  getToolHandle(toolId) {
+    return this._backend.getToolHandle(toolId);
+  }
+  getToolHandles(sessionId) {
+    return this._backend.getToolHandles(sessionId);
+  }
+  undo(sessionId, scope) {
+    return this._backend.undo?.(sessionId, scope) ?? Promise.resolve(null);
+  }
+  redo(sessionId) {
+    return this._backend.redo?.(sessionId) ?? Promise.resolve(null);
+  }
+  listSkills() {
+    return this._backend.listSkills?.() ?? [];
+  }
+  listModes() {
+    return this._backend.listModes?.() ?? [];
+  }
+  switchMode(modeName) {
+    return this._backend.switchMode?.(modeName) ?? false;
+  }
+  clearRedo(sessionId) {
+    return this._backend.clearRedo?.(sessionId);
+  }
+  getHistory(sessionId) {
+    return this._backend.getHistory?.(sessionId) ?? Promise.resolve([]);
+  }
+  runCommand(cmd) {
+    return this._backend.runCommand?.(cmd);
+  }
+  summarize(sessionId) {
+    return this._backend.summarize?.(sessionId) ?? Promise.resolve(undefined);
+  }
+  resetConfigToDefaults() {
+    return this._backend.resetConfigToDefaults?.();
+  }
+  getToolNames() {
+    return this._backend.getToolNames?.() ?? [];
+  }
+  getAgentTasks(sessionId) {
+    return this._backend.getAgentTasks?.(sessionId) ?? [];
+  }
+  getRunningAgentTasks(sessionId) {
+    return this._backend.getRunningAgentTasks?.(sessionId) ?? [];
+  }
+  getAgentTask(taskId) {
+    return this._backend.getAgentTask?.(taskId);
+  }
+  getToolPolicies() {
+    return this._backend.getToolPolicies?.();
+  }
+  getCurrentModelInfo() {
+    return this._backend.getCurrentModelInfo?.();
+  }
+  getDisabledTools() {
+    return this._backend.getDisabledTools?.();
+  }
+  getActiveSessionId() {
+    return this._backend.getActiveSessionId?.();
+  }
+}
 class PlatformAdapter {
   get name() {
     return this.constructor.name;
   }
 }
-// ../../packages/extension-sdk/dist/plugin/api.js
+// ../../packages/extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -561,6 +681,7 @@ var LogLevel;
   LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
   LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
 })(LogLevel || (LogLevel = {}));
+var _logLevel = LogLevel.INFO;
 // src/index.ts
 import { estimateTokenCount } from "tokenx";
 
@@ -899,6 +1020,7 @@ var COMMANDS = [
   { name: "/disconnect", description: "断开远程连接", remoteOnly: true, color: "#fdcb6e" },
   { name: "/agent", description: "切换 Agent（多 Agent 模式）" },
   { name: "/memory", description: "查看长期记忆" },
+  { name: "/extension", description: "管理扩展插件（查看/启用/禁用）" },
   { name: "/dream", description: "整理长期记忆（合并冗余、清理过时）" },
   { name: "/queue", description: "查看/管理排队消息" },
   { name: "/exit", description: "退出应用" }
@@ -2537,9 +2659,10 @@ import { jsxDEV as jsxDEV23 } from "@opentui/react/jsx-dev-runtime";
 var TERMINAL_STATUSES = new Set(["success", "warning", "error"]);
 function getArgsSummary(toolName, args) {
   switch (toolName) {
+    case "bash":
     case "shell": {
       const cmd = String(args.command || "");
-      return cmd.length > 30 ? `"${cmd.slice(0, 30)}${ICONS.ellipsis}"` : `"${cmd}"`;
+      return cmd.length > 60 ? `"${cmd.slice(0, 60)}${ICONS.ellipsis}"` : `"${cmd}"`;
     }
     case "read_file": {
       const files = Array.isArray(args.files) ? args.files : [];
@@ -3457,9 +3580,9 @@ function normalizeObjectArrayArg(args, options) {
   }
   return;
 }
-function resolveProjectPath(inputPath) {
-  const resolved = path.resolve(inputPath);
-  const cwd = process.cwd();
+function resolveProjectPath(inputPath, baseCwd) {
+  const cwd = baseCwd ?? process.cwd();
+  const resolved = path.resolve(cwd, inputPath);
   if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) {
     throw new Error(`路径超出项目目录: ${inputPath}`);
   }
@@ -5219,6 +5342,108 @@ function formatAge(unixSec) {
   return new Date(unixSec * 1000).toLocaleDateString("zh-CN");
 }
 
+// src/components/ExtensionListView.tsx
+init_terminal_compat();
+import { jsxDEV as jsxDEV35 } from "@opentui/react/jsx-dev-runtime";
+var STATUS_LABELS = {
+  active: { label: "active", color: "#2ecc71" },
+  disabled: { label: "disabled", color: "#e74c3c" },
+  available: { label: "available", color: "#f39c12" },
+  platform: { label: "platform", color: "#95a5a6" }
+};
+function ExtensionListView({
+  extensions,
+  selectedIndex,
+  togglingName,
+  statusMessage,
+  statusIsError
+}) {
+  const total = extensions.length;
+  return /* @__PURE__ */ jsxDEV35("box", {
+    flexDirection: "column",
+    width: "100%",
+    height: "100%",
+    children: [
+      /* @__PURE__ */ jsxDEV35("box", {
+        padding: 1,
+        children: [
+          /* @__PURE__ */ jsxDEV35("text", {
+            fg: C.primary,
+            children: `${ICONS.bullet} `
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV35("text", {
+            fg: C.primary,
+            children: "Extension "
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV35("text", {
+            fg: C.dim,
+            children: `(${total} extensions)`
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV35("text", {
+            fg: C.dim,
+            children: `  ${ICONS.arrowUp}${ICONS.arrowDown} select  Enter toggle  Esc back`
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      statusMessage && /* @__PURE__ */ jsxDEV35("box", {
+        paddingLeft: 2,
+        paddingBottom: 1,
+        children: /* @__PURE__ */ jsxDEV35("text", {
+          fg: statusIsError ? C.error : C.accent,
+          children: statusMessage
+        }, undefined, false, undefined, this)
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV35("scrollbox", {
+        flexGrow: 1,
+        children: [
+          extensions.length === 0 && /* @__PURE__ */ jsxDEV35("text", {
+            fg: C.dim,
+            paddingLeft: 2,
+            children: "No extensions found."
+          }, undefined, false, undefined, this),
+          extensions.map((item, index) => {
+            const isSelected = index === selectedIndex;
+            const statusInfo = STATUS_LABELS[item.status] ?? STATUS_LABELS.platform;
+            const isToggling = item.name === togglingName;
+            return /* @__PURE__ */ jsxDEV35("box", {
+              paddingLeft: 1,
+              children: /* @__PURE__ */ jsxDEV35("text", {
+                children: [
+                  /* @__PURE__ */ jsxDEV35("span", {
+                    fg: isSelected ? C.accent : C.dim,
+                    children: isSelected ? `${ICONS.selectorArrow} ` : "  "
+                  }, undefined, false, undefined, this),
+                  /* @__PURE__ */ jsxDEV35("span", {
+                    fg: statusInfo.color,
+                    children: `[${isToggling ? "..." : statusInfo.label}] `
+                  }, undefined, false, undefined, this),
+                  isSelected ? /* @__PURE__ */ jsxDEV35("strong", {
+                    children: /* @__PURE__ */ jsxDEV35("span", {
+                      fg: C.text,
+                      children: item.name
+                    }, undefined, false, undefined, this)
+                  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV35("span", {
+                    fg: C.textSec,
+                    children: item.name
+                  }, undefined, false, undefined, this),
+                  /* @__PURE__ */ jsxDEV35("span", {
+                    fg: C.dim,
+                    children: ` v${item.version}`
+                  }, undefined, false, undefined, this),
+                  /* @__PURE__ */ jsxDEV35("span", {
+                    fg: C.dim,
+                    children: ` ${ICONS.emDash} ${item.description || "(no description)"}`
+                  }, undefined, false, undefined, this)
+                ]
+              }, undefined, true, undefined, this)
+            }, item.name, false, undefined, this);
+          })
+        ]
+      }, undefined, true, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+
 // src/components/SettingsView.tsx
 import { useCallback as useCallback4, useEffect as useEffect7, useMemo as useMemo4, useState as useState8 } from "react";
 import { useKeyboard as useKeyboard3, useTerminalDimensions as useTerminalDimensions3 } from "@opentui/react";
@@ -5599,7 +5824,7 @@ class ConsoleSettingsController {
 }
 
 // src/components/SettingsView.tsx
-import { jsxDEV as jsxDEV35 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV36 } from "@opentui/react/jsx-dev-runtime";
 function getToolPolicyMode(configured, autoApprove) {
   if (!configured)
     return "disabled";
@@ -6432,27 +6657,27 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
   }
   const visibleRows = sectionRows.slice(windowStart, windowEnd);
   if (loading && !draft) {
-    return /* @__PURE__ */ jsxDEV35("box", {
+    return /* @__PURE__ */ jsxDEV36("box", {
       width: "100%",
       height: "100%",
       justifyContent: "center",
       alignItems: "center",
-      children: /* @__PURE__ */ jsxDEV35("text", {
+      children: /* @__PURE__ */ jsxDEV36("text", {
         fg: "#888",
         children: "正在加载配置..."
       }, undefined, false, undefined, this)
     }, undefined, false, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV35("box", {
+  return /* @__PURE__ */ jsxDEV36("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV35("box", {
+      /* @__PURE__ */ jsxDEV36("box", {
         flexDirection: "row",
         flexGrow: 1,
         children: [
-          /* @__PURE__ */ jsxDEV35("box", {
+          /* @__PURE__ */ jsxDEV36("box", {
             width: 24,
             flexShrink: 0,
             flexDirection: "column",
@@ -6460,16 +6685,16 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
             paddingLeft: 2,
             paddingRight: 1,
             children: [
-              /* @__PURE__ */ jsxDEV35("text", {
+              /* @__PURE__ */ jsxDEV36("text", {
                 fg: C.primary,
-                children: /* @__PURE__ */ jsxDEV35("strong", {
+                children: /* @__PURE__ */ jsxDEV36("strong", {
                   children: "IRIS"
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV35("box", {
+              /* @__PURE__ */ jsxDEV36("box", {
                 marginTop: 1,
                 flexDirection: "column",
-                children: sections.map((sec) => /* @__PURE__ */ jsxDEV35("text", {
+                children: sections.map((sec) => /* @__PURE__ */ jsxDEV36("text", {
                   fg: currentSection === sec.id ? C.accent : "#555",
                   children: [
                     currentSection === sec.id ? ICONS.dotFilled : ICONS.dotEmpty,
@@ -6482,32 +6707,32 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV35("box", {
+          /* @__PURE__ */ jsxDEV36("box", {
             flexGrow: 1,
             flexDirection: "column",
             paddingTop: 1,
             paddingLeft: 2,
             children: [
-              /* @__PURE__ */ jsxDEV35("box", {
+              /* @__PURE__ */ jsxDEV36("box", {
                 alignItems: "center",
                 paddingBottom: 1,
                 flexShrink: 0,
-                children: /* @__PURE__ */ jsxDEV35("ascii-font", {
+                children: /* @__PURE__ */ jsxDEV36("ascii-font", {
                   text: "IRIS",
                   font: "block",
                   color: C.primary
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV35("box", {
+              /* @__PURE__ */ jsxDEV36("box", {
                 flexDirection: "column",
                 marginBottom: 1,
                 flexShrink: 0,
                 children: [
-                  /* @__PURE__ */ jsxDEV35("text", {
+                  /* @__PURE__ */ jsxDEV36("text", {
                     fg: "#888",
                     children: "在终端内管理模型池、系统参数、工具策略与 MCP 服务器。"
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV35("text", {
+                  /* @__PURE__ */ jsxDEV36("text", {
                     fg: isDirty ? C.warn : C.accent,
                     children: [
                       isDirty ? `${ICONS.dotFilled} 有未保存修改` : `${ICONS.checkmark} 当前草稿已同步`,
@@ -6516,37 +6741,37 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
                   }, undefined, true, undefined, this)
                 ]
               }, undefined, true, undefined, this),
-              /* @__PURE__ */ jsxDEV35("scrollbox", {
+              /* @__PURE__ */ jsxDEV36("scrollbox", {
                 flexGrow: 1,
                 children: [
-                  windowStart > 0 && /* @__PURE__ */ jsxDEV35("text", {
+                  windowStart > 0 && /* @__PURE__ */ jsxDEV36("text", {
                     fg: "#888",
                     children: ICONS.ellipsis
                   }, undefined, false, undefined, this),
                   visibleRows.map((row) => {
                     const isSelected = row.id === selectedRowId && !!row.target;
                     const prefix = row.kind === "action" ? isSelected ? "❯" : "•" : row.kind === "field" ? isSelected ? "❯" : " " : " ";
-                    return /* @__PURE__ */ jsxDEV35("box", {
+                    return /* @__PURE__ */ jsxDEV36("box", {
                       paddingLeft: row.indent ?? 0,
-                      children: /* @__PURE__ */ jsxDEV35("text", {
+                      children: /* @__PURE__ */ jsxDEV36("text", {
                         children: [
-                          /* @__PURE__ */ jsxDEV35("span", {
+                          /* @__PURE__ */ jsxDEV36("span", {
                             fg: isSelected ? "#00ffff" : C.dim,
                             children: prefix
                           }, undefined, false, undefined, this),
-                          /* @__PURE__ */ jsxDEV35("span", {
+                          /* @__PURE__ */ jsxDEV36("span", {
                             children: " "
                           }, undefined, false, undefined, this),
-                          isSelected && row.kind !== "info" ? /* @__PURE__ */ jsxDEV35("span", {
+                          isSelected && row.kind !== "info" ? /* @__PURE__ */ jsxDEV36("span", {
                             fg: C.accent,
-                            children: /* @__PURE__ */ jsxDEV35("strong", {
+                            children: /* @__PURE__ */ jsxDEV36("strong", {
                               children: row.label
                             }, undefined, false, undefined, this)
-                          }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV35("span", {
+                          }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV36("span", {
                             fg: isSelected ? "#00ffff" : undefined,
                             children: row.label
                           }, undefined, false, undefined, this),
-                          row.value != null && /* @__PURE__ */ jsxDEV35("span", {
+                          row.value != null && /* @__PURE__ */ jsxDEV36("span", {
                             fg: isSelected ? "#00ffff" : C.dim,
                             children: `  ${row.value}`
                           }, undefined, false, undefined, this)
@@ -6554,7 +6779,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
                       }, undefined, true, undefined, this)
                     }, row.id, false, undefined, this);
                   }),
-                  windowEnd < sectionRows.length && /* @__PURE__ */ jsxDEV35("text", {
+                  windowEnd < sectionRows.length && /* @__PURE__ */ jsxDEV36("text", {
                     fg: "#888",
                     children: ICONS.ellipsis
                   }, undefined, false, undefined, this)
@@ -6564,62 +6789,62 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV35("box", {
+      /* @__PURE__ */ jsxDEV36("box", {
         flexDirection: "column",
         marginTop: 1,
         paddingX: 2,
         children: [
-          /* @__PURE__ */ jsxDEV35("text", {
+          /* @__PURE__ */ jsxDEV36("text", {
             fg: C.dim,
             children: "─".repeat(Math.max(3, termWidth - 4))
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV35("box", {
+          /* @__PURE__ */ jsxDEV36("box", {
             flexDirection: "column",
             minHeight: 4,
             children: [
-              selectedRow?.description && !editor && /* @__PURE__ */ jsxDEV35("text", {
+              selectedRow?.description && !editor && /* @__PURE__ */ jsxDEV36("text", {
                 fg: "#888",
                 children: selectedRow.description
               }, undefined, false, undefined, this),
-              statusText && /* @__PURE__ */ jsxDEV35("text", {
+              statusText && /* @__PURE__ */ jsxDEV36("text", {
                 fg: getStatusColor(statusKind),
                 children: statusText
               }, undefined, false, undefined, this),
-              editor ? /* @__PURE__ */ jsxDEV35("box", {
+              editor ? /* @__PURE__ */ jsxDEV36("box", {
                 flexDirection: "column",
                 children: [
-                  /* @__PURE__ */ jsxDEV35("text", {
+                  /* @__PURE__ */ jsxDEV36("text", {
                     fg: C.accent,
-                    children: /* @__PURE__ */ jsxDEV35("strong", {
+                    children: /* @__PURE__ */ jsxDEV36("strong", {
                       children: [
                         "编辑：",
                         editor.label
                       ]
                     }, undefined, true, undefined, this)
                   }, undefined, false, undefined, this),
-                  editor.hint && /* @__PURE__ */ jsxDEV35("text", {
+                  editor.hint && /* @__PURE__ */ jsxDEV36("text", {
                     fg: "#888",
                     children: editor.hint
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV35("box", {
+                  /* @__PURE__ */ jsxDEV36("box", {
                     children: [
-                      /* @__PURE__ */ jsxDEV35("text", {
+                      /* @__PURE__ */ jsxDEV36("text", {
                         fg: C.accent,
                         children: "❯ "
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV35("input", {
+                      /* @__PURE__ */ jsxDEV36("input", {
                         value: editorValue,
                         onInput: setEditorValue,
                         focused: true
                       }, undefined, false, undefined, this)
                     ]
                   }, undefined, true, undefined, this),
-                  /* @__PURE__ */ jsxDEV35("text", {
+                  /* @__PURE__ */ jsxDEV36("text", {
                     fg: "#888",
                     children: `Enter 保存 ${ICONS.separator} Esc 取消`
                   }, undefined, false, undefined, this)
                 ]
-              }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV35("text", {
+              }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV36("text", {
                 fg: "#888",
                 children: `${ICONS.arrowUp}${ICONS.arrowDown} 选择  ${ICONS.arrowLeft}${ICONS.arrowRight} 切换  1~${sections.length} 分栏  Space 布尔  Enter 编辑  A 新增  D 删除  S 保存  R 重载  Esc 返回`
               }, undefined, false, undefined, this)
@@ -7138,7 +7363,14 @@ function useAppKeyboard({
   memoryPendingDeleteId,
   setMemoryPendingDeleteId,
   setMemoryList,
-  onDeleteMemory
+  onDeleteMemory,
+  extensionList,
+  setExtensionList,
+  onToggleExtension,
+  onListExtensions,
+  setExtensionTogglingName,
+  setExtensionStatusMessage,
+  setExtensionStatusIsError
 }) {
   useKeyboard4((key) => {
     if (key.ctrl && key.name === "c") {
@@ -7224,6 +7456,38 @@ function useAppKeyboard({
         } else {
           setMemoryPendingDeleteId(item.id);
         }
+      }
+      return;
+    }
+    if (viewMode === "extension-list") {
+      if (key.name === "escape") {
+        setExtensionStatusMessage(null);
+        setViewMode("chat");
+      } else if (key.name === "up") {
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+      } else if (key.name === "down") {
+        setSelectedIndex((prev) => Math.min(extensionList.length - 1, prev + 1));
+      } else if (key.name === "return") {
+        const item = extensionList[selectedIndex];
+        if (!item || item.status === "platform" || !onToggleExtension)
+          return;
+        setExtensionTogglingName(item.name);
+        setExtensionStatusMessage(null);
+        onToggleExtension(item.name).then(async ({ ok, message }) => {
+          setExtensionTogglingName(null);
+          setExtensionStatusMessage(message);
+          setExtensionStatusIsError(!ok);
+          if (ok && onListExtensions) {
+            try {
+              const list = await onListExtensions();
+              setExtensionList(list);
+            } catch {}
+          }
+        }).catch((err) => {
+          setExtensionTogglingName(null);
+          setExtensionStatusMessage(`操作失败: ${err}`);
+          setExtensionStatusIsError(true);
+        });
       }
       return;
     }
@@ -7568,6 +7832,8 @@ function useCommandDispatch({
   setMemoryFilter,
   setMemoryExpandedId,
   setMemoryPendingDeleteId,
+  onListExtensions,
+  setExtensionList,
   onRemoteConnect,
   onRemoteDisconnect,
   isRemote,
@@ -7721,6 +7987,20 @@ function useCommandDispatch({
         setViewMode("memory-list");
       }).catch((err) => {
         appendCommandMessage(setMessages, `Failed to load memories: ${err}`, { isError: true });
+      });
+      return;
+    }
+    if (text === "/extension") {
+      if (!onListExtensions) {
+        appendCommandMessage(setMessages, "Extension management not available.");
+        return;
+      }
+      onListExtensions().then((list) => {
+        setExtensionList(list);
+        setSelectedIndex(0);
+        setViewMode("extension-list");
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `Failed to load extensions: ${err}`, { isError: true });
       });
       return;
     }
@@ -7995,7 +8275,7 @@ function useModelState({ modelId, modelName, contextWindow }) {
 }
 
 // src/App.tsx
-import { jsxDEV as jsxDEV36 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV37 } from "@opentui/react/jsx-dev-runtime";
 function App({
   onReady,
   onSubmit,
@@ -8033,6 +8313,8 @@ function App({
   onDream,
   onListMemories,
   onDeleteMemory,
+  onListExtensions,
+  onToggleExtension,
   onRemoteConnect,
   onRemoteDisconnect,
   remoteHost,
@@ -8054,6 +8336,10 @@ function App({
   const [memoryFilter, setMemoryFilter] = useState14("all");
   const [memoryExpandedId, setMemoryExpandedId] = useState14(null);
   const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState14(null);
+  const [extensionList, setExtensionList] = useState14([]);
+  const [extensionTogglingName, setExtensionTogglingName] = useState14(null);
+  const [extensionStatusMessage, setExtensionStatusMessage] = useState14(null);
+  const [extensionStatusIsError, setExtensionStatusIsError] = useState14(false);
   const [queueEditingId, setQueueEditingId] = useState14(null);
   const [queueEditState, queueEditActions] = useTextInput("");
   const renderer = useRenderer();
@@ -8113,6 +8399,8 @@ function App({
     setMemoryFilter,
     setMemoryExpandedId,
     setMemoryPendingDeleteId,
+    onListExtensions,
+    setExtensionList,
     onRemoteConnect,
     onRemoteDisconnect,
     isRemote: !!remoteHost,
@@ -8213,12 +8501,19 @@ function App({
     memoryPendingDeleteId,
     setMemoryPendingDeleteId,
     setMemoryList,
-    onDeleteMemory
+    onDeleteMemory,
+    extensionList,
+    setExtensionList,
+    onToggleExtension,
+    onListExtensions,
+    setExtensionTogglingName,
+    setExtensionStatusMessage,
+    setExtensionStatusIsError
   });
   const currentApply = appState.isGenerating ? appState.pendingApplies[0] : undefined;
   const hasMessages = appState.messages.length > 0 || appState.isGenerating;
   if (viewMode === "settings") {
-    return /* @__PURE__ */ jsxDEV36(SettingsView, {
+    return /* @__PURE__ */ jsxDEV37(SettingsView, {
       initialSection: settingsInitialSection,
       onBack: () => setViewMode("chat"),
       onLoad: onLoadSettings,
@@ -8227,26 +8522,26 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "session-list") {
-    return /* @__PURE__ */ jsxDEV36(SessionListView, {
+    return /* @__PURE__ */ jsxDEV37(SessionListView, {
       sessions: sessionList,
       selectedIndex
     }, undefined, false, undefined, this);
   }
   if (viewMode === "model-list") {
-    return /* @__PURE__ */ jsxDEV36(ModelListView, {
+    return /* @__PURE__ */ jsxDEV37(ModelListView, {
       models: modelList,
       selectedIndex
     }, undefined, false, undefined, this);
   }
   if (viewMode === "agent-list") {
-    return /* @__PURE__ */ jsxDEV36(AgentListView, {
+    return /* @__PURE__ */ jsxDEV37(AgentListView, {
       agents: agentList,
       selectedIndex,
       currentAgentName: agentName
     }, undefined, false, undefined, this);
   }
   if (viewMode === "memory-list") {
-    return /* @__PURE__ */ jsxDEV36(MemoryListView, {
+    return /* @__PURE__ */ jsxDEV37(MemoryListView, {
       memories: memoryList,
       selectedIndex,
       expandedId: memoryExpandedId,
@@ -8254,8 +8549,17 @@ function App({
       pendingDeleteId: memoryPendingDeleteId
     }, undefined, false, undefined, this);
   }
+  if (viewMode === "extension-list") {
+    return /* @__PURE__ */ jsxDEV37(ExtensionListView, {
+      extensions: extensionList,
+      selectedIndex,
+      togglingName: extensionTogglingName,
+      statusMessage: extensionStatusMessage,
+      statusIsError: extensionStatusIsError
+    }, undefined, false, undefined, this);
+  }
   if (viewMode === "queue-list") {
-    return /* @__PURE__ */ jsxDEV36(QueueListView, {
+    return /* @__PURE__ */ jsxDEV37(QueueListView, {
       queue: messageQueue.queue,
       selectedIndex,
       editingId: queueEditingId,
@@ -8264,7 +8568,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (currentApply) {
-    return /* @__PURE__ */ jsxDEV36(DiffApprovalView, {
+    return /* @__PURE__ */ jsxDEV37(DiffApprovalView, {
       invocation: currentApply,
       pendingCount: appState.pendingApplies.length,
       choice: approval.approvalChoice,
@@ -8275,17 +8579,17 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "tool-list") {
-    return /* @__PURE__ */ jsxDEV36(ToolListView, {
+    return /* @__PURE__ */ jsxDEV37(ToolListView, {
       tools: appState.toolListItems,
       selectedIndex
     }, undefined, false, undefined, this);
   }
   if (viewMode === "tool-detail" && appState.toolDetailData) {
-    return /* @__PURE__ */ jsxDEV36("box", {
+    return /* @__PURE__ */ jsxDEV37("box", {
       flexDirection: "column",
       width: "100%",
       height: "100%",
-      children: /* @__PURE__ */ jsxDEV36(ToolDetailView, {
+      children: /* @__PURE__ */ jsxDEV37(ToolDetailView, {
         data: appState.toolDetailData,
         breadcrumb: appState.toolDetailStack,
         onNavigateChild: onNavigateToolDetail,
@@ -8296,18 +8600,18 @@ function App({
       }, undefined, false, undefined, this)
     }, undefined, false, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV36("box", {
+  return /* @__PURE__ */ jsxDEV37("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      !hasMessages ? /* @__PURE__ */ jsxDEV36(LogoScreen, {}, undefined, false, undefined, this) : null,
-      !hasMessages && initWarnings && initWarnings.length > 0 ? /* @__PURE__ */ jsxDEV36(InitWarnings, {
+      !hasMessages ? /* @__PURE__ */ jsxDEV37(LogoScreen, {}, undefined, false, undefined, this) : null,
+      !hasMessages && initWarnings && initWarnings.length > 0 ? /* @__PURE__ */ jsxDEV37(InitWarnings, {
         warnings: initWarnings,
         color: initWarningsColor,
         icon: initWarningsIcon
       }, undefined, false, undefined, this) : null,
-      hasMessages ? /* @__PURE__ */ jsxDEV36(ChatMessageList, {
+      hasMessages ? /* @__PURE__ */ jsxDEV37(ChatMessageList, {
         messages: appState.messages,
         streamingParts: appState.streamingParts,
         isStreaming: appState.isStreaming,
@@ -8318,7 +8622,7 @@ function App({
         timerPaused: appState.pendingApprovals.length > 0 || appState.pendingApplies.length > 0,
         thoughtsToggleSignal
       }, undefined, false, undefined, this) : null,
-      /* @__PURE__ */ jsxDEV36(BottomPanel, {
+      /* @__PURE__ */ jsxDEV37(BottomPanel, {
         hasMessages,
         pendingConfirm,
         confirmChoice,
@@ -8949,6 +9253,8 @@ ${summaryText}`;
         onDream: () => this.handleDream(),
         onListMemories: () => this.handleListMemories(),
         onDeleteMemory: (id) => this.handleDeleteMemory(id),
+        onListExtensions: () => this.handleListExtensions(),
+        onToggleExtension: (name) => this.handleToggleExtension(name),
         onRemoteConnect: (name) => this.handleRemoteConnect(name),
         onRemoteDisconnect: () => this.handleRemoteDisconnect(),
         remoteHost: this._remoteHost || undefined,
@@ -9524,6 +9830,82 @@ ${summaryText}`;
       return await mem.delete(id);
     } catch {
       return false;
+    }
+  }
+  async handleListExtensions() {
+    const ext = this.api?.extensions;
+    const configManager = this.api?.configManager;
+    if (!ext?.discover || !configManager)
+      return [];
+    try {
+      const packages = ext.discover();
+      const raw = configManager.readEditableConfig();
+      const pluginEntries = raw?.plugins ?? [];
+      const pluginMap = new Map(pluginEntries.map((p) => [p.name, p]));
+      const active = this.api?.pluginManager?.listPlugins?.() ?? [];
+      const activeNames = new Set(active.map((p) => p.name));
+      return packages.map((pkg) => {
+        const name = pkg.manifest.name;
+        const hasPlugin = !!pkg.manifest.plugin;
+        const inConfig = pluginMap.get(name);
+        let status;
+        if (!hasPlugin) {
+          status = "platform";
+        } else if (activeNames.has(name)) {
+          status = "active";
+        } else if (inConfig && inConfig.enabled === false) {
+          status = "disabled";
+        } else if (inConfig) {
+          status = "disabled";
+        } else {
+          status = "available";
+        }
+        return {
+          name,
+          version: pkg.manifest.version,
+          description: pkg.manifest.description || "",
+          status,
+          hasPlugin,
+          source: pkg.source
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+  async handleToggleExtension(name) {
+    const ext = this.api?.extensions;
+    const configManager = this.api?.configManager;
+    if (!ext || !configManager) {
+      return { ok: false, message: "扩展管理 API 不可用" };
+    }
+    try {
+      const raw = configManager.readEditableConfig();
+      const pluginEntries = [...raw?.plugins ?? []];
+      const existing = pluginEntries.find((p) => p.name === name);
+      const active = this.api?.pluginManager?.listPlugins?.() ?? [];
+      const isActive = active.some((p) => p.name === name);
+      if (isActive) {
+        await ext.deactivate(name);
+        if (existing) {
+          existing.enabled = false;
+        } else {
+          pluginEntries.push({ name, enabled: false });
+        }
+        configManager.updateEditableConfig({ plugins: pluginEntries });
+        return { ok: true, message: `已禁用 "${name}"` };
+      } else {
+        await ext.activate(name);
+        if (existing) {
+          existing.enabled = true;
+        } else {
+          pluginEntries.push({ name, enabled: true });
+        }
+        configManager.updateEditableConfig({ plugins: pluginEntries });
+        return { ok: true, message: `已启用 "${name}"` };
+      }
+    } catch (err) {
+      return { ok: false, message: `操作失败: ${err instanceof Error ? err.message : String(err)}` };
     }
   }
   async handleSummarize() {

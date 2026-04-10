@@ -1879,7 +1879,6 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     }
   }
 
-  }
 
   // Agent 状态由主 onMounted 在 loadConfigData 完成后加载
 

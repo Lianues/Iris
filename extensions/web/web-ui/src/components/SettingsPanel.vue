@@ -520,57 +520,38 @@
             <span v-if="agentStatus.agents.length > 0" class="settings-pill">{{ agentStatus.agents.length }} 个 Agent</span>
           </div>
 
-          <div v-if="!agentStatus.exists" class="settings-agent-empty">
-            <p>未找到 Agent 配置文件。</p>
-            <p class="text-muted" style="margin-bottom:12px">配置文件路径：<code>{{ agentStatus.manifestPath }}</code></p>
-            <button class="btn-primary" type="button" @click="handleInitAgentManifest">初始化多 Agent 系统</button>
+          <div v-if="agentStatus.agents.length > 0" class="settings-agent-list">
+            <div class="settings-agent-list-label">已定义的 Agent</div>
+            <div
+              v-for="agent in agentStatus.agents"
+              :key="agent.name"
+              class="settings-agent-card"
+            >
+              <div class="settings-agent-card-icon">
+                <AppIcon :name="ICONS.sidebar.chat" />
+              </div>
+              <div class="settings-agent-card-copy">
+                <strong>{{ agent.name }}</strong>
+                <span v-if="agent.description" class="text-muted">{{ agent.description }}</span>
+              </div>
+              <div class="settings-agent-card-actions">
+                <button class="btn-small" type="button" @click="switchEditingAgent(agent.name)">编辑配置</button>
+                <button class="btn-small btn-danger" type="button" @click="handleDeleteAgent(agent.name)">删除</button>
+              </div>
+            </div>
           </div>
 
-          <template v-else>
-            <div class="form-row">
-              <label class="form-label">多 Agent 模式</label>
-              <div class="form-field">
-                <label class="toggle-switch">
-                  <input type="checkbox" :checked="agentStatus.enabled" @change="handleToggleAgent">
-                  <span class="toggle-track"></span>
-                </label>
-                <span class="form-hint">{{ agentStatus.enabled ? '已启用' : '未启用' }}</span>
-              </div>
-            </div>
+          <div v-else class="settings-agent-empty">
+            <p class="text-muted">尚未定义任何 Agent，点击下方按钮添加。</p>
+          </div>
 
-            <div v-if="agentStatus.agents.length > 0" class="settings-agent-list">
-              <div class="settings-agent-list-label">已定义的 Agent</div>
-              <div
-                v-for="agent in agentStatus.agents"
-                :key="agent.name"
-                class="settings-agent-card"
-              >
-                <div class="settings-agent-card-icon">
-                  <AppIcon :name="ICONS.sidebar.chat" />
-                </div>
-                <div class="settings-agent-card-copy">
-                  <strong>{{ agent.name }}</strong>
-                  <span v-if="agent.description" class="text-muted">{{ agent.description }}</span>
-                </div>
-                <div class="settings-agent-card-actions">
-                  <button class="btn-small" type="button" @click="switchEditingAgent(agent.name)">编辑配置</button>
-                  <button class="btn-small btn-danger" type="button" @click="handleDeleteAgent(agent.name)">删除</button>
-                </div>
-              </div>
-            </div>
-
-            <div v-else class="settings-agent-empty">
-              <p class="text-muted">尚未定义任何 Agent，点击下方按钮添加。</p>
-            </div>
-
-            <!-- 添加 Agent -->
-            <div class="agent-add-form">
-              <input v-model="newAgentName" type="text" placeholder="Agent 名称（英文、数字、下划线）" class="agent-add-input" />
-              <input v-model="newAgentDesc" type="text" placeholder="描述（可选）" class="agent-add-input" />
-              <button class="btn-primary" type="button" :disabled="!newAgentName.trim()" @click="handleCreateAgent">添加 Agent</button>
-            </div>
-            <p class="field-hint">添加后可点击「编辑配置」为 Agent 设置独立的模型、工具、系统提示等。</p>
-          </template>
+          <!-- 添加 Agent -->
+          <div class="agent-add-form">
+            <input v-model="newAgentName" type="text" placeholder="Agent 名称（英文、数字、下划线）" class="agent-add-input" />
+            <input v-model="newAgentDesc" type="text" placeholder="描述（可选）" class="agent-add-input" />
+            <button class="btn-primary" type="button" :disabled="!newAgentName.trim()" @click="handleCreateAgent">添加 Agent</button>
+          </div>
+          <p class="field-hint">添加后可点击「编辑配置」为 Agent 设置独立的模型、工具、系统提示等。</p>
         </section>
 
         <!-- 运行环境 -->
@@ -934,10 +915,8 @@ const {
   handleResetConfig,
   resetPending,
   agentStatus,
-  handleToggleAgent,
   editingAgent,
   switchEditingAgent,
-  handleInitAgentManifest,
   newAgentName,
   newAgentDesc,
   handleCreateAgent,

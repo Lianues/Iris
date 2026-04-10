@@ -9606,9 +9606,14 @@ class TelegramPlatform extends PlatformAdapter {
     this.client.onCallbackQuery((ctx) => this.handleCallbackQuery(ctx));
     await this.client.start();
     logger5.info("Telegram 平台已启动");
-    this.backend.on("task:result", (_sid, _taskId, status, description, _taskType, silent, result) => {
+    this.backend.on("task:result", (sid, _taskId, status, description, _taskType, silent, result) => {
       if (!silent)
         return;
+      const targetCs = this.findChatStateByChatOrigin(sid);
+      if (!targetCs || targetCs.stopped) {
+        logger5.info(`task:result 未找到匹配的聊天 (sid=${sid})，跳过`);
+        return;
+      }
       let text;
       if (status === "completed") {
         const preview = (result ?? "").slice(0, 1000);
@@ -9619,13 +9624,9 @@ ${preview}`;
       } else {
         text = `⏰ ${description} 失败：${result ?? "未知错误"}`;
       }
-      for (const cs of this.chatStates.values()) {
-        if (cs.stopped)
-          continue;
-        this.sendToChat(cs, text, { trackMessage: false });
-      }
+      this.sendToChat(targetCs, text, { trackMessage: false });
     });
-    logger5.info("已通过 task:result 监听任务结果广播");
+    logger5.info("已通过 task:result 监听任务结果（按聊天定向投递）");
     if (this.pairingGuard && this.pairingStore?.needsBootstrap()) {
       const code = this.pairingStore.getOrCreateBootstrapCode();
       logger5.info("");
@@ -9672,6 +9673,14 @@ ${preview}`;
     cs.sessionId = this.getSessionId(target.chatKey);
     cs.target = target;
     return cs;
+  }
+  findChatStateByChatOrigin(sid) {
+    for (const [chatKey, cs] of this.chatStates.entries()) {
+      const prefix = `telegram-${chatKey.replace(/:/g, "-")}-`;
+      if (sid.startsWith(prefix))
+        return cs;
+    }
+    return;
   }
   findChatStateBySid(sid) {
     for (const cs of this.chatStates.values()) {

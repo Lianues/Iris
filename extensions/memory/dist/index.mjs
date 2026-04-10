@@ -502,7 +502,7 @@ async function runConsolidation(ctx) {
   const { api, provider, logger } = ctx;
   const memories = await provider.list(undefined, 500);
   if (memories.length === 0)
-    return;
+    return 0;
   const manifestEntries = memories.map((m) => ({
     id: m.id,
     name: m.name || `memory_${m.id}`,
@@ -525,7 +525,7 @@ ${m.content}`;
     const available = MAX_PROMPT_CHARS - manifestText.length - 2000;
     if (available <= 0) {
       logger.warn(`记忆清单过大 (${manifestText.length} chars)，跳过归纳`);
-      return;
+      return 0;
     }
     truncatedDetails = memoryDetails.slice(0, available);
     const lastEntry = truncatedDetails.lastIndexOf(`
@@ -621,17 +621,34 @@ var init_consolidation = __esm(() => {
 // src/index.ts
 import * as path2 from "path";
 // ../../packages/extension-sdk/dist/logger.js
-function print(level, scope, args) {
-  const consoleMethod = console[level] ?? console.log;
-  consoleMethod(`[${scope}]`, ...args);
-}
+var LogLevel;
+(function(LogLevel2) {
+  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
+  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
+  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
+  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
+  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
+})(LogLevel || (LogLevel = {}));
+var _logLevel = LogLevel.INFO;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
-    info: (...args) => print("log", scope, args),
-    warn: (...args) => print("warn", scope, args),
-    error: (...args) => print("error", scope, args),
-    debug: (...args) => print("debug", scope, args)
+    debug: (...args) => {
+      if (_logLevel <= LogLevel.DEBUG)
+        console.debug(`[${scope}]`, ...args);
+    },
+    info: (...args) => {
+      if (_logLevel <= LogLevel.INFO)
+        console.log(`[${scope}]`, ...args);
+    },
+    warn: (...args) => {
+      if (_logLevel <= LogLevel.WARN)
+        console.warn(`[${scope}]`, ...args);
+    },
+    error: (...args) => {
+      if (_logLevel <= LogLevel.ERROR)
+        console.error(`[${scope}]`, ...args);
+    }
   };
 }
 
@@ -1066,6 +1083,7 @@ var DEFAULT_CONFIG = {
   autoRecall: true,
   maxContextBytes: 20480,
   sessionBudgetBytes: 61440,
+  smallSetThreshold: 15,
   consolidation: {
     enabled: true,
     minHours: 24,
@@ -1083,6 +1101,7 @@ function resolveConfig(rawSection, pluginConfig) {
     autoRecall: toBool(source.autoRecall, DEFAULT_CONFIG.autoRecall),
     maxContextBytes: toNum(source.maxContextBytes, DEFAULT_CONFIG.maxContextBytes),
     sessionBudgetBytes: toNum(source.sessionBudgetBytes, DEFAULT_CONFIG.sessionBudgetBytes),
+    smallSetThreshold: toNum(source.smallSetThreshold, DEFAULT_CONFIG.smallSetThreshold),
     consolidation: {
       enabled: toBool(consolidationRaw.enabled, DEFAULT_CONFIG.consolidation.enabled),
       minHours: toNum(consolidationRaw.minHours, DEFAULT_CONFIG.consolidation.minHours),
@@ -1175,10 +1194,10 @@ These exclusions apply even when the user explicitly asks you to save. If they a
 
 ## When to access memories
 
-- When memories seem relevant, or the user references prior-conversation work
-- You MUST access memory when the user explicitly asks you to check, recall, or remember
-- If the user says to *ignore* or *not use* memory: do not apply, cite, or mention memory content
-- Memory records can become stale. Before answering based solely on memory, verify it is still correct. If a memory conflicts with current information, trust what you observe now — and update or remove the stale memory
+- When in doubt about whether memories might be relevant, use memory_search. The cost of a redundant search is low; the cost of missing relevant context is high.
+- You MUST use memory_search when the user explicitly asks you to check, recall, or remember.
+- If the user says to *ignore* or *not use* memory: do not apply, cite, or mention memory content.
+- Memory records can become stale. Before answering based solely on memory, verify it is still correct. If a memory conflicts with current information, trust what you observe now — and update or remove the stale memory.
 
 ## Before recommending from memory
 
@@ -1203,31 +1222,103 @@ Before adding, use memory_search to check for existing related memories. Use mem
 }
 
 // src/retrieval.ts
+var USER_BUDGET_RATIO = 0.25;
+var DEFAULT_SMALL_SET_THRESHOLD = 15;
 async function findAndFormatRelevantMemories(ctx) {
-  const { router, provider, userText, maxBytes, surfaced, logger } = ctx;
-  const manifest = await provider.buildManifest();
-  if (manifest.length === 0)
+  const { provider, maxBytes, logger } = ctx;
+  const threshold = ctx.smallSetThreshold ?? DEFAULT_SMALL_SET_THRESHOLD;
+  const injectedParts = [];
+  let totalBytes = 0;
+  const allIds = [];
+  const allUserIds = [];
+  const userBudget = Math.floor(maxBytes * USER_BUDGET_RATIO);
+  try {
+    const userMemories = await provider.list("user");
+    if (userMemories.length > 0) {
+      const { text, bytes, usedIds } = formatUserMemories(userMemories, userBudget);
+      if (text) {
+        injectedParts.push(text);
+        totalBytes += bytes;
+        allUserIds.push(...usedIds);
+      }
+    }
+  } catch (err) {
+    logger?.warn("加载 user 记忆失败:", err);
+  }
+  const remainingBudget = maxBytes - totalBytes;
+  if (remainingBudget > 0) {
+    try {
+      const result = await selectAndFormatOtherMemories(ctx, remainingBudget, threshold);
+      if (result) {
+        injectedParts.push(result.text);
+        totalBytes += result.bytes;
+        allIds.push(...result.ids);
+      }
+    } catch (err) {
+      logger?.warn("检索非 user 记忆失败:", err);
+    }
+  }
+  if (injectedParts.length === 0)
     return;
-  const unsurfaced = manifest.filter((m) => !surfaced.has(m.id));
+  return {
+    text: injectedParts.join(`
+`),
+    bytes: totalBytes,
+    ids: allIds,
+    userIds: allUserIds
+  };
+}
+function formatUserMemories(memories, maxBytes) {
+  const lines = [];
+  const usedIds = [];
+  let totalBytes = 0;
+  const header = `
+
+## User Profile
+`;
+  totalBytes += new TextEncoder().encode(header).length;
+  for (const m of memories) {
+    const title = m.name ? `**${m.name}**` : `#${m.id}`;
+    const content = m.content.length > 2048 ? m.content.slice(0, 2048) + "..." : m.content;
+    const entry = `- ${title}: ${content}`;
+    const entryBytes = new TextEncoder().encode(entry).length;
+    if (totalBytes + entryBytes > maxBytes)
+      break;
+    lines.push(entry);
+    usedIds.push(m.id);
+    totalBytes += entryBytes;
+  }
+  if (lines.length === 0)
+    return { text: "", bytes: 0, usedIds: [] };
+  const text = header + lines.join(`
+`);
+  return { text, bytes: totalBytes, usedIds };
+}
+async function selectAndFormatOtherMemories(ctx, maxBytes, smallSetThreshold) {
+  const { router, provider, userText, surfaced, logger } = ctx;
+  const manifest = await provider.buildManifest();
+  const unsurfaced = manifest.filter((m) => m.type !== "user" && !surfaced.has(m.id));
   if (unsurfaced.length === 0)
     return;
   let selectedIds;
-  try {
-    selectedIds = await selectRelevantMemories(router, userText, unsurfaced);
-  } catch (err) {
-    logger?.warn("LLM 检索失败，降级到 FTS5:", err);
-    const ftsResults = await provider.search(userText, 5);
-    selectedIds = ftsResults.filter((m) => !surfaced.has(m.id)).map((m) => m.id);
+  if (unsurfaced.length <= smallSetThreshold) {
+    selectedIds = unsurfaced.map((m) => m.id);
+    logger?.info(`小集合 bypass: ${unsurfaced.length} 条非 user 记忆直接注入`);
+  } else {
+    try {
+      selectedIds = await selectRelevantMemories(router, userText, unsurfaced);
+    } catch (err) {
+      logger?.warn("LLM 检索失败，降级到搜索:", err);
+      const ftsResults = await provider.search(userText, 5);
+      selectedIds = ftsResults.filter((m) => m.type !== "user" && !surfaced.has(m.id)).map((m) => m.id);
+    }
   }
   if (selectedIds.length === 0)
     return;
   const memories = await provider.getByIds(selectedIds);
   if (memories.length === 0)
     return;
-  const { text, bytes, usedIds } = formatRelevantMemories(memories, maxBytes);
-  if (!text)
-    return;
-  return { text, bytes, ids: usedIds };
+  return formatRelevantMemories(memories, maxBytes);
 }
 async function selectRelevantMemories(router, userText, manifest) {
   const manifestText = formatManifest(manifest);
@@ -1239,11 +1330,17 @@ ${userText}
 ## Available memories
 ${manifestText}
 
+## Selection guidelines
+- For identity/profile questions ("who am I", "what do I do"), select ALL [user] type memories
+- For preference/guidance questions, select [user] and [feedback] type memories
+- Consider both explicit keyword matches AND semantic relevance
+- When in doubt, INCLUDE rather than exclude — it is better to surface a marginally relevant memory than to miss an important one
+
 Respond with ONLY the JSON array, no explanation. Example: [3, 7, 12]`;
   const response = await router.chat({
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     systemInstruction: {
-      parts: [{ text: "You are a memory relevance filter. Output only a JSON array of memory IDs." }]
+      parts: [{ text: "You are a memory relevance filter. Be inclusive — err on the side of selecting more rather than fewer. Identity questions should match ALL user-type memories. Output only a JSON array of memory IDs." }]
     },
     generationConfig: {
       maxOutputTokens: 100,
@@ -1264,7 +1361,7 @@ Respond with ONLY the JSON array, no explanation. Example: [3, 7, 12]`;
 }
 function formatRelevantMemories(memories, maxBytes) {
   const lines = [];
-  const usedIds = [];
+  const ids = [];
   let totalBytes = 0;
   const header = `
 
@@ -1284,14 +1381,14 @@ function formatRelevantMemories(memories, maxBytes) {
     if (totalBytes + entryBytes > maxBytes)
       break;
     lines.push(entry);
-    usedIds.push(m.id);
+    ids.push(m.id);
     totalBytes += entryBytes;
   }
   if (lines.length === 0)
-    return { text: "", bytes: 0, usedIds: [] };
+    return { text: "", bytes: 0, ids: [] };
   const text = header + lines.join(`
 `);
-  return { text, bytes: totalBytes, usedIds };
+  return { text, bytes: totalBytes, ids };
 }
 
 // src/index.ts
@@ -1331,7 +1428,7 @@ async function enableMemorySystem(ctx) {
   cachedApi.memory = Object.assign(activeProvider, {
     dream: () => runForcedConsolidation()
   });
-  const hasSubAgents = !!cachedApi.tools.get("sub_agent");
+  const hasSubAgents = !!cachedApi.tools?.get?.("sub_agent");
   autoRecallEnabled = !hasSubAgents;
   const count = await activeProvider.count();
   systemRulesPart = { text: buildMemorySystemRules(count) };
@@ -1408,6 +1505,7 @@ var src_default = definePlugin({
               userText: s.lastUserText,
               maxBytes: currentConfig.maxContextBytes,
               surfaced: s.surfacedIds,
+              smallSetThreshold: currentConfig.smallSetThreshold,
               logger
             });
             if (result) {
@@ -1449,10 +1547,16 @@ var src_default = definePlugin({
       onAfterToolExec({ toolName }) {
         if (!activeProvider)
           return;
-        if (toolName === "memory_add" || toolName === "memory_update") {
+        if (toolName === "memory_add" || toolName === "memory_update" || toolName === "memory_delete") {
           const sid = getActiveTurnSessionId();
-          if (sid)
+          if (sid && (toolName === "memory_add" || toolName === "memory_update")) {
             getSessionState(sid).memoryWrittenThisTurn = true;
+          }
+          if (systemRulesPart) {
+            activeProvider.count().then((count) => {
+              systemRulesPart.text = buildMemorySystemRules(count);
+            });
+          }
         }
         return;
       }
