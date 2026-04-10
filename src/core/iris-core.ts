@@ -42,6 +42,7 @@ import { PromptAssembler } from '../prompt/assembler';
 import { CrossAgentTaskBoard } from './cross-agent-task-board';
 import { ToolLoop } from './tool-loop';
 import { createHistorySearchTool } from '../tools/internal/history_search';
+import { createManageVariablesTool } from '../tools/internal/manage_variables';
 import { createReadSkillTool } from '../tools/internal/read_skill';
 import { createInvokeSkillTool } from '../tools/internal/invoke_skill';
 import { DEFAULT_SYSTEM_PROMPT } from '../prompt/templates/default';
@@ -379,6 +380,14 @@ export class IrisCore {
     tools.register(createHistorySearchTool({
       getStorage: () => backend.getStorage(),
       getSessionId: () => backend.getActiveSessionId(),
+    }));
+
+    // 注册全局变量管理工具
+    const agentName = options.agentName ?? 'master';
+    tools.register(createManageVariablesTool({
+      getGlobalStore: () => pluginManager.getGlobalStore(),
+      getSessionId: () => backend.getActiveSessionId(),
+      getAgentName: () => agentName,
     }));
 
     // 注册 Skill 工具（read_skill + invoke_skill）。
