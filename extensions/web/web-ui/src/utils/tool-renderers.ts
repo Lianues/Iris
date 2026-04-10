@@ -119,83 +119,32 @@ function readFileSummary(result: Record<string, unknown>): ToolSummary {
   ])
 }
 
-interface WriteResultItem {
-  path?: string
-  success?: boolean
-  action?: 'created' | 'modified' | 'unchanged'
-}
-
-interface ArgsFileEntry {
-  path?: string
-  content?: string
-}
-
-function extractArgsFiles(args: Record<string, unknown>): ArgsFileEntry[] {
-  if (Array.isArray(args.files)) return args.files as ArgsFileEntry[]
-  if (args.files && typeof args.files === 'object') return [args.files as ArgsFileEntry]
-  if (args.file && typeof args.file === 'object') return [args.file as ArgsFileEntry]
-  if (typeof args.path === 'string' && typeof args.content === 'string') {
-    return [{ path: args.path as string, content: args.content as string }]
-  }
-  return []
-}
-
 function writeFileSummary(result: Record<string, unknown>, args: Record<string, unknown>): ToolSummary {
-  const items = (result.results ?? []) as WriteResultItem[]
-  const argsFiles = extractArgsFiles(args)
+  const action = (result.action ?? (result.success ? 'written' : 'failed')) as string
+  const filePath = (result.path ?? args.path ?? '?') as string
+  const content = args.content
 
-  if (items.length === 0) {
+  if (!result.path) {
     return buildSummary([seg('wrote 0 files', 'muted')])
   }
 
-  if (items.length === 1) {
-    const item = items[0]
-    const action = item.action ?? (item.success ? 'written' : 'failed')
-    const entry = argsFiles.find(f => f.path === item.path)
-    const lines = entry ? countLines(entry.content) : 0
-
-    const parts: SummarySegment[] = []
-    if (lines > 0 && action !== 'unchanged') {
-      if (action === 'created') {
-        parts.push(seg(`+${lines} lines`, 'green'))
-      } else {
-        parts.push(seg(`~${lines} lines`, 'purple'))
-      }
-      parts.push(seg(' · '))
-    }
-    if (item.success === false) {
-      parts.push(seg(action, 'red'))
-    } else {
-      parts.push(seg(action))
-    }
-    parts.push(seg(` · ${item.path ?? '?'}`, 'muted'))
-    return buildSummary(parts)
-  }
-
-  // 多文件：按 action 分组
-  const counts: Record<string, number> = {}
-  let totalLines = 0
-  for (const item of items) {
-    const key = item.success === false ? 'failed' : (item.action ?? 'written')
-    counts[key] = (counts[key] || 0) + 1
-    if (item.success !== false && item.action !== 'unchanged') {
-      const entry = argsFiles.find(f => f.path === item.path)
-      totalLines += entry ? countLines(entry.content) : 0
-    }
-  }
-
+  const lines = countLines(content)
   const parts: SummarySegment[] = []
-  if (totalLines > 0) {
-    parts.push(seg(`~${totalLines} lines`, 'purple'))
+
+  if (lines > 0 && action !== 'unchanged') {
+    if (action === 'created') {
+      parts.push(seg(`+${lines} lines`, 'green'))
+    } else {
+      parts.push(seg(`~${lines} lines`, 'purple'))
+    }
     parts.push(seg(' · '))
   }
-  const actionParts: string[] = []
-  for (const action of ['created', 'modified', 'unchanged', 'written', 'failed']) {
-    if (counts[action]) actionParts.push(`${counts[action]} ${action}`)
+  if (result.success === false) {
+    parts.push(seg(action, 'red'))
+  } else {
+    parts.push(seg(action))
   }
-  const hasFail = (counts.failed ?? 0) > 0
-  parts.push(seg(actionParts.join(', '), hasFail ? 'yellow' : undefined))
-
+  parts.push(seg(` · ${filePath}`, 'muted'))
   return buildSummary(parts)
 }
 

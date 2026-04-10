@@ -164,29 +164,25 @@ function buildApplyDiffPreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsL
 }
 
 function buildWriteFilePreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {
-  const fileList = utils.normalizeWriteArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return { toolName: 'write_file', title: 'Diff 审批', summary: ['参数无效。'], items: [makeMsg('', 'write_file', 'files 参数无效。')] };
+  const filePath = (inv.args as Record<string, unknown>).path as string | undefined;
+  const content = (inv.args as Record<string, unknown>).content as string | undefined;
+  if (!filePath) {
+    return { toolName: 'write_file', title: 'Diff 审批', summary: ['参数无效。'], items: [makeMsg('', 'write_file', 'path 参数无效。')] };
   }
-  const items: DiffPreviewItem[] = [];
-  let created = 0, modified = 0, unchanged = 0;
-  for (const entry of fileList) {
-    try {
-      const resolved = utils.resolveProjectPath(entry.path);
-      let existed = false, before = '';
-      if (fs.existsSync(resolved)) { before = fs.readFileSync(resolved, 'utf-8'); existed = true; }
-      if (existed && before === entry.content) { unchanged++; continue; }
-      const diff = buildWholeFileDiff(entry.path, before, entry.content, existed);
-      const action = existed ? '修改' : '新增';
-      items.push(diff ? makeItem(entry.path, `${entry.path} · ${action}`, diff) : makeMsg(entry.path, `${entry.path} · ${action}`, existed ? '无法显示 diff。' : '将创建空文件。'));
-      if (existed) modified++; else created++;
-    } catch (err: unknown) {
-      items.push(makeMsg(entry.path, `${entry.path} · 错误`, err instanceof Error ? err.message : String(err)));
+  try {
+    const resolved = utils.resolveProjectPath(filePath);
+    let existed = false, before = '';
+    if (fs.existsSync(resolved)) { before = fs.readFileSync(resolved, 'utf-8'); existed = true; }
+    if (existed && before === (content ?? '')) {
+      return { toolName: 'write_file', title: 'Diff 审批', summary: [`目标文件：${filePath}`, '未变化'], items: [makeMsg(filePath, 'write_file', '不会产生实际变更。')] };
     }
+    const diff = buildWholeFileDiff(filePath, before, content ?? '', existed);
+    const action = existed ? '修改' : '新增';
+    const item = diff ? makeItem(filePath, `${filePath} · ${action}`, diff) : makeMsg(filePath, `${filePath} · ${action}`, existed ? '无法显示 diff。' : '将创建空文件。');
+    return { toolName: 'write_file', title: 'Diff 审批', summary: [`目标文件：${filePath}`, action], items: [item] };
+  } catch (err: unknown) {
+    return { toolName: 'write_file', title: 'Diff 审批', summary: ['错误'], items: [makeMsg(filePath, `${filePath} · 错误`, err instanceof Error ? err.message : String(err))] };
   }
-  const summary = [`共 ${fileList.length} 个文件`, `新增 ${created}，修改 ${modified}，未变化 ${unchanged}`];
-  if (items.length === 0) items.push(makeMsg('', 'write_file', '不会产生实际变更。'));
-  return { toolName: 'write_file', title: 'Diff 审批', summary, items };
 }
 
 function buildInsertCodePreview(inv: ToolInvocationLike, utils: ToolPreviewUtilsLike): DiffPreviewResponse {
