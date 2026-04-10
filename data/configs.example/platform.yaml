@@ -7,6 +7,10 @@
 #   type: [console, web]     # 多平台同时启动
 type: console
 
+console:
+  # 是否在对话页面展开显示 sub_agent 执行过程中的子工具调用（默认关闭）
+  # expandSubAgentTools: true
+
 # 对码系统配置（可选，平台层访问控制）
 # dmPolicy: 
 #   pairing   = 需对码验证（默认，通过 /invite 生成码）
