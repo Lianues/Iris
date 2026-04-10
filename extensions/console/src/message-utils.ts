@@ -21,6 +21,14 @@ export function appendMergedMessagePart(parts: MessagePart[], nextPart: MessageP
     return;
   }
   if (lastPart && lastPart.type === 'tool_use' && nextPart.type === 'tool_use') {
+    // 如果上一个 tool_use 的所有工具都已终态，不合并 — 保持分离
+    // 以便 applyToolInvocationsToParts 能正确区分已完成轮次和新轮次的工具，
+    // 避免连续串行调用工具时后面的工具覆盖前面已完成的工具。
+    const isTerminal = (s: string) => s === 'success' || s === 'warning' || s === 'error';
+    if (lastPart.tools.length > 0 && lastPart.tools.every(t => isTerminal(t.status))) {
+      parts.push(nextPart);
+      return;
+    }
     lastPart.tools.push(...nextPart.tools);
     return;
   }
