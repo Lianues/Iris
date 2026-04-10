@@ -36,7 +36,7 @@ import { CronScheduler, getNextCronTime } from '../extensions/cron/src/scheduler
 const EXPECTED_BACKGROUND_DEFAULTS = {
   timeoutMs: 5 * 60 * 1000,
   maxConcurrent: 3, retentionDays: 30, retentionCount: 100,
-  maxToolRounds: 15,
+  maxToolRounds: 50,
 };
 
 // ============ Mock 工具 ============

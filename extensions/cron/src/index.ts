@@ -5,8 +5,9 @@
  * - activate: 注册工具、钩子、初始化调度器、注册 Web 路由和 Settings Tab
  * - deactivate: 停止调度器
  *
- * 配置由 manifest.json 中 configFile 指向的 config.yaml 提供，
- * 通过 ctx.getPluginConfig() 读取。
+ * 配置来源（两层合并）：
+ * - 用户配置目录的 cron.yaml（由 config-template.ts 模板首次释放）
+ * - manifest.json 中 configFile 指向的 config.yaml（仓库附带的精简版）
  */
 
 import * as fs from 'fs';
@@ -20,8 +21,9 @@ import {
   injectScheduler,
   setCurrentSessionId,
 } from './tool.js';
-import type { SchedulerConfig } from './types.js';
-import { DEFAULT_SCHEDULER_CONFIG } from './types.js';
+import type { SchedulerConfig, CronBackgroundConfig } from './types.js';
+import { DEFAULT_SCHEDULER_CONFIG, DEFAULT_BACKGROUND_CONFIG } from './types.js';
+import { buildDefaultConfigTemplate } from './config-template.js';
 
 const logger = createPluginLogger('cron');
 
@@ -38,20 +40,26 @@ export default definePlugin({
   description: '定时任务调度插件 — Cron / Interval / Once 三种调度模式',
 
   activate(ctx: PluginContext) {
-    // 1. 读取插件配置并合并默认值
-    const pluginConfig = ctx.getPluginConfig<Partial<SchedulerConfig>>();
-    const config = resolveConfig(pluginConfig);
+    // 1. 释放默认配置模板到用户配置目录（已存在则不覆盖）
+    ctx.ensureConfigFile?.('cron.yaml', buildDefaultConfigTemplate());
+
+    // 2. 读取配置：用户配置目录 cron.yaml（优先） + 插件级 config.yaml（兜底）
+    const rawSection = ctx.readConfigSection?.('cron') as Record<string, unknown> | undefined;
+    const pluginConfig = ctx.getPluginConfig<Record<string, unknown>>();
+    const mergedRaw = { ...pluginConfig, ...rawSection };
+    const config = resolveConfig(mergedRaw);
+    const bgConfig = resolveBackgroundConfig(mergedRaw?.backgroundExecution as Record<string, unknown> | undefined);
 
     if (!config.enabled) {
       logger.info('调度器未启用（config.enabled = false）');
       return;
     }
 
-    // 2. 注册 manage_scheduled_tasks 工具
+    // 3. 注册 manage_scheduled_tasks 工具
     ctx.registerTool(manageScheduledTasksTool);
     logger.info('manage_scheduled_tasks 工具已注册');
 
-    // 3. 添加钩子：在每次 chat 前捕获当前 sessionId，供工具 handler 使用
+    // 4. 添加钩子：在每次 chat 前捕获当前 sessionId，供工具 handler 使用
     //    onBeforeChat 在 ToolLoop 之前调用，因此工具执行时 currentSessionId 已经是正确的值
     ctx.addHook({
       name: 'cron:capture-session',
@@ -62,7 +70,7 @@ export default definePlugin({
       },
     });
 
-    // 4. onReady：系统启动完成后初始化调度器和各种注册
+    // 5. onReady：系统启动完成后初始化调度器和各种注册
     ctx.onReady(async (api) => {
       // [cron 重构] 从 IrisAPI 获取 taskBoard 和 agentName，
       // 替代原有的 agentTaskRegistry + eventBus 注入方式。
@@ -70,8 +78,8 @@ export default definePlugin({
       // 多 Agent 配置分层重构：移除 __global__ fallback
       const agentName: string = (api as any).agentName ?? 'master';
 
-      // 创建调度器实例：传入 taskBoard 和 agentName 以启用后台执行模式
-      schedulerInstance = new CronScheduler(api, config, taskBoard, agentName);
+      // 创建调度器实例：传入 taskBoard、agentName 和后台执行配置
+      schedulerInstance = new CronScheduler(api, config, taskBoard, agentName, bgConfig);
 
       // 将调度器实例注入给工具模块
       injectScheduler(schedulerInstance);
@@ -387,22 +395,63 @@ function registerSettingsTab(api: IrisAPI, ctx: PluginContext): void {
 // ============ 内部辅助函数 ============
 
 /**
- * 合并插件配置和默认值
- * pluginConfig 来自 ctx.getPluginConfig()（即 config.yaml 解析后的对象）
+ * 合并调度器配置和默认值
  */
 function resolveConfig(
-  pluginConfig?: Partial<SchedulerConfig>,
+  raw?: Record<string, unknown>,
 ): SchedulerConfig {
+  const quietHours = raw?.quietHours as Record<string, unknown> | undefined;
+  const skipRecent = raw?.skipIfRecentActivity as Record<string, unknown> | undefined;
   return {
-    enabled: pluginConfig?.enabled ?? DEFAULT_SCHEDULER_CONFIG.enabled,
+    enabled: (raw?.enabled as boolean) ?? DEFAULT_SCHEDULER_CONFIG.enabled,
     quietHours: {
       ...DEFAULT_SCHEDULER_CONFIG.quietHours,
-      ...pluginConfig?.quietHours,
+      ...(quietHours ? {
+        enabled: quietHours.enabled as boolean ?? DEFAULT_SCHEDULER_CONFIG.quietHours.enabled,
+        allowUrgent: quietHours.allowUrgent as boolean ?? DEFAULT_SCHEDULER_CONFIG.quietHours.allowUrgent,
+        ...(quietHours.windows ? { windows: quietHours.windows as any } : {}),
+      } : {}),
     },
     skipIfRecentActivity: {
       ...DEFAULT_SCHEDULER_CONFIG.skipIfRecentActivity,
-      ...pluginConfig?.skipIfRecentActivity,
+      ...(skipRecent ? {
+        enabled: skipRecent.enabled as boolean ?? DEFAULT_SCHEDULER_CONFIG.skipIfRecentActivity.enabled,
+        withinMinutes: skipRecent.withinMinutes as number ?? DEFAULT_SCHEDULER_CONFIG.skipIfRecentActivity.withinMinutes,
+      } : {}),
     },
+  };
+}
+
+/**
+ * 合并后台执行配置和默认值
+ */
+function resolveBackgroundConfig(
+  raw?: Record<string, unknown>,
+): CronBackgroundConfig {
+  if (!raw) return { ...DEFAULT_BACKGROUND_CONFIG };
+
+  return {
+    systemPrompt: typeof raw.systemPrompt === 'string' && raw.systemPrompt.trim()
+      ? raw.systemPrompt.trim()
+      : DEFAULT_BACKGROUND_CONFIG.systemPrompt,
+    excludeTools: Array.isArray(raw.excludeTools)
+      ? raw.excludeTools.filter((t): t is string => typeof t === 'string')
+      : [...DEFAULT_BACKGROUND_CONFIG.excludeTools],
+    maxToolRounds: typeof raw.maxToolRounds === 'number' && raw.maxToolRounds > 0
+      ? raw.maxToolRounds
+      : DEFAULT_BACKGROUND_CONFIG.maxToolRounds,
+    timeoutMs: typeof raw.timeoutMs === 'number' && raw.timeoutMs > 0
+      ? raw.timeoutMs
+      : DEFAULT_BACKGROUND_CONFIG.timeoutMs,
+    maxConcurrent: typeof raw.maxConcurrent === 'number' && raw.maxConcurrent > 0
+      ? raw.maxConcurrent
+      : DEFAULT_BACKGROUND_CONFIG.maxConcurrent,
+    retentionDays: typeof raw.retentionDays === 'number' && raw.retentionDays > 0
+      ? raw.retentionDays
+      : DEFAULT_BACKGROUND_CONFIG.retentionDays,
+    retentionCount: typeof raw.retentionCount === 'number' && raw.retentionCount > 0
+      ? raw.retentionCount
+      : DEFAULT_BACKGROUND_CONFIG.retentionCount,
   };
 }
 

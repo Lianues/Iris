@@ -116,17 +116,6 @@ interface TaskBoardLike {
   updateTokens(taskId: string, tokens: number): void;
 }
 
-/** 定时任务专用系统提示词 */
-const CRON_SYSTEM_PROMPT = `你是一个自动化定时任务执行器。
-
-你的职责是执行用户预设的定时任务指令，完成后输出简洁的执行报告。
-
-注意事项：
-- 你在后台独立运行，没有用户正在与你对话
-- 你的输出将作为通知推送给用户，请保持简洁明了
-- 如果任务涉及文件操作，请使用可用的工具完成
-- 完成后直接给出结论，不需要寒暄或确认`;
-
 /** 生成任务 ID（与核心 createTaskId 的格式保持一致） */
 let cronTaskCounter = 0;
 function createCronTaskId(): string {
@@ -729,17 +718,13 @@ export class CronScheduler {
     if (timeoutHandle.unref) timeoutHandle.unref();
 
     try {
-      // ---- 构建工具集：复用主 Backend 的 ToolRegistry，过滤不适用的工具 ----
-      // 定时任务后台执行时需要排除的工具：
-      // - sub_agent: 没有父会话上下文，子代理无意义
-      // - history_search: 需要 sessionId，定时任务没有活跃会话
-      // - manage_scheduled_tasks: 防止后台 agent 自作主张删除/修改定时任务本身
-      const excludedTools = ['sub_agent', 'history_search', 'manage_scheduled_tasks'];
-      // ToolRegistryLike 已声明 createFiltered?()，直接使用类型安全的调用
-      const cronTools = this.api.tools.createFiltered?.(excludedTools) ?? this.api.tools;
+      // ---- 构建工具集：按配置排除不适用的工具 ----
+      const cronTools = this.backgroundConfig.excludeTools.length > 0
+        ? (this.api.tools.createFiltered?.(this.backgroundConfig.excludeTools) ?? this.api.tools)
+        : this.api.tools;
 
-      // ---- 构建系统提示词（静态，不再拼接 silent 的 [no-report] 指示） ----
-      const systemPrompt = CRON_SYSTEM_PROMPT;
+      // ---- 构建系统提示词 ----
+      const systemPrompt = this.backgroundConfig.systemPrompt;
 
       // ---- 通过 IrisAPI.createToolLoop 创建 ToolLoop 实例 ----
       // 使用核心 ToolLoop 替代手写简化版循环，获得完整的重试、abort 清理、钩子支持
