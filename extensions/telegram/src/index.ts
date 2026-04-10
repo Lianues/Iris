@@ -114,11 +114,20 @@ export class TelegramPlatform extends PlatformAdapter {
     // 所有终态任务都会 emit 此事件，不绑定 silent 或任务类型。
     // 当前策略：仅 silent 任务渲染通知推送（非 silent 由 LLM 通过 stream 事件回复）。
     this.backend.on('task:result' as any, (
-      _sid: string, _taskId: string, status: string,
+      sid: string, _taskId: string, status: string,
       description: string, _taskType?: string, silent?: boolean, result?: string,
     ) => {
       // 非 silent 任务的结果由 LLM 通过 stream 事件回复，不在此推送
       if (!silent) return;
+
+      // 按聊天身份定向投递：只发送到创建该任务的聊天，而非广播所有聊天。
+      // 使用 chatKey 前缀匹配（而非精确 sessionId），
+      // 因为用户 /new 新建对话后 sessionId 的时间戳部分会变更。
+      const targetCs = this.findChatStateByChatOrigin(sid);
+      if (!targetCs || targetCs.stopped) {
+        logger.info(`task:result 未找到匹配的聊天 (sid=${sid})，跳过`);
+        return;
+      }
 
       let text: string;
       if (status === 'completed') {
@@ -131,13 +140,10 @@ export class TelegramPlatform extends PlatformAdapter {
         text = `⏰ ${description} 失败：${result ?? '未知错误'}`;
       }
 
-      // 向所有活跃（未 stopped）的聊天推送通知
-      for (const cs of this.chatStates.values()) {
-        if (cs.stopped) continue;
-        void this.sendToChat(cs, text, { trackMessage: false });
-      }
+      // 定向推送到创建任务的聊天
+      void this.sendToChat(targetCs, text, { trackMessage: false });
     });
-    logger.info('已通过 task:result 监听任务结果广播');
+    logger.info('已通过 task:result 监听任务结果（按聊天定向投递）');
 
     // 启动对码输出
     if (this.pairingGuard && this.pairingStore?.needsBootstrap()) {
@@ -193,6 +199,26 @@ export class TelegramPlatform extends PlatformAdapter {
     cs.sessionId = this.getSessionId(target.chatKey);
     cs.target = target;
     return cs;
+  }
+
+  /**
+   * 通过 sessionId 的聊天身份前缀查找 chatState。
+   *
+   * 与 findChatStateBySid() 的精确匹配不同，此方法只比对 sid 中
+   * 标识聊天身份的部分（telegram-<chatKey>-），忽略尾部时间戳。
+   *
+   * 用途：定时任务（cron）的 sourceSessionId 在创建时就固定了，
+   * 但用户后续可能通过 /new 生成新 sessionId（时间戳不同）。
+   * 此方法确保通知仍然能路由回原聊天，而不会因为 sessionId 变更而丢失。
+   */
+  private findChatStateByChatOrigin(sid: string): TelegramChatState | undefined {
+    for (const [chatKey, cs] of this.chatStates.entries()) {
+      // sessionId 格式: telegram-<chatKey.replace(/:/g, '-')>-<timestamp>
+      // 只要 sid 以 chatKey 派生的前缀开头，就认为属于该聊天
+      const prefix = `telegram-${chatKey.replace(/:/g, '-')}-`;
+      if (sid.startsWith(prefix)) return cs;
+    }
+    return undefined;
   }
 
   private findChatStateBySid(sid: string): TelegramChatState | undefined {
