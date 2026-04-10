@@ -75598,8 +75598,6 @@ ${lines.join(`
   async handleMessage(msg) {
     if (msg.author.bot)
       return;
-    if (!msg.content)
-      return;
     const isDM = !msg.guild;
     const isMentioned = msg.mentions.has(this.client.user);
     const isReplyToBot = !!(msg.reference && await this.isReplyToBot(msg));
@@ -75609,8 +75607,12 @@ ${lines.join(`
     if (isMentioned && this.client.user) {
       content = content.replace(new RegExp(`<@!?${this.client.user.id}>`, "g"), "").trim();
     }
-    if (!content)
+    const images = [];
+    await this.collectImages(msg, images);
+    if (!content && images.length === 0)
       return;
+    if (!content)
+      content = "[图片]";
     if (this.pairingGuard && isDM) {
       const result = this.pairingGuard.check(msg.author.id, content, msg.author.username);
       if (!result.allowed) {
@@ -75635,7 +75637,16 @@ ${lines.join(`
         const refMsg = await msg.channel.messages.fetch(msg.reference.messageId);
         if (refMsg) {
           const refName = refMsg.author.id === this.client.user?.id ? `${this.client.user.username}:bot` : `${refMsg.member?.displayName || refMsg.author.globalName || refMsg.author.username}:${refMsg.author.id}`;
-          const refText = refMsg.content || "[附件]";
+          const refImageStart = images.length;
+          await this.collectImages(refMsg, images);
+          const refImageCount = images.length - refImageStart;
+          let refText = refMsg.content || "";
+          if (refImageCount > 0) {
+            const placeholders = Array.from({ length: refImageCount }, (_, i) => `[图片${refImageStart + i + 1}]`).join(" ");
+            refText = refText ? `${refText} ${placeholders}` : placeholders;
+          }
+          if (!refText)
+            refText = "[附件]";
           replyContext = `[回复 ${refName}: ${refText.length > 200 ? refText.slice(0, 200) + "…" : refText}]
 `;
         }
@@ -75643,11 +75654,17 @@ ${lines.join(`
     }
     const displayName = msg.member?.displayName || msg.author.globalName || msg.author.username;
     const isAdmin = this.pairingGuard?.isAdmin(msg.author.id) ?? false;
-    const identifiedContent = `${replyContext}[${displayName}:${msg.author.id}${isAdmin ? ":admin" : ""}]: ${content}`;
+    const ownImageCount = images.length - (images.length - this.countAttachmentImages(msg));
+    let imageHint = "";
+    if (ownImageCount > 0) {
+      const placeholders = Array.from({ length: ownImageCount }, (_, i) => `[图片${images.length - ownImageCount + i + 1}]`).join(" ");
+      imageHint = ` ${placeholders}`;
+    }
+    const identifiedContent = `${replyContext}[${displayName}:${msg.author.id}${isAdmin ? ":admin" : ""}]: ${content}${imageHint}`;
     const sessionId = `discord-${msg.channelId}`;
     try {
       await this.startTyping(msg.channelId);
-      await this.backend.chat(sessionId, identifiedContent, undefined, undefined, "discord");
+      await this.backend.chat(sessionId, identifiedContent, images.length > 0 ? images : undefined, undefined, "discord");
     } catch (err) {
       this.stopTyping(sessionId);
       this.clearStreamState(sessionId);
@@ -75663,6 +75680,42 @@ ${lines.join(`
     } catch {
       return false;
     }
+  }
+  async collectImages(msg, images) {
+    const imageAttachments = [...msg.attachments.values()].filter((a) => a.contentType?.startsWith("image/"));
+    const embedImages = msg.embeds.map((e) => e.image?.url || e.thumbnail?.url).filter((url) => !!url);
+    const urls = [
+      ...imageAttachments.map((a) => ({ url: a.url, mime: a.contentType ?? "image/png" })),
+      ...embedImages.map((url) => ({ url, mime: "image/png" }))
+    ];
+    for (const { url, mime } of urls) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok)
+          continue;
+        const buf = Buffer.from(await res.arrayBuffer());
+        const mimeType = this.detectImageMime(buf) ?? mime;
+        images.push({ mimeType, data: buf.toString("base64") });
+      } catch {
+        logger2.warn(`图片下载失败: ${url}`);
+      }
+    }
+  }
+  countAttachmentImages(msg) {
+    const attachCount = [...msg.attachments.values()].filter((a) => a.contentType?.startsWith("image/")).length;
+    const embedCount = msg.embeds.filter((e) => e.image?.url || e.thumbnail?.url).length;
+    return attachCount + embedCount;
+  }
+  detectImageMime(buf) {
+    if (buf[0] === 255 && buf[1] === 216)
+      return "image/jpeg";
+    if (buf[0] === 137 && buf[1] === 80)
+      return "image/png";
+    if (buf[0] === 71 && buf[1] === 73)
+      return "image/gif";
+    if (buf[0] === 82 && buf[1] === 73 && buf[2] === 70 && buf[3] === 70)
+      return "image/webp";
+    return;
   }
 }
 var createDiscordPlatform = definePlatformFactory({

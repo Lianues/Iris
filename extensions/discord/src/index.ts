@@ -4,7 +4,7 @@
  * 基于 discord.js 官方 SDK。
  */
 
-import { createExtensionLogger, definePlatformFactory, extractText, PlatformAdapter, splitText, type Content, type IrisBackendLike, type ToolDefinition } from 'irises-extension-sdk';
+import { createExtensionLogger, definePlatformFactory, extractText, PlatformAdapter, splitText, type Content, type ImageInput, type IrisBackendLike, type ToolDefinition } from 'irises-extension-sdk';
 import { PairingGuard, PairingStore, type PairingConfig } from 'irises-extension-sdk/pairing';
 import { AttachmentBuilder, Client, GatewayIntentBits, Message, Partials } from 'discord.js';
 import { existsSync, readFileSync } from 'node:fs';
@@ -406,7 +406,6 @@ export class DiscordPlatform extends PlatformAdapter {
 
   private async handleMessage(msg: Message): Promise<void> {
     if (msg.author.bot) return;
-    if (!msg.content) return;
 
     const isDM = !msg.guild;
     const isMentioned = msg.mentions.has(this.client.user!);
@@ -418,7 +417,14 @@ export class DiscordPlatform extends PlatformAdapter {
     if (isMentioned && this.client.user) {
       content = content.replace(new RegExp(`<@!?${this.client.user.id}>`, 'g'), '').trim();
     }
-    if (!content) return;
+
+    // 收集当前消息的附件图片
+    const images: ImageInput[] = [];
+    await this.collectImages(msg, images);
+
+    // 没有文本也没有图片 → 忽略
+    if (!content && images.length === 0) return;
+    if (!content) content = '[图片]';
 
     // ── 对码门禁（仅私聊生效） ──
     if (this.pairingGuard && isDM) {
@@ -452,7 +458,19 @@ export class DiscordPlatform extends PlatformAdapter {
           const refName = refMsg.author.id === this.client.user?.id
             ? `${this.client.user.username}:bot`
             : `${refMsg.member?.displayName || refMsg.author.globalName || refMsg.author.username}:${refMsg.author.id}`;
-          const refText = refMsg.content || '[附件]';
+
+          // 收集被回复消息中的图片，用占位符标记
+          const refImageStart = images.length;
+          await this.collectImages(refMsg, images);
+          const refImageCount = images.length - refImageStart;
+
+          let refText = refMsg.content || '';
+          if (refImageCount > 0) {
+            const placeholders = Array.from({ length: refImageCount }, (_, i) => `[图片${refImageStart + i + 1}]`).join(' ');
+            refText = refText ? `${refText} ${placeholders}` : placeholders;
+          }
+          if (!refText) refText = '[附件]';
+
           replyContext = `[回复 ${refName}: ${refText.length > 200 ? refText.slice(0, 200) + '…' : refText}]\n`;
         }
       } catch { /* 消息已删除等 */ }
@@ -460,14 +478,23 @@ export class DiscordPlatform extends PlatformAdapter {
 
     const displayName = msg.member?.displayName || msg.author.globalName || msg.author.username;
     const isAdmin = this.pairingGuard?.isAdmin(msg.author.id) ?? false;
-    const identifiedContent = `${replyContext}[${displayName}:${msg.author.id}${isAdmin ? ':admin' : ''}]: ${content}`;
+
+    // 当前消息自身的图片占位符
+    const ownImageCount = images.length - (images.length - this.countAttachmentImages(msg));
+    let imageHint = '';
+    if (ownImageCount > 0) {
+      const placeholders = Array.from({ length: ownImageCount }, (_, i) => `[图片${images.length - ownImageCount + i + 1}]`).join(' ');
+      imageHint = ` ${placeholders}`;
+    }
+
+    const identifiedContent = `${replyContext}[${displayName}:${msg.author.id}${isAdmin ? ':admin' : ''}]: ${content}${imageHint}`;
 
     const sessionId = `discord-${msg.channelId}`;
     try {
       // 立即显示"正在输入…"
       await this.startTyping(msg.channelId);
 
-      await this.backend.chat(sessionId, identifiedContent, undefined, undefined, 'discord');
+      await this.backend.chat(sessionId, identifiedContent, images.length > 0 ? images : undefined, undefined, 'discord');
     } catch (err) {
       this.stopTyping(sessionId);
       this.clearStreamState(sessionId);
@@ -485,6 +512,54 @@ export class DiscordPlatform extends PlatformAdapter {
       return false;
     }
   }
+
+  /** 从 Discord 消息中收集图片附件，下载并转为 ImageInput 追加到 images 数组 */
+  private async collectImages(msg: Message, images: ImageInput[]): Promise<void> {
+    const imageAttachments = [...msg.attachments.values()].filter(
+      a => a.contentType?.startsWith('image/'),
+    );
+
+    // 消息嵌入中的图片（如链接预览）
+    const embedImages = msg.embeds
+      .map(e => e.image?.url || e.thumbnail?.url)
+      .filter((url): url is string => !!url);
+
+    const urls = [
+      ...imageAttachments.map(a => ({ url: a.url, mime: a.contentType ?? 'image/png' })),
+      ...embedImages.map(url => ({ url, mime: 'image/png' })),
+    ];
+
+    for (const { url, mime } of urls) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const buf = Buffer.from(await res.arrayBuffer());
+
+        // 检测实际 MIME
+        const mimeType = this.detectImageMime(buf) ?? mime;
+        images.push({ mimeType, data: buf.toString('base64') });
+      } catch {
+        logger.warn(`图片下载失败: ${url}`);
+      }
+    }
+  }
+
+  /** 统计消息自身的图片附件数量 */
+  private countAttachmentImages(msg: Message): number {
+    const attachCount = [...msg.attachments.values()].filter(a => a.contentType?.startsWith('image/')).length;
+    const embedCount = msg.embeds.filter(e => e.image?.url || e.thumbnail?.url).length;
+    return attachCount + embedCount;
+  }
+
+  /** 通过魔术字节检测图片 MIME 类型 */
+  private detectImageMime(buf: Buffer): string | undefined {
+    if (buf[0] === 0xFF && buf[1] === 0xD8) return 'image/jpeg';
+    if (buf[0] === 0x89 && buf[1] === 0x50) return 'image/png';
+    if (buf[0] === 0x47 && buf[1] === 0x49) return 'image/gif';
+    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return 'image/webp';
+    return undefined;
+  }
+
 }
 
 export const createDiscordPlatform = definePlatformFactory<DiscordConfig, DiscordPlatform>({
