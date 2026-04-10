@@ -8256,8 +8256,14 @@ function denormalizeY(y, screenHeight) {
 }
 
 // src/tools.ts
-function toResult(state) {
-  return {
+async function toResult(state, savePath) {
+  if (savePath) {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { dirname: dirname3 } = await import("node:path");
+    mkdirSync(dirname3(savePath), { recursive: true });
+    writeFileSync(savePath, state.screenshot);
+  }
+  const result = {
     __response: { url: state.url },
     __parts: [{
       inlineData: {
@@ -8266,6 +8272,9 @@ function toResult(state) {
       }
     }]
   };
+  if (savePath)
+    result.saved_path = savePath;
+  return result;
 }
 var COMPUTER_USE_FUNCTION_NAMES = new Set([
   "get_screenshot",
@@ -8314,7 +8323,16 @@ function createComputerUseTools(computer, envKey, userPolicy) {
       declaration: (() => {
         const decl = {
           name: "get_screenshot",
-          description: ""
+          description: "",
+          parameters: {
+            type: "object",
+            properties: {
+              save_path: {
+                type: "string",
+                description: "可选。将截图保存到指定文件路径（如 /tmp/screenshot.png），便于后续通过 discord_send_file 等工具发送给用户。"
+              }
+            }
+          }
         };
         Object.defineProperty(decl, "description", {
           get: () => `获取当前屏幕截图。当前截图目标: ${computer.screenDescription}。用于查看当前屏幕内容、确认操作结果、或在开始操作前了解当前界面状态。`,
@@ -8322,7 +8340,10 @@ function createComputerUseTools(computer, envKey, userPolicy) {
         });
         return decl;
       })(),
-      handler: async () => toResult(await computer.openWebBrowser())
+      handler: async (args) => {
+        const state = await computer.openWebBrowser();
+        return toResult(state, args.save_path);
+      }
     },
     {
       declaration: {

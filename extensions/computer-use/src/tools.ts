@@ -17,9 +17,18 @@ import { denormalizeX, denormalizeY } from './coordinator';
  * 使用 scheduler 的通用 __response / __parts 约定字段。
  * scheduler 会将 __parts（InlineDataPart[]）放入 functionResponse.parts，
  * 使截图作为多模态内联数据回传给模型。
+ *
+ * @param savePath 可选的文件保存路径，提供时将截图同时写入磁盘
  */
-function toResult(state: EnvState): unknown {
-  return {
+async function toResult(state: EnvState, savePath?: string): Promise<unknown> {
+  if (savePath) {
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    const { dirname } = await import('node:path');
+    mkdirSync(dirname(savePath), { recursive: true });
+    writeFileSync(savePath, state.screenshot);
+  }
+
+  const result: Record<string, unknown> = {
     __response: { url: state.url },
     __parts: [{
       inlineData: {
@@ -28,6 +37,8 @@ function toResult(state: EnvState): unknown {
       },
     }],
   };
+  if (savePath) result.saved_path = savePath;
+  return result;
 }
 
 /** Computer Use 预定义函数名集合 */
@@ -105,6 +116,15 @@ export function createComputerUseTools(
         const decl: FunctionDeclaration = {
           name: 'get_screenshot',
           description: '',
+          parameters: {
+            type: 'object',
+            properties: {
+              save_path: {
+                type: 'string',
+                description: '可选。将截图保存到指定文件路径（如 /tmp/screenshot.png），便于后续通过 discord_send_file 等工具发送给用户。',
+              },
+            },
+          },
         };
         Object.defineProperty(decl, 'description', {
           get: () => `获取当前屏幕截图。当前截图目标: ${computer.screenDescription}。用于查看当前屏幕内容、确认操作结果、或在开始操作前了解当前界面状态。`,
@@ -112,7 +132,10 @@ export function createComputerUseTools(
         });
         return decl;
       })(),
-      handler: async () => toResult(await computer.openWebBrowser()),
+      handler: async (args: Record<string, unknown>) => {
+        const state = await computer.openWebBrowser();
+        return toResult(state, args.save_path as string | undefined);
+      },
     },
     {
       declaration: {
