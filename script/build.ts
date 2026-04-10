@@ -127,6 +127,14 @@ function patchExtensionSdkInNodeModules(nodeModulesDir: string): void {
 }
 
 {
+  // 先编译 extension-sdk：CI 上 dist/ 被 .gitignore 忽略，需要在 patch 前生成编译产物
+  const sdkDir = path.join(rootDir, "packages", "extension-sdk")
+  if (!fs.existsSync(path.join(sdkDir, "dist", "index.js"))) {
+    console.log("⚙ building irises-extension-sdk ...")
+    const result = Bun.spawnSync(["npm", "run", "build"], { cwd: sdkDir, stdio: ["inherit", "inherit", "inherit"] })
+    if (result.exitCode !== 0) throw new Error("irises-extension-sdk build failed")
+    console.log("✓ irises-extension-sdk built")
+  }
   patchExtensionSdkInNodeModules(path.join(rootDir, "node_modules"))
 }
 
