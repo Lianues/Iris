@@ -35,6 +35,8 @@ let pendingReload: { rawConfig: any; api: IrisAPI } | null = null;
 
 /** 缓存的 API 引用 */
 let cachedApi: IrisAPI | undefined;
+/** 扩展根目录（用于自动安装依赖） */
+let cachedExtDir: string | undefined;
 
 export default definePlugin({
   name: 'computer-use',
@@ -44,6 +46,7 @@ export default definePlugin({
   activate(ctx: PluginContext) {
     // 设置扩展根目录，供 sidecar 路径解析使用
     const extDir = ctx.getExtensionRootDir();
+    cachedExtDir = extDir;
     setBrowserExtDir(extDir);
     setScreenExtDir(extDir);
 
@@ -189,6 +192,28 @@ async function initEnvironment(cuConfig: ComputerUseConfig, api: IrisAPI): Promi
   const env = cuConfig.environment ?? 'browser';
   const envKey = resolveEnvironmentKey(env, cuConfig.backgroundMode);
 
+  // browser 环境：检查 Playwright 是否已安装，未安装则自动安装
+  if (env === 'browser' && cachedExtDir) {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const playwrightDir = path.join(cachedExtDir, 'node_modules', 'playwright');
+    if (!fs.existsSync(playwrightDir)) {
+      logger.info('Playwright 未安装，正在自动安装（首次使用需要下载，请耐心等待）...');
+      try {
+        const { execSync } = await import('node:child_process');
+        execSync('npm install playwright', { cwd: cachedExtDir, stdio: 'pipe', timeout: 120_000 });
+        logger.info('Playwright 库安装完成，正在下载 Chromium 浏览器...');
+        execSync('npx playwright install chromium', { cwd: cachedExtDir, stdio: 'pipe', timeout: 300_000 });
+        logger.info('Chromium 下载完成');
+      } catch (installErr: any) {
+        logger.error('Playwright 自动安装失败，请手动执行：');
+        logger.error(`  cd "${cachedExtDir}"`);
+        logger.error('  npm install playwright && npx playwright install chromium');
+        return;
+      }
+    }
+  }
+
   let cuEnv: Computer;
 
   if (env === 'screen') {
@@ -210,8 +235,15 @@ async function initEnvironment(cuConfig: ComputerUseConfig, api: IrisAPI): Promi
 
   try {
     await cuEnv.initialize();
-  } catch (err) {
-    logger.error('Computer Use 环境初始化失败:', err);
+  } catch (err: any) {
+    const msg = err?.message ?? String(err);
+    if (msg.includes('playwright') || msg.includes('Cannot find package')) {
+      logger.error('Playwright 安装异常，请手动执行：');
+      logger.error(`  cd "${cachedExtDir}"`);
+      logger.error('  npm install playwright && npx playwright install chromium');
+    } else {
+      logger.error('Computer Use 环境初始化失败:', msg);
+    }
     return;
   }
 
