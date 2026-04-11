@@ -88,10 +88,6 @@ jobs:
           - platform: windows
             arch: x64
             runner: windows-latest
-          - platform: windows
-            arch: arm64
-            runner: windows-latest
-            cross: true
 
     steps:
       - name: Checkout
