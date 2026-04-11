@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --external react --external @opentui/core --external @opentui/react --external tokenx"
+    "build": "bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --external react --external @opentui/core --external @opentui/react"
   },
   "dependencies": {
     "irises-extension-sdk": "file:../../packages/extension-sdk",
