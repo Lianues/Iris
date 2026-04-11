@@ -14,6 +14,8 @@ interface ChatMessageListProps {
   generatingLabel?: string;
   /** 有待审批/待应用的工具时暂停计时 */
   timerPaused?: boolean;
+  /** 有工具正在执行（executing/queued），此时不显示 generating 计时器 */
+  hasActiveTools?: boolean;
   /** Ctrl+O 按下时递增，仅最后一条 assistant 消息响应 */
   thoughtsToggleSignal?: number;
 }
@@ -28,6 +30,7 @@ export function ChatMessageList({
   generatingLabel,
   timerPaused,
   thoughtsToggleSignal,
+  hasActiveTools,
 }: ChatMessageListProps) {
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   // 仅当最后一条 assistant 消息正处于「活跃生成」状态时才视为 active：
@@ -76,7 +79,7 @@ export function ChatMessageList({
         );
       })}
 
-      {isGenerating && !lastIsActiveAssistant && streamingParts.length === 0 ? (
+      {isGenerating && !lastIsActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? (
         <box flexDirection="column" paddingBottom={1}>
           <GeneratingTimer isGenerating={isGenerating} retryInfo={retryInfo} label={generatingLabel} paused={timerPaused} />
         </box>

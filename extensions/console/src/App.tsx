@@ -415,6 +415,7 @@ export function App({
           generatingLabel={appState.generatingLabel}
           timerPaused={appState.pendingApprovals.length > 0 || appState.pendingApplies.length > 0}
           thoughtsToggleSignal={thoughtsToggleSignal}
+          hasActiveTools={appState.toolInvocations.some(t => t.status === 'executing' || t.status === 'queued')}
         />
       ) : null}
 

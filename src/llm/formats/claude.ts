@@ -214,7 +214,7 @@ export class ClaudeFormat implements FormatAdapter {
             const cacheCreation = data.usage.cache_creation_input_tokens ?? 0;
             const cacheRead = data.usage.cache_read_input_tokens ?? 0;
             const promptTotal = inputBase + cacheCreation + cacheRead;
-            const cachedTotal = cacheCreation + cacheRead;
+            const cachedTotal = cacheRead;
             return {
               promptTokenCount: promptTotal,
               ...(cachedTotal > 0 ? { cachedContentTokenCount: cachedTotal } : {}),
@@ -241,8 +241,7 @@ export class ClaudeFormat implements FormatAdapter {
           st.inputTokens = (u.input_tokens ?? 0)
             + (u.cache_creation_input_tokens ?? 0)
             + (u.cache_read_input_tokens ?? 0);
-          st.cachedContentTokens = (u.cache_creation_input_tokens ?? 0)
-            + (u.cache_read_input_tokens ?? 0);
+          st.cachedContentTokens = (u.cache_read_input_tokens ?? 0);
         }
         break;
 

@@ -252,9 +252,8 @@ export const MessageItem = React.memo(function MessageItem(
     );
   }
 
-  const isNotification = msg.isNotification === true;
-  const labelName = isSummary ? 'context' : isUser ? 'you' : (msg.isCommand ? 'shell' : (isNotification ? 'bg-task' : (msg.modelName || modelName || 'iris').toLowerCase()));
-  const labelColor = isSummary ? C.warn : isUser ? C.roleUser : (msg.isError ? C.error : (msg.isCommand ? C.command : (isNotification ? C.warn : C.roleAssistant)));
+  const labelName = isSummary ? 'context' : isUser ? 'you' : (msg.isCommand ? 'shell' : (msg.modelName || modelName || 'iris').toLowerCase());
+  const labelColor = isSummary ? C.warn : isUser ? C.roleUser : (msg.isError ? C.error : (msg.isCommand ? C.command : C.roleAssistant));
   const headerText = `${ICONS.separator} ${labelName} `;
 
   const displayParts: MessagePart[] = [...msg.parts];
