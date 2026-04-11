@@ -140,8 +140,6 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends tini && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -u 1001 -m -s /bin/bash iris 2>/dev/null || true
-
 WORKDIR /app
 
 COPY --from=build /app/dist/ dist/
@@ -163,7 +161,7 @@ COPY --from=bun-compile /app/extensions/ extensions/
 # Same symlink fix as production stage
 RUN ln -s /app/data dist/data && rm -rf dist/extensions && ln -s /app/extensions dist/extensions
 
-RUN mkdir -p /data && chown 1001:1001 /data
+RUN mkdir -p /data && chown pwuser:pwuser /data
 
 ENV NODE_ENV=production \
     IRIS_DATA_DIR=/data \
@@ -172,7 +170,7 @@ ENV NODE_ENV=production \
 
 EXPOSE 8192
 VOLUME /data
-USER 1001
+# Same as production: runs as root initially for /host-bin deploy, then drops privileges in entrypoint
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/app/entrypoint.sh"]

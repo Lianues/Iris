@@ -41,6 +41,7 @@ services:
       - "${IRIS_PORT:-8192}:8192"
     volumes:
       - ${IRIS_DATA_DIR:-~/.iris}:/data
+      - ${IRIS_CLI_DIR:-/usr/local/bin}:/host-bin
     environment:
       NODE_ENV: production
       IRIS_DATA_DIR: /data

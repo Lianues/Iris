@@ -42,12 +42,22 @@ if [ -d /host-bin ] && [ -w /host-bin ]; then
   echo "[Iris] TUI binaries deployed to host: iris, iris-onboard"
 fi
 
-# ------ Drop privileges to 'node' user for the main process ------
-# entrypoint runs as root (for /host-bin write access), then drops to node
+# ------ Drop privileges for the main process ------
+# entrypoint runs as root (for /host-bin write access), then drops to a non-root user.
+# Detect available user: 'node' (production image) or 'pwuser' (Playwright image)
 RUN_AS=""
 if [ "$(id -u)" = "0" ]; then
-  chown -R node:node "$IRIS_DATA_DIR" 2>/dev/null || true
-  RUN_AS="setpriv --reuid=node --regid=node --init-groups --"
+  if id node >/dev/null 2>&1; then
+    RUN_USER=node
+  elif id pwuser >/dev/null 2>&1; then
+    RUN_USER=pwuser
+  else
+    RUN_USER=""
+  fi
+  if [ -n "$RUN_USER" ]; then
+    chown -R "$RUN_USER" "$IRIS_DATA_DIR" 2>/dev/null || true
+    RUN_AS="setpriv --reuid=$RUN_USER --regid=$RUN_USER --init-groups --"
+  fi
 fi
 
 # ------ Start the application ------
