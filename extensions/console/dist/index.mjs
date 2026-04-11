@@ -546,7 +546,7 @@ import React10 from "react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// extensions/console/node_modules/irises-extension-sdk/dist/platform.js
+// node_modules/irises-extension-sdk/dist/platform.js
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -672,7 +672,7 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// extensions/console/node_modules/irises-extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -682,7 +682,7 @@ var LogLevel;
   LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
 })(LogLevel || (LogLevel = {}));
 var _logLevel = LogLevel.INFO;
-// extensions/console/node_modules/tokenx/dist/index.mjs
+// node_modules/tokenx/dist/index.mjs
 var PATTERNS = {
   whitespace: /^\s+$/,
   cjk: /[\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uFF00-\uFFEF\u30A0-\u30FF\u2E80-\u2EFF\u31C0-\u31EF\u3200-\u32FF\u3300-\u33FF\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]/,
@@ -2349,10 +2349,7 @@ function SearchInFilesRenderer({ args, result }) {
     children: /* @__PURE__ */ jsxDEV17("em", {
       children: [
         ` ${ICONS.resultArrow} `,
-        /* @__PURE__ */ jsxDEV17("span", {
-          fg: "#d2a8ff",
-          children: count
-        }, undefined, false, undefined, this),
+        count,
         " matches found",
         suffix
       ]
@@ -2410,21 +2407,6 @@ function ListFilesRenderer({ result }) {
 // extensions/console/src/tool-renderers/write-file.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV20 } from "@opentui/react/jsx-dev-runtime";
-function basename2(p) {
-  return p.split("/").pop() || p;
-}
-function extractArgsFiles(args) {
-  if (Array.isArray(args.files))
-    return args.files;
-  if (args.files && typeof args.files === "object")
-    return [args.files];
-  if (args.file && typeof args.file === "object")
-    return [args.file];
-  if (typeof args.path === "string" && typeof args.content === "string") {
-    return [{ path: args.path, content: args.content }];
-  }
-  return [];
-}
 function countLines(content) {
   if (typeof content !== "string")
     return 0;
@@ -2435,18 +2417,13 @@ function countLines(content) {
 `).length - 1 : content.split(`
 `).length;
 }
-function getLineCount(path, argsFiles) {
-  if (!path)
-    return 0;
-  const entry = argsFiles.find((f) => f.path === path);
-  return entry ? countLines(entry.content) : 0;
-}
 function WriteFileRenderer({ args, result }) {
   const r = result || {};
-  const items = r.results || [];
-  const failCount = r.failCount ?? 0;
-  const argsFiles = extractArgsFiles(args || {});
-  if (items.length === 0) {
+  const action = r.action ?? (r.success ? "written" : "failed");
+  const fg = r.success === false ? "#ff0000" : "#888";
+  const lines = countLines((args || {}).content);
+  const hasLines = lines > 0 && action !== "unchanged";
+  if (!r.path) {
     return /* @__PURE__ */ jsxDEV20("text", {
       fg: "#888",
       children: /* @__PURE__ */ jsxDEV20("em", {
@@ -2457,71 +2434,28 @@ function WriteFileRenderer({ args, result }) {
       }, undefined, true, undefined, this)
     }, undefined, false, undefined, this);
   }
-  if (items.length === 1) {
-    const item = items[0];
-    const action = item.action ?? (item.success ? "written" : "failed");
-    const fg = item.success === false ? "#ff0000" : "#888";
-    const lines = getLineCount(item.path, argsFiles);
-    const hasLines = lines > 0 && action !== "unchanged";
-    return /* @__PURE__ */ jsxDEV20("text", {
-      fg,
-      children: /* @__PURE__ */ jsxDEV20("em", {
-        children: [
-          ` ${ICONS.resultArrow} `,
-          hasLines && (action === "created" ? /* @__PURE__ */ jsxDEV20("span", {
-            fg: "#57ab5a",
-            children: [
-              "+",
-              lines
-            ]
-          }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV20("span", {
-            fg: "#d2a8ff",
-            children: [
-              "~",
-              lines
-            ]
-          }, undefined, true, undefined, this)),
-          hasLines ? " lines, " : "",
-          action,
-          " (",
-          item.path ?? "?",
-          ")"
-        ]
-      }, undefined, true, undefined, this)
-    }, undefined, false, undefined, this);
-  }
-  const counts = {};
-  let totalLines = 0;
-  for (const item of items) {
-    const key = item.success === false ? "failed" : item.action ?? "written";
-    counts[key] = (counts[key] || 0) + 1;
-    if (item.success !== false && item.action !== "unchanged") {
-      totalLines += getLineCount(item.path, argsFiles);
-    }
-  }
-  const parts = [];
-  for (const action of ["created", "modified", "unchanged", "written", "failed"]) {
-    if (counts[action]) {
-      parts.push(`${counts[action]} ${action}`);
-    }
-  }
-  const names = items.map((i) => basename2(i.path ?? "?")).join(", ");
   return /* @__PURE__ */ jsxDEV20("text", {
-    fg: failCount > 0 ? "#ffff00" : "#888",
+    fg,
     children: /* @__PURE__ */ jsxDEV20("em", {
       children: [
         ` ${ICONS.resultArrow} `,
-        totalLines > 0 && /* @__PURE__ */ jsxDEV20("span", {
+        hasLines && (action === "created" ? /* @__PURE__ */ jsxDEV20("span", {
+          fg: "#57ab5a",
+          children: [
+            "+",
+            lines
+          ]
+        }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV20("span", {
           fg: "#d2a8ff",
           children: [
             "~",
-            totalLines
+            lines
           ]
-        }, undefined, true, undefined, this),
-        totalLines > 0 ? " lines, " : "",
-        parts.join(", "),
+        }, undefined, true, undefined, this)),
+        hasLines ? " lines, " : "",
+        action,
         " (",
-        names,
+        r.path,
         ")"
       ]
     }, undefined, true, undefined, this)
@@ -2533,9 +2467,7 @@ init_terminal_compat();
 import { jsxDEV as jsxDEV21 } from "@opentui/react/jsx-dev-runtime";
 function DeleteCodeRenderer({ result }) {
   const r = result || {};
-  const items = r.results || [];
-  const failCount = r.failCount ?? 0;
-  if (items.length === 0) {
+  if (!r.path) {
     return /* @__PURE__ */ jsxDEV21("text", {
       fg: "#888",
       children: /* @__PURE__ */ jsxDEV21("em", {
@@ -2546,48 +2478,23 @@ function DeleteCodeRenderer({ result }) {
       }, undefined, true, undefined, this)
     }, undefined, false, undefined, this);
   }
-  if (items.length === 1) {
-    const item = items[0];
-    if (item.success === false) {
-      return /* @__PURE__ */ jsxDEV21("text", {
-        fg: "#ff0000",
-        children: /* @__PURE__ */ jsxDEV21("em", {
-          children: [
-            ` ${ICONS.resultArrow}`,
-            " failed (",
-            item.error ?? item.path ?? "?",
-            ")"
-          ]
-        }, undefined, true, undefined, this)
-      }, undefined, false, undefined, this);
-    }
-    const deleted = item.deletedLines ?? 0;
-    const range = item.start_line != null && item.end_line != null ? `:${item.start_line}-${item.end_line}` : "";
+  if (r.success === false) {
     return /* @__PURE__ */ jsxDEV21("text", {
-      fg: "#888",
+      fg: "#ff0000",
       children: /* @__PURE__ */ jsxDEV21("em", {
         children: [
           ` ${ICONS.resultArrow}`,
-          " ",
-          /* @__PURE__ */ jsxDEV21("span", {
-            fg: "#f47067",
-            children: [
-              "-",
-              deleted
-            ]
-          }, undefined, true, undefined, this),
-          " lines (",
-          item.path ?? "?",
-          range,
+          " failed (",
+          r.error ?? r.path ?? "?",
           ")"
         ]
       }, undefined, true, undefined, this)
     }, undefined, false, undefined, this);
   }
-  const totalDeleted = items.reduce((sum, i) => sum + (i.deletedLines ?? 0), 0);
-  const names = items.map((i) => i.path ?? "?").join(", ");
+  const deleted = r.deletedLines ?? 0;
+  const range = r.start_line != null && r.end_line != null ? `:${r.start_line}-${r.end_line}` : "";
   return /* @__PURE__ */ jsxDEV21("text", {
-    fg: failCount > 0 ? "#ffff00" : "#888",
+    fg: "#888",
     children: /* @__PURE__ */ jsxDEV21("em", {
       children: [
         ` ${ICONS.resultArrow}`,
@@ -2596,13 +2503,12 @@ function DeleteCodeRenderer({ result }) {
           fg: "#f47067",
           children: [
             "-",
-            totalDeleted
+            deleted
           ]
         }, undefined, true, undefined, this),
-        " lines in ",
-        items.length,
-        " files (",
-        names,
+        " lines (",
+        r.path,
+        range,
         ")"
       ]
     }, undefined, true, undefined, this)
@@ -2614,9 +2520,7 @@ init_terminal_compat();
 import { jsxDEV as jsxDEV22 } from "@opentui/react/jsx-dev-runtime";
 function InsertCodeRenderer({ result }) {
   const r = result || {};
-  const items = r.results || [];
-  const failCount = r.failCount ?? 0;
-  if (items.length === 0) {
+  if (!r.path) {
     return /* @__PURE__ */ jsxDEV22("text", {
       fg: "#888",
       children: /* @__PURE__ */ jsxDEV22("em", {
@@ -2627,49 +2531,23 @@ function InsertCodeRenderer({ result }) {
       }, undefined, true, undefined, this)
     }, undefined, false, undefined, this);
   }
-  if (items.length === 1) {
-    const item = items[0];
-    if (item.success === false) {
-      return /* @__PURE__ */ jsxDEV22("text", {
-        fg: "#ff0000",
-        children: /* @__PURE__ */ jsxDEV22("em", {
-          children: [
-            ` ${ICONS.resultArrow}`,
-            " failed (",
-            item.error ?? item.path ?? "?",
-            ")"
-          ]
-        }, undefined, true, undefined, this)
-      }, undefined, false, undefined, this);
-    }
-    const inserted = item.insertedLines ?? 0;
-    const pos = item.line != null ? ` at L${item.line}` : "";
+  if (r.success === false) {
     return /* @__PURE__ */ jsxDEV22("text", {
-      fg: "#888",
+      fg: "#ff0000",
       children: /* @__PURE__ */ jsxDEV22("em", {
         children: [
           ` ${ICONS.resultArrow}`,
-          " ",
-          /* @__PURE__ */ jsxDEV22("span", {
-            fg: "#57ab5a",
-            children: [
-              "+",
-              inserted
-            ]
-          }, undefined, true, undefined, this),
-          " lines",
-          pos,
-          " (",
-          item.path ?? "?",
+          " failed (",
+          r.error ?? r.path ?? "?",
           ")"
         ]
       }, undefined, true, undefined, this)
     }, undefined, false, undefined, this);
   }
-  const totalInserted = items.reduce((sum, i) => sum + (i.insertedLines ?? 0), 0);
-  const names = items.map((i) => i.path ?? "?").join(", ");
+  const inserted = r.insertedLines ?? 0;
+  const pos = r.line != null ? ` at L${r.line}` : "";
   return /* @__PURE__ */ jsxDEV22("text", {
-    fg: failCount > 0 ? "#ffff00" : "#888",
+    fg: "#888",
     children: /* @__PURE__ */ jsxDEV22("em", {
       children: [
         ` ${ICONS.resultArrow}`,
@@ -2678,13 +2556,13 @@ function InsertCodeRenderer({ result }) {
           fg: "#57ab5a",
           children: [
             "+",
-            totalInserted
+            inserted
           ]
         }, undefined, true, undefined, this),
-        " lines in ",
-        items.length,
-        " files (",
-        names,
+        " lines",
+        pos,
+        " (",
+        r.path,
         ")"
       ]
     }, undefined, true, undefined, this)
@@ -2773,6 +2651,12 @@ function getArgsSummary(toolName, args) {
       const first = patterns[0] ?? "";
       return first ? `"${first}"` : "";
     }
+    case "sub_agent": {
+      const type = String(args.type || "general-purpose");
+      const prompt = String(args.prompt || "");
+      const preview = prompt.length > 40 ? `${prompt.slice(0, 40)}${ICONS.ellipsis}` : prompt;
+      return type !== "general-purpose" ? type : preview;
+    }
     default:
       return "";
   }
@@ -2783,6 +2667,9 @@ function ToolCall({ invocation }) {
   const progressTokens = typeof progress?.tokens === "number" ? progress.tokens : undefined;
   const progressFrame = typeof progress?.frame === "number" ? progress.frame : undefined;
   const hasProgress = progress != null;
+  const childStatus = typeof progress?.childStatus === "string" ? progress.childStatus : "";
+  const streamingText = typeof progress?.streamingText === "string" ? progress.streamingText : "";
+  const subAgentStatusLine = childStatus || streamingText;
   const isFinal = TERMINAL_STATUSES.has(status);
   const isExecuting = status === "executing";
   const isAwaitingApproval = status === "awaiting_approval";
@@ -2882,6 +2769,24 @@ function ToolCall({ invocation }) {
             error
           ]
         }, undefined, true, undefined, this)
+      }, undefined, false, undefined, this),
+      isExecuting && toolName === "sub_agent" && subAgentStatusLine.length > 0 && /* @__PURE__ */ jsxDEV23("text", {
+        children: /* @__PURE__ */ jsxDEV23("span", {
+          fg: C.dim,
+          children: /* @__PURE__ */ jsxDEV23("em", {
+            children: [
+              "  ",
+              subAgentStatusLine
+            ]
+          }, undefined, true, undefined, this)
+        }, undefined, false, undefined, this)
+      }, undefined, false, undefined, this),
+      invocation.children && invocation.children.length > 0 && /* @__PURE__ */ jsxDEV23("box", {
+        flexDirection: "column",
+        paddingLeft: 2,
+        children: invocation.children.map((child) => /* @__PURE__ */ jsxDEV23(ToolCall, {
+          invocation: child
+        }, child.id, false, undefined, this))
       }, undefined, false, undefined, this),
       Renderer && result != null && /* @__PURE__ */ jsxDEV23("box", {
         paddingLeft: 2,
@@ -3369,7 +3274,7 @@ import { useMemo as useMemo3 } from "react";
 import * as fs2 from "fs";
 import * as path2 from "path";
 
-// extensions/console/node_modules/irises-extension-sdk/dist/tool-utils.js
+// node_modules/irises-extension-sdk/dist/tool-utils.js
 import * as fs from "node:fs";
 import * as path from "node:path";
 function normalizeLineEndings(text) {
@@ -4497,7 +4402,9 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
               "  "
             ]
           }, undefined, true, undefined, this),
-          isExecuting && /* @__PURE__ */ jsxDEV29(Spinner, {}, undefined, false, undefined, this)
+          isExecuting && /* @__PURE__ */ jsxDEV29("text", {
+            children: /* @__PURE__ */ jsxDEV29(Spinner, {}, undefined, false, undefined, this)
+          }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
       /* @__PURE__ */ jsxDEV29("box", {
@@ -6936,6 +6843,11 @@ function appendMergedMessagePart(parts, nextPart) {
     return;
   }
   if (lastPart && lastPart.type === "tool_use" && nextPart.type === "tool_use") {
+    const isTerminal = (s) => s === "success" || s === "warning" || s === "error";
+    if (lastPart.tools.length > 0 && lastPart.tools.every((t) => isTerminal(t.status))) {
+      parts.push(nextPart);
+      return;
+    }
     lastPart.tools.push(...nextPart.tools);
     return;
   }
@@ -6950,10 +6862,15 @@ function mergeMessageParts(parts) {
   return merged;
 }
 function applyToolInvocationsToParts(parts, invocations, appendLeftover = true) {
+  const isTerminal = (s) => s === "success" || s === "warning" || s === "error";
   const nextParts = [];
   let cursor = 0;
   for (const part of parts) {
     if (part.type !== "tool_use") {
+      nextParts.push(part);
+      continue;
+    }
+    if (part.tools.length > 0 && part.tools.every((t) => isTerminal(t.status))) {
       nextParts.push(part);
       continue;
     }
@@ -7092,6 +7009,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
         if (toolInvocationsRef.current.length > 0)
           commitTools();
         setIsStreaming(true);
+        setRetryInfo(null);
         uncommittedStreamPartsRef.current = [];
         streamPartsRef.current = [];
         setStreamingParts([]);
@@ -8901,6 +8819,19 @@ function attachCompiledResizeWatcher(renderer, isCompiledBinary) {
 
 // extensions/console/src/index.ts
 init_terminal_compat();
+
+// extensions/console/src/console-config.ts
+var DEFAULT_CONSOLE_CONFIG = {
+  expandSubAgentTools: false
+};
+function resolveConsoleConfig(raw) {
+  const source = raw ?? {};
+  return {
+    expandSubAgentTools: typeof source.expandSubAgentTools === "boolean" ? source.expandSubAgentTools : DEFAULT_CONSOLE_CONFIG.expandSubAgentTools
+  };
+}
+
+// extensions/console/src/index.ts
 function generateCommandPattern(command) {
   const tokens = command.trim().split(/\s+/);
   if (tokens.length === 0 || !tokens[0])
@@ -9027,6 +8958,7 @@ class ConsolePlatform extends PlatformAdapter {
   api;
   _activeHandles = new Map;
   isCompiledBinary;
+  consoleConfig;
   currentToolIds = new Set;
   currentThinkingEffort = "none";
   _toolDetailStack = [];
@@ -9051,6 +8983,7 @@ class ConsolePlatform extends PlatformAdapter {
     this.initWarnings = options.initWarnings ?? [];
     this.api = options.api;
     this.isCompiledBinary = options.isCompiledBinary ?? false;
+    this.consoleConfig = options.consoleConfig;
     this.settingsController = new ConsoleSettingsController({
       backend,
       configManager: options.api?.configManager,
@@ -9079,6 +9012,7 @@ class ConsolePlatform extends PlatformAdapter {
     });
     this.backend.on("stream:start", (sid) => {
       if (sid === this.sessionId) {
+        this.currentToolIds.clear();
         this.appHandle?.startStream();
       }
     });
@@ -9101,7 +9035,16 @@ class ConsolePlatform extends PlatformAdapter {
       this._activeHandles.set(handle.id, handle);
       this.currentToolIds.add(handle.id);
       const refreshUI = () => {
-        const invocations = Array.from(this._activeHandles.values()).filter((h) => this.currentToolIds.has(h.id)).map((h) => h.getSnapshot());
+        const invocations = Array.from(this._activeHandles.values()).filter((h) => this.currentToolIds.has(h.id)).map((h) => {
+          const snapshot = h.getSnapshot();
+          if (this.consoleConfig.expandSubAgentTools) {
+            const childHandles = h.getChildren?.() ?? [];
+            if (childHandles.length > 0) {
+              snapshot.children = childHandles.map((ch) => ch.getSnapshot());
+            }
+          }
+          return snapshot;
+        });
         this.appHandle?.setToolInvocations(invocations);
         this.refreshToolDetailIfNeeded();
       };
@@ -9109,7 +9052,6 @@ class ConsolePlatform extends PlatformAdapter {
       handle.on("output", refreshUI);
       handle.on("child", (childHandle) => {
         this._activeHandles.set(childHandle.id, childHandle);
-        this.currentToolIds.add(childHandle.id);
         childHandle.on("state", refreshUI);
         childHandle.on("output", refreshUI);
         refreshUI();
@@ -9655,7 +9597,7 @@ ${summaryText}`;
   }
   openToolDetail(toolId) {
     if (!toolId) {
-      const all = Array.from(this._activeHandles.values());
+      const all = Array.from(this._activeHandles.values()).filter((h) => !h.parentId);
       if (all.length === 0) {
         if (!this._isGenerating) {
           this.appHandle?.addErrorMessage("当前会话没有工具执行记录。");
@@ -10008,6 +9950,8 @@ ${summaryText}`;
 }
 async function consoleFactory(rawContext) {
   const context = rawContext;
+  const platformCfg = context.config?.platform?.console;
+  const consoleConfig = resolveConsoleConfig(platformCfg);
   if (typeof globalThis.Bun === "undefined") {
     console.error(`[Iris] Console 平台需要 Bun 运行时。
 ` + `  - 请优先使用: bun run dev
@@ -10030,7 +9974,8 @@ async function consoleFactory(rawContext) {
     initWarnings: context.initWarnings,
     extensions: context.extensions,
     api: context.api,
-    isCompiledBinary: context.isCompiledBinary ?? false
+    isCompiledBinary: context.isCompiledBinary ?? false,
+    consoleConfig
   });
 }
 export {

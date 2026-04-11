@@ -31,15 +31,59 @@ if [ -f "$PLATFORM_YAML" ] && grep -q 'host: 127\.0\.0\.1' "$PLATFORM_YAML" 2>/d
   echo "[Iris] Patched web.host to 0.0.0.0 for Docker networking"
 fi
 
-# ------ Deploy TUI binary to host (if /host-bin is mounted) ------
-if [ -d /host-bin ] && [ -w /host-bin ]; then
+# ------ Deploy TUI binary + runtime to host ------
+# The iris binary uses resolveProjectRoot() to locate data/ and extensions/
+# relative to the binary (../data, ../extensions from bin/).
+# /host-lib provides the full directory structure; /host-bin gets symlinks.
+if [ -d /host-lib ] && [ -w /host-lib ]; then
+  # Deploy full runtime structure into /host-lib/iris/
+  IRIS_HOST_DIR="/host-lib/iris"
+  mkdir -p "$IRIS_HOST_DIR/bin"
+
+  for bin in iris iris-onboard; do
+    if [ -f "/app/bin/$bin" ]; then
+      cp "/app/bin/$bin" "$IRIS_HOST_DIR/bin/$bin"
+      chmod +x "$IRIS_HOST_DIR/bin/$bin"
+    fi
+  done
+
+  # Copy runtime dirs that resolveProjectRoot() expects next to bin/
+  for dir in data extensions; do
+    if [ -d "/app/$dir" ]; then
+      rm -rf "$IRIS_HOST_DIR/$dir"
+      cp -a "/app/$dir" "$IRIS_HOST_DIR/$dir"
+    fi
+  done
+
+  # OpenTUI tree-sitter runtime (bin/opentui/)
+  if [ -d "/app/bin/opentui" ]; then
+    rm -rf "$IRIS_HOST_DIR/bin/opentui"
+    cp -a "/app/bin/opentui" "$IRIS_HOST_DIR/bin/opentui"
+  fi
+
+  echo "[Iris] Runtime deployed to host: $IRIS_HOST_DIR"
+
+  # Create symlinks in /host-bin pointing to the deployed binaries.
+  # IRIS_HOST_LIB_DIR tells us the real host path of /host-lib (default: /usr/local/lib).
+  IRIS_HOST_LIB_DIR="${IRIS_HOST_LIB_DIR:-/usr/local/lib}"
+  if [ -d /host-bin ] && [ -w /host-bin ]; then
+    for bin in iris iris-onboard; do
+      if [ -f "$IRIS_HOST_DIR/bin/$bin" ]; then
+        ln -sf "$IRIS_HOST_LIB_DIR/iris/bin/$bin" "/host-bin/$bin"
+      fi
+    done
+    echo "[Iris] Symlinks created in /host-bin -> $IRIS_HOST_LIB_DIR/iris/bin/"
+  fi
+elif [ -d /host-bin ] && [ -w /host-bin ]; then
+  # Fallback: legacy mode — copy binaries only (extensions won't be available)
   for bin in iris iris-onboard; do
     if [ -f "/app/bin/$bin" ]; then
       cp "/app/bin/$bin" "/host-bin/$bin"
       chmod +x "/host-bin/$bin"
     fi
   done
-  echo "[Iris] TUI binaries deployed to host: iris, iris-onboard"
+  echo "[Iris] TUI binaries deployed to host (legacy mode, no extensions)"
+  echo "[Iris] Tip: mount /host-lib to deploy the full runtime structure"
 fi
 
 # ------ Drop privileges for the main process ------
