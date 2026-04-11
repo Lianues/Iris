@@ -150,6 +150,8 @@ COPY --from=build /app/package.json .
 COPY --from=build /app/packages/extension-sdk/ packages/extension-sdk/
 COPY --from=build /app/data/ data/
 COPY --from=build-ui /app/extensions/web/web-ui/dist/ extensions/web/web-ui/dist/
+# Install playwright in root node_modules (extension uses --external=playwright)
+RUN npm install --no-save playwright@1.52.0
 COPY --from=bun-compile /app/dist/bin/iris-linux-x64/bin/iris bin/iris
 COPY --from=bun-compile /app/dist/bin/iris-linux-x64/bin/iris-onboard bin/iris-onboard
 RUN chmod +x bin/iris bin/iris-onboard
