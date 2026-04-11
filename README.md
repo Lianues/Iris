@@ -53,7 +53,7 @@ cd iris
 从 [GitHub Release](https://github.com/Lianues/Iris/releases) 下载 `iris-windows-x64.zip`，解压后运行：
 
 ```bat
-install.bat
+.\install.bat
 ```
 
 安装脚本会自动初始化配置、启动引导，并询问是否将 `iris` 加入系统 PATH。完成后重开终端即可直接使用：

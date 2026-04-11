@@ -36,6 +36,8 @@ NODE_MAJOR=22
 SERVICE_NAME="iris"
 IS_TERMUX=false
 IS_ROOT=false
+IS_MACOS=false
+PLATFORM=""      # linux 或 darwin，用于下载包名
 INSTALL_DIR=""   # 稍后根据环境决定
 BIN_DIR=""       # 同上
 APP_DATA_DIR=""  # 运行时数据目录（配置、会话、日志）
@@ -70,9 +72,19 @@ trap cleanup EXIT
 detect_environment() {
     step "检测运行环境"
 
+    # ── macOS 检测
+    if [ "$(uname -s)" = "Darwin" ]; then
+        IS_MACOS=true
+        PLATFORM="darwin"
+        info "检测到 macOS"
+    else
+        PLATFORM="linux"
+    fi
+
     # ── Termux 检测
     if [ -n "${TERMUX_VERSION:-}" ] || [ -d "$HOME/.termux" ] || [[ "${PREFIX:-}" == *com.termux* ]]; then
         IS_TERMUX=true
+        PLATFORM="linux"
         info "检测到 Termux 环境 (Android)"
     fi
 
@@ -81,8 +93,8 @@ detect_environment() {
         IS_ROOT=true
     fi
 
-    # ── 非 Termux 且非 Root：提示
-    if ! $IS_TERMUX && ! $IS_ROOT; then
+    # ── 非 Termux 且非 Root 且非 macOS：提示
+    if ! $IS_TERMUX && ! $IS_ROOT && ! $IS_MACOS; then
         warn "当前不是 root 用户。将安装到 \$HOME/iris，不安装 systemd 服务。"
         warn "如需安装到 /opt/iris 并配置 systemd，请使用：sudo bash install.sh"
     fi
@@ -92,7 +104,7 @@ detect_environment() {
         INSTALL_DIR="$IRIS_INSTALL_DIR"
     elif $IS_TERMUX; then
         INSTALL_DIR="$HOME/iris"
-    elif $IS_ROOT; then
+    elif $IS_ROOT && ! $IS_MACOS; then
         INSTALL_DIR="/opt/iris"
     else
         INSTALL_DIR="$HOME/iris"
@@ -137,6 +149,19 @@ detect_os() {
         return
     fi
 
+    if $IS_MACOS; then
+        OS="darwin"
+        VER=$(sw_vers -productVersion 2>/dev/null || echo "")
+        ARCH=$(uname -m)
+        case "$ARCH" in
+            x86_64|amd64)   ARCH="x64" ;;
+            arm64|aarch64)  ARCH="arm64" ;;
+            *)              die "不支持的架构：$ARCH" ;;
+        esac
+        info "系统：macOS ${VER} ($ARCH)"
+        return
+    fi
+
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         OS="$ID"
@@ -171,6 +196,19 @@ install_dependencies() {
         pkg update -y
         pkg install -y nodejs-lts git curl
         info "Termux 依赖安装完成"
+        return
+    fi
+
+    # macOS：curl/git 通常已预装，缺少时通过 Homebrew 安装
+    if $IS_MACOS; then
+        if ! command -v git &>/dev/null; then
+            if command -v brew &>/dev/null; then
+                brew install git
+            else
+                die "git not found. Please install Xcode Command Line Tools: xcode-select --install"
+            fi
+        fi
+        info "基础依赖已就绪"
         return
     fi
 
@@ -293,7 +331,7 @@ resolve_download_url() {
 download_and_extract() {
     step "下载 Iris 预编译包"
 
-    local tarball="iris-linux-${ARCH}.tar.gz"
+    local tarball="iris-${PLATFORM}-${ARCH}.tar.gz"
     local url
     url=$(resolve_download_url "$tarball")
 
@@ -369,7 +407,7 @@ fallback_build() {
     info "构建二进制发布包..."
     bun run build:compile -- --single 2>&1 | tail -5
 
-    local package_dir="$tmp_dir/dist/bin/iris-linux-${ARCH}"
+    local package_dir="$tmp_dir/dist/bin/iris-${PLATFORM}-${ARCH}"
     if [ ! -d "$package_dir" ]; then
         rm -rf "$tmp_dir"
         die "未找到构建产物：$package_dir"
@@ -391,7 +429,7 @@ fallback_build() {
 # ==========================================
 
 create_user() {
-    if ! $IS_ROOT || $IS_TERMUX; then
+    if ! $IS_ROOT || $IS_TERMUX || $IS_MACOS; then
         return 0
     fi
 
@@ -433,17 +471,26 @@ init_config() {
     fi
 }
 
-verify_onboard() {
-    step "检查 onboard 工具"
+run_onboard() {
+    step "运行 onboard 配置引导"
 
     local onboard_bin="$INSTALL_DIR/bin/iris-onboard"
 
-    if [ -x "$onboard_bin" ]; then
-        info "iris-onboard 已就绪：$onboard_bin"
-    else
+    if [ ! -x "$onboard_bin" ]; then
         warn "iris-onboard 未包含在安装包中"
         warn "你仍然可以手动编辑配置文件：$APP_DATA_DIR/configs/"
+        return
     fi
+
+    # 通过 curl 管道执行时 stdin 不是终端，无法交互
+    if [ ! -t 0 ]; then
+        info "iris-onboard 已就绪，安装完成后请运行："
+        info "  iris onboard"
+        return
+    fi
+
+    info "启动配置引导..."
+    IRIS_DATA_DIR="$APP_DATA_DIR" "$onboard_bin" || true
 }
 
 install_cli() {
@@ -545,8 +592,8 @@ CLIEOF
 }
 
 install_service() {
-    # Termux 或非 root 不安装 systemd
-    if $IS_TERMUX || ! $IS_ROOT; then
+    # Termux、macOS 或非 root 不安装 systemd
+    if $IS_TERMUX || $IS_MACOS || ! $IS_ROOT; then
         return 0
     fi
 
@@ -650,9 +697,9 @@ main() {
     create_user
     download_and_extract
     init_config
-    verify_onboard
     install_cli
     install_service
+    run_onboard
     print_success
 }
 
