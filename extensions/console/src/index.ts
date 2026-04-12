@@ -567,6 +567,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onListSessions: () => this.handleListSessions(),
         onRunCommand: (cmd: string) => this.handleRunCommand(cmd),
         onListModels: () => this.handleListModels(),
+        onSetDefaultModel: (modelName: string) => this.handleSetDefaultModel(modelName),
+        onUpdateModelEntry: (currentModelName: string, updates: { modelName?: string; contextWindow?: number | null }) => this.handleUpdateModelEntry(currentModelName, updates),
         onSwitchModel: (modelName: string) => this.handleSwitchModel(modelName),
         onLoadSettings: () => this.handleLoadSettings(),
         onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => this.handleSaveSettings(snapshot),
@@ -1189,8 +1191,18 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     return (this.backend.runCommand?.(cmd) ?? { output: '', cwd: '' }) as { output: string; cwd: string };
   }
 
-  private handleListModels(): IrisModelInfoLike[] {
-    return this.backend.listModels?.() ?? [];
+  private handleListModels(): { models: IrisModelInfoLike[]; defaultModelName: string } {
+    const models = this.backend.listModels?.() ?? [];
+    let defaultModelName = '';
+    try {
+      const raw = this.api?.configManager?.readEditableConfig?.() as any;
+      if (raw?.llm?.defaultModel && typeof raw.llm.defaultModel === 'string') {
+        defaultModelName = raw.llm.defaultModel;
+      }
+    } catch {
+      // 读取失败不阻塞
+    }
+    return { models: models as IrisModelInfoLike[], defaultModelName };
   }
 
   private handleSwitchModel(modelName: string): { ok: boolean; message: string; modelId?: string; modelName?: string; contextWindow?: number } {
@@ -1282,6 +1294,83 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async handleLoadSettings(): Promise<ConsoleSettingsSnapshot> {
     return this.settingsController.loadSnapshot();
+  }
+
+  private async handleSetDefaultModel(modelName: string): Promise<{ ok: boolean; message: string }> {
+    try {
+      const snapshot = await this.settingsController.loadSnapshot();
+      const target = snapshot.models.find((model) => model.modelName === modelName || model.originalModelName === modelName);
+      if (!target) {
+        return { ok: false, message: `未找到模型 "${modelName}"` };
+      }
+      snapshot.defaultModelName = target.modelName;
+      const result = await this.settingsController.saveSnapshot(snapshot);
+      return { ok: result.ok, message: result.message };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async handleUpdateModelEntry(
+    currentModelName: string,
+    updates: { modelName?: string; contextWindow?: number | null },
+  ): Promise<{ ok: boolean; message: string; updatedModelName?: string }> {
+    try {
+      const snapshot = await this.settingsController.loadSnapshot();
+      const target = snapshot.models.find((model) => model.modelName === currentModelName || model.originalModelName === currentModelName);
+      if (!target) {
+        return { ok: false, message: `未找到模型 "${currentModelName}"` };
+      }
+
+      const previousName = target.modelName;
+      const nextName = typeof updates.modelName === 'string' ? updates.modelName.trim() : previousName;
+      if (typeof updates.modelName === 'string') {
+        if (!nextName) {
+          return { ok: false, message: '模型名不能为空' };
+        }
+        const duplicate = snapshot.models.some((model) => model !== target && model.modelName.trim() === nextName);
+        if (duplicate) {
+          return { ok: false, message: `模型名 "${nextName}" 已存在` };
+        }
+        target.modelName = nextName;
+        if (snapshot.defaultModelName === previousName) {
+          snapshot.defaultModelName = nextName;
+        }
+      }
+
+      if ('contextWindow' in updates) {
+        target.contextWindow = updates.contextWindow == null ? undefined : updates.contextWindow;
+      }
+
+      const wasCurrent = this.backend.getCurrentModelInfo?.()?.modelName === previousName;
+      const result = await this.settingsController.saveSnapshot(snapshot);
+      if (!result.ok) {
+        return { ok: false, message: result.message, updatedModelName: nextName };
+      }
+
+      if (wasCurrent) {
+        try {
+          if (nextName !== previousName) {
+            this.backend.switchModel?.(nextName, 'console');
+          }
+
+          const currentInfo = this.backend.getCurrentModelInfo?.() as {
+            modelName?: string;
+            modelId?: string;
+            contextWindow?: number;
+          } | undefined;
+          if (currentInfo?.modelName) this.modelName = currentInfo.modelName;
+          if (currentInfo?.modelId) this.modelId = currentInfo.modelId;
+          if ('contextWindow' in (currentInfo ?? {})) {
+            this.contextWindow = currentInfo?.contextWindow;
+          }
+        } catch { /* ignore */ }
+      }
+
+      return { ok: true, message: result.message, updatedModelName: nextName };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err), updatedModelName: updates.modelName };
+    }
   }
 
   private async handleSaveSettings(snapshot: ConsoleSettingsSnapshot): Promise<ConsoleSettingsSaveResult> {

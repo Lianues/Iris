@@ -158,6 +158,7 @@ export const Events = {
   AGENT_NOTIFICATION: 'event:agent:notification',
   TASK_RESULT: 'event:task:result',
   NOTIFICATION_PAYLOADS: 'event:notification:payloads',
+  MODELS_CHANGED: 'event:models:changed',
   // ---- 工具 Handle 事件 ----
   HANDLE_STATE: 'event:handle:state',
   HANDLE_OUTPUT: 'event:handle:output',
@@ -185,6 +186,7 @@ export const BACKEND_EVENT_TO_IPC: Record<string, string> = {
   'agent:notification': Events.AGENT_NOTIFICATION,
   'task:result': Events.TASK_RESULT,
   'notification:payloads': Events.NOTIFICATION_PAYLOADS,
+  'models:changed': Events.MODELS_CHANGED,
 };
 
 /** IPC 事件通知名 → Backend 事件名 映射 */

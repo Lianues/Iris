@@ -53,6 +53,9 @@ interface UseAppKeyboardOptions {
   onAddCommandPattern?: (toolName: string, command: string, type: 'allow' | 'deny') => void;
   sessionList: SessionMeta[];
   modelList: LLMModelInfo[];
+  defaultModelName: string;
+  setModelList: SetState<LLMModelInfo[]>;
+  setDefaultModelName: SetState<string>;
   selectedIndex: number;
   setSelectedIndex: SetState<number>;
   undoRedoRef: MutableRefObject<UndoRedoStack>;
@@ -60,8 +63,23 @@ interface UseAppKeyboardOptions {
   setMessages: SetState<ChatMessage[]>;
   commitTools: () => void;
   onLoadSession: (id: string) => Promise<void>;
+  onListModels: () => { models: LLMModelInfo[]; defaultModelName: string };
   onSwitchModel: (modelName: string) => SwitchModelResult;
+  onSetDefaultModel?: (modelName: string) => Promise<{ ok: boolean; message: string }>;
+  onUpdateModelEntry?: (
+    currentModelName: string,
+    updates: { modelName?: string; contextWindow?: number | null },
+  ) => Promise<{ ok: boolean; message: string; updatedModelName?: string }>;
   modelState: Pick<UseModelStateReturn, 'updateModel'>;
+  modelStatusMessage: string | null;
+  setModelStatusMessage: SetState<string | null>;
+  setModelStatusIsError: SetState<boolean>;
+  modelEditingField: 'modelName' | 'contextWindow' | null;
+  setModelEditingField: SetState<'modelName' | 'contextWindow' | null>;
+  modelEditTargetName: string | null;
+  setModelEditTargetName: SetState<string | null>;
+  modelEditState: TextInputState;
+  modelEditActions: TextInputActions;
   // 队列管理
   queue: QueuedMessage[];
   queueRemove: (id: string) => boolean;
@@ -127,6 +145,9 @@ export function useAppKeyboard({
   onAddCommandPattern,
   sessionList,
   modelList,
+  defaultModelName,
+  setModelList,
+  setDefaultModelName,
   selectedIndex,
   setSelectedIndex,
   undoRedoRef,
@@ -134,8 +155,20 @@ export function useAppKeyboard({
   setMessages,
   commitTools,
   onLoadSession,
+  onListModels,
   onSwitchModel,
+  onSetDefaultModel,
+  onUpdateModelEntry,
   modelState,
+  modelStatusMessage,
+  setModelStatusMessage,
+  setModelStatusIsError,
+  modelEditingField,
+  setModelEditingField,
+  modelEditTargetName,
+  setModelEditTargetName,
+  modelEditState,
+  modelEditActions,
   queue,
   queueRemove,
   queueMoveUp,
@@ -167,6 +200,43 @@ export function useAppKeyboard({
   setExtensionStatusMessage,
   setExtensionStatusIsError,
 }: UseAppKeyboardOptions) {
+  const setModelStatus = (message: string | null, isError = false) => {
+    setModelStatusMessage(message);
+    setModelStatusIsError(isError);
+  };
+
+  const resetModelEditing = () => {
+    setModelEditingField(null);
+    setModelEditTargetName(null);
+    modelEditActions.setValue('');
+  };
+
+  const syncModelPanel = (preferredModelName?: string) => {
+    const { models, defaultModelName: nextDefaultModelName } = onListModels();
+    setModelList(models);
+    setDefaultModelName(nextDefaultModelName);
+
+    const preferredIndex = preferredModelName
+      ? models.findIndex((model) => model.modelName === preferredModelName)
+      : -1;
+    const currentIndex = models.findIndex((model) => model.current);
+    const nextIndex = preferredIndex >= 0 ? preferredIndex : (currentIndex >= 0 ? currentIndex : 0);
+    setSelectedIndex(Math.max(0, nextIndex));
+
+    const currentModel = currentIndex >= 0 ? models[currentIndex] : undefined;
+    if (currentModel) {
+      modelState.updateModel({
+        ok: true,
+        message: '',
+        modelName: currentModel.modelName,
+        modelId: currentModel.modelId,
+        contextWindow: currentModel.contextWindow,
+      });
+    }
+
+    return { models, defaultModelName: nextDefaultModelName };
+  };
+
   useKeyboard((key) => {
     if (key.ctrl && key.name === 'c') {
       if (exitConfirm.exitConfirmArmed) {
@@ -334,7 +404,16 @@ export function useAppKeyboard({
         onAbort();
         return;
       }
-      if (viewMode === 'session-list' || viewMode === 'model-list') {
+      if (viewMode === 'session-list') {
+        setViewMode('chat');
+        return;
+      }
+      if (viewMode === 'model-list') {
+        if (modelEditingField) {
+          resetModelEditing();
+          setModelStatus(null);
+          return;
+        }
         setViewMode('chat');
         return;
       }
@@ -574,15 +653,122 @@ export function useAppKeyboard({
     }
 
     if (viewMode === 'model-list') {
+      if (modelEditingField) {
+        if (key.name === 'escape') {
+          resetModelEditing();
+          setModelStatus(null);
+          return;
+        }
+        if (key.name === 'enter' || key.name === 'return') {
+          const targetModelName = modelEditTargetName;
+          if (!targetModelName || !onUpdateModelEntry) {
+            resetModelEditing();
+            setModelStatus('模型编辑功能不可用', true);
+            return;
+          }
+
+          if (modelEditingField === 'modelName') {
+            const nextName = modelEditState.value.trim();
+            if (!nextName) {
+              setModelStatus('模型名不能为空', true);
+              return;
+            }
+            void onUpdateModelEntry(targetModelName, { modelName: nextName })
+              .then((result) => {
+                setModelStatus(result.message, !result.ok);
+                if (!result.ok) return;
+                syncModelPanel(result.updatedModelName ?? nextName);
+                resetModelEditing();
+              })
+              .catch((err) => setModelStatus(`保存模型名失败：${err instanceof Error ? err.message : String(err)}`, true));
+            return;
+          }
+
+          const raw = modelEditState.value.trim();
+          if (!raw) {
+            void onUpdateModelEntry(targetModelName, { contextWindow: null })
+              .then((result) => {
+                setModelStatus(result.message, !result.ok);
+                if (!result.ok) return;
+                syncModelPanel(result.updatedModelName ?? targetModelName);
+                resetModelEditing();
+              })
+              .catch((err) => setModelStatus(`保存上下文窗口失败：${err instanceof Error ? err.message : String(err)}`, true));
+            return;
+          }
+
+          const parsed = Number(raw);
+          if (!Number.isInteger(parsed) || parsed <= 0) {
+            setModelStatus('上下文窗口必须是正整数，留空可清除', true);
+            return;
+          }
+          void onUpdateModelEntry(targetModelName, { contextWindow: parsed })
+            .then((result) => {
+              setModelStatus(result.message, !result.ok);
+              if (!result.ok) return;
+              syncModelPanel(result.updatedModelName ?? targetModelName);
+              resetModelEditing();
+            })
+            .catch((err) => setModelStatus(`保存上下文窗口失败：${err instanceof Error ? err.message : String(err)}`, true));
+          return;
+        }
+
+        modelEditActions.handleKey(key);
+        return;
+      }
+
       if (key.name === 'up') setSelectedIndex((prev) => Math.max(0, prev - 1));
       else if (key.name === 'down') setSelectedIndex((prev) => Math.min(modelList.length - 1, prev + 1));
       else if (key.name === 'enter' || key.name === 'return') {
         const selected = modelList[selectedIndex];
         if (selected) {
           const result = onSwitchModel(selected.modelName);
+          setModelStatus(result.message, !result.ok);
           modelState.updateModel(result);
-          setViewMode('chat');
+          appendCommandMessage(setMessages, result.message, result.ok ? undefined : { isError: true });
+          if (result.ok) {
+            const nextCurrentModelName = result.modelName ?? selected.modelName;
+            setModelList((prev) => prev.map((model) => ({
+              ...model,
+              current: model.modelName === nextCurrentModelName,
+            })));
+          }
         }
+      } else if (key.name === 'r') {
+        syncModelPanel(modelList[selectedIndex]?.modelName);
+        setModelStatus('已刷新模型列表');
+      } else if (key.name === 'd') {
+        const selected = modelList[selectedIndex];
+        if (!selected) return;
+        if (selected.modelName === defaultModelName) {
+          setModelStatus(`模型 "${selected.modelName}" 已经是默认模型`);
+          return;
+        }
+        if (!onSetDefaultModel) {
+          setModelStatus('设默认模型功能不可用', true);
+          return;
+        }
+        void onSetDefaultModel(selected.modelName)
+          .then((result) => {
+            setModelStatus(result.message, !result.ok);
+            if (result.ok) syncModelPanel(selected.modelName);
+          })
+          .catch((err) => setModelStatus(`设置默认模型失败：${err instanceof Error ? err.message : String(err)}`, true));
+      } else if (key.name === 'n') {
+        const selected = modelList[selectedIndex];
+        if (!selected) return;
+        setModelStatus(null);
+        setModelEditTargetName(selected.modelName);
+        setModelEditingField('modelName');
+        modelEditActions.set(selected.modelName, selected.modelName.length);
+      } else if (key.name === 'w') {
+        const selected = modelList[selectedIndex];
+        if (!selected) return;
+        setModelStatus(null);
+        setModelEditTargetName(selected.modelName);
+        setModelEditingField('contextWindow');
+        const initialValue = selected.contextWindow != null ? String(selected.contextWindow) : '';
+        modelEditActions.set(initialValue, initialValue.length);
       }
       return;
     }

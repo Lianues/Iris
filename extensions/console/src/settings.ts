@@ -72,6 +72,7 @@ export interface ConsoleModelSettings {
   apiKey: string;
   /** 提供商真实模型 ID，对应 LLMConfig.model */
   modelId: string;
+  contextWindow?: number;
   baseUrl: string;
 }
 
@@ -160,6 +161,7 @@ export function createEmptyModel(
     provider,
     apiKey: '',
     modelId: (providerDefaults.model as string) ?? '',
+    contextWindow: typeof providerDefaults.contextWindow === 'number' ? providerDefaults.contextWindow : undefined,
     baseUrl: (providerDefaults.baseUrl as string) ?? '',
   };
 }
@@ -208,6 +210,7 @@ function buildModelPayload(model: ConsoleModelSettings): Record<string, unknown>
     provider: model.provider,
     model: model.modelId,
     baseUrl: model.baseUrl,
+    contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : null,
   };
   payload.apiKey = model.apiKey || null;
 
@@ -242,6 +245,9 @@ function validateSnapshot(snapshot: ConsoleSettingsSnapshot): string | null {
     }
     if (!model.modelId.trim()) {
       return `模型 "${modelName}" 缺少模型 ID`;
+    }
+    if (model.contextWindow != null && (!Number.isFinite(model.contextWindow) || model.contextWindow <= 0)) {
+      return `模型 "${modelName}" 的上下文窗口必须为正数`;
     }
     modelNames.add(modelName);
   }
@@ -398,6 +404,7 @@ export class ConsoleSettingsController {
         provider: model.provider,
         apiKey: model.apiKey,
         modelId: model.model,
+        contextWindow: model.contextWindow,
         baseUrl: model.baseUrl,
       })),
       modelOriginalNames: (llm.models ?? []).map((model: any) => model.modelName),

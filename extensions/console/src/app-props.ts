@@ -28,8 +28,13 @@ export interface AppProps {
   onLoadSession: (id: string) => Promise<void>;
   onListSessions: () => Promise<SessionMeta[]>;
   onRunCommand: (cmd: string) => { output: string; cwd: string };
-  onListModels: () => LLMModelInfo[];
+  onListModels: () => { models: LLMModelInfo[]; defaultModelName: string };
   onSwitchModel: (modelName: string) => SwitchModelResult;
+  onSetDefaultModel?: (modelName: string) => Promise<{ ok: boolean; message: string }>;
+  onUpdateModelEntry?: (
+    currentModelName: string,
+    updates: { modelName?: string; contextWindow?: number | null },
+  ) => Promise<{ ok: boolean; message: string; updatedModelName?: string }>;
   onLoadSettings: () => Promise<ConsoleSettingsSnapshot>;
   onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => Promise<ConsoleSettingsSaveResult>;
   onResetConfig: () => Promise<{ success: boolean; message: string }>;

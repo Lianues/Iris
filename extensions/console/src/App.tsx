@@ -59,6 +59,8 @@ export function App({
   onRunCommand,
   onListModels,
   onSwitchModel,
+  onSetDefaultModel,
+  onUpdateModelEntry,
   onLoadSettings,
   onSaveSettings,
   onResetConfig,
@@ -90,12 +92,19 @@ export function App({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsInitialSection>('general');
   const [modelList, setModelList] = useState<LLMModelInfo[]>([]);
+  const [defaultModelName, setDefaultModelName] = useState('');
   const [agentList, setAgentList] = useState<AgentDefinitionLike[]>([]);
   const [copyMode, setCopyMode] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [confirmChoice, setConfirmChoice] = useState<ConfirmChoice>('confirm');
   const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffortLevel>('none');
   const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState(0);
+
+  // /model 视图状态
+  const [modelStatusMessage, setModelStatusMessage] = useState<string | null>(null);
+  const [modelStatusIsError, setModelStatusIsError] = useState(false);
+  const [modelEditingField, setModelEditingField] = useState<'modelName' | 'contextWindow' | null>(null);
+  const [modelEditTargetName, setModelEditTargetName] = useState<string | null>(null);
 
   // 记忆列表状态
   const [memoryList, setMemoryList] = useState<MemoryItem[]>([]);
@@ -112,6 +121,7 @@ export function App({
   // 队列编辑状态（复用 useTextInput 获得完整光标和编辑能力）
   const [queueEditingId, setQueueEditingId] = useState<string | null>(null);
   const [queueEditState, queueEditActions] = useTextInput('');
+  const [modelEditState, modelEditActions] = useTextInput('');
 
   const renderer = useRenderer();
   const undoRedoRef = useRef<UndoRedoStack>(createUndoRedoStack());
@@ -194,6 +204,7 @@ export function App({
     setViewMode,
     setSessionList,
     setModelList,
+    setDefaultModelName,
     setSelectedIndex,
     setPendingConfirm,
     setConfirmChoice,
@@ -220,6 +231,15 @@ export function App({
       }
     }
   }, [viewMode, appState.isGenerating, messageQueue, onSubmit]);
+
+  useEffect(() => {
+    if (viewMode === 'model-list') return;
+    setModelStatusMessage(null);
+    setModelStatusIsError(false);
+    setModelEditingField(null);
+    setModelEditTargetName(null);
+    modelEditActions.setValue('');
+  }, [viewMode]);
 
   // 工具详情数据变化时自动切换视图
   useEffect(() => {
@@ -259,6 +279,9 @@ export function App({
     onAddCommandPattern,
     sessionList,
     modelList,
+    setModelList,
+    defaultModelName,
+    setDefaultModelName,
     selectedIndex,
     setSelectedIndex,
     undoRedoRef,
@@ -266,8 +289,20 @@ export function App({
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
     onLoadSession,
+    onListModels,
     onSwitchModel,
+    onSetDefaultModel,
+    onUpdateModelEntry,
     modelState,
+    modelStatusMessage,
+    setModelStatusMessage,
+    setModelStatusIsError,
+    modelEditingField,
+    setModelEditingField,
+    modelEditTargetName,
+    setModelEditTargetName,
+    modelEditState,
+    modelEditActions,
     queue: messageQueue.queue,
     queueRemove: messageQueue.remove,
     queueMoveUp: messageQueue.moveUp,
@@ -320,7 +355,16 @@ export function App({
   }
 
   if (viewMode === 'model-list') {
-    return <ModelListView models={modelList} selectedIndex={selectedIndex} />;
+    return <ModelListView
+      models={modelList}
+      selectedIndex={selectedIndex}
+      defaultModelName={defaultModelName}
+      statusMessage={modelStatusMessage}
+      statusIsError={modelStatusIsError}
+      editingField={modelEditingField}
+      editingValue={modelEditState.value}
+      editingCursor={modelEditState.cursor}
+    />;
   }
 
   if (viewMode === 'agent-list') {

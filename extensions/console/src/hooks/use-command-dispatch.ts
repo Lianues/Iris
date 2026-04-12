@@ -34,7 +34,7 @@ interface UseCommandDispatchOptions {
   onNewSession: () => void;
   onListSessions: () => Promise<SessionMeta[]>;
   onRunCommand: (cmd: string) => { output: string; cwd: string };
-  onListModels: () => LLMModelInfo[];
+  onListModels: () => { models: LLMModelInfo[]; defaultModelName: string };
   onSwitchModel: (modelName: string) => SwitchModelResult;
   onResetConfig: () => Promise<{ success: boolean; message: string }>;
   onExit: () => void;
@@ -60,6 +60,7 @@ interface UseCommandDispatchOptions {
   setViewMode: SetViewMode;
   setSessionList: SetSessionList;
   setModelList: SetModelList;
+  setDefaultModelName: Dispatch<SetStateAction<string>>;
   setSelectedIndex: SetSelectedIndex;
   setPendingConfirm: SetPendingConfirm;
   setConfirmChoice: SetConfirmChoice;
@@ -110,6 +111,7 @@ export function useCommandDispatch({
   setViewMode,
   setSessionList,
   setModelList,
+  setDefaultModelName,
   setSelectedIndex,
   setPendingConfirm,
   setConfirmChoice,
@@ -331,8 +333,9 @@ export function useCommandDispatch({
       resetRedo(undoRedoRef, onClearRedoStack);
       const arg = text.slice('/model'.length).trim();
       if (!arg) {
-        const models = onListModels();
+        const { models, defaultModelName } = onListModels();
         setModelList(models);
+        setDefaultModelName(defaultModelName);
         const currentIndex = models.findIndex((model) => model.current);
         setSelectedIndex(currentIndex >= 0 ? currentIndex : 0);
         setViewMode('model-list');
@@ -397,6 +400,7 @@ export function useCommandDispatch({
     setConfirmChoice,
     setMessages,
     setModelList,
+    setDefaultModelName,
     setPendingConfirm,
     setSelectedIndex,
     setSessionList,

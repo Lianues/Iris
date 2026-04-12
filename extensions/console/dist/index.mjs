@@ -4719,8 +4719,48 @@ function FooterBar({ isFinal, hasAbort, hasChildren }) {
 
 // src/components/ModelListView.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV30 } from "@opentui/react/jsx-dev-runtime";
-function ModelListView({ models, selectedIndex }) {
+import { jsxDEV as jsxDEV30, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
+function formatContextWindow(tokens) {
+  if (tokens == null || tokens <= 0)
+    return "";
+  if (tokens >= 1e6) {
+    const m = tokens / 1e6;
+    return m % 1 === 0 ? `${m}M` : `${m.toFixed(1)}M`;
+  }
+  if (tokens >= 1000) {
+    const k = tokens / 1000;
+    return k % 1 === 0 ? `${k}K` : `${k.toFixed(1)}K`;
+  }
+  return String(tokens);
+}
+function formatContextWindowFull(tokens) {
+  if (tokens == null || tokens <= 0)
+    return "未知";
+  return tokens.toLocaleString("en-US");
+}
+function getVisionStatus(supportsVision) {
+  if (supportsVision === true) {
+    return { symbol: ICONS.checkmark, label: "支持", color: C.accent };
+  }
+  if (supportsVision === false) {
+    return { symbol: ICONS.crossmark, label: "不支持", color: C.error };
+  }
+  return { symbol: "?", label: "未知", color: C.dim };
+}
+function ModelListView({
+  models,
+  selectedIndex,
+  defaultModelName,
+  statusMessage,
+  statusIsError,
+  editingField,
+  editingValue = "",
+  editingCursor = 0
+}) {
+  const selected = models[selectedIndex];
+  const count = models.length;
+  const visionStatus = selected ? getVisionStatus(selected.supportsVision) : undefined;
+  const cursorVisible = useCursorBlink();
   return /* @__PURE__ */ jsxDEV30("box", {
     flexDirection: "column",
     width: "100%",
@@ -4728,59 +4768,193 @@ function ModelListView({ models, selectedIndex }) {
     children: [
       /* @__PURE__ */ jsxDEV30("box", {
         padding: 1,
+        flexDirection: "column",
         children: [
           /* @__PURE__ */ jsxDEV30("text", {
             fg: C.primary,
-            children: "切换模型"
+            children: `切换模型 (${count})`
           }, undefined, false, undefined, this),
+          editingField ? /* @__PURE__ */ jsxDEV30(Fragment5, {
+            children: [
+              /* @__PURE__ */ jsxDEV30("text", {
+                fg: C.dim,
+                children: `Enter 保存  Esc 取消  Ctrl+U 清空`
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsxDEV30("text", {
+                fg: C.dim,
+                children: editingField === "contextWindow" ? "留空可清除上下文窗口配置" : "编辑模型别名（会同步更新 /model 使用名称）"
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV30(Fragment5, {
+            children: [
+              /* @__PURE__ */ jsxDEV30("text", {
+                fg: C.dim,
+                children: `${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 切换  d 设默认  r 刷新`
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsxDEV30("text", {
+                fg: C.dim,
+                children: `n 改名  w 改上下文  Esc 返回`
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      statusMessage && /* @__PURE__ */ jsxDEV30("box", {
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingBottom: 1,
+        children: /* @__PURE__ */ jsxDEV30("text", {
+          fg: statusIsError ? C.error : C.accent,
+          children: statusMessage
+        }, undefined, false, undefined, this)
+      }, undefined, false, undefined, this),
+      editingField && selected && /* @__PURE__ */ jsxDEV30("box", {
+        flexDirection: "column",
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingBottom: 1,
+        children: [
           /* @__PURE__ */ jsxDEV30("text", {
-            fg: C.dim,
-            children: `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 切换  Esc 返回`
+            fg: C.warn,
+            children: editingField === "modelName" ? `编辑模型名：${selected.modelName}` : `编辑上下文窗口：${selected.modelName}`
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV30(InputDisplay, {
+            value: editingValue,
+            cursor: editingCursor,
+            isActive: true,
+            cursorVisible,
+            placeholder: editingField === "modelName" ? "输入新的模型别名" : "输入新的上下文窗口，留空可清除"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
       /* @__PURE__ */ jsxDEV30("scrollbox", {
         flexGrow: 1,
-        children: models.map((info, index) => {
-          const isSelected = index === selectedIndex;
-          const currentMarker = info.current ? ICONS.bullet : " ";
-          return /* @__PURE__ */ jsxDEV30("box", {
-            paddingLeft: 1,
-            children: /* @__PURE__ */ jsxDEV30("text", {
+        children: [
+          count === 0 && /* @__PURE__ */ jsxDEV30("text", {
+            fg: C.dim,
+            paddingLeft: 2,
+            children: "暂无可用模型。请在 /settings 中配置。"
+          }, undefined, false, undefined, this),
+          models.map((info, index) => {
+            const isSelected = index === selectedIndex;
+            const isCurrent = info.current === true;
+            const isDefault = !!(defaultModelName && info.modelName === defaultModelName);
+            const badges = [];
+            if (isCurrent)
+              badges.push("当前");
+            if (isDefault)
+              badges.push("默认");
+            const badgeText = badges.length > 0 ? ` [${badges.join("] [")}]` : "";
+            const details = [];
+            if (info.provider)
+              details.push(info.provider);
+            if (info.modelId)
+              details.push(info.modelId);
+            const ctxStr = formatContextWindow(info.contextWindow);
+            if (ctxStr)
+              details.push(ctxStr);
+            const detailLine = details.join(` ${ICONS.separator} `);
+            const visionIcon = info.supportsVision ? " \uD83D\uDC41" : "";
+            return /* @__PURE__ */ jsxDEV30("box", {
+              flexDirection: "column",
+              paddingLeft: 1,
               children: [
-                /* @__PURE__ */ jsxDEV30("span", {
-                  fg: isSelected ? C.accent : C.dim,
-                  children: isSelected ? `${ICONS.selectorArrow} ` : "  "
+                /* @__PURE__ */ jsxDEV30("box", {
+                  children: /* @__PURE__ */ jsxDEV30("text", {
+                    children: [
+                      /* @__PURE__ */ jsxDEV30("span", {
+                        fg: isSelected ? C.accent : C.dim,
+                        children: isSelected ? `${ICONS.selectorArrow} ` : "  "
+                      }, undefined, false, undefined, this),
+                      /* @__PURE__ */ jsxDEV30("span", {
+                        fg: isCurrent ? C.accent : C.dim,
+                        children: [
+                          isCurrent ? ICONS.bullet : " ",
+                          " "
+                        ]
+                      }, undefined, true, undefined, this),
+                      isSelected ? /* @__PURE__ */ jsxDEV30("strong", {
+                        children: /* @__PURE__ */ jsxDEV30("span", {
+                          fg: C.text,
+                          children: info.modelName
+                        }, undefined, false, undefined, this)
+                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV30("span", {
+                        fg: C.textSec,
+                        children: info.modelName
+                      }, undefined, false, undefined, this),
+                      isCurrent && /* @__PURE__ */ jsxDEV30("span", {
+                        fg: C.accent,
+                        children: " [当前]"
+                      }, undefined, false, undefined, this),
+                      isDefault && /* @__PURE__ */ jsxDEV30("span", {
+                        fg: C.primaryLight,
+                        children: " [默认]"
+                      }, undefined, false, undefined, this)
+                    ]
+                  }, undefined, true, undefined, this)
                 }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsxDEV30("span", {
-                  fg: info.current ? C.accent : C.dim,
-                  children: [
-                    currentMarker,
-                    " "
-                  ]
-                }, undefined, true, undefined, this),
-                isSelected ? /* @__PURE__ */ jsxDEV30("strong", {
-                  children: /* @__PURE__ */ jsxDEV30("span", {
-                    fg: C.text,
-                    children: info.modelName
+                /* @__PURE__ */ jsxDEV30("box", {
+                  paddingLeft: 4,
+                  children: /* @__PURE__ */ jsxDEV30("text", {
+                    children: /* @__PURE__ */ jsxDEV30("span", {
+                      fg: C.dim,
+                      children: [
+                        detailLine,
+                        visionIcon
+                      ]
+                    }, undefined, true, undefined, this)
                   }, undefined, false, undefined, this)
-                }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV30("span", {
-                  fg: C.textSec,
-                  children: info.modelName
-                }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsxDEV30("span", {
-                  fg: C.dim,
-                  children: [
-                    "  ",
-                    info.modelId,
-                    "  ",
-                    info.provider
-                  ]
-                }, undefined, true, undefined, this)
+                }, undefined, false, undefined, this)
               ]
-            }, undefined, true, undefined, this)
-          }, info.modelName, false, undefined, this);
-        })
+            }, info.modelName, true, undefined, this);
+          })
+        ]
+      }, undefined, true, undefined, this),
+      selected && /* @__PURE__ */ jsxDEV30("box", {
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingTop: 0,
+        paddingBottom: 1,
+        children: /* @__PURE__ */ jsxDEV30("text", {
+          children: [
+            /* @__PURE__ */ jsxDEV30("span", {
+              fg: C.dim,
+              children: "提供商："
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV30("span", {
+              fg: C.textSec,
+              children: selected.provider ?? "未知"
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV30("span", {
+              fg: C.dim,
+              children: " | 模型："
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV30("span", {
+              fg: C.textSec,
+              children: selected.modelId
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV30("span", {
+              fg: C.dim,
+              children: " | 上下文："
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV30("span", {
+              fg: C.textSec,
+              children: formatContextWindowFull(selected.contextWindow)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV30("span", {
+              fg: C.dim,
+              children: " | 视觉："
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV30("span", {
+              fg: visionStatus?.color ?? C.dim,
+              children: visionStatus?.symbol ?? "?"
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV30("span", {
+              fg: visionStatus?.color ?? C.dim,
+              children: ` ${visionStatus?.label ?? "未知"}`
+            }, undefined, false, undefined, this)
+          ]
+        }, undefined, true, undefined, this)
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -5472,6 +5646,7 @@ function createEmptyModel(provider = "gemini", modelName = "", defaults = {}) {
     provider,
     apiKey: "",
     modelId: providerDefaults.model ?? "",
+    contextWindow: typeof providerDefaults.contextWindow === "number" ? providerDefaults.contextWindow : undefined,
     baseUrl: providerDefaults.baseUrl ?? ""
   };
 }
@@ -5506,7 +5681,8 @@ function buildModelPayload(model) {
   const payload = {
     provider: model.provider,
     model: model.modelId,
-    baseUrl: model.baseUrl
+    baseUrl: model.baseUrl,
+    contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : null
   };
   payload.apiKey = model.apiKey || null;
   return payload;
@@ -5535,6 +5711,9 @@ function validateSnapshot(snapshot) {
     }
     if (!model.modelId.trim()) {
       return `模型 "${modelName}" 缺少模型 ID`;
+    }
+    if (model.contextWindow != null && (!Number.isFinite(model.contextWindow) || model.contextWindow <= 0)) {
+      return `模型 "${modelName}" 的上下文窗口必须为正数`;
     }
     modelNames.add(modelName);
   }
@@ -5660,6 +5839,7 @@ class ConsoleSettingsController {
         provider: model.provider,
         apiKey: model.apiKey,
         modelId: model.model,
+        contextWindow: model.contextWindow,
         baseUrl: model.baseUrl
       })),
       modelOriginalNames: (llm.models ?? []).map((model) => model.modelName),
@@ -7309,6 +7489,9 @@ function useAppKeyboard({
   onAddCommandPattern,
   sessionList,
   modelList,
+  defaultModelName,
+  setModelList,
+  setDefaultModelName,
   selectedIndex,
   setSelectedIndex,
   undoRedoRef,
@@ -7316,8 +7499,20 @@ function useAppKeyboard({
   setMessages,
   commitTools,
   onLoadSession,
+  onListModels,
   onSwitchModel,
+  onSetDefaultModel,
+  onUpdateModelEntry,
   modelState,
+  modelStatusMessage,
+  setModelStatusMessage,
+  setModelStatusIsError,
+  modelEditingField,
+  setModelEditingField,
+  modelEditTargetName,
+  setModelEditTargetName,
+  modelEditState,
+  modelEditActions,
   queue,
   queueRemove,
   queueMoveUp,
@@ -7349,6 +7544,35 @@ function useAppKeyboard({
   setExtensionStatusMessage,
   setExtensionStatusIsError
 }) {
+  const setModelStatus = (message, isError = false) => {
+    setModelStatusMessage(message);
+    setModelStatusIsError(isError);
+  };
+  const resetModelEditing = () => {
+    setModelEditingField(null);
+    setModelEditTargetName(null);
+    modelEditActions.setValue("");
+  };
+  const syncModelPanel = (preferredModelName) => {
+    const { models, defaultModelName: nextDefaultModelName } = onListModels();
+    setModelList(models);
+    setDefaultModelName(nextDefaultModelName);
+    const preferredIndex = preferredModelName ? models.findIndex((model) => model.modelName === preferredModelName) : -1;
+    const currentIndex = models.findIndex((model) => model.current);
+    const nextIndex = preferredIndex >= 0 ? preferredIndex : currentIndex >= 0 ? currentIndex : 0;
+    setSelectedIndex(Math.max(0, nextIndex));
+    const currentModel = currentIndex >= 0 ? models[currentIndex] : undefined;
+    if (currentModel) {
+      modelState.updateModel({
+        ok: true,
+        message: "",
+        modelName: currentModel.modelName,
+        modelId: currentModel.modelId,
+        contextWindow: currentModel.contextWindow
+      });
+    }
+    return { models, defaultModelName: nextDefaultModelName };
+  };
   useKeyboard4((key) => {
     if (key.ctrl && key.name === "c") {
       if (exitConfirm.exitConfirmArmed) {
@@ -7502,7 +7726,16 @@ function useAppKeyboard({
         onAbort();
         return;
       }
-      if (viewMode === "session-list" || viewMode === "model-list") {
+      if (viewMode === "session-list") {
+        setViewMode("chat");
+        return;
+      }
+      if (viewMode === "model-list") {
+        if (modelEditingField) {
+          resetModelEditing();
+          setModelStatus(null);
+          return;
+        }
         setViewMode("chat");
         return;
       }
@@ -7710,6 +7943,62 @@ function useAppKeyboard({
       return;
     }
     if (viewMode === "model-list") {
+      if (modelEditingField) {
+        if (key.name === "escape") {
+          resetModelEditing();
+          setModelStatus(null);
+          return;
+        }
+        if (key.name === "enter" || key.name === "return") {
+          const targetModelName = modelEditTargetName;
+          if (!targetModelName || !onUpdateModelEntry) {
+            resetModelEditing();
+            setModelStatus("模型编辑功能不可用", true);
+            return;
+          }
+          if (modelEditingField === "modelName") {
+            const nextName = modelEditState.value.trim();
+            if (!nextName) {
+              setModelStatus("模型名不能为空", true);
+              return;
+            }
+            onUpdateModelEntry(targetModelName, { modelName: nextName }).then((result) => {
+              setModelStatus(result.message, !result.ok);
+              if (!result.ok)
+                return;
+              syncModelPanel(result.updatedModelName ?? nextName);
+              resetModelEditing();
+            }).catch((err) => setModelStatus(`保存模型名失败：${err instanceof Error ? err.message : String(err)}`, true));
+            return;
+          }
+          const raw = modelEditState.value.trim();
+          if (!raw) {
+            onUpdateModelEntry(targetModelName, { contextWindow: null }).then((result) => {
+              setModelStatus(result.message, !result.ok);
+              if (!result.ok)
+                return;
+              syncModelPanel(result.updatedModelName ?? targetModelName);
+              resetModelEditing();
+            }).catch((err) => setModelStatus(`保存上下文窗口失败：${err instanceof Error ? err.message : String(err)}`, true));
+            return;
+          }
+          const parsed = Number(raw);
+          if (!Number.isInteger(parsed) || parsed <= 0) {
+            setModelStatus("上下文窗口必须是正整数，留空可清除", true);
+            return;
+          }
+          onUpdateModelEntry(targetModelName, { contextWindow: parsed }).then((result) => {
+            setModelStatus(result.message, !result.ok);
+            if (!result.ok)
+              return;
+            syncModelPanel(result.updatedModelName ?? targetModelName);
+            resetModelEditing();
+          }).catch((err) => setModelStatus(`保存上下文窗口失败：${err instanceof Error ? err.message : String(err)}`, true));
+          return;
+        }
+        modelEditActions.handleKey(key);
+        return;
+      }
       if (key.name === "up")
         setSelectedIndex((prev) => Math.max(0, prev - 1));
       else if (key.name === "down")
@@ -7718,9 +8007,54 @@ function useAppKeyboard({
         const selected = modelList[selectedIndex];
         if (selected) {
           const result = onSwitchModel(selected.modelName);
+          setModelStatus(result.message, !result.ok);
           modelState.updateModel(result);
-          setViewMode("chat");
+          appendCommandMessage(setMessages, result.message, result.ok ? undefined : { isError: true });
+          if (result.ok) {
+            const nextCurrentModelName = result.modelName ?? selected.modelName;
+            setModelList((prev) => prev.map((model) => ({
+              ...model,
+              current: model.modelName === nextCurrentModelName
+            })));
+          }
         }
+      } else if (key.name === "r") {
+        syncModelPanel(modelList[selectedIndex]?.modelName);
+        setModelStatus("已刷新模型列表");
+      } else if (key.name === "d") {
+        const selected = modelList[selectedIndex];
+        if (!selected)
+          return;
+        if (selected.modelName === defaultModelName) {
+          setModelStatus(`模型 "${selected.modelName}" 已经是默认模型`);
+          return;
+        }
+        if (!onSetDefaultModel) {
+          setModelStatus("设默认模型功能不可用", true);
+          return;
+        }
+        onSetDefaultModel(selected.modelName).then((result) => {
+          setModelStatus(result.message, !result.ok);
+          if (result.ok)
+            syncModelPanel(selected.modelName);
+        }).catch((err) => setModelStatus(`设置默认模型失败：${err instanceof Error ? err.message : String(err)}`, true));
+      } else if (key.name === "n") {
+        const selected = modelList[selectedIndex];
+        if (!selected)
+          return;
+        setModelStatus(null);
+        setModelEditTargetName(selected.modelName);
+        setModelEditingField("modelName");
+        modelEditActions.set(selected.modelName, selected.modelName.length);
+      } else if (key.name === "w") {
+        const selected = modelList[selectedIndex];
+        if (!selected)
+          return;
+        setModelStatus(null);
+        setModelEditTargetName(selected.modelName);
+        setModelEditingField("contextWindow");
+        const initialValue = selected.contextWindow != null ? String(selected.contextWindow) : "";
+        modelEditActions.set(initialValue, initialValue.length);
       }
       return;
     }
@@ -7822,6 +8156,7 @@ function useCommandDispatch({
   setViewMode,
   setSessionList,
   setModelList,
+  setDefaultModelName,
   setSelectedIndex,
   setPendingConfirm,
   setConfirmChoice,
@@ -8024,8 +8359,9 @@ function useCommandDispatch({
       resetRedo(undoRedoRef, onClearRedoStack);
       const arg = text.slice("/model".length).trim();
       if (!arg) {
-        const models = onListModels();
+        const { models, defaultModelName } = onListModels();
         setModelList(models);
+        setDefaultModelName(defaultModelName);
         const currentIndex = models.findIndex((model) => model.current);
         setSelectedIndex(currentIndex >= 0 ? currentIndex : 0);
         setViewMode("model-list");
@@ -8088,6 +8424,7 @@ function useCommandDispatch({
     setConfirmChoice,
     setMessages,
     setModelList,
+    setDefaultModelName,
     setPendingConfirm,
     setSelectedIndex,
     setSessionList,
@@ -8272,6 +8609,8 @@ function App({
   onRunCommand,
   onListModels,
   onSwitchModel,
+  onSetDefaultModel,
+  onUpdateModelEntry,
   onLoadSettings,
   onSaveSettings,
   onResetConfig,
@@ -8303,12 +8642,17 @@ function App({
   const [selectedIndex, setSelectedIndex] = useState14(0);
   const [settingsInitialSection, setSettingsInitialSection] = useState14("general");
   const [modelList, setModelList] = useState14([]);
+  const [defaultModelName, setDefaultModelName] = useState14("");
   const [agentList, setAgentList] = useState14([]);
   const [copyMode, setCopyMode] = useState14(false);
   const [pendingConfirm, setPendingConfirm] = useState14(null);
   const [confirmChoice, setConfirmChoice] = useState14("confirm");
   const [thinkingEffort, setThinkingEffort] = useState14("none");
   const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState14(0);
+  const [modelStatusMessage, setModelStatusMessage] = useState14(null);
+  const [modelStatusIsError, setModelStatusIsError] = useState14(false);
+  const [modelEditingField, setModelEditingField] = useState14(null);
+  const [modelEditTargetName, setModelEditTargetName] = useState14(null);
   const [memoryList, setMemoryList] = useState14([]);
   const [memoryFilter, setMemoryFilter] = useState14("all");
   const [memoryExpandedId, setMemoryExpandedId] = useState14(null);
@@ -8319,6 +8663,7 @@ function App({
   const [extensionStatusIsError, setExtensionStatusIsError] = useState14(false);
   const [queueEditingId, setQueueEditingId] = useState14(null);
   const [queueEditState, queueEditActions] = useTextInput("");
+  const [modelEditState, modelEditActions] = useTextInput("");
   const renderer = useRenderer();
   const undoRedoRef = useRef9(createUndoRedoStack());
   const messageQueue = useMessageQueue();
@@ -8389,6 +8734,7 @@ function App({
     setViewMode,
     setSessionList,
     setModelList,
+    setDefaultModelName,
     setSelectedIndex,
     setPendingConfirm,
     setConfirmChoice,
@@ -8413,6 +8759,15 @@ function App({
       }
     }
   }, [viewMode, appState.isGenerating, messageQueue, onSubmit]);
+  useEffect11(() => {
+    if (viewMode === "model-list")
+      return;
+    setModelStatusMessage(null);
+    setModelStatusIsError(false);
+    setModelEditingField(null);
+    setModelEditTargetName(null);
+    modelEditActions.setValue("");
+  }, [viewMode]);
   useEffect11(() => {
     if (appState.toolDetailData && viewMode !== "tool-detail") {
       setViewMode("tool-detail");
@@ -8447,6 +8802,9 @@ function App({
     onAddCommandPattern,
     sessionList,
     modelList,
+    setModelList,
+    defaultModelName,
+    setDefaultModelName,
     selectedIndex,
     setSelectedIndex,
     undoRedoRef,
@@ -8454,8 +8812,20 @@ function App({
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
     onLoadSession,
+    onListModels,
     onSwitchModel,
+    onSetDefaultModel,
+    onUpdateModelEntry,
     modelState,
+    modelStatusMessage,
+    setModelStatusMessage,
+    setModelStatusIsError,
+    modelEditingField,
+    setModelEditingField,
+    modelEditTargetName,
+    setModelEditTargetName,
+    modelEditState,
+    modelEditActions,
     queue: messageQueue.queue,
     queueRemove: messageQueue.remove,
     queueMoveUp: messageQueue.moveUp,
@@ -8507,7 +8877,13 @@ function App({
   if (viewMode === "model-list") {
     return /* @__PURE__ */ jsxDEV37(ModelListView, {
       models: modelList,
-      selectedIndex
+      selectedIndex,
+      defaultModelName,
+      statusMessage: modelStatusMessage,
+      statusIsError: modelStatusIsError,
+      editingField: modelEditingField,
+      editingValue: modelEditState.value,
+      editingCursor: modelEditState.cursor
     }, undefined, false, undefined, this);
   }
   if (viewMode === "agent-list") {
@@ -9240,6 +9616,8 @@ ${summaryText}`;
         onListSessions: () => this.handleListSessions(),
         onRunCommand: (cmd) => this.handleRunCommand(cmd),
         onListModels: () => this.handleListModels(),
+        onSetDefaultModel: (modelName) => this.handleSetDefaultModel(modelName),
+        onUpdateModelEntry: (currentModelName, updates) => this.handleUpdateModelEntry(currentModelName, updates),
         onSwitchModel: (modelName) => this.handleSwitchModel(modelName),
         onLoadSettings: () => this.handleLoadSettings(),
         onSaveSettings: (snapshot) => this.handleSaveSettings(snapshot),
@@ -9709,7 +10087,15 @@ ${summaryText}`;
     return this.backend.runCommand?.(cmd) ?? { output: "", cwd: "" };
   }
   handleListModels() {
-    return this.backend.listModels?.() ?? [];
+    const models = this.backend.listModels?.() ?? [];
+    let defaultModelName = "";
+    try {
+      const raw = this.api?.configManager?.readEditableConfig?.();
+      if (raw?.llm?.defaultModel && typeof raw.llm.defaultModel === "string") {
+        defaultModelName = raw.llm.defaultModel;
+      }
+    } catch {}
+    return { models, defaultModelName };
   }
   handleSwitchModel(modelName) {
     try {
@@ -9790,6 +10176,70 @@ ${summaryText}`;
   }
   async handleLoadSettings() {
     return this.settingsController.loadSnapshot();
+  }
+  async handleSetDefaultModel(modelName) {
+    try {
+      const snapshot = await this.settingsController.loadSnapshot();
+      const target = snapshot.models.find((model) => model.modelName === modelName || model.originalModelName === modelName);
+      if (!target) {
+        return { ok: false, message: `未找到模型 "${modelName}"` };
+      }
+      snapshot.defaultModelName = target.modelName;
+      const result = await this.settingsController.saveSnapshot(snapshot);
+      return { ok: result.ok, message: result.message };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  async handleUpdateModelEntry(currentModelName, updates) {
+    try {
+      const snapshot = await this.settingsController.loadSnapshot();
+      const target = snapshot.models.find((model) => model.modelName === currentModelName || model.originalModelName === currentModelName);
+      if (!target) {
+        return { ok: false, message: `未找到模型 "${currentModelName}"` };
+      }
+      const previousName = target.modelName;
+      const nextName = typeof updates.modelName === "string" ? updates.modelName.trim() : previousName;
+      if (typeof updates.modelName === "string") {
+        if (!nextName) {
+          return { ok: false, message: "模型名不能为空" };
+        }
+        const duplicate = snapshot.models.some((model) => model !== target && model.modelName.trim() === nextName);
+        if (duplicate) {
+          return { ok: false, message: `模型名 "${nextName}" 已存在` };
+        }
+        target.modelName = nextName;
+        if (snapshot.defaultModelName === previousName) {
+          snapshot.defaultModelName = nextName;
+        }
+      }
+      if ("contextWindow" in updates) {
+        target.contextWindow = updates.contextWindow == null ? undefined : updates.contextWindow;
+      }
+      const wasCurrent = this.backend.getCurrentModelInfo?.()?.modelName === previousName;
+      const result = await this.settingsController.saveSnapshot(snapshot);
+      if (!result.ok) {
+        return { ok: false, message: result.message, updatedModelName: nextName };
+      }
+      if (wasCurrent) {
+        try {
+          if (nextName !== previousName) {
+            this.backend.switchModel?.(nextName, "console");
+          }
+          const currentInfo = this.backend.getCurrentModelInfo?.();
+          if (currentInfo?.modelName)
+            this.modelName = currentInfo.modelName;
+          if (currentInfo?.modelId)
+            this.modelId = currentInfo.modelId;
+          if ("contextWindow" in (currentInfo ?? {})) {
+            this.contextWindow = currentInfo?.contextWindow;
+          }
+        } catch {}
+      }
+      return { ok: true, message: result.message, updatedModelName: nextName };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err), updatedModelName: updates.modelName };
+    }
   }
   async handleSaveSettings(snapshot) {
     return this.settingsController.saveSnapshot(snapshot);

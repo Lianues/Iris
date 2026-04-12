@@ -744,6 +744,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       }
     }
 
+    this.emitModelsChanged();
     return info;
   }
 
@@ -786,14 +787,20 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     return this.stream;
   }
 
+  private emitModelsChanged(): void {
+    this.emit('models:changed', '__global__', this.router.listModels(), this.router.getCurrentModelInfo());
+  }
+
   // ============ 热重载 ============
 
   reloadLLM(newRouter: LLMRouter): void {
     this.router = newRouter;
+    this.currentLLMConfig = newRouter.getCurrentConfig();
     const modelsDesc = newRouter.listModels()
       .map(model => `${model.current ? '*' : '-'}${model.modelName}=${model.modelId}`)
       .join(' ');
     logger.info(`LLM 已热重载: [${modelsDesc}]`);
+    this.emitModelsChanged();
   }
 
   reloadConfig(opts: {

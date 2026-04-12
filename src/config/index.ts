@@ -226,7 +226,8 @@ export function loadGlobalConfig(): GlobalConfigResult {
  * 加载 Agent 的最终配置：分层合并全局配置与 Agent 覆盖。
  *
  * 多 Agent 配置分层重构：
- *   - 第一类（llm/ocr/storage）：直接使用全局 config
+ *   - LLM：按 Settings UI 的写入语义分层合并（顶层字段覆盖 + models 条目级合并）
+ *   - OCR / storage：继续使用全局基线配置（storage 仅注入 agent 专属路径）
  *   - 第二类（system/tools/summary/mcp/modes/sub_agents）：读取 Agent 同名文件，与全局 raw 合并
  *   - Agent 目录不存在或为空时：完全继承全局配置
  *
@@ -249,9 +250,17 @@ export function loadAgentConfig(
 
   const effectiveDataDir = agentPaths?.dataDir || globalDataDir;
 
-  // --- 第一类：全局独占，直接使用 ---
-  // llm / ocr 来自全局；storage 合并 agentPaths 的路径信息
-  const llm = globalCfg.llm;
+  // --- LLM：分层合并 ---
+  // Settings UI 通过 LayeredConfigManager 把 llm.yaml 写入 agent 覆盖层；
+  // 这里必须使用相同的合并语义，否则启动阶段只能看到全局层模型，
+  // 直到 Settings 保存触发热重载后才会恢复正确的 /model 列表。
+  const mergedLLMRaw = (globalRaw.llm || agentRaw.llm) ? {
+    ...fieldOverride(globalRaw.llm ?? {}, agentRaw.llm ?? {}),
+    models: entryMerge(globalRaw.llm?.models, agentRaw.llm?.models),
+  } : undefined;
+  const llm = parseLLMConfig(mergedLLMRaw);
+
+  // --- OCR / storage：保持全局基线 ---
   const ocr = globalCfg.ocr;
   const storage = parseStorageConfig(globalRaw.storage, agentPaths);
 

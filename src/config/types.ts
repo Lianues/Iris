@@ -314,7 +314,8 @@ export interface SummaryConfig {
  * 全局配置（进程级，IrisHost 持有）。
  *
  * 多 Agent 配置分层重构：将进程级基础设施配置从 AppConfig 中拆分出来。
- * LLM、OCR、Storage 属于全局独占资源，所有 Agent 共享，不需要每个 Agent 各配一份。
+ * 这里保存的是全局基线配置；其中 LLM 会在 loadAgentConfig 阶段继续与
+ * agent 层 llm.yaml 分层合并，OCR / Storage 则继续复用全局基线。
  */
 export interface GlobalConfig {
   llm: LLMRegistryConfig;

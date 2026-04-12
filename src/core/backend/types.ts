@@ -6,6 +6,7 @@ import type { LLMConfig, ToolsConfig, SkillDefinition, SummaryConfig } from '../
 import type { OCRProvider } from '../../ocr';
 import type { Part, Content, UsageMetadata, ToolInvocation, ToolAttachment } from '../../types';
 import type { ToolExecutionHandle } from '../../tools/handle';
+import type { LLMModelInfo } from '../../llm/router';
 
 // ============ 常量 ============
 
@@ -178,6 +179,12 @@ export interface BackendEvents {
    * @param result        执行结果文本（completed 时）或错误信息（failed 时）
    */
   'task:result': (sessionId: string, taskId: string, status: string, description: string, taskType?: string, silent?: boolean, result?: string) => void;
+  /**
+   * 模型列表或当前模型发生变化。
+   *
+   * sessionId 固定使用 "__global__"，表示这是跨会话的运行时元数据变更。
+   */
+  'models:changed': (sessionId: string, models: LLMModelInfo[], currentModel: LLMModelInfo) => void;
   /** 异步子代理通知的结构化内容（在 turn:start 之前 emit，供前端展示折叠通知区块） */
   'notification:payloads': (sessionId: string, payloads: NotificationPayload[]) => void;
 }

@@ -57,6 +57,9 @@ export class RemoteBackendHandle extends EventEmitter {
   }
 
   switchModel(modelName: string, platform?: string): { modelName: string; modelId: string } {
+    const optimistic = Array.isArray(this._cachedModels)
+      ? (this._cachedModels as Array<{ modelName?: string; modelId?: string }>).find(model => model?.modelName === modelName)
+      : undefined;
     // 同步返回预期结构，异步发送到服务端并刷新缓存
     this.client.call(Methods.SWITCH_MODEL, [modelName, platform])
       .then((r) => {
@@ -68,7 +71,7 @@ export class RemoteBackendHandle extends EventEmitter {
         }
       })
       .catch((err) => logger.warn(`switchModel 失败: ${err.message}`));
-    return { modelName, modelId: modelName };
+    return { modelName, modelId: optimistic?.modelId ?? modelName };
   }
 
   listModels(): unknown[] {
@@ -259,6 +262,17 @@ export class RemoteBackendHandle extends EventEmitter {
       if (method === Events.HANDLE_STREAM) {
         const [handleId, type, data] = params as [string, string, unknown];
         this.toolHandles.get(handleId)?._appendStream(type, data);
+        return;
+      }
+      if (method === Events.MODELS_CHANGED) {
+        const [, models, currentModelInfo] = params as [string, unknown[], unknown];
+        if (Array.isArray(models)) {
+          this._cachedModels = models;
+        }
+        if (currentModelInfo !== undefined) {
+          this._cachedCurrentModelInfo = currentModelInfo;
+        }
+        this.emit('models:changed', ...params);
         return;
       }
 

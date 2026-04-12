@@ -7,8 +7,8 @@
  * 多 Agent 配置分层重构：
  *   - 不再有单 Agent 特殊路径和 __global__ 匿名实体。
  *   - 系统永远以 agent 为单位运行，至少有一个 master agent。
- *   - 全局配置（llm/ocr/storage）由 IrisHost 加载一次，通过
- *     loadAgentConfig 与各 agent 的覆盖配置合并后传入 IrisCore。
+ *   - IrisHost 先加载全局基线配置，再通过 loadAgentConfig 与各 agent 的
+ *     覆盖配置分层合并后传入 IrisCore。
  *   - ensureDefaultAgent() 确保 agents.yaml 存在且至少包含 master。
  *   - 移除 isMultiAgentEnabled / enabled 开关。
  *
