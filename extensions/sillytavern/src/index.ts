@@ -33,6 +33,13 @@ export default definePlugin({
   activate(ctx: PluginContext) {
     const log = createPluginLogger('sillytavern');
 
+    // 启动诊断日志（写文件，不受 TUI 影响）
+    const diagLog = (msg: string) => {
+      const dataDir = ctx.getDataDir();
+      const logFile = path.join(dataDir, 'activate.log');
+      fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${msg}\n`, 'utf-8');
+    };
+
     // ── 1. 配置 ──
 
     ctx.ensureConfigFile('sillytavern.yaml', defaultConfigTemplate);
@@ -42,6 +49,7 @@ export default definePlugin({
     ensureDataDirs(dataDir);
 
     const rawConfig = ctx.readConfigSection('sillytavern') as Record<string, unknown> | undefined;
+    diagLog(`rawConfig keys: ${rawConfig ? Object.keys(rawConfig).join(', ') : 'undefined'}`);
     const config: SillyTavernConfig = {
       enabled: false,
       preset: '',
@@ -52,6 +60,8 @@ export default definePlugin({
       debug: true,
       ...((rawConfig as any)?.sillytavern ?? rawConfig ?? {}),
     };
+
+    diagLog(`config: enabled=${config.enabled}, preset=${config.preset}, debug=${config.debug}`);
 
     if (!config.enabled) {
       log.info('SillyTavern 插件已禁用（enabled: false）');
@@ -64,6 +74,7 @@ export default definePlugin({
     }
 
     // ── 2. 加载资源 ──
+    diagLog('开始加载资源...');
     log.info(`数据目录: ${dataDir}`);
 
     let preset: PresetInfo;
@@ -163,6 +174,7 @@ export default definePlugin({
       },
     });
 
+    diagLog('钩子已注册，插件启用完成');
     log.info('SillyTavern 提示词引擎已启用');
   },
 });

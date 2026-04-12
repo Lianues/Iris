@@ -178,10 +178,17 @@ var src_default = definePlugin({
   description: "SillyTavern 提示词引擎 — 使用酒馆格式的预设、角色卡、世界书、正则组装提示词",
   activate(ctx) {
     const log = createPluginLogger("sillytavern");
+    const diagLog = (msg) => {
+      const dataDir2 = ctx.getDataDir();
+      const logFile = path2.join(dataDir2, "activate.log");
+      fs2.appendFileSync(logFile, `[${new Date().toISOString()}] ${msg}
+`, "utf-8");
+    };
     ctx.ensureConfigFile("sillytavern.yaml", defaultConfigTemplate);
     const dataDir = ctx.getDataDir();
     ensureDataDirs(dataDir);
     const rawConfig = ctx.readConfigSection("sillytavern");
+    diagLog(`rawConfig keys: ${rawConfig ? Object.keys(rawConfig).join(", ") : "undefined"}`);
     const config = {
       enabled: false,
       preset: "",
@@ -192,6 +199,7 @@ var src_default = definePlugin({
       debug: true,
       ...rawConfig?.sillytavern ?? rawConfig ?? {}
     };
+    diagLog(`config: enabled=${config.enabled}, preset=${config.preset}, debug=${config.debug}`);
     if (!config.enabled) {
       log.info("SillyTavern 插件已禁用（enabled: false）");
       return;
@@ -200,6 +208,7 @@ var src_default = definePlugin({
       log.warn("未配置预设文件（preset），插件不会生效");
       return;
     }
+    diagLog("开始加载资源...");
     log.info(`数据目录: ${dataDir}`);
     let preset;
     let character;
@@ -277,6 +286,7 @@ var src_default = definePlugin({
         }
       }
     });
+    diagLog("钩子已注册，插件启用完成");
     log.info("SillyTavern 提示词引擎已启用");
   }
 });
