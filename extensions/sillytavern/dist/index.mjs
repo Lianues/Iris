@@ -3,6 +3,8 @@ import {
   definePlugin,
   createPluginLogger
 } from "irises-extension-sdk";
+import * as fs2 from "node:fs";
+import * as path2 from "node:path";
 import { buildPrompt } from "fast-tavern";
 
 // src/loader.ts
@@ -258,7 +260,13 @@ var src_default = definePlugin({
             systemRolePolicy: "keep"
           });
           if (config.debug) {
-            log.info(formatTaggedForLog(result));
+            const debugText = formatTaggedForLog(result);
+            log.info(debugText);
+            try {
+              const debugFile = path2.join(dataDir, "last-prompt-debug.txt");
+              fs2.writeFileSync(debugFile, debugText, "utf-8");
+              log.info(`调试输出已写入: ${debugFile}`);
+            } catch {}
           }
           const assembled = result.stages.output.afterPostRegex;
           const newRequest = assembledToLLMRequest(assembled, request);

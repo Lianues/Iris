@@ -10,6 +10,8 @@ import {
   createPluginLogger,
   type PluginContext,
 } from 'irises-extension-sdk';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { buildPrompt } from 'fast-tavern';
 import type {
   PresetInfo,
@@ -137,7 +139,15 @@ export default definePlugin({
 
           // 4c. 调试输出
           if (config.debug) {
-            log.info(formatTaggedForLog(result));
+            const debugText = formatTaggedForLog(result);
+            log.info(debugText);
+
+            // 同时写入文件，避免被 TUI 覆盖
+            try {
+              const debugFile = path.join(dataDir, 'last-prompt-debug.txt');
+              fs.writeFileSync(debugFile, debugText, 'utf-8');
+              log.info(`调试输出已写入: ${debugFile}`);
+            } catch {}
           }
 
           // 4d. 转为 Iris LLMRequest 格式
