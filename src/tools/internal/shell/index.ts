@@ -10,7 +10,7 @@
  *   5. 安装命令成功后 → fire-and-forget 学习新工具
  */
 
-import { exec, execFileSync } from 'child_process';
+import { exec, execFileSync, spawn } from 'child_process';
 import { ToolDefinition } from '@/types';
 import { resolveProjectPath, getProjectRoot } from '../../utils';
 import { getToolLimits } from '../../tool-limits';
@@ -70,6 +70,49 @@ interface ShellResult {
 }
 
 /**
+ * 终止进程树（Windows 专用）。
+ *
+ * Windows 上 PowerShell 管道中的原生进程（如 npx/node/tsc）在管道被
+ * Select-Object -First N 截断或命令超时时，可能不会随 PowerShell 退出
+ * 而终止，导致孤儿进程占满 CPU。
+ *
+ * 两阶段清理：
+ *   1. taskkill /T /F /PID — 进程仍存活时可直接终止整棵树
+ *   2. wmic 按 ParentProcessId 查找孤儿子进程 — 父进程已退出时
+ *      taskkill /T 无法追溯子树，但子进程的 ParentProcessId 仍指向
+ *      原父 PID，通过 wmic 查询后逐个终止
+ */
+function killProcessTree(pid: number | undefined): void {
+  if (!pid || process.platform !== 'win32') return;
+  try {
+    // 阶段 1: 直接终止进程树（进程仍存活时有效）
+    spawn('taskkill', ['/T', '/F', '/PID', String(pid)], {
+      stdio: 'ignore',
+      windowsHide: true,
+    }).on('error', () => {});
+
+    // 阶段 2: 查找并终止孤儿子进程（父进程已退出后仍有效）
+    const wmic = spawn('wmic', [
+      'process', 'where', `ParentProcessId=${pid}`, 'get', 'ProcessId', '/value',
+    ], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+
+    let output = '';
+    wmic.stdout.on('data', (d: Buffer) => { output += d.toString(); });
+    wmic.on('close', () => {
+      const matches = output.match(/ProcessId=(\d+)/g);
+      if (!matches) return;
+      for (const m of matches) {
+        const childPid = m.split('=')[1];
+        spawn('taskkill', ['/T', '/F', '/PID', childPid], {
+          stdio: 'ignore', windowsHide: true,
+        }).on('error', () => {});
+      }
+    });
+    wmic.on('error', () => {});
+  } catch { /* 进程可能已退出 */ }
+}
+
+/**
  * 执行 shell 命令并返回结果。
  */
 function executeCommand(
@@ -82,7 +125,7 @@ function executeCommand(
   const wrappedCommand = PS_UTF8_PREFIX + command;
 
   return new Promise<ShellResult>((resolve) => {
-    exec(
+    const child = exec(
       wrappedCommand,
       {
         cwd: workDir,
@@ -92,6 +135,11 @@ function executeCommand(
         env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
       },
       (error, stdout, stderr) => {
+        // Windows: 确保进程树被完全终止。
+        // 管道截断（Select-Object -First N）或超时后，npx/node 等原生子进程
+        // 可能不会随 PowerShell 退出而终止，成为孤儿进程占满 CPU。
+        killProcessTree(child.pid);
+
         const exitCode = error ? (error as any).code ?? 1 : 0;
         const killed = error ? !!(error as any).killed : false;
 

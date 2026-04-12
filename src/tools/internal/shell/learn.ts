@@ -150,7 +150,8 @@ const INSTALL_PATTERNS: Array<{
 }> = [
   { regex: /^(pip3?|python\s+-m\s+pip)\s+install\b/i, manager: 'pip', extractor: extractPipPackages },
   { regex: /^npm\s+install\s+.*(-g|--global)/i, manager: 'npm', extractor: extractNpmGlobalPackages },
-  { regex: /^npx\s+/i, manager: 'npx', extractor: extractNpxPackages },
+  // npx 是命令运行器，不是安装命令。npx tsc --noEmit 只是运行本地 tsc，
+  // 不应触发学习 agent（否则会在后台大量派生 --help/--version 进程占满 CPU）。
   { regex: /^yarn\s+global\s+add\b/i, manager: 'yarn', extractor: extractYarnPnpmGlobalPackages },
   { regex: /^pnpm\s+(add\s+.*-g|add\s+.*--global)/i, manager: 'pnpm', extractor: extractYarnPnpmGlobalPackages },
   { regex: /^cargo\s+install\b/i, manager: 'cargo', extractor: extractCargoPackages },
