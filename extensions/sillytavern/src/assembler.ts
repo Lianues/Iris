@@ -45,18 +45,18 @@ export function irisContentsToHistory(contents: Content[]): ChatMessage[] {
 // ─── fast-tavern → Iris LLMRequest ───
 
 /**
- * 将 fast-tavern 的 Gemini 格式输出拆分为 Iris 的 LLMRequest 结构。
+ * 将 fast-tavern 的 Gemini 格式输出转为 Iris 的 LLMRequest 结构。
  *
  * 策略：
- *   - system 角色消息 → 合并到 systemInstruction.parts
- *   - user/model 角色消息 → contents
+ *   - 所有消息（含 system）统一转为 user/model 放入 contents
+ *   - system 角色 → 转为 user
+ *   - 不设置 systemInstruction（由 fast-tavern 的组装结果完全接管）
  *   - 保留原始 request 的 tools 和 generationConfig
  */
 export function assembledToLLMRequest(
   assembled: ChatMessage[],
   originalRequest: LLMRequest,
 ): LLMRequest {
-  const systemParts: Part[] = [];
   const contents: Content[] = [];
 
   for (const msg of assembled) {
@@ -64,28 +64,20 @@ export function assembledToLLMRequest(
     const parts = (msg as any).parts as Array<{ text: string }>;
     if (!parts || parts.length === 0) continue;
 
-    if (msg.role === 'system') {
-      // 系统消息合并到 systemInstruction
-      for (const p of parts) {
-        if (p.text) systemParts.push({ text: p.text });
-      }
-    } else {
-      // user / model → contents
-      const irisParts: Part[] = parts
-        .filter(p => p.text)
-        .map(p => ({ text: p.text }));
-      if (irisParts.length > 0) {
-        contents.push({
-          role: msg.role as 'user' | 'model',
-          parts: irisParts,
-        });
-      }
-    }
+    const irisParts: Part[] = parts
+      .filter(p => p.text)
+      .map(p => ({ text: p.text }));
+    if (irisParts.length === 0) continue;
+
+    // system → user，其余保持原样
+    const role: 'user' | 'model' = msg.role === 'model' ? 'model' : 'user';
+
+    contents.push({ role, parts: irisParts });
   }
 
   return {
     contents,
-    systemInstruction: systemParts.length > 0 ? { parts: systemParts } : undefined,
+    systemInstruction: undefined,
     tools: originalRequest.tools,
     generationConfig: originalRequest.generationConfig,
   };

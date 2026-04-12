@@ -92,30 +92,20 @@ function irisContentsToHistory(contents) {
   return result;
 }
 function assembledToLLMRequest(assembled, originalRequest) {
-  const systemParts = [];
   const contents = [];
   for (const msg of assembled) {
     const parts = msg.parts;
     if (!parts || parts.length === 0)
       continue;
-    if (msg.role === "system") {
-      for (const p of parts) {
-        if (p.text)
-          systemParts.push({ text: p.text });
-      }
-    } else {
-      const irisParts = parts.filter((p) => p.text).map((p) => ({ text: p.text }));
-      if (irisParts.length > 0) {
-        contents.push({
-          role: msg.role,
-          parts: irisParts
-        });
-      }
-    }
+    const irisParts = parts.filter((p) => p.text).map((p) => ({ text: p.text }));
+    if (irisParts.length === 0)
+      continue;
+    const role = msg.role === "model" ? "model" : "user";
+    contents.push({ role, parts: irisParts });
   }
   return {
     contents,
-    systemInstruction: systemParts.length > 0 ? { parts: systemParts } : undefined,
+    systemInstruction: undefined,
     tools: originalRequest.tools,
     generationConfig: originalRequest.generationConfig
   };
