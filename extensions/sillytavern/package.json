@@ -7,7 +7,7 @@
     "build": "bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --packages=external"
   },
   "dependencies": {
-    "fast-tavern": "^0.1.7",
+    "fast-tavern": "^0.1.8",
     "irises-extension-sdk": "file:../../packages/extension-sdk"
   }
 }

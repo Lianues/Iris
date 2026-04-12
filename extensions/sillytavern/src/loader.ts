@@ -64,6 +64,7 @@ export function loadCharacter(dataDir: string, filename: string): CharacterCard 
 export function loadWorldbooks(dataDir: string, filenames: string[]): WorldBook[] {
   const books: WorldBook[] = [];
   for (const filename of filenames) {
+    if (!filename || !filename.trim()) continue;
     const filePath = path.join(dataDir, 'worldbooks', filename);
     if (!fs.existsSync(filePath)) {
       throw new Error(`世界书文件不存在: ${filePath}`);
@@ -84,6 +85,7 @@ export function loadWorldbooks(dataDir: string, filenames: string[]): WorldBook[
 export function loadRegexScripts(dataDir: string, filenames: string[]): RegexScriptData[] {
   const allScripts: RegexScriptData[] = [];
   for (const filename of filenames) {
+    if (!filename || !filename.trim()) continue;
     const filePath = path.join(dataDir, 'regex', filename);
     if (!fs.existsSync(filePath)) {
       throw new Error(`正则脚本文件不存在: ${filePath}`);

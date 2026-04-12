@@ -122,6 +122,16 @@ export default definePlugin({
           // 4a. 从 request.contents 提取聊天历史
           const history = irisContentsToHistory(request.contents);
 
+          // 4a-2. 提取最后一条 user 消息文本，供 {{lastUserMessage}} 宏使用
+          //       （ST 预设常用正则删掉 history 末尾用户消息，再用此宏单独展示）
+          let lastUserMessage = '';
+          for (let i = history.length - 1; i >= 0; i--) {
+            if (history[i].role === 'user') {
+              lastUserMessage = (history[i].parts || []).map((p: any) => p.text ?? '').join('');
+              break;
+            }
+          }
+
           // 4b. 调用 fast-tavern 组装
           const result = buildPrompt({
             preset,
@@ -132,7 +142,10 @@ export default definePlugin({
             },
             history,
             view: 'model',
-            macros: config.macros,
+            macros: {
+              ...config.macros,
+              lastUserMessage,
+            },
             outputFormat: 'gemini',
             systemRolePolicy: 'keep',
           });
