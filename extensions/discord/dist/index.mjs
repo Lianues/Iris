@@ -75318,12 +75318,16 @@ class DiscordPlatform extends PlatformAdapter {
   }
   async start() {
     this.backend.on("response", (sid, text) => {
+      if (!sid.startsWith("discord-"))
+        return;
       this.stopTyping(sid);
       this.clearStreamState(sid);
       this.pendingTexts.delete(sid);
       this.sendToChannel(sid, text);
     });
     this.backend.on("assistant:content", (sid, content) => {
+      if (!sid.startsWith("discord-"))
+        return;
       const text = extractText(content.parts ?? []);
       if (!text)
         return;
@@ -75333,6 +75337,8 @@ class DiscordPlatform extends PlatformAdapter {
       }
     });
     this.backend.on("tool:execute", (sid) => {
+      if (!sid.startsWith("discord-"))
+        return;
       if (!this.backend.isStreamEnabled())
         return;
       const text = this.pendingTexts.get(sid);
@@ -75342,12 +75348,16 @@ class DiscordPlatform extends PlatformAdapter {
       this.finalizeStream(sid, text);
     });
     this.backend.on("error", (sid, error) => {
+      if (!sid.startsWith("discord-"))
+        return;
       this.stopTyping(sid);
       this.clearStreamState(sid);
       this.pendingTexts.delete(sid);
       this.sendToChannel(sid, `错误: ${error}`);
     });
     this.backend.on("done", (sid) => {
+      if (!sid.startsWith("discord-"))
+        return;
       this.stopTyping(sid);
       if (!this.backend.isStreamEnabled())
         return;

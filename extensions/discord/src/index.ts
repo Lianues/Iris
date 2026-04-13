@@ -55,6 +55,7 @@ export class DiscordPlatform extends PlatformAdapter {
   async start(): Promise<void> {
     // 非流式或回退消息：直接发送
     this.backend.on('response', (sid: string, text: string) => {
+      if (!sid.startsWith('discord-')) return;
       this.stopTyping(sid);
       this.clearStreamState(sid);
       this.pendingTexts.delete(sid);
@@ -63,6 +64,7 @@ export class DiscordPlatform extends PlatformAdapter {
 
     // 流式模式：缓存文本 + 定期编辑消息实时展示
     this.backend.on('assistant:content', (sid: string, content: Content) => {
+      if (!sid.startsWith('discord-')) return;
       const text = extractText(content.parts ?? []);
       if (!text) return;
       this.pendingTexts.set(sid, text);
@@ -74,6 +76,7 @@ export class DiscordPlatform extends PlatformAdapter {
 
     // 工具开始执行 → 当前 turn 文本已完整，定稿当前消息；下个 turn 将发新消息
     this.backend.on('tool:execute', (sid: string) => {
+      if (!sid.startsWith('discord-')) return;
       if (!this.backend.isStreamEnabled()) return;
       const text = this.pendingTexts.get(sid);
       if (!text) return;
@@ -83,6 +86,7 @@ export class DiscordPlatform extends PlatformAdapter {
     });
 
     this.backend.on('error', (sid: string, error: string) => {
+      if (!sid.startsWith('discord-')) return;
       this.stopTyping(sid);
       this.clearStreamState(sid);
       this.pendingTexts.delete(sid);
@@ -90,6 +94,7 @@ export class DiscordPlatform extends PlatformAdapter {
     });
 
     this.backend.on('done', (sid: string) => {
+      if (!sid.startsWith('discord-')) return;
       this.stopTyping(sid);
       if (!this.backend.isStreamEnabled()) return;
 
