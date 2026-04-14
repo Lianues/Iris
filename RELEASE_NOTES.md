@@ -1,4 +1,2 @@
-# Iris v1.0.7 Release Notes
+# Iris v1.0.8 Release Notes
 * 修复内置扩展npm路径未被打包的问题
-* 修复终端重新获得焦点时无法显示输入问题
-* 修复打包后终端窗口大小无法自适应调整问题

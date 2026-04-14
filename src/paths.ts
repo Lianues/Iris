@@ -63,21 +63,21 @@ function resolveProjectRoot(): string {
   try {
     const realBinary = fs.realpathSync(process.execPath);
     const binParent = path.resolve(path.dirname(realBinary), '..');
-    if (fs.existsSync(path.join(binParent, 'data'))) {
-      // 独立二进制发行包：binParent 直接包含 data/ + extensions/，直接返回
-      if (fs.existsSync(path.join(binParent, 'extensions'))) {
-        return binParent;
-      }
-      // npm 包装器场景：binParent 是包装器目录（有 data/ 但无 extensions/），
-      // 实际平台包在 node_modules/irises-* 下，优先使用平台包作为 projectRoot
-      const nodeModulesDir = path.join(binParent, 'node_modules');
-      if (fs.existsSync(nodeModulesDir)) {
-        for (const entry of fs.readdirSync(nodeModulesDir)) {
-          if (!entry.startsWith('irises-')) continue;
-          const candidate = path.join(nodeModulesDir, entry);
-          if (fs.existsSync(path.join(candidate, 'data')) && fs.existsSync(path.join(candidate, 'extensions'))) {
-            return candidate;
-          }
+
+    // 独立二进制发行包：binParent 直接包含 data/ + extensions/，直接返回
+    if (fs.existsSync(path.join(binParent, 'data')) && fs.existsSync(path.join(binParent, 'extensions'))) {
+      return binParent;
+    }
+
+    // npm 包装器场景：binParent 是包装器目录（可能没有 data/），
+    // 实际平台包在 node_modules/irises-* 下，搜索平台包作为 projectRoot
+    const nodeModulesDir = path.join(binParent, 'node_modules');
+    if (fs.existsSync(nodeModulesDir)) {
+      for (const entry of fs.readdirSync(nodeModulesDir)) {
+        if (!entry.startsWith('irises-')) continue;
+        const candidate = path.join(nodeModulesDir, entry);
+        if (fs.existsSync(path.join(candidate, 'data')) && fs.existsSync(path.join(candidate, 'extensions'))) {
+          return candidate;
         }
       }
     }
