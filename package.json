@@ -1,6 +1,6 @@
 {
   "name": "iris",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "模块化、可解耦的 AI 聊天框架，支持多平台、多 LLM、工具调用",
   "license": "GPL-3.0-only",
   "type": "module",
