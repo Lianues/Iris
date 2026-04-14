@@ -215,6 +215,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private renderer?: CliRenderer;
   private appHandle?: AppHandle;
   private disposeResizeWatcher?: () => void;
+  /** SIGCONT 信号处理函数，stop() 时需要清理 */
+  private _sigcontHandler?: () => void;
   private api?: IrisAPI;
   private _activeHandles: Map<string, any> = new Map();
   private isCompiledBinary: boolean;
@@ -510,6 +512,35 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
       this.disposeResizeWatcher = attachCompiledResizeWatcher(this.renderer, this.isCompiledBinary);
 
+      // ── 终端焦点恢复：强制全屏重绘 ──────────────────────────
+      // 某些终端（macOS Terminal.app、部分 ConPTY 实现）在窗口失焦或
+      // 最小化时可能丢弃交替屏幕缓冲区的内容。OpenTUI 的 diff 渲染器
+      // 仅发送变化的 cell，不知道屏幕已被清空——清空 currentRenderBuffer
+      // 使所有 cell 都被视为"已变化"，下一帧即可完整重绘。
+      {
+        const r = this.renderer as any;
+        r.on('focus', () => {
+          r.currentRenderBuffer?.clear();
+          r.requestRender();
+        });
+      }
+
+      // ── 进程挂起恢复（SIGCONT）──────────────────────────────
+      // 用户通过 Ctrl+Z 挂起进程后 fg 恢复时，终端会退出 raw mode
+      // 并重置交替屏幕。重新启用 raw mode 并强制全屏重绘以恢复 TUI。
+      if (process.platform !== 'win32') {
+        if (this._sigcontHandler) {
+          (process as any).removeListener?.('SIGCONT', this._sigcontHandler);
+        }
+        this._sigcontHandler = () => {
+          if (!this.renderer) return;
+          try { if (process.stdin.isTTY) process.stdin.setRawMode(true); } catch { /* ignore */ }
+          (this.renderer as any).currentRenderBuffer?.clear();
+          (this.renderer as any).requestRender();
+        };
+        process.on('SIGCONT', this._sigcontHandler);
+      }
+
       const element = React.createElement(App, {
         onReady: (handle: AppHandle) => {
           this.appHandle = handle;
@@ -615,6 +646,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     const r = this.renderer;
     this.renderer = undefined as any;
     this.disposeResizeWatcher?.();
+
+    // 移除 SIGCONT 信号监听（renderer.destroy 不会清理进程级信号监听器）
+    if (this._sigcontHandler) {
+      (process as any).removeListener?.('SIGCONT', this._sigcontHandler);
+      this._sigcontHandler = undefined;
+    }
 
     if (process.platform === 'win32') {
       // Windows workaround: bun 在 destroy() 中写入 \x1b[?1049l（退出交替屏幕）
