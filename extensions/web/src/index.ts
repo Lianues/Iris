@@ -46,10 +46,6 @@ export default definePlatformFactory<Record<string, unknown>, WebPlatform>({
       isCompiledBinary: (context as any).isCompiledBinary ?? false,
     });
 
-    // 注入 MCP 管理器
-    const mcpManager = (context as any).getMCPManager?.();
-    if (mcpManager) webPlatform.setMCPManager(mcpManager);
-
     return webPlatform;
   },
 });

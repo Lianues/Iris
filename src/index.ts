@@ -23,7 +23,6 @@ import {
   isRoutableHttpPlatform,
 } from 'irises-extension-sdk';
 import type { MultiAgentCapable, ForegroundPlatform } from 'irises-extension-sdk';
-import type { MCPManager } from './mcp';
 import { isCompiledBinary } from './paths';
 
 // ============ 平台创建 ============
@@ -59,8 +58,6 @@ async function createPlatformsForCore(
       config,
       configDir,
       router,
-      getMCPManager: () => core.getMCPManager(),
-      setMCPManager: (manager?: MCPManager) => { core.setMCPManager(manager); },
       agentName: core.agentName,
       extensions: core.extensions,
       initWarnings: core.initWarnings,
@@ -120,8 +117,6 @@ async function createPlatforms(host: IrisHost) {
               streamEnabled: agentCore.config.system.stream,
             },
             displayName,
-            () => agentCore.getMCPManager(),
-            (mgr?: any) => agentCore.setMCPManager(mgr),
             { llmProviders: agentCore.extensions.llmProviders, ocrProviders: agentCore.extensions.ocrProviders },
           );
         }

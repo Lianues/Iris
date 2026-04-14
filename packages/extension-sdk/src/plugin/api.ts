@@ -75,26 +75,6 @@ export interface ConsoleSettingsTabDefinition {
 }
 
 export { LogLevel };
-export interface MCPServerInfoLike {
-  name: string;
-  status: string;
-  toolCount: number;
-  error?: string;
-}
-
-export interface MCPManagerLike {
-  getServerInfo?(name: string): MCPServerInfoLike | undefined;
-  listServers?(): MCPServerInfoLike[];
-  getConfig?(): Record<string, unknown>;
-  connectAll?(): Promise<void>;
-  /** 断开所有 MCP 服务器连接 */
-  disconnectAll?(): Promise<void>;
-  /** 热重载：断开旧连接，用新配置重新连接 */
-  reload?(config: Record<string, unknown>): Promise<void>;
-  /** 获取所有已连接服务器提供的工具列表 */
-  getTools?(): unknown[];
-}
-
 /**
  * 可编辑配置的原始结构。
  *
@@ -211,7 +191,6 @@ export interface IrisAPI {
   modes: ModeRegistryLike;
   prompt: PromptAssemblerLike;
   config: AppConfigLike;
-  mcpManager?: MCPManagerLike;
   /** @deprecated OCR 功能已迁移至 multimodal 扩展，通过 onProcessUserMedia hook 实现。保留仅为向后兼容。 */
   ocrService?: OCRProviderLike;
   /** 媒体处理服务：图片缩放、文档提取、Office→PDF 转换 */

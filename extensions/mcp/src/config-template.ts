@@ -1,4 +1,11 @@
-# MCP 服务器配置
+/**
+ * MCP 默认配置模板
+ *
+ * 通过 ctx.ensureConfigFile('mcp.yaml', ...) 在首次运行时释放到用户配置目录。
+ * 文件已存在时不覆盖。
+ */
+
+export const DEFAULT_MCP_CONFIG_TEMPLATE = `# MCP 服务器配置
 # 连接外部 MCP 服务器，自动将其工具注入 LLM 工具列表
 # 启动时后台异步连接，不阻塞启动
 #
@@ -39,3 +46,4 @@
 #   wecom-doc:
 #     transport: streamable-http
 #     url: "https://qyapi.weixin.qq.com/mcp/robot-doc?apikey=your-mcp-apikey"
+`;

@@ -30,7 +30,6 @@ import { parsePlatformConfig } from './platform';
 import { parseStorageConfig } from './storage';
 import { parseToolsConfig } from './tools';
 import { parseSystemConfig } from './system';
-import { parseMCPConfig } from './mcp';
 import { parseModeConfig } from './mode';
 import { parseSubAgentsConfig } from './sub_agents';
 import { loadRawConfigDir } from './raw';
@@ -48,8 +47,6 @@ export type {
   ToolPolicyConfig,
   ToolsConfig,
   SystemConfig,
-  MCPConfig,
-  MCPServerConfig,
   SummaryConfig,
   SubAgentsConfig,
   SubAgentTypeDef,
@@ -135,7 +132,7 @@ export function loadConfig(customConfigDir?: string, agentPaths?: AgentPaths): A
     storage: parseStorageConfig(data.storage, agentPaths),
     tools: parseToolsConfig(data.tools),
     system: parseSystemConfig(data.system, effectiveDataDir),
-    mcp: parseMCPConfig(data.mcp),
+    // mcp: handled by mcp extension via readConfigSection,
     modes: parseModeConfig(data.modes),
     subAgents: parseSubAgentsConfig(data.sub_agents),
     plugins: parsePluginsConfig(data.plugins),
@@ -265,13 +262,7 @@ export function loadAgentConfig(
   const mergedToolsRaw = fieldOverride(globalRaw.tools ?? {}, agentRaw.tools);
   const mergedSummaryRaw = fieldOverride(globalRaw.summary ?? {}, agentRaw.summary);
 
-  // --- 第二类条目级合并：mcp / modes / sub_agents ---
-  // mcp: 按 servers key 合并
-  const mergedMcpRaw = (globalRaw.mcp || agentRaw.mcp) ? {
-    ...fieldOverride(globalRaw.mcp ?? {}, agentRaw.mcp ?? {}),
-    servers: entryMerge(globalRaw.mcp?.servers, agentRaw.mcp?.servers),
-  } : undefined;
-
+  // --- 第二类条目级合并：modes / sub_agents ---
   // modes: 按模式名合并（原始数据是对象形式，key = 模式名）
   const mergedModesRaw = (globalRaw.modes || agentRaw.modes)
     ? entryMerge(globalRaw.modes, agentRaw.modes)
@@ -293,7 +284,7 @@ export function loadAgentConfig(
     storage,
     tools: parseToolsConfig(mergedToolsRaw),
     system: parseSystemConfig(mergedSystemRaw, effectiveDataDir),
-    mcp: parseMCPConfig(mergedMcpRaw),
+    // mcp: handled by mcp extension via readConfigSection,
     modes: parseModeConfig(mergedModesRaw),
     subAgents: parseSubAgentsConfig(mergedSubAgentsRaw),
     // plugins 是全局独占配置，只从全局 raw 读取，agent 层不覆盖。

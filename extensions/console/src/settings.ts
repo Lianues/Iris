@@ -43,9 +43,8 @@
 import type {
   IrisBackendLike,
   ConfigManagerLike,
-  MCPManagerLike,
-  MCPServerInfoLike,
   BootstrapExtensionRegistryLike,
+  ServiceRegistryLike,
 } from 'irises-extension-sdk';
 import { supportsConsoleDiffApprovalViewSetting } from './diff-approval';
 
@@ -122,7 +121,7 @@ export interface ConsoleSettingsSnapshot {
   autoApproveConfirmation: boolean;
   autoApproveDiff: boolean;
   mcpServers: ConsoleMCPServerSettings[];
-  mcpStatus: MCPServerInfoLike[];
+  mcpStatus: { name: string; status: string; toolCount: number; error?: string }[];
   mcpOriginalNames: string[];
 }
 
@@ -136,7 +135,7 @@ export interface ConsoleSettingsSaveResult {
 interface ConsoleSettingsControllerOptions {
   backend: IrisBackendLike;
   configManager?: ConfigManagerLike;
-  mcpManager?: MCPManagerLike;
+  services?: ServiceRegistryLike;
   extensions?: Pick<BootstrapExtensionRegistryLike, 'llmProviders' | 'ocrProviders'>;
 }
 
@@ -373,13 +372,13 @@ function buildMCPPayload(snapshot: ConsoleSettingsSnapshot): { servers: Record<s
 export class ConsoleSettingsController {
   private backend: IrisBackendLike;
   private configManager?: ConfigManagerLike;
-  private mcpManager?: MCPManagerLike;
+  private services?: ServiceRegistryLike;
   private extensions?: Pick<BootstrapExtensionRegistryLike, 'llmProviders' | 'ocrProviders'>;
 
   constructor(options: ConsoleSettingsControllerOptions) {
     this.backend = options.backend;
     this.configManager = options.configManager;
-    this.mcpManager = options.mcpManager;
+    this.services = options.services;
     this.extensions = options.extensions;
   }
 
@@ -446,7 +445,7 @@ export class ConsoleSettingsController {
         timeout: typeof cfg?.timeout === 'number' ? cfg.timeout : 30000,
         enabled: cfg?.enabled !== false,
       })),
-      mcpStatus: (this.mcpManager?.listServers?.() ?? []) as MCPServerInfoLike[],
+      mcpStatus: this.services?.get?.<any>('mcp.manager')?.listServers?.() ?? [],
       mcpOriginalNames: Object.keys(rawMcpServers),
     };
   }

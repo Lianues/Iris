@@ -284,22 +284,6 @@ export interface SystemConfig {
   devSourceSdk?: boolean;
 }
 
-export interface MCPServerConfig {
-  transport: 'stdio' | 'sse' | 'streamable-http';
-  command?: string;        // stdio
-  args?: string[];         // stdio
-  env?: Record<string, string>;  // stdio
-  cwd?: string;            // stdio
-  url?: string;            // sse / streamable-http
-  headers?: Record<string, string>;  // sse / streamable-http
-  timeout?: number;        // 通用，默认 30000
-  enabled?: boolean;       // 通用，默认 true
-}
-
-export interface MCPConfig {
-  servers: Record<string, MCPServerConfig>;
-}
-
 /** 上下文压缩（/compact）配置 */
 export interface SummaryConfig {
   /** 总结 AI 的系统提示词 */
@@ -332,7 +316,6 @@ export interface AppConfig {
   storage: StorageConfig;
   tools: ToolsConfig;
   system: SystemConfig;
-  mcp?: MCPConfig;
   /** 用户自定义模式（可选） */
   modes?: import('../modes/types').ModeDefinition[];
   /** 子代理配置（可选，对应 sub-agents.yaml） */

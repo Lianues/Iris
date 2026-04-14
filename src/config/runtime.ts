@@ -7,19 +7,14 @@ import { dataDir } from '../paths';
 import { createLLMRouter } from '../llm/factory';
 import { parseLLMConfig } from './llm';
 import { parseToolsConfig } from './tools';
-import { parseMCPConfig } from './mcp';
 import { parseSystemConfig } from './system';
 import { DEFAULT_SYSTEM_PROMPT } from '../prompt/templates/default';
-import { createMCPManager, MCPManager } from '../mcp';
-import { ToolRegistry } from '../tools/registry';
 import type { BootstrapExtensionRegistry } from '../bootstrap/extensions';
 import type { PluginManager } from '../extension/manager';
 
 export interface RuntimeConfigReloadContext {
   backend: Backend;
   pluginManager?: PluginManager;
-  getMCPManager(): MCPManager | undefined;
-  setMCPManager(manager?: MCPManager): void;
   /** Skill 文件系统扫描使用的数据目录（多 Agent 模式下为 agent 专属目录） */
   dataDir?: string;
   extensions?: Pick<BootstrapExtensionRegistry, 'llmProviders'>;
@@ -31,14 +26,6 @@ export interface RuntimeConfigSummary {
   provider: string;
   streamEnabled: boolean;
   contextWindow?: number;
-}
-
-function unregisterOldMcpTools(tools: ToolRegistry): void {
-  for (const name of tools.listTools()) {
-    if (name.startsWith('mcp__')) {
-      tools.unregister(name);
-    }
-  }
 }
 
 export async function applyRuntimeConfigReload(
@@ -69,29 +56,8 @@ export async function applyRuntimeConfigReload(
     skills: systemConfig.skills,
   });
 
-  const tools = context.backend.getTools();
-  const currentMcpManager = context.getMCPManager();
-  const newMcpConfig = parseMCPConfig(mergedConfig.mcp);
-
-  if (currentMcpManager) {
-    if (newMcpConfig) {
-      await currentMcpManager.reload(newMcpConfig);
-      unregisterOldMcpTools(tools);
-      tools.registerAll(currentMcpManager.getTools());
-    } else {
-      await currentMcpManager.disconnectAll();
-      unregisterOldMcpTools(tools);
-      context.setMCPManager(undefined);
-    }
-  } else if (newMcpConfig) {
-    const nextMcpManager = createMCPManager(newMcpConfig);
-    await nextMcpManager.connectAll();
-    unregisterOldMcpTools(tools);
-    tools.registerAll(nextMcpManager.getTools());
-    context.setMCPManager(nextMcpManager);
-  }
-
   // ---- 触发插件 onConfigReload 钩子 ----
+  // MCP 热重载由 mcp 扩展自身通过 onConfigReload 钩子处理
   if (context.pluginManager) {
     await context.pluginManager.invokeConfigReloadHooks(mergedConfig, mergedConfig);
   }

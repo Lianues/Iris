@@ -8,7 +8,6 @@
 import type { AppConfig } from '../config/types';
 import type { BackendHandle } from 'irises-extension-sdk';
 import type { LLMRouter } from '../llm/router';
-import type { MCPManager } from '../mcp';
 import type { BootstrapExtensionRegistry } from '../bootstrap/extensions';
 import { PlatformAdapter } from 'irises-extension-sdk';
 import type { PluginEventBus } from '../extension/event-bus';
@@ -19,8 +18,6 @@ export interface PlatformFactoryContext {
   config: AppConfig;
   configDir: string;
   router: LLMRouter;
-  getMCPManager: () => MCPManager | undefined;
-  setMCPManager: (manager?: MCPManager) => void;
   agentName?: string;
   extensions: BootstrapExtensionRegistry;
   initWarnings: string[];

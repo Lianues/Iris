@@ -1,32 +1,23 @@
 /**
  * MCP 管理器
  *
- * 管理多个 MCP 服务器连接，将 MCP 工具转换为 Iris ToolDefinition 格式。
+ * 管理多个 MCP 服务器连接，将 MCP 工具转换为 ToolDefinition 格式。
  */
 
-import { MCPConfig } from '../config/types';
-import { ToolDefinition } from '../types';
-import { MCPClient } from './client';
-import { MCPServerInfo } from './types';
-import { createLogger } from '../logger';
+import { createPluginLogger } from 'irises-extension-sdk';
+import type { ToolDefinition } from 'irises-extension-sdk';
+import { MCPClient } from './client.js';
+import type { MCPConfig, MCPServerInfo } from './types.js';
 import derefModule from 'dereference-json-schema';
 const { dereferenceSync } = derefModule;
 
-const logger = createLogger('MCPManager');
+const logger = createPluginLogger('mcp', 'manager');
 
 export class MCPManager {
   private clients: MCPClient[] = [];
-  /** connectAll 完成后 resolve 的 Promise，供外部等待连接就绪 */
-  private _connectPromise: Promise<void> | undefined;
-
-  /** 等待后台连接完成（如果尚未调用 connectAll 则立即 resolve） */
-  whenConnected(): Promise<void> {
-    return this._connectPromise ?? Promise.resolve();
-  }
 
   constructor(config: MCPConfig) {
     for (const [name, serverCfg] of Object.entries(config.servers)) {
-      // enabled 默认 true
       if (serverCfg.enabled === false) {
         logger.info(`MCP 服务器 "${name}" 已禁用，跳过`);
         continue;
@@ -39,12 +30,9 @@ export class MCPManager {
   async connectAll(): Promise<void> {
     if (this.clients.length === 0) return;
     logger.info(`正在连接 ${this.clients.length} 个 MCP 服务器...`);
-    const p = Promise.allSettled(this.clients.map(c => c.connect())).then(() => {
-      const connected = this.clients.filter(c => c.status === 'connected').length;
-      logger.info(`MCP 连接完成: ${connected}/${this.clients.length} 成功`);
-    });
-    this._connectPromise = p;
-    await p;
+    await Promise.allSettled(this.clients.map(c => c.connect()));
+    const connected = this.clients.filter(c => c.status === 'connected').length;
+    logger.info(`MCP 连接完成: ${connected}/${this.clients.length} 成功`);
   }
 
   /** 获取所有已连接服务器的工具（转换为 ToolDefinition） */
@@ -86,7 +74,7 @@ export class MCPManager {
     }));
   }
 
-  /** 获取所有服务器的状态列表（MCPManagerLike 接口） */
+  /** 获取所有服务器的状态列表 */
   listServers(): MCPServerInfo[] {
     return this.getServerInfo();
   }
@@ -113,29 +101,23 @@ export class MCPManager {
 }
 
 /**
- * 将 MCP inputSchema（JSON Schema）转换为 Iris 工具声明的 parameters 格式
- *
- * 用 dereference-json-schema 将 $ref 引用内联展开后直接透传，
- * 保留完整的 JSON Schema 特性（anyOf、additionalProperties 等）。
+ * 将 MCP inputSchema（JSON Schema）转换为工具声明的 parameters 格式
  */
 function convertInputSchema(schema: Record<string, unknown>): {
   type: 'object';
   properties: Record<string, Record<string, unknown>>;
   required?: string[];
 } | undefined {
-  // 展开所有 $ref 引用
   let resolved: Record<string, any>;
   try {
     resolved = dereferenceSync(schema) as Record<string, any>;
   } catch {
-    // dereference 失败时（如循环引用），使用原始 schema
     resolved = schema as Record<string, any>;
   }
 
   const props = resolved.properties as Record<string, any> | undefined;
   if (!props || typeof props !== 'object') return undefined;
 
-  // 清理已展开后残留的 $defs/definitions（不需要发给 LLM）
   const { $defs, definitions, ...clean } = resolved;
 
   return clean as {
@@ -145,7 +127,7 @@ function convertInputSchema(schema: Record<string, unknown>): {
   };
 }
 
-/** 将名称中非 [a-zA-Z0-9_] 的字符替换为下划线（兼容 Gemini 函数名规范） */
+/** 将名称中非 [a-zA-Z0-9_] 的字符替换为下划线 */
 function sanitizeName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_]/g, '_');
 }

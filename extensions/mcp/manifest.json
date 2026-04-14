@@ -1,0 +1,14 @@
+{
+  "name": "mcp",
+  "version": "0.1.0",
+  "description": "MCP (Model Context Protocol) 服务器连接管理 — 将外部 MCP 工具注入到核心工具流水线",
+  "plugin": {
+    "entry": "dist/index.mjs"
+  },
+  "distribution": {
+    "files": [
+      "dist/index.mjs",
+      "package.json"
+    ]
+  }
+}

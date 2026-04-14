@@ -1,7 +1,6 @@
 /**
  * IrisHost — 多 Agent 管理器
  *
- * MCP 共享：多 Agent 模式下，MCP 配置相同的 Agent 共享同一个 MCPManager 实例。
  * 进程内唯一实例，统一管理所有 IrisCore（Agent）的生命周期。
  *
  * 多 Agent 配置分层重构：
@@ -21,13 +20,10 @@
 import { IrisCore } from './iris-core';
 import type { IrisCoreOptions, AgentNetworkProvider } from './iris-core';
 import { CrossAgentTaskBoard } from './cross-agent-task-board';
-import { createMCPManager, MCPManager } from '../mcp';
 import { IPCServer } from '../ipc/server';
 import { loadAgentDefinitions, resolveAgentPaths, ensureDefaultAgent } from '../agents';
 import { loadGlobalConfig, loadAgentConfig } from '../config';
 import type { GlobalConfigResult } from '../config';
-import { parseMCPConfig } from '../config/mcp';
-import type { MCPConfig } from '../config/types';
 import type { AgentDefinition } from '../agents';
 import { hostEvents } from './host-events';
 
@@ -47,16 +43,6 @@ export class IrisHost {
   /** 全局配置结果（多 Agent 配置分层重构：加载一次，所有 agent 共享） */
   private globalConfigResult!: GlobalConfigResult;
 
-  /**
-   * MCP 共享：全局 MCP 配置创建的共享 MCPManager 实例。
-   * 当多个 Agent 的 MCP 配置与全局相同时，共用此实例而非各自创建。
-   * 生命周期由 IrisHost 统一管理（start 时 connectAll，shutdown 时 disconnectAll）。
-   */
-  private sharedMCPManager?: MCPManager;
-
-  /** MCP 共享：全局 MCP 配置快照，用于和每个 agent 的配置比较决定是否共享 */
-  private globalMCPConfig?: MCPConfig;
-
   /** 幂等 shutdown */
   private shutdownPromise: Promise<void> | null = null;
 
@@ -73,20 +59,6 @@ export class IrisHost {
   async start(): Promise<void> {
     // 1. 加载全局配置（多 Agent 配置分层重构：全局配置只加载一次）
     this.globalConfigResult = loadGlobalConfig();
-
-    // MCP 共享：从全局 raw 解析出 MCP 配置，有配置时预创建共享 MCPManager。
-    // 后续 spawnAgent 会把每个 agent 的 resolvedConfig.mcp 与此比较，
-    // 相同则注入共享实例，不同则让 Core 自建。
-    this.globalMCPConfig = parseMCPConfig(this.globalConfigResult.raw.mcp);
-    if (this.globalMCPConfig) {
-      this.sharedMCPManager = createMCPManager(this.globalMCPConfig);
-      // 后台异步连接，不阻塞启动。所有配置相同的 Agent 共用这些连接。
-      this.sharedMCPManager.connectAll().then(() => {
-        console.log('[Iris] 共享 MCPManager 连接完成');
-      }).catch(err => {
-        console.warn('[Iris] 共享 MCPManager 连接失败:', err);
-      });
-    }
 
     // 2. 确保 agents.yaml + master agent 存在
     ensureDefaultAgent();
@@ -129,13 +101,6 @@ export class IrisHost {
       resolvedConfig,
       taskBoard: this.taskBoard,
     };
-
-    // MCP 共享：比较该 agent 的 MCP 配置与全局配置是否一致。
-    // 一致时注入 sharedMCPManager，Core 将复用而非自建。
-    // 不一致时（agent 有自定义覆盖）不传，Core 走原有的 createMCPManager 路径。
-    if (this.sharedMCPManager && mcpConfigEqual(this.globalMCPConfig, resolvedConfig.mcp)) {
-      options.sharedMCPManager = this.sharedMCPManager;
-    }
 
     // 多 Agent 模式下注入 agentNetwork（通过构造参数，不再事后 patch）
     if (this.agentDefs.length > 1 || this.cores.size > 0) {
@@ -301,14 +266,6 @@ export class IrisHost {
       core.shutdown()
     );
     await Promise.allSettled(shutdownTasks);
-
-    // MCP 共享：断开共享 MCPManager 的所有连接。
-    // 各 Core 的 shutdown 不会 disconnect 共享实例（_mcpOwned === false），
-    // 所以必须在 Host 层统一清理。
-    if (this.sharedMCPManager) {
-      await this.sharedMCPManager.disconnectAll().catch(() => { /* 忽略 */ });
-      this.sharedMCPManager = undefined;
-    }
   }
 
   // ============ 内部方法 ============
@@ -334,24 +291,4 @@ export class IrisHost {
       getPeerAPI: (name: string) => this.cores.get(name)?.irisAPI as Record<string, unknown> | undefined,
     };
   }
-}
-
-// ============ 工具函数 ============
-
-/**
- * 深度比较两个 MCPConfig 是否相同。
- *
- * MCP 共享：IrisHost 用此函数判断 agent 的 MCP 配置是否与全局一致。
- * 相同时注入 sharedMCPManager，不同时让 Core 自建。
- *
- * 两个 undefined 视为相同（都没有 MCP 配置）。
- * 使用 JSON.stringify 做值比较，对于纯 JSON 结构的配置对象足够可靠。
- */
-export function mcpConfigEqual(
-  a: MCPConfig | undefined,
-  b: MCPConfig | undefined,
-): boolean {
-  if (a === undefined && b === undefined) return true;
-  if (a === undefined || b === undefined) return false;
-  return JSON.stringify(a) === JSON.stringify(b);
 }

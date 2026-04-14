@@ -61,12 +61,11 @@ export interface AgentContext {
   description?: string;
   backend: IrisBackendLike;
   config: WebPlatformConfig;
-  /** MCP 管理器 getter（延迟求值，热重载后自动获取最新引用） */
-  getMCPManager: () => any | undefined;
-  setMCPManager: (mgr?: any) => void;
   /** 当前 Agent 对应的数据目录，用于热重载时扫描正确的 skills 目录 */
   dataDir?: string;
   extensions?: RuntimeReloadExtensions;
+  /** IrisAPI 引用（用于查询 ServiceRegistry 等） */
+  api?: any;
 }
 
 /** MIME 类型映射 */
@@ -139,13 +138,11 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     this.router = new Router();
     this.publicDir = this.resolvePublicDir();
     // 单 Agent 模式：创建默认 agent 上下文
-    let _mcpManager: any | undefined;
     this.agents.set('default', {
       name: 'default', backend, config,
-      getMCPManager: () => _mcpManager,
-      setMCPManager: (mgr?) => { _mcpManager = mgr; },
       dataDir: path.dirname(config.configPath),
       extensions: undefined,
+      api: deps.api,
     });
     this.setupRoutes();
     this.deployToken = crypto.randomBytes(16).toString('hex');
@@ -174,9 +171,8 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
   /** 添加 Agent（多 Agent 模式使用）。首次调用时移除构造函数创建的 'default' 占位 */
   addAgent(
     name: string, backend: IrisBackendLike, config: WebPlatformConfig | Record<string, unknown>, description?: string,
-    getMCPManager?: () => any | undefined,
-    setMCPManager?: (mgr?: any) => void,
     extensions?: RuntimeReloadExtensions,
+    api?: any,
   ): void {
     // 移除构造函数创建的占位 default agent
     if (this.defaultAgentName === 'default' && this.agents.has('default') && name !== 'default') {
@@ -198,10 +194,9 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     };
     this.agents.set(name, {
       name, description, backend, config: cfg,
-      getMCPManager: getMCPManager ?? (() => undefined),
-      setMCPManager: setMCPManager ?? (() => {}),
       dataDir: cfg.configPath ? path.dirname(cfg.configPath) : undefined,
       extensions,
+      api,
     });
   }
 
@@ -252,14 +247,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
         cleanup();
         this.backendListenerCleanups.delete(name);
       }
-      // 断开旧 agent 的 MCP 连接，避免资源泄漏
-      const agent = this.agents.get(name);
-      if (agent) {
-        try {
-          const mcp = agent.getMCPManager();
-          if (mcp) await mcp.disconnectAll();
-        } catch { /* ignore */ }
-      }
+      // MCP 连接的断开由 mcp 扩展的 deactivate 自行管理，此处无需干预
     };
 
     /** 为 agent 创建上下文并绑定事件 */
@@ -267,7 +255,6 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
       const result = await this.reloadHandler!(def);
       const name = def === '__default__' ? 'default' : (def as AgentDefinitionLike).name;
       const currentModel = result.router.getCurrentModelInfo();
-      let _mcpManager = result.getMCPManager();
       this.agents.set(name, {
         name,
         description: def === '__default__' ? undefined
@@ -281,9 +268,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
           streamEnabled: result.config.system.stream,
           configPath: result.configDir,
         },
-        getMCPManager: () => _mcpManager,
         dataDir: path.dirname(result.configDir),
-        setMCPManager: (mgr?) => { _mcpManager = mgr; },
         extensions: { llmProviders: result.extensions.llmProviders, ocrProviders: result.extensions.ocrProviders },
       });
       this.wireBackendEvents(result.backend, name);
@@ -516,19 +501,6 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
       ? this.agents.get(agentName)!
       : this.agents.get(this.defaultAgentName) ?? this.agents.values().next().value!;
     await agent.backend.chat(sessionId, message, images, documents, 'web');
-  }
-
-  /** 注入 MCP 管理器引用（单 Agent 兼容 / 指定 agent） */
-  setMCPManager(mgr: any, agentName?: string): void {
-    const name = agentName ?? this.defaultAgentName;
-    const agent = this.agents.get(name);
-    if (agent) agent.setMCPManager(mgr);
-  }
-
-  /** 获取 MCP 管理器（单 Agent 兼容 / 指定 agent） */
-  getMCPManager(agentName?: string): any | undefined {
-    const name = agentName ?? this.defaultAgentName;
-    return this.agents.get(name)?.getMCPManager();
   }
 
   // ============ 内部方法 ============
@@ -881,7 +853,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
         managementProtected: !!this.config.managementToken,
         platform: 'web',
         contextWindow: modelInfo.contextWindow,
-        mcpStatus: agent.getMCPManager()?.getServerInfo?.() ?? [],
+        mcpStatus: agent.api?.services?.get?.('mcp.manager')?.getServerInfo?.() ?? [],
         runtime: {
           projectRoot: this.deps.projectRoot,
           dataDir: this.deps.dataDir,

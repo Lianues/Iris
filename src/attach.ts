@@ -127,8 +127,6 @@ export async function runAttach(argv: string[]): Promise<void> {
     config: remoteConfig,
     configDir: remoteConfigDir,
     router: api.router,
-    getMCPManager: () => undefined,
-    setMCPManager: () => {},
     agentName: handshake.agentName,
     initWarnings: [],
     extensions: {},

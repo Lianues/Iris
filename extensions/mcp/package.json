@@ -1,0 +1,13 @@
+{
+  "name": "@iris-extension/mcp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --external @modelcontextprotocol/sdk --external dereference-json-schema"
+  },
+  "dependencies": {
+    "irises-extension-sdk": "file:../../packages/extension-sdk",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "dereference-json-schema": "^0.2.2"
+  }
+}

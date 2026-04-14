@@ -327,10 +327,6 @@ export interface IrisPlatformFactoryContextLike {
   isCompiledBinary?: boolean;
   /** 完整的 IrisAPI 对象。类型为 unknown 以避免循环引用，实际为 IrisAPI。 */
   api?: unknown;
-  /** 获取 MCP 管理器。类型为 unknown 以避免循环引用，实际为 MCPManagerLike。 */
-  getMCPManager?: () => unknown;
-  /** 设置 MCP 管理器。 */
-  setMCPManager?: (mgr?: unknown) => void;
   [key: string]: unknown;
 }
 
@@ -445,8 +441,6 @@ export interface AgentContextLike {
   description?: string;
   backend: BackendHandle;
   config: Record<string, unknown>;
-  getMCPManager?: () => unknown;
-  setMCPManager?: (mgr?: unknown) => void;
   dataDir?: string;
   extensions?: Record<string, unknown>;
 }
@@ -457,15 +451,13 @@ export interface AgentContextLike {
  */
 export interface MultiAgentCapable {
   /** 添加 Agent 上下文 */
-  addAgent(name: string, backend: BackendHandle, config: Record<string, unknown>, description?: string, getMCPManager?: () => unknown, setMCPManager?: (mgr?: unknown) => void, extensions?: Record<string, unknown>): void;
+  addAgent(name: string, backend: BackendHandle, config: Record<string, unknown>, description?: string, extensions?: Record<string, unknown>): void;
   /** 热重载 Agent 列表 */
   reloadAgents?(): Promise<unknown>;
   /** 设置 Agent 热重载回调 */
   setReloadHandler?(handler: (...args: unknown[]) => Promise<unknown>): void;
   /** 设置平台配置热重载回调 */
   setPlatformReloadHandler?(handler: (...args: unknown[]) => Promise<void>): void;
-  /** 获取 MCP 管理器 */
-  getMCPManager?(agentName?: string): unknown;
 }
 
 /** 检测平台是否实现了 MultiAgentCapable 接口 */

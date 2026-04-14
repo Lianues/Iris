@@ -139,8 +139,6 @@ export type {
   ToolLoopRunnerLike,
   LLMProviderFactory,
   LLMRouterLike,
-  MCPManagerLike,
-  MCPServerInfoLike,
   MemoryFactory,
   ModelCatalogResultLike,
   ModeRegistryLike,

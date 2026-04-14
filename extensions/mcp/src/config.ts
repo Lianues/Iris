@@ -1,13 +1,11 @@
 /**
- * MCP 配置解析
+ * MCP 配置解析（从 src/config/mcp.ts 迁移）
  */
 
-import { MCPConfig, MCPServerConfig } from './types';
-import { createLogger } from '../logger';
+import { createPluginLogger } from 'irises-extension-sdk';
+import type { MCPConfig, MCPServerConfig } from './types.js';
 
-const logger = createLogger('MCPConfig');
-
-const VALID_TRANSPORTS = ['stdio', 'sse', 'streamable-http', 'http'] as const;
+const logger = createPluginLogger('mcp', 'config');
 
 function normalizeTransport(value: unknown): MCPServerConfig['transport'] | undefined {
   if (value === 'http') return 'streamable-http';

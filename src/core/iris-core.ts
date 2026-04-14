@@ -1,7 +1,7 @@
 /**
  * IrisCore — 单个 Agent 的完整运行时
  *
- * 持有 Backend 及其所有依赖资源（LLM 路由、存储、MCP、插件、工具等），
+ * 持有 Backend 及其所有依赖资源（LLM 路由、存储、插件、工具等），
  * 提供 start() / shutdown() 生命周期管理。
  *
  * 原 bootstrap() 函数的逻辑搬入 start()，原 BootstrapResult 的字段
@@ -20,7 +20,6 @@ import { dataDir as globalDataDir, logsDir as globalLogsDir } from '../paths';
 import { createLLMRouter } from '../llm/factory';
 import { LLMRouter } from '../llm/router';
 import { createSkillWatcher } from '../config/skill-loader';
-import { createMCPManager, MCPManager } from '../mcp';
 import { ToolRegistry } from '../tools/registry';
 import { ToolStateManager } from '../tools/state';
 import { setToolLimits } from '../tools/tool-limits';
@@ -112,8 +111,6 @@ export interface IrisCoreOptions {
   taskBoard?: CrossAgentTaskBoard;
   /** 多 Agent 模式下的 agentNetwork（由 IrisHost 构造时注入） */
   agentNetwork?: AgentNetworkProvider;
-  /** MCP 共享：外部注入的共享 MCPManager（由 IrisHost 在 MCP 配置相同时传入，Core 不拥有其生命周期） */
-  sharedMCPManager?: MCPManager;
 }
 
 // ── IrisCore ──
@@ -139,18 +136,6 @@ export class IrisCore {
   platformRegistry!: PlatformRegistry;
   eventBus!: PluginEventBus;
   irisAPI?: Record<string, unknown>;
-
-  // ---- MCP 管理（支持热重载，需要 getter/setter） ----
-  private _mcpManager: MCPManager | undefined;
-
-  /**
-   * MCP 共享：标识该 Core 是否拥有 MCPManager 的生命周期。
-   * false 表示使用的是 IrisHost 注入的共享实例，shutdown 时不 disconnect。
-   */
-  private _mcpOwned = true;
-  get mcpManager(): MCPManager | undefined { return this._mcpManager; }
-  setMCPManager(manager?: MCPManager): void { this._mcpManager = manager; }
-  getMCPManager(): MCPManager | undefined { return this._mcpManager; }
 
   // ---- 路由延迟注册（平台无关） ----
   private pendingRoutes: Array<{ method: string; path: string; handler: (req: any, res: any, params: Record<string, string>) => Promise<void> }> = [];
@@ -259,30 +244,6 @@ export class IrisCore {
       ? createShellTool(commandToolDeps)
       : createBashTool(commandToolDeps);
     tools.registerAll([readFile, writeFile, applyDiff, searchInFiles, findFiles, commandTool, listFiles, deleteFile, createDirectory, insertCode, deleteCode]);
-
-    // ---- 3.1 连接 MCP 服务器 ----
-    let mcpManager: MCPManager | undefined;
-    // MCP 共享：如果 IrisHost 注入了 sharedMCPManager（配置相同时），
-    // 直接复用该实例，跳过 createMCPManager + connectAll。
-    // 此时 _mcpOwned = false，shutdown 时不 disconnect。
-    if (options.sharedMCPManager) {
-      mcpManager = options.sharedMCPManager;
-      this._mcpOwned = false;
-      // 共享 MCP 可能仍在后台连接中，等连接完成后再注册工具
-      mcpManager.whenConnected().then(() => {
-        tools.registerAll(mcpManager!.getTools());
-      }).catch(() => { /* 连接失败由 MCPManager 自身日志处理 */ });
-    } else if (config.mcp) {
-      // 没有共享注入时走原有逻辑：自建 MCPManager。
-      // _mcpOwned 保持默认 true，shutdown 时由 Core 自行 disconnect。
-      // 后台异步连接，不阻塞启动。连接完成后自动注册工具。
-      mcpManager = createMCPManager(config.mcp);
-      mcpManager.connectAll().then(() => {
-        tools.registerAll(mcpManager!.getTools());
-      }).catch(err => {
-        console.warn('[MCP] 后台连接失败:', err);
-      });
-    }
 
     const initWarnings: string[] = [];
 
@@ -518,7 +479,7 @@ export class IrisCore {
           }
           const merged = updateEditableConfig(configDir, { net: netUpdate });
           const ctx: RuntimeConfigReloadContext = {
-            backend, pluginManager, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
+            backend, pluginManager,  extensions,
           };
           await applyRuntimeConfigReload(ctx, merged.mergedRaw);
           return { success: true };
@@ -527,10 +488,6 @@ export class IrisCore {
         }
       },
     });
-
-    // 构建完整内部 API
-    const getMCPManagerFn = () => this._mcpManager;
-    const setMCPManagerFn = (m?: MCPManager) => { this._mcpManager = m; };
 
     // ---- 配置文件监听（外部修改自动热重载） ----
     const stopConfigWatcher = (() => {
@@ -568,7 +525,7 @@ export class IrisCore {
             const mgr = new LayeredConfigManager(globalDir, configDir);
             const merged = mgr.readEditableConfig();
             const ctx: RuntimeConfigReloadContext = {
-              backend, pluginManager, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
+              backend, pluginManager,  extensions,
               dataDir: effectiveDataDir,
             };
             await applyRuntimeConfigReload(ctx, merged);
@@ -597,7 +554,6 @@ export class IrisCore {
       modes: modeRegistry,
       prompt,
       config,
-      get mcpManager() { return getMCPManagerFn(); },
       ocrService: undefined,
       extensions,
       // 分层配置修复：用 LayeredConfigManager 替代原来的单目录闭包。
@@ -610,7 +566,7 @@ export class IrisCore {
           applyRuntimeConfigReload: async (mergedConfig: Record<string, unknown>) => {
             try {
               const ctx: RuntimeConfigReloadContext = {
-                backend, pluginManager, getMCPManager: getMCPManagerFn, setMCPManager: setMCPManagerFn, extensions,
+                backend, pluginManager,  extensions,
               };
               await applyRuntimeConfigReload(ctx, mergedConfig);
               return { success: true };
@@ -733,7 +689,6 @@ export class IrisCore {
     this.irisAPI = irisAPI as unknown as Record<string, unknown>;
 
     // ---- 赋值内部资源 ----
-    this._mcpManager = mcpManager;
     this.skillWatcherDispose = stopSkillWatcher;
     this.configWatcherDispose = stopConfigWatcher;
     this.storage = storage;
@@ -757,13 +712,6 @@ export class IrisCore {
     this._state = 'stopping';
 
     try {
-      // 断开 MCP 连接。
-      // MCP 共享：_mcpOwned === false 表示使用的是 IrisHost 注入的共享实例，
-      // 由 Host 统一管理生命周期，Core shutdown 时跳过 disconnect。
-      if (this._mcpManager && this._mcpOwned) {
-        try { await this._mcpManager.disconnectAll(); } catch { /* 忽略 */ }
-      }
-
       // 停止 Skill 文件监听
       if (this.skillWatcherDispose) {
         try { this.skillWatcherDispose(); } catch { /* 忽略 */ }

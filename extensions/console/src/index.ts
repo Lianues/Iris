@@ -32,7 +32,6 @@ import {
   type IrisModelInfoLike,
   type IrisSessionMetaLike,
   type IrisAPI,
-  type MCPManagerLike,
   type BootstrapExtensionRegistryLike,
   type ConfigManagerLike,
 } from 'irises-extension-sdk';
@@ -181,8 +180,6 @@ export interface ConsolePlatformOptions {
   modelId: string;
   contextWindow?: number;
   configDir: string;
-  getMCPManager: () => MCPManagerLike | undefined;
-  setMCPManager: (manager?: MCPManagerLike) => void;
   /** 当前 Agent 名称（多 Agent 模式下显示在 TUI 中） */
   agentName?: string;
   /** 初始化过程中的警告信息（TUI 启动后展示） */
@@ -268,7 +265,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.settingsController = new ConsoleSettingsController({
       backend,
       configManager: options.api?.configManager,
-      mcpManager: options.getMCPManager(),
+      services: options.api?.services,
       extensions: options.extensions,
     });
   }
@@ -764,7 +761,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         this.settingsController = new ConsoleSettingsController({
           backend: targetHandle,
           configManager: peerAPI.configManager,
-          mcpManager: peerAPI.mcpManager,
+          services: peerAPI.services,
           extensions: peerAPI.extensions,
         });
       }
@@ -823,7 +820,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.settingsController = new ConsoleSettingsController({
         backend: remoteBackend,
         configManager: remoteApi.configManager,
-        mcpManager: undefined,
+        services: undefined,
         extensions: undefined,
       });
       this._isRemote = true;
@@ -1617,8 +1614,6 @@ interface ConsoleFactoryContext {
   agentName?: string;
   initWarnings?: string[];
   router?: { getCurrentModelInfo?(): { modelName: string; modelId: string; contextWindow?: number; provider?: string } };
-  getMCPManager?: () => MCPManagerLike | undefined;
-  setMCPManager?: (manager?: MCPManagerLike) => void;
   extensions?: Pick<BootstrapExtensionRegistryLike, 'llmProviders' | 'ocrProviders'>;
   api?: IrisAPI;
   isCompiledBinary?: boolean;
@@ -1650,8 +1645,6 @@ export default async function consoleFactory(rawContext: Record<string, unknown>
     modelId: currentModel.modelId ?? '',
     contextWindow: currentModel.contextWindow,
     configDir: context.configDir ?? '',
-    getMCPManager: context.getMCPManager ?? (() => undefined),
-    setMCPManager: context.setMCPManager ?? (() => {}),
     agentName: context.agentName,
     initWarnings: context.initWarnings,
     extensions: context.extensions,

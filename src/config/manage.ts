@@ -90,17 +90,6 @@ export function sanitizeConfig(data: any, extensionPasswordFields?: Map<string, 
     }
   }
 
-  if (result.mcp?.servers && typeof result.mcp.servers === 'object') {
-    for (const server of Object.values(result.mcp.servers) as any[]) {
-      if (!server?.headers) continue;
-      for (const key of Object.keys(server.headers)) {
-        if (key.toLowerCase() === 'authorization') {
-          server.headers[key] = maskSensitive(String(server.headers[key] ?? ''));
-        }
-      }
-    }
-  }
-
   return result;
 }
 
@@ -158,10 +147,6 @@ function normalizeMergedConfig(data: any): any {
     } else if (!merged.llm.defaultModel || !merged.llm.models[merged.llm.defaultModel]) {
       merged.llm.defaultModel = modelNames[0];
     }
-  }
-
-  if (!merged.mcp?.servers || typeof merged.mcp.servers !== 'object' || Object.keys(merged.mcp.servers).length === 0) {
-    delete merged.mcp;
   }
 
   return merged;

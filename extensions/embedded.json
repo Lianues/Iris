@@ -5,6 +5,10 @@
       "external": ["sharp", "jszip", "mammoth", "xlsx", "pdf-parse", "libreoffice-convert"]
     },
     {
+      "name": "mcp",
+      "external": ["@modelcontextprotocol/sdk", "dereference-json-schema"]
+    },
+    {
       "name": "cron"
     },
     {

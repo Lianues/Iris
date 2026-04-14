@@ -218,39 +218,7 @@ types:
     maxToolRounds: 200
 `,
 
-  'mcp.yaml': `# MCP 服务器配置
-# 连接外部 MCP 服务器，自动将其工具注入 LLM 工具列表
-# 启动时后台异步连接，不阻塞启动
-#
-# 每个服务器支持以下字段：
-#   transport  - 传输方式: stdio | sse | streamable-http
-#   enabled    - 是否启用（默认 true）
-#   timeout    - 连接/listTools 超时，单位 ms（默认 30000）
-#
-# stdio 模式专用：
-#   command    - 要执行的命令
-#   args       - 命令参数数组
-#   env        - 额外环境变量
-#   cwd        - 工作目录
-#
-# sse / streamable-http 模式专用：
-#   url        - MCP 服务器 URL
-#   headers    - 自定义 HTTP 请求头
-
-# servers:
-#   filesystem:
-#     transport: stdio
-#     command: npx
-#     args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
-#     timeout: 30000
-#     enabled: true
-#
-#   remote_tools:
-#     transport: streamable-http
-#     url: https://mcp.example.com/mcp
-#     headers:
-#       Authorization: Bearer your-token
-`,
+  // mcp.yaml: 由 mcp 扩展通过 ensureConfigFile 自行管理
 
   'modes.yaml': `# 模式配置
 # 不同模式可定义不同的系统提示词和工具策略
