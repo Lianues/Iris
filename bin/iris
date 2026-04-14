@@ -18,9 +18,17 @@ const fs = require("fs")
 const path = require("path")
 const os = require("os")
 
+const scriptPath = fs.realpathSync(__filename)
+const scriptDir = path.dirname(scriptPath)
+
+// npm 包装器根目录（bin/ 的上级），通过环境变量传给编译后二进制，
+// 解决 PRoot/容器/L2S 等环境下 process.execPath 被虚拟化的问题
+const wrapperRoot = path.resolve(scriptDir, "..")
+
 function run(target) {
   const result = childProcess.spawnSync(target, process.argv.slice(2), {
     stdio: "inherit",
+    env: Object.assign({}, process.env, { __IRIS_PKG_DIR: wrapperRoot }),
   })
   if (result.error) {
     console.error(result.error.message)
@@ -35,9 +43,6 @@ const envPath = process.env.IRIS_BIN_PATH
 if (envPath) {
   run(envPath)
 }
-
-const scriptPath = fs.realpathSync(__filename)
-const scriptDir = path.dirname(scriptPath)
 
 // 2. postinstall 缓存
 const cached = path.join(scriptDir, ".iris")
@@ -85,7 +90,7 @@ function findBinary(startDir) {
   }
 }
 
-const resolved = findBinary(scriptDir)
+const resolved = findBinary(path.resolve(scriptDir, ".."))
 if (!resolved) {
   console.error(
     "未找到当前平台的 Iris 二进制。" +

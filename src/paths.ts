@@ -51,6 +51,25 @@ export const extensionsDir = path.join(dataDir, 'extensions');
 /** 项目根目录（用于定位 data/configs.example/ 等内置资源） */
 const __filename_paths = fileURLToPath(import.meta.url);
 
+/**
+ * 在指定目录的 node_modules/ 下搜索 irises-* 平台包，
+ * 返回第一个同时包含 data/ 和 extensions/ 的平台包路径。
+ */
+function findPlatformPackageInNodeModules(baseDir: string): string | undefined {
+  const nodeModulesDir = path.join(baseDir, 'node_modules');
+  if (!fs.existsSync(nodeModulesDir)) return undefined;
+  try {
+    for (const entry of fs.readdirSync(nodeModulesDir)) {
+      if (!entry.startsWith('irises-')) continue;
+      const candidate = path.join(nodeModulesDir, entry);
+      if (fs.existsSync(path.join(candidate, 'data')) && fs.existsSync(path.join(candidate, 'extensions'))) {
+        return candidate;
+      }
+    }
+  } catch { /* ignore */ }
+  return undefined;
+}
+
 function resolveProjectRoot(): string {
   // 1. 源码 / bun run 开发模式：import.meta.url 直接定位
   const srcRoot = path.resolve(path.dirname(__filename_paths), '..');
@@ -58,7 +77,20 @@ function resolveProjectRoot(): string {
     return srcRoot;
   }
 
-  // 2. 编译后二进制：import.meta.url 指向虚拟路径 (/$bunfs/)，
+  // 2. npm 包装器传入的真实包目录（解决 PRoot/容器/L2S 等环境下
+  //    process.execPath 被虚拟化导致路径解析失败的问题）
+  const pkgDir = process.env.__IRIS_PKG_DIR;
+  if (pkgDir) {
+    // 独立发行包：pkgDir 直接包含 data/ + extensions/
+    if (fs.existsSync(path.join(pkgDir, 'data')) && fs.existsSync(path.join(pkgDir, 'extensions'))) {
+      return pkgDir;
+    }
+    // npm 包装器场景：搜索 node_modules/irises-* 平台包
+    const found = findPlatformPackageInNodeModules(pkgDir);
+    if (found) return found;
+  }
+
+  // 3. 编译后二进制：通过 process.execPath 推导
   //    实际二进制位于 <dist>/bin/iris，data/ 在 <dist>/data/
   try {
     const realBinary = fs.realpathSync(process.execPath);
@@ -69,18 +101,9 @@ function resolveProjectRoot(): string {
       return binParent;
     }
 
-    // npm 包装器场景：binParent 是包装器目录（可能没有 data/），
-    // 实际平台包在 node_modules/irises-* 下，搜索平台包作为 projectRoot
-    const nodeModulesDir = path.join(binParent, 'node_modules');
-    if (fs.existsSync(nodeModulesDir)) {
-      for (const entry of fs.readdirSync(nodeModulesDir)) {
-        if (!entry.startsWith('irises-')) continue;
-        const candidate = path.join(nodeModulesDir, entry);
-        if (fs.existsSync(path.join(candidate, 'data')) && fs.existsSync(path.join(candidate, 'extensions'))) {
-          return candidate;
-        }
-      }
-    }
+    // npm 包装器场景：搜索 node_modules/irises-* 平台包
+    const found = findPlatformPackageInNodeModules(binParent);
+    if (found) return found;
   } catch {
     // ignore — realpathSync 可能在某些环境下失败
   }
