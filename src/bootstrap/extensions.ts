@@ -12,7 +12,6 @@ import { createClaudeProvider } from '../llm/providers/claude';
 import { createOpenAIResponsesProvider } from '../llm/providers/openai-responses';
 import type { StorageProvider } from '../storage/base';
 import { JsonFileStorage } from '../storage/json-file';
-import { SqliteStorage } from '../storage/sqlite';
 import { PlatformRegistry } from '../core/platform-registry';
 
 /** 通用命名工厂注册表 */
@@ -68,7 +67,10 @@ export function createBootstrapExtensionRegistry(): BootstrapExtensionRegistry {
 
   const storageProviders = new StorageFactoryRegistry();
   storageProviders.register('json-file', (config) => new JsonFileStorage(config.dir));
-  storageProviders.register('sqlite', (config) => new SqliteStorage(config.dbPath));
+  storageProviders.register('sqlite', async (config) => {
+    const { SqliteStorage } = await import('../storage/sqlite');
+    return new SqliteStorage(config.dbPath);
+  });
 
   const ocrProviders = new NamedFactoryRegistry<(config: Record<string, unknown>) => Promise<unknown> | unknown>();
 
