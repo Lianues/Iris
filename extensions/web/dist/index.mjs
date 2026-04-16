@@ -32,7 +32,7 @@ var __toESM = (mod, isNodeMode, target) => {
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// ../../node_modules/yaml/dist/nodes/identity.js
+// node_modules/yaml/dist/nodes/identity.js
 var require_identity = __commonJS((exports) => {
   var ALIAS = Symbol.for("yaml.alias");
   var DOC = Symbol.for("yaml.document");
@@ -86,7 +86,7 @@ var require_identity = __commonJS((exports) => {
   exports.isSeq = isSeq;
 });
 
-// ../../node_modules/yaml/dist/visit.js
+// node_modules/yaml/dist/visit.js
 var require_visit = __commonJS((exports) => {
   var identity = require_identity();
   var BREAK = Symbol("break visit");
@@ -241,7 +241,7 @@ var require_visit = __commonJS((exports) => {
   exports.visitAsync = visitAsync;
 });
 
-// ../../node_modules/yaml/dist/doc/directives.js
+// node_modules/yaml/dist/doc/directives.js
 var require_directives = __commonJS((exports) => {
   var identity = require_identity();
   var visit = require_visit();
@@ -393,7 +393,7 @@ var require_directives = __commonJS((exports) => {
   exports.Directives = Directives;
 });
 
-// ../../node_modules/yaml/dist/doc/anchors.js
+// node_modules/yaml/dist/doc/anchors.js
 var require_anchors = __commonJS((exports) => {
   var identity = require_identity();
   var visit = require_visit();
@@ -455,7 +455,7 @@ var require_anchors = __commonJS((exports) => {
   exports.findNewAnchor = findNewAnchor;
 });
 
-// ../../node_modules/yaml/dist/doc/applyReviver.js
+// node_modules/yaml/dist/doc/applyReviver.js
 var require_applyReviver = __commonJS((exports) => {
   function applyReviver(reviver, obj, key, val) {
     if (val && typeof val === "object") {
@@ -502,7 +502,7 @@ var require_applyReviver = __commonJS((exports) => {
   exports.applyReviver = applyReviver;
 });
 
-// ../../node_modules/yaml/dist/nodes/toJS.js
+// node_modules/yaml/dist/nodes/toJS.js
 var require_toJS = __commonJS((exports) => {
   var identity = require_identity();
   function toJS(value, arg, ctx) {
@@ -529,7 +529,7 @@ var require_toJS = __commonJS((exports) => {
   exports.toJS = toJS;
 });
 
-// ../../node_modules/yaml/dist/nodes/Node.js
+// node_modules/yaml/dist/nodes/Node.js
 var require_Node = __commonJS((exports) => {
   var applyReviver = require_applyReviver();
   var identity = require_identity();
@@ -566,7 +566,7 @@ var require_Node = __commonJS((exports) => {
   exports.NodeBase = NodeBase;
 });
 
-// ../../node_modules/yaml/dist/nodes/Alias.js
+// node_modules/yaml/dist/nodes/Alias.js
 var require_Alias = __commonJS((exports) => {
   var anchors = require_anchors();
   var visit = require_visit();
@@ -674,7 +674,7 @@ var require_Alias = __commonJS((exports) => {
   exports.Alias = Alias;
 });
 
-// ../../node_modules/yaml/dist/nodes/Scalar.js
+// node_modules/yaml/dist/nodes/Scalar.js
 var require_Scalar = __commonJS((exports) => {
   var identity = require_identity();
   var Node = require_Node();
@@ -702,7 +702,7 @@ var require_Scalar = __commonJS((exports) => {
   exports.isScalarValue = isScalarValue;
 });
 
-// ../../node_modules/yaml/dist/doc/createNode.js
+// node_modules/yaml/dist/doc/createNode.js
 var require_createNode = __commonJS((exports) => {
   var Alias = require_Alias();
   var identity = require_identity();
@@ -774,7 +774,7 @@ var require_createNode = __commonJS((exports) => {
   exports.createNode = createNode;
 });
 
-// ../../node_modules/yaml/dist/nodes/Collection.js
+// node_modules/yaml/dist/nodes/Collection.js
 var require_Collection = __commonJS((exports) => {
   var createNode = require_createNode();
   var identity = require_identity();
@@ -889,7 +889,7 @@ var require_Collection = __commonJS((exports) => {
   exports.isEmptyPath = isEmptyPath;
 });
 
-// ../../node_modules/yaml/dist/stringify/stringifyComment.js
+// node_modules/yaml/dist/stringify/stringifyComment.js
 var require_stringifyComment = __commonJS((exports) => {
   var stringifyComment = (str) => str.replace(/^(?!$)(?: $)?/gm, "#");
   function indentComment(comment, indent) {
@@ -906,7 +906,7 @@ var require_stringifyComment = __commonJS((exports) => {
   exports.stringifyComment = stringifyComment;
 });
 
-// ../../node_modules/yaml/dist/stringify/foldFlowLines.js
+// node_modules/yaml/dist/stringify/foldFlowLines.js
 var require_foldFlowLines = __commonJS((exports) => {
   var FOLD_FLOW = "flow";
   var FOLD_BLOCK = "block";
@@ -1043,7 +1043,7 @@ ${indent}${text.slice(fold + 1, end2)}`;
   exports.foldFlowLines = foldFlowLines;
 });
 
-// ../../node_modules/yaml/dist/stringify/stringifyString.js
+// node_modules/yaml/dist/stringify/stringifyString.js
 var require_stringifyString = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var foldFlowLines = require_foldFlowLines();
@@ -1341,7 +1341,7 @@ ${indent}`);
   exports.stringifyString = stringifyString;
 });
 
-// ../../node_modules/yaml/dist/stringify/stringify.js
+// node_modules/yaml/dist/stringify/stringify.js
 var require_stringify = __commonJS((exports) => {
   var anchors = require_anchors();
   var identity = require_identity();
@@ -1364,6 +1364,7 @@ var require_stringify = __commonJS((exports) => {
       nullStr: "null",
       simpleKeys: false,
       singleQuote: null,
+      trailingComma: false,
       trueStr: "true",
       verifyAliasOrder: true
     }, doc.schema.toStringOptions, options);
@@ -1461,7 +1462,7 @@ ${ctx.indent}${str}`;
   exports.stringify = stringify;
 });
 
-// ../../node_modules/yaml/dist/stringify/stringifyPair.js
+// node_modules/yaml/dist/stringify/stringifyPair.js
 var require_stringifyPair = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -1597,7 +1598,7 @@ ${ctx.indent}`;
   exports.stringifyPair = stringifyPair;
 });
 
-// ../../node_modules/yaml/dist/log.js
+// node_modules/yaml/dist/log.js
 var require_log = __commonJS((exports) => {
   var node_process = __require("process");
   function debug(logLevel, ...messages) {
@@ -1616,7 +1617,7 @@ var require_log = __commonJS((exports) => {
   exports.warn = warn;
 });
 
-// ../../node_modules/yaml/dist/schema/yaml-1.1/merge.js
+// node_modules/yaml/dist/schema/yaml-1.1/merge.js
 var require_merge = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -1670,7 +1671,7 @@ var require_merge = __commonJS((exports) => {
   exports.merge = merge;
 });
 
-// ../../node_modules/yaml/dist/nodes/addPairToJSMap.js
+// node_modules/yaml/dist/nodes/addPairToJSMap.js
 var require_addPairToJSMap = __commonJS((exports) => {
   var log = require_log();
   var merge = require_merge();
@@ -1731,7 +1732,7 @@ var require_addPairToJSMap = __commonJS((exports) => {
   exports.addPairToJSMap = addPairToJSMap;
 });
 
-// ../../node_modules/yaml/dist/nodes/Pair.js
+// node_modules/yaml/dist/nodes/Pair.js
 var require_Pair = __commonJS((exports) => {
   var createNode = require_createNode();
   var stringifyPair = require_stringifyPair();
@@ -1769,7 +1770,7 @@ var require_Pair = __commonJS((exports) => {
   exports.createPair = createPair;
 });
 
-// ../../node_modules/yaml/dist/stringify/stringifyCollection.js
+// node_modules/yaml/dist/stringify/stringifyCollection.js
 var require_stringifyCollection = __commonJS((exports) => {
   var identity = require_identity();
   var stringify = require_stringify();
@@ -1872,13 +1873,20 @@ ${indent}${line}` : `
       if (comment)
         reqNewline = true;
       let str = stringify.stringify(item, itemCtx, () => comment = null);
-      if (i < items.length - 1)
+      reqNewline || (reqNewline = lines.length > linesAtValue || str.includes(`
+`));
+      if (i < items.length - 1) {
         str += ",";
+      } else if (ctx.options.trailingComma) {
+        if (ctx.options.lineWidth > 0) {
+          reqNewline || (reqNewline = lines.reduce((sum, line) => sum + line.length + 2, 2) + (str.length + 2) > ctx.options.lineWidth);
+        }
+        if (reqNewline) {
+          str += ",";
+        }
+      }
       if (comment)
         str += stringifyComment.lineComment(str, itemIndent, commentString(comment));
-      if (!reqNewline && (lines.length > linesAtValue || str.includes(`
-`)))
-        reqNewline = true;
       lines.push(str);
       linesAtValue = lines.length;
     }
@@ -1914,7 +1922,7 @@ ${indent}${end}`;
   exports.stringifyCollection = stringifyCollection;
 });
 
-// ../../node_modules/yaml/dist/nodes/YAMLMap.js
+// node_modules/yaml/dist/nodes/YAMLMap.js
 var require_YAMLMap = __commonJS((exports) => {
   var stringifyCollection = require_stringifyCollection();
   var addPairToJSMap = require_addPairToJSMap();
@@ -2041,7 +2049,7 @@ var require_YAMLMap = __commonJS((exports) => {
   exports.findPair = findPair;
 });
 
-// ../../node_modules/yaml/dist/schema/common/map.js
+// node_modules/yaml/dist/schema/common/map.js
 var require_map = __commonJS((exports) => {
   var identity = require_identity();
   var YAMLMap = require_YAMLMap();
@@ -2060,7 +2068,7 @@ var require_map = __commonJS((exports) => {
   exports.map = map;
 });
 
-// ../../node_modules/yaml/dist/nodes/YAMLSeq.js
+// node_modules/yaml/dist/nodes/YAMLSeq.js
 var require_YAMLSeq = __commonJS((exports) => {
   var createNode = require_createNode();
   var stringifyCollection = require_stringifyCollection();
@@ -2153,7 +2161,7 @@ var require_YAMLSeq = __commonJS((exports) => {
   exports.YAMLSeq = YAMLSeq;
 });
 
-// ../../node_modules/yaml/dist/schema/common/seq.js
+// node_modules/yaml/dist/schema/common/seq.js
 var require_seq = __commonJS((exports) => {
   var identity = require_identity();
   var YAMLSeq = require_YAMLSeq();
@@ -2172,7 +2180,7 @@ var require_seq = __commonJS((exports) => {
   exports.seq = seq;
 });
 
-// ../../node_modules/yaml/dist/schema/common/string.js
+// node_modules/yaml/dist/schema/common/string.js
 var require_string = __commonJS((exports) => {
   var stringifyString = require_stringifyString();
   var string = {
@@ -2188,7 +2196,7 @@ var require_string = __commonJS((exports) => {
   exports.string = string;
 });
 
-// ../../node_modules/yaml/dist/schema/common/null.js
+// node_modules/yaml/dist/schema/common/null.js
 var require_null = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var nullTag = {
@@ -2203,7 +2211,7 @@ var require_null = __commonJS((exports) => {
   exports.nullTag = nullTag;
 });
 
-// ../../node_modules/yaml/dist/schema/core/bool.js
+// node_modules/yaml/dist/schema/core/bool.js
 var require_bool = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var boolTag = {
@@ -2224,7 +2232,7 @@ var require_bool = __commonJS((exports) => {
   exports.boolTag = boolTag;
 });
 
-// ../../node_modules/yaml/dist/stringify/stringifyNumber.js
+// node_modules/yaml/dist/stringify/stringifyNumber.js
 var require_stringifyNumber = __commonJS((exports) => {
   function stringifyNumber({ format, minFractionDigits, tag, value }) {
     if (typeof value === "bigint")
@@ -2248,7 +2256,7 @@ var require_stringifyNumber = __commonJS((exports) => {
   exports.stringifyNumber = stringifyNumber;
 });
 
-// ../../node_modules/yaml/dist/schema/core/float.js
+// node_modules/yaml/dist/schema/core/float.js
 var require_float = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var stringifyNumber = require_stringifyNumber();
@@ -2291,7 +2299,7 @@ var require_float = __commonJS((exports) => {
   exports.floatNaN = floatNaN;
 });
 
-// ../../node_modules/yaml/dist/schema/core/int.js
+// node_modules/yaml/dist/schema/core/int.js
 var require_int = __commonJS((exports) => {
   var stringifyNumber = require_stringifyNumber();
   var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -2333,7 +2341,7 @@ var require_int = __commonJS((exports) => {
   exports.intOct = intOct;
 });
 
-// ../../node_modules/yaml/dist/schema/core/schema.js
+// node_modules/yaml/dist/schema/core/schema.js
 var require_schema = __commonJS((exports) => {
   var map = require_map();
   var _null = require_null();
@@ -2358,7 +2366,7 @@ var require_schema = __commonJS((exports) => {
   exports.schema = schema;
 });
 
-// ../../node_modules/yaml/dist/schema/json/schema.js
+// node_modules/yaml/dist/schema/json/schema.js
 var require_schema2 = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var map = require_map();
@@ -2422,7 +2430,7 @@ var require_schema2 = __commonJS((exports) => {
   exports.schema = schema;
 });
 
-// ../../node_modules/yaml/dist/schema/yaml-1.1/binary.js
+// node_modules/yaml/dist/schema/yaml-1.1/binary.js
 var require_binary = __commonJS((exports) => {
   var node_buffer = __require("buffer");
   var Scalar = require_Scalar();
@@ -2477,7 +2485,7 @@ var require_binary = __commonJS((exports) => {
   exports.binary = binary;
 });
 
-// ../../node_modules/yaml/dist/schema/yaml-1.1/pairs.js
+// node_modules/yaml/dist/schema/yaml-1.1/pairs.js
 var require_pairs = __commonJS((exports) => {
   var identity = require_identity();
   var Pair = require_Pair();
@@ -2552,7 +2560,7 @@ ${cn.comment}` : item.comment;
   exports.resolvePairs = resolvePairs;
 });
 
-// ../../node_modules/yaml/dist/schema/yaml-1.1/omap.js
+// node_modules/yaml/dist/schema/yaml-1.1/omap.js
 var require_omap = __commonJS((exports) => {
   var identity = require_identity();
   var toJS = require_toJS();
@@ -2624,7 +2632,7 @@ var require_omap = __commonJS((exports) => {
   exports.omap = omap;
 });
 
-// ../../node_modules/yaml/dist/schema/yaml-1.1/bool.js
+// node_modules/yaml/dist/schema/yaml-1.1/bool.js
 var require_bool2 = __commonJS((exports) => {
   var Scalar = require_Scalar();
   function boolStringify({ value, source }, ctx) {
@@ -2653,7 +2661,7 @@ var require_bool2 = __commonJS((exports) => {
   exports.trueTag = trueTag;
 });
 
-// ../../node_modules/yaml/dist/schema/yaml-1.1/float.js
+// node_modules/yaml/dist/schema/yaml-1.1/float.js
 var require_float2 = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var stringifyNumber = require_stringifyNumber();
@@ -2699,7 +2707,7 @@ var require_float2 = __commonJS((exports) => {
   exports.floatNaN = floatNaN;
 });
 
-// ../../node_modules/yaml/dist/schema/yaml-1.1/int.js
+// node_modules/yaml/dist/schema/yaml-1.1/int.js
 var require_int2 = __commonJS((exports) => {
   var stringifyNumber = require_stringifyNumber();
   var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -2775,7 +2783,7 @@ var require_int2 = __commonJS((exports) => {
   exports.intOct = intOct;
 });
 
-// ../../node_modules/yaml/dist/schema/yaml-1.1/set.js
+// node_modules/yaml/dist/schema/yaml-1.1/set.js
 var require_set = __commonJS((exports) => {
   var identity = require_identity();
   var Pair = require_Pair();
@@ -2858,7 +2866,7 @@ var require_set = __commonJS((exports) => {
   exports.set = set;
 });
 
-// ../../node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
+// node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
 var require_timestamp = __commonJS((exports) => {
   var stringifyNumber = require_stringifyNumber();
   function parseSexagesimal(str, asBigInt) {
@@ -2940,7 +2948,7 @@ var require_timestamp = __commonJS((exports) => {
   exports.timestamp = timestamp;
 });
 
-// ../../node_modules/yaml/dist/schema/yaml-1.1/schema.js
+// node_modules/yaml/dist/schema/yaml-1.1/schema.js
 var require_schema3 = __commonJS((exports) => {
   var map = require_map();
   var _null = require_null();
@@ -2981,7 +2989,7 @@ var require_schema3 = __commonJS((exports) => {
   exports.schema = schema;
 });
 
-// ../../node_modules/yaml/dist/schema/tags.js
+// node_modules/yaml/dist/schema/tags.js
 var require_tags = __commonJS((exports) => {
   var map = require_map();
   var _null = require_null();
@@ -3072,7 +3080,7 @@ var require_tags = __commonJS((exports) => {
   exports.getTags = getTags;
 });
 
-// ../../node_modules/yaml/dist/schema/Schema.js
+// node_modules/yaml/dist/schema/Schema.js
 var require_Schema = __commonJS((exports) => {
   var identity = require_identity();
   var map = require_map();
@@ -3102,7 +3110,7 @@ var require_Schema = __commonJS((exports) => {
   exports.Schema = Schema;
 });
 
-// ../../node_modules/yaml/dist/stringify/stringifyDocument.js
+// node_modules/yaml/dist/stringify/stringifyDocument.js
 var require_stringifyDocument = __commonJS((exports) => {
   var identity = require_identity();
   var stringify = require_stringify();
@@ -3182,7 +3190,7 @@ var require_stringifyDocument = __commonJS((exports) => {
   exports.stringifyDocument = stringifyDocument;
 });
 
-// ../../node_modules/yaml/dist/doc/Document.js
+// node_modules/yaml/dist/doc/Document.js
 var require_Document = __commonJS((exports) => {
   var Alias = require_Alias();
   var Collection = require_Collection();
@@ -3417,7 +3425,7 @@ var require_Document = __commonJS((exports) => {
   exports.Document = Document;
 });
 
-// ../../node_modules/yaml/dist/errors.js
+// node_modules/yaml/dist/errors.js
 var require_errors = __commonJS((exports) => {
   class YAMLError extends Error {
     constructor(name, pos, code, message) {
@@ -3482,7 +3490,7 @@ ${pointer}
   exports.prettifyError = prettifyError;
 });
 
-// ../../node_modules/yaml/dist/compose/resolve-props.js
+// node_modules/yaml/dist/compose/resolve-props.js
 var require_resolve_props = __commonJS((exports) => {
   function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIndent, startOnNewline }) {
     let spaceBefore = false;
@@ -3612,7 +3620,7 @@ var require_resolve_props = __commonJS((exports) => {
   exports.resolveProps = resolveProps;
 });
 
-// ../../node_modules/yaml/dist/compose/util-contains-newline.js
+// node_modules/yaml/dist/compose/util-contains-newline.js
 var require_util_contains_newline = __commonJS((exports) => {
   function containsNewline(key) {
     if (!key)
@@ -3652,7 +3660,7 @@ var require_util_contains_newline = __commonJS((exports) => {
   exports.containsNewline = containsNewline;
 });
 
-// ../../node_modules/yaml/dist/compose/util-flow-indent-check.js
+// node_modules/yaml/dist/compose/util-flow-indent-check.js
 var require_util_flow_indent_check = __commonJS((exports) => {
   var utilContainsNewline = require_util_contains_newline();
   function flowIndentCheck(indent, fc, onError) {
@@ -3667,7 +3675,7 @@ var require_util_flow_indent_check = __commonJS((exports) => {
   exports.flowIndentCheck = flowIndentCheck;
 });
 
-// ../../node_modules/yaml/dist/compose/util-map-includes.js
+// node_modules/yaml/dist/compose/util-map-includes.js
 var require_util_map_includes = __commonJS((exports) => {
   var identity = require_identity();
   function mapIncludes(ctx, items, search) {
@@ -3680,7 +3688,7 @@ var require_util_map_includes = __commonJS((exports) => {
   exports.mapIncludes = mapIncludes;
 });
 
-// ../../node_modules/yaml/dist/compose/resolve-block-map.js
+// node_modules/yaml/dist/compose/resolve-block-map.js
 var require_resolve_block_map = __commonJS((exports) => {
   var Pair = require_Pair();
   var YAMLMap = require_YAMLMap();
@@ -3787,7 +3795,7 @@ var require_resolve_block_map = __commonJS((exports) => {
   exports.resolveBlockMap = resolveBlockMap;
 });
 
-// ../../node_modules/yaml/dist/compose/resolve-block-seq.js
+// node_modules/yaml/dist/compose/resolve-block-seq.js
 var require_resolve_block_seq = __commonJS((exports) => {
   var YAMLSeq = require_YAMLSeq();
   var resolveProps = require_resolve_props();
@@ -3835,7 +3843,7 @@ var require_resolve_block_seq = __commonJS((exports) => {
   exports.resolveBlockSeq = resolveBlockSeq;
 });
 
-// ../../node_modules/yaml/dist/compose/resolve-end.js
+// node_modules/yaml/dist/compose/resolve-end.js
 var require_resolve_end = __commonJS((exports) => {
   function resolveEnd(end, offset, reqSpace, onError) {
     let comment = "";
@@ -3875,7 +3883,7 @@ var require_resolve_end = __commonJS((exports) => {
   exports.resolveEnd = resolveEnd;
 });
 
-// ../../node_modules/yaml/dist/compose/resolve-flow-collection.js
+// node_modules/yaml/dist/compose/resolve-flow-collection.js
 var require_resolve_flow_collection = __commonJS((exports) => {
   var identity = require_identity();
   var Pair = require_Pair();
@@ -4066,7 +4074,7 @@ var require_resolve_flow_collection = __commonJS((exports) => {
   exports.resolveFlowCollection = resolveFlowCollection;
 });
 
-// ../../node_modules/yaml/dist/compose/compose-collection.js
+// node_modules/yaml/dist/compose/compose-collection.js
 var require_compose_collection = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -4128,7 +4136,7 @@ var require_compose_collection = __commonJS((exports) => {
   exports.composeCollection = composeCollection;
 });
 
-// ../../node_modules/yaml/dist/compose/resolve-block-scalar.js
+// node_modules/yaml/dist/compose/resolve-block-scalar.js
 var require_resolve_block_scalar = __commonJS((exports) => {
   var Scalar = require_Scalar();
   function resolveBlockScalar(ctx, scalar, onError) {
@@ -4321,7 +4329,7 @@ var require_resolve_block_scalar = __commonJS((exports) => {
   exports.resolveBlockScalar = resolveBlockScalar;
 });
 
-// ../../node_modules/yaml/dist/compose/resolve-flow-scalar.js
+// node_modules/yaml/dist/compose/resolve-flow-scalar.js
 var require_resolve_flow_scalar = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var resolveEnd = require_resolve_end();
@@ -4537,7 +4545,7 @@ var require_resolve_flow_scalar = __commonJS((exports) => {
   exports.resolveFlowScalar = resolveFlowScalar;
 });
 
-// ../../node_modules/yaml/dist/compose/compose-scalar.js
+// node_modules/yaml/dist/compose/compose-scalar.js
 var require_compose_scalar = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -4615,7 +4623,7 @@ var require_compose_scalar = __commonJS((exports) => {
   exports.composeScalar = composeScalar;
 });
 
-// ../../node_modules/yaml/dist/compose/util-empty-scalar-position.js
+// node_modules/yaml/dist/compose/util-empty-scalar-position.js
 var require_util_empty_scalar_position = __commonJS((exports) => {
   function emptyScalarPosition(offset, before, pos) {
     if (before) {
@@ -4642,7 +4650,7 @@ var require_util_empty_scalar_position = __commonJS((exports) => {
   exports.emptyScalarPosition = emptyScalarPosition;
 });
 
-// ../../node_modules/yaml/dist/compose/compose-node.js
+// node_modules/yaml/dist/compose/compose-node.js
 var require_compose_node = __commonJS((exports) => {
   var Alias = require_Alias();
   var identity = require_identity();
@@ -4673,17 +4681,22 @@ var require_compose_node = __commonJS((exports) => {
       case "block-map":
       case "block-seq":
       case "flow-collection":
-        node = composeCollection.composeCollection(CN, ctx, token, props, onError);
-        if (anchor)
-          node.anchor = anchor.source.substring(1);
+        try {
+          node = composeCollection.composeCollection(CN, ctx, token, props, onError);
+          if (anchor)
+            node.anchor = anchor.source.substring(1);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          onError(token, "RESOURCE_EXHAUSTION", message);
+        }
         break;
       default: {
         const message = token.type === "error" ? token.message : `Unsupported token (type: ${token.type})`;
         onError(token, "UNEXPECTED_TOKEN", message);
-        node = composeEmptyNode(ctx, token.offset, undefined, null, props, onError);
         isSrcToken = false;
       }
     }
+    node ?? (node = composeEmptyNode(ctx, token.offset, undefined, null, props, onError));
     if (anchor && node.anchor === "")
       onError(anchor, "BAD_ALIAS", "Anchor cannot be an empty string");
     if (atKey && ctx.options.stringKeys && (!identity.isScalar(node) || typeof node.value !== "string" || node.tag && node.tag !== "tag:yaml.org,2002:str")) {
@@ -4740,7 +4753,7 @@ var require_compose_node = __commonJS((exports) => {
   exports.composeNode = composeNode;
 });
 
-// ../../node_modules/yaml/dist/compose/compose-doc.js
+// node_modules/yaml/dist/compose/compose-doc.js
 var require_compose_doc = __commonJS((exports) => {
   var Document = require_Document();
   var composeNode = require_compose_node();
@@ -4780,7 +4793,7 @@ var require_compose_doc = __commonJS((exports) => {
   exports.composeDoc = composeDoc;
 });
 
-// ../../node_modules/yaml/dist/compose/composer.js
+// node_modules/yaml/dist/compose/composer.js
 var require_composer = __commonJS((exports) => {
   var node_process = __require("process");
   var directives = require_directives();
@@ -4969,7 +4982,7 @@ ${end.comment}` : end.comment;
   exports.Composer = Composer;
 });
 
-// ../../node_modules/yaml/dist/parse/cst-scalar.js
+// node_modules/yaml/dist/parse/cst-scalar.js
 var require_cst_scalar = __commonJS((exports) => {
   var resolveBlockScalar = require_resolve_block_scalar();
   var resolveFlowScalar = require_resolve_flow_scalar();
@@ -5159,7 +5172,7 @@ var require_cst_scalar = __commonJS((exports) => {
   exports.setScalarValue = setScalarValue;
 });
 
-// ../../node_modules/yaml/dist/parse/cst-stringify.js
+// node_modules/yaml/dist/parse/cst-stringify.js
 var require_cst_stringify = __commonJS((exports) => {
   var stringify = (cst) => ("type" in cst) ? stringifyToken(cst) : stringifyItem(cst);
   function stringifyToken(token) {
@@ -5217,7 +5230,7 @@ var require_cst_stringify = __commonJS((exports) => {
   exports.stringify = stringify;
 });
 
-// ../../node_modules/yaml/dist/parse/cst-visit.js
+// node_modules/yaml/dist/parse/cst-visit.js
 var require_cst_visit = __commonJS((exports) => {
   var BREAK = Symbol("break visit");
   var SKIP = Symbol("skip children");
@@ -5276,7 +5289,7 @@ var require_cst_visit = __commonJS((exports) => {
   exports.visit = visit;
 });
 
-// ../../node_modules/yaml/dist/parse/cst.js
+// node_modules/yaml/dist/parse/cst.js
 var require_cst = __commonJS((exports) => {
   var cstScalar = require_cst_scalar();
   var cstStringify = require_cst_stringify();
@@ -5377,7 +5390,7 @@ var require_cst = __commonJS((exports) => {
   exports.tokenType = tokenType;
 });
 
-// ../../node_modules/yaml/dist/parse/lexer.js
+// node_modules/yaml/dist/parse/lexer.js
 var require_lexer = __commonJS((exports) => {
   var cst = require_cst();
   function isEmpty(ch) {
@@ -5963,7 +5976,7 @@ var require_lexer = __commonJS((exports) => {
   exports.Lexer = Lexer;
 });
 
-// ../../node_modules/yaml/dist/parse/line-counter.js
+// node_modules/yaml/dist/parse/line-counter.js
 var require_line_counter = __commonJS((exports) => {
   class LineCounter {
     constructor() {
@@ -5991,7 +6004,7 @@ var require_line_counter = __commonJS((exports) => {
   exports.LineCounter = LineCounter;
 });
 
-// ../../node_modules/yaml/dist/parse/parser.js
+// node_modules/yaml/dist/parse/parser.js
 var require_parser = __commonJS((exports) => {
   var node_process = __require("process");
   var cst = require_cst();
@@ -6840,7 +6853,7 @@ var require_parser = __commonJS((exports) => {
   exports.Parser = Parser;
 });
 
-// ../../node_modules/yaml/dist/public-api.js
+// node_modules/yaml/dist/public-api.js
 var require_public_api = __commonJS((exports) => {
   var composer = require_composer();
   var Document = require_Document();
@@ -6934,7 +6947,7 @@ var require_public_api = __commonJS((exports) => {
   exports.stringify = stringify;
 });
 
-// ../../node_modules/yaml/dist/index.js
+// node_modules/yaml/dist/index.js
 var require_dist = __commonJS((exports) => {
   var composer = require_composer();
   var Document = require_Document();
@@ -9147,90 +9160,75 @@ ${cleaned}`;
   };
 }
 function buildWriteFilePreview(inv, utils) {
-  const fileList = utils.normalizeWriteArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return { toolName: "write_file", title: "Diff 审批", summary: ["参数无效。"], items: [makeMsg("", "write_file", "files 参数无效。")] };
+  const filePath = inv.args.path;
+  const content = inv.args.content;
+  if (!filePath) {
+    return { toolName: "write_file", title: "Diff 审批", summary: ["参数无效。"], items: [makeMsg("", "write_file", "path 参数无效。")] };
   }
-  const items = [];
-  let created = 0, modified = 0, unchanged = 0;
-  for (const entry of fileList) {
-    try {
-      const resolved = utils.resolveProjectPath(entry.path);
-      let existed = false, before = "";
-      if (fs3.existsSync(resolved)) {
-        before = fs3.readFileSync(resolved, "utf-8");
-        existed = true;
-      }
-      if (existed && before === entry.content) {
-        unchanged++;
-        continue;
-      }
-      const diff = buildWholeFileDiff(entry.path, before, entry.content, existed);
-      const action = existed ? "修改" : "新增";
-      items.push(diff ? makeItem(entry.path, `${entry.path} · ${action}`, diff) : makeMsg(entry.path, `${entry.path} · ${action}`, existed ? "无法显示 diff。" : "将创建空文件。"));
-      if (existed)
-        modified++;
-      else
-        created++;
-    } catch (err) {
-      items.push(makeMsg(entry.path, `${entry.path} · 错误`, err instanceof Error ? err.message : String(err)));
+  try {
+    const resolved = utils.resolveProjectPath(filePath);
+    let existed = false, before = "";
+    if (fs3.existsSync(resolved)) {
+      before = fs3.readFileSync(resolved, "utf-8");
+      existed = true;
     }
+    if (existed && before === (content ?? "")) {
+      return { toolName: "write_file", title: "Diff 审批", summary: [`目标文件：${filePath}`, "未变化"], items: [makeMsg(filePath, "write_file", "不会产生实际变更。")] };
+    }
+    const diff = buildWholeFileDiff(filePath, before, content ?? "", existed);
+    const action = existed ? "修改" : "新增";
+    const item = diff ? makeItem(filePath, `${filePath} · ${action}`, diff) : makeMsg(filePath, `${filePath} · ${action}`, existed ? "无法显示 diff。" : "将创建空文件。");
+    return { toolName: "write_file", title: "Diff 审批", summary: [`目标文件：${filePath}`, action], items: [item] };
+  } catch (err) {
+    return { toolName: "write_file", title: "Diff 审批", summary: ["错误"], items: [makeMsg(filePath, `${filePath} · 错误`, err instanceof Error ? err.message : String(err))] };
   }
-  const summary = [`共 ${fileList.length} 个文件`, `新增 ${created}，修改 ${modified}，未变化 ${unchanged}`];
-  if (items.length === 0)
-    items.push(makeMsg("", "write_file", "不会产生实际变更。"));
-  return { toolName: "write_file", title: "Diff 审批", summary, items };
 }
 function buildInsertCodePreview(inv, utils) {
-  const fileList = utils.normalizeInsertArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return { toolName: "insert_code", title: "Diff 审批", summary: ["参数无效。"], items: [makeMsg("", "insert_code", "files 参数无效。")] };
+  const a = inv.args;
+  const filePath = a.path;
+  const line = a.line;
+  const content = a.content;
+  if (!filePath || line == null) {
+    return { toolName: "insert_code", title: "Diff 审批", summary: ["参数无效。"], items: [makeMsg("", "insert_code", "path/line 参数无效。")] };
   }
-  const items = [];
-  for (const entry of fileList) {
-    try {
-      const resolved = utils.resolveProjectPath(entry.path);
-      const before = fs3.readFileSync(resolved, "utf-8");
-      const lines = before.split(`
+  try {
+    const resolved = utils.resolveProjectPath(filePath);
+    const before = fs3.readFileSync(resolved, "utf-8");
+    const lines = before.split(`
 `);
-      const insertLines = entry.content.split(`
+    const insertLines = (content ?? "").split(`
 `);
-      const idx = entry.line - 1;
-      const after = [...lines.slice(0, idx), ...insertLines, ...lines.slice(idx)].join(`
+    const idx = line - 1;
+    const after = [...lines.slice(0, idx), ...insertLines, ...lines.slice(idx)].join(`
 `);
-      const diff = buildWholeFileDiff(entry.path, before, after, true);
-      items.push(diff ? makeItem(entry.path, `${entry.path} · 第 ${entry.line} 行前插入`, diff) : makeMsg(entry.path, entry.path, "无法显示 diff。"));
-    } catch (err) {
-      items.push(makeMsg(entry.path, `${entry.path} · 错误`, err instanceof Error ? err.message : String(err)));
-    }
+    const diff = buildWholeFileDiff(filePath, before, after, true);
+    const item = diff ? makeItem(filePath, `${filePath} · 第 ${line} 行前插入`, diff) : makeMsg(filePath, filePath, "无法显示 diff。");
+    return { toolName: "insert_code", title: "Diff 审批", summary: [`目标文件：${filePath}`, `第 ${line} 行前插入`], items: [item] };
+  } catch (err) {
+    return { toolName: "insert_code", title: "Diff 审批", summary: ["错误"], items: [makeMsg(filePath, `${filePath} · 错误`, err instanceof Error ? err.message : String(err))] };
   }
-  if (items.length === 0)
-    items.push(makeMsg("", "insert_code", "无可预览的变更。"));
-  return { toolName: "insert_code", title: "Diff 审批", summary: [`共 ${fileList.length} 个操作`], items };
 }
 function buildDeleteCodePreview(inv, utils) {
-  const fileList = utils.normalizeDeleteCodeArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return { toolName: "delete_code", title: "Diff 审批", summary: ["参数无效。"], items: [makeMsg("", "delete_code", "files 参数无效。")] };
+  const a = inv.args;
+  const filePath = a.path;
+  const startLine = a.start_line;
+  const endLine = a.end_line;
+  if (!filePath || startLine == null || endLine == null) {
+    return { toolName: "delete_code", title: "Diff 审批", summary: ["参数无效。"], items: [makeMsg("", "delete_code", "path/start_line/end_line 参数无效。")] };
   }
-  const items = [];
-  for (const entry of fileList) {
-    try {
-      const resolved = utils.resolveProjectPath(entry.path);
-      const before = fs3.readFileSync(resolved, "utf-8");
-      const lines = before.split(`
+  try {
+    const resolved = utils.resolveProjectPath(filePath);
+    const before = fs3.readFileSync(resolved, "utf-8");
+    const lines = before.split(`
 `);
-      const after = [...lines.slice(0, entry.start_line - 1), ...lines.slice(entry.end_line)].join(`
+    const after = [...lines.slice(0, startLine - 1), ...lines.slice(endLine)].join(`
 `);
-      const diff = buildWholeFileDiff(entry.path, before, after, true);
-      items.push(diff ? makeItem(entry.path, `${entry.path} · 删除 L${entry.start_line}-${entry.end_line}`, diff) : makeMsg(entry.path, entry.path, "无法显示 diff。"));
-    } catch (err) {
-      items.push(makeMsg(entry.path, `${entry.path} · 错误`, err instanceof Error ? err.message : String(err)));
-    }
+    const diff = buildWholeFileDiff(filePath, before, after, true);
+    const item = diff ? makeItem(filePath, `${filePath} · 删除 L${startLine}-${endLine}`, diff) : makeMsg(filePath, filePath, "无法显示 diff。");
+    return { toolName: "delete_code", title: "Diff 审批", summary: [`目标文件：${filePath}`, `删除 L${startLine}-${endLine}`], items: [item] };
+  } catch (err) {
+    return { toolName: "delete_code", title: "Diff 审批", summary: ["错误"], items: [makeMsg(filePath, `${filePath} · 错误`, err instanceof Error ? err.message : String(err))] };
   }
-  if (items.length === 0)
-    items.push(makeMsg("", "delete_code", "无可预览的变更。"));
-  return { toolName: "delete_code", title: "Diff 审批", summary: [`共 ${fileList.length} 个操作`], items };
 }
 function buildSearchReplacePreview(inv, utils) {
   const inputPath = typeof inv.args.path === "string" ? inv.args.path : ".";
@@ -10368,17 +10366,13 @@ class WebPlatform extends PlatformAdapter {
     this.deps = deps;
     this.router = new Router;
     this.publicDir = this.resolvePublicDir();
-    let _mcpManager;
     this.agents.set("default", {
       name: "default",
       backend,
       config,
-      getMCPManager: () => _mcpManager,
-      setMCPManager: (mgr) => {
-        _mcpManager = mgr;
-      },
       dataDir: path12.dirname(config.configPath),
-      extensions: undefined
+      extensions: undefined,
+      api: deps.api
     });
     this.setupRoutes();
     this.deployToken = crypto4.randomBytes(16).toString("hex");
@@ -10400,7 +10394,7 @@ class WebPlatform extends PlatformAdapter {
     }
     return candidates[0];
   }
-  addAgent(name, backend, config, description, getMCPManager, setMCPManager, extensions) {
+  addAgent(name, backend, config, description, extensions, api) {
     if (this.defaultAgentName === "default" && this.agents.has("default") && name !== "default") {
       this.agents.delete("default");
       this.defaultAgentName = name;
@@ -10422,12 +10416,9 @@ class WebPlatform extends PlatformAdapter {
       description,
       backend,
       config: cfg,
-      getMCPManager: getMCPManager ?? (() => {
-        return;
-      }),
-      setMCPManager: setMCPManager ?? (() => {}),
       dataDir: cfg.configPath ? path12.dirname(cfg.configPath) : undefined,
-      extensions
+      extensions,
+      api
     });
   }
   setReloadHandler(handler) {
@@ -10458,20 +10449,11 @@ class WebPlatform extends PlatformAdapter {
         cleanup();
         this.backendListenerCleanups.delete(name);
       }
-      const agent = this.agents.get(name);
-      if (agent) {
-        try {
-          const mcp = agent.getMCPManager();
-          if (mcp)
-            await mcp.disconnectAll();
-        } catch {}
-      }
     };
     const bootstrapAgent = async (def) => {
       const result = await this.reloadHandler(def);
       const name = def === "__default__" ? "default" : def.name;
       const currentModel = result.router.getCurrentModelInfo();
-      let _mcpManager = result.getMCPManager();
       this.agents.set(name, {
         name,
         description: def === "__default__" ? undefined : def.description,
@@ -10483,11 +10465,7 @@ class WebPlatform extends PlatformAdapter {
           streamEnabled: result.config.system.stream,
           configPath: result.configDir
         },
-        getMCPManager: () => _mcpManager,
         dataDir: path12.dirname(result.configDir),
-        setMCPManager: (mgr) => {
-          _mcpManager = mgr;
-        },
         extensions: { llmProviders: result.extensions.llmProviders, ocrProviders: result.extensions.ocrProviders }
       });
       this.wireBackendEvents(result.backend, name);
@@ -10672,16 +10650,6 @@ class WebPlatform extends PlatformAdapter {
   async dispatchMessage(sessionId, message, images, documents, agentName) {
     const agent = agentName && this.agents.has(agentName) ? this.agents.get(agentName) : this.agents.get(this.defaultAgentName) ?? this.agents.values().next().value;
     await agent.backend.chat(sessionId, message, images, documents, "web");
-  }
-  setMCPManager(mgr, agentName) {
-    const name = agentName ?? this.defaultAgentName;
-    const agent = this.agents.get(name);
-    if (agent)
-      agent.setMCPManager(mgr);
-  }
-  getMCPManager(agentName) {
-    const name = agentName ?? this.defaultAgentName;
-    return this.agents.get(name)?.getMCPManager();
   }
   wireBackendEvents(backend, agentName) {
     const onResponse = (sid, text) => {
@@ -11009,7 +10977,7 @@ class WebPlatform extends PlatformAdapter {
         managementProtected: !!this.config.managementToken,
         platform: "web",
         contextWindow: modelInfo.contextWindow,
-        mcpStatus: agent.getMCPManager()?.getServerInfo?.() ?? [],
+        mcpStatus: agent.api?.services?.get?.("mcp.manager")?.getServerInfo?.() ?? [],
         runtime: {
           projectRoot: this.deps.projectRoot,
           dataDir: this.deps.dataDir,
@@ -11237,9 +11205,6 @@ var src_default = definePlatformFactory({
       configDir: context.configDir,
       isCompiledBinary: context.isCompiledBinary ?? false
     });
-    const mcpManager = context.getMCPManager?.();
-    if (mcpManager)
-      webPlatform.setMCPManager(mcpManager);
     return webPlatform;
   }
 });

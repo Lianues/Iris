@@ -36,14 +36,15 @@ async function createPlatformsForCore(
   const { config, configDir, router } = core;
   const platforms: PlatformAdapter[] = [];
 
+  // 只恢复第一个平台的 lastModel，避免多个平台互相覆盖全局当前模型
+  let modelRestored = false;
   for (const platformType of config.platform.types) {
     if (!core.platformRegistry.has(platformType)) {
       console.error(`[Iris] 未注册的平台类型: ${platformType}`);
       continue;
     }
 
-    // 恢复平台上次使用的模型
-    if (config.llm.rememberPlatformModel) {
+    if (!modelRestored && config.llm.rememberPlatformModel) {
       const platformSubConfig = config.platform[platformType];
       const lastModel = platformSubConfig && typeof platformSubConfig === 'object' && 'lastModel' in platformSubConfig
         ? (platformSubConfig as { lastModel?: string }).lastModel
@@ -52,6 +53,8 @@ async function createPlatformsForCore(
         try { core.backend.switchModel(lastModel); } catch { /* ignore */ }
       }
     }
+    modelRestored = true;
+
 
     const platform = await core.platformRegistry.create(platformType, {
       backend: core.backendHandle,

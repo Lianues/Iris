@@ -243,11 +243,15 @@ export class TelegramPlatform extends PlatformAdapter {
       handle.on('done', () => {
         if (!cs.stream) return;
         if (!cs.stream.committedToolIds.has(handle.id)) {
+          // [修复] 工具完成时不仅要追加到 buffer，还要触发 Telegram UI 更新
+          // 原因：之前只改了 buffer 没设 dirty/没调 editStreamMessage，导致用户看不到工具已完成
           cs.stream.committedToolIds.add(handle.id);
           const line = formatTelegramToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
           cs.stream.buffer = cs.stream.buffer
             ? `${cs.stream.buffer}\n\n${line}\n\n`
             : `${line}\n\n`;
+          cs.stream.dirty = true;
+          this.editStreamMessage(cs, cs.stream.buffer);
         }
       });
 
@@ -670,6 +674,7 @@ export class TelegramPlatform extends PlatformAdapter {
       }
 
       case 'session':
+      case 'load':
       case 'sessions': {
         if (cmd.args) {
           const index = parseInt(cmd.args, 10);

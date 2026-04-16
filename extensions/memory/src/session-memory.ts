@@ -13,6 +13,7 @@ interface SessionMemoryContext {
   api: IrisAPI;
   provider: SqliteMemory;
   sessionId: string;
+  modelName?: string;
   logger: { info(...args: unknown[]): void; warn(...args: unknown[]): void };
 }
 
@@ -45,7 +46,7 @@ export function shouldExtractSessionMemory(sessionId: string, currentTokens: num
  * 提取并保存会话笔记。
  */
 export async function extractSessionNotes(ctx: SessionMemoryContext): Promise<void> {
-  const { api, provider, sessionId, logger } = ctx;
+  const { api, provider, sessionId, modelName, logger } = ctx;
 
   // 1. 获取对话历史
   const history = await (api.storage as any).getHistory(sessionId);
@@ -80,7 +81,7 @@ export async function extractSessionNotes(ctx: SessionMemoryContext): Promise<vo
       generationConfig: {
         maxOutputTokens: 2000,
       },
-    });
+    }, modelName);
 
     const content = response.content ?? response;
     const notesText = content.parts?.filter((p: any) => p.text).map((p: any) => p.text).join('\n') ?? '';

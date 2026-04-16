@@ -101,6 +101,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private summaryConfig?: SummaryConfig;
 
   private configDir?: string;
+  private globalConfigDir?: string;
   private rememberPlatformModel: boolean;
   private toolLoop: ToolLoop;
   private toolLoopConfig: ToolLoopConfig;
@@ -188,6 +189,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.summaryConfig = config?.summaryConfig;
 
     this.configDir = config?.configDir;
+    this.globalConfigDir = config?.globalConfigDir;
     this.rememberPlatformModel = config?.rememberPlatformModel ?? true;
     if (config?.skills) {
       this.skills = config.skills;
@@ -735,7 +737,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
 
     if (platformName && this.rememberPlatformModel && this.configDir) {
       try {
-        updatePlatformLastModel(this.configDir, platformName, info.modelName);
+        updatePlatformLastModel(this.globalConfigDir ?? this.configDir, platformName, info.modelName);
       } catch (err) {
         logger.warn(`持久化平台模型失败 (${platformName}):`, err);
       }

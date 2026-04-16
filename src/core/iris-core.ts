@@ -299,6 +299,7 @@ export class IrisCore {
       summaryConfig: config.summary,
       skills: config.system.skills,
       configDir,
+      globalConfigDir: globalDir,
       rememberPlatformModel: config.llm.rememberPlatformModel,
       asyncSubAgents: asyncSubAgentsEnabled,
     }, modeRegistry);

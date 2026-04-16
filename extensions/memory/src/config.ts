@@ -6,6 +6,9 @@ export interface MemoryPluginConfig {
   enabled: boolean;
   dbPath?: string;
 
+  /** 指定记忆系统内部调用（提取/归纳/检索）使用的模型；不填则使用当前活动模型 */
+  model?: string;
+
   // Phase 2: 自动提取
   autoExtract: boolean;
   /** 每 N 轮提取一次 */
@@ -33,6 +36,7 @@ export interface MemoryPluginConfig {
 /** 默认配置 */
 export const DEFAULT_CONFIG: MemoryPluginConfig = {
   enabled: false,
+  model: undefined,
   autoExtract: true,
   extractInterval: 1,
   autoRecall: true,
@@ -59,6 +63,7 @@ export function resolveConfig(
   return {
     enabled: toBool(source.enabled, DEFAULT_CONFIG.enabled),
     dbPath: source.dbPath as string | undefined,
+    model: (source.model as string) || DEFAULT_CONFIG.model,
     autoExtract: toBool(source.autoExtract, DEFAULT_CONFIG.autoExtract),
     extractInterval: toNum(source.extractInterval, DEFAULT_CONFIG.extractInterval),
     autoRecall: toBool(source.autoRecall, DEFAULT_CONFIG.autoRecall),

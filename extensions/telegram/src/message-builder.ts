@@ -71,5 +71,7 @@ export class TelegramMessageBuilder {
 export function formatTelegramToolLine(entry: { toolName: string; status: string }): string {
   const icon = TOOL_STATUS_ICONS[entry.status] ?? '⏳';
   const label = TOOL_STATUS_LABELS[entry.status] ?? entry.status;
-  return `${icon} \`${entry.toolName}\` ${label}`;
+  // [修复] 去掉 Markdown 反引号：Telegram 消息默认纯文本模式，反引号会原样显示
+  // 改为中文尖括号包裹，既清晰又不会暴露原始标记语法
+  return `${icon} 「${entry.toolName}」 ${label}`;
 }

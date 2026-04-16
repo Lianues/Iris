@@ -47,6 +47,8 @@ function loadCharacter(dataDir, filename) {
 function loadWorldbooks(dataDir, filenames) {
   const books = [];
   for (const filename of filenames) {
+    if (!filename || !filename.trim())
+      continue;
     const filePath = path.join(dataDir, "worldbooks", filename);
     if (!fs.existsSync(filePath)) {
       throw new Error(`世界书文件不存在: ${filePath}`);
@@ -59,6 +61,8 @@ function loadWorldbooks(dataDir, filenames) {
 function loadRegexScripts(dataDir, filenames) {
   const allScripts = [];
   for (const filename of filenames) {
+    if (!filename || !filename.trim())
+      continue;
     const filePath = path.join(dataDir, "regex", filename);
     if (!fs.existsSync(filePath)) {
       throw new Error(`正则脚本文件不存在: ${filePath}`);
@@ -236,6 +240,13 @@ var src_default = definePlugin({
           return;
         try {
           const history = irisContentsToHistory(request.contents);
+          let lastUserMessage = "";
+          for (let i = history.length - 1;i >= 0; i--) {
+            if (history[i].role === "user") {
+              lastUserMessage = (history[i].parts || []).map((p) => p.text ?? "").join("");
+              break;
+            }
+          }
           const result = buildPrompt({
             preset,
             character,
@@ -245,7 +256,10 @@ var src_default = definePlugin({
             },
             history,
             view: "model",
-            macros: config.macros,
+            macros: {
+              ...config.macros,
+              lastUserMessage
+            },
             outputFormat: "gemini",
             systemRolePolicy: "keep"
           });

@@ -15,12 +15,13 @@ interface ExtractionContext {
   api: IrisAPI;
   provider: MemoryProvider;
   sessionId: string;
+  modelName?: string;
   logger: { info(...args: unknown[]): void; warn(...args: unknown[]): void };
 }
 
 /** 从最近的对话中提取记忆，返回保存/更新的条数 */
 export async function runMemoryExtraction(ctx: ExtractionContext): Promise<number> {
-  const { api, provider, sessionId, logger } = ctx;
+  const { api, provider, sessionId, modelName, logger } = ctx;
 
   // 1. 获取最近对话历史
   const history = await (api.storage as any).getHistory(sessionId);
@@ -92,7 +93,7 @@ export async function runMemoryExtraction(ctx: ExtractionContext): Promise<numbe
       systemInstruction: {
         parts: [{ text: 'You are a memory extraction agent. Analyze conversations and extract durable memories using the provided tools. Be selective — only save information that will be useful in future conversations.' }],
       },
-    });
+    }, modelName);
 
     // 7. 处理 function_call 结果
     const responseContent = response.content ?? response;

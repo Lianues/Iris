@@ -22,6 +22,8 @@ interface RetrievalContext {
   /** 非 user 类型记忆 <= 此数时跳过 LLM 选择器 */
   smallSetThreshold?: number;
   logger?: { info(...args: unknown[]): void; warn(...args: unknown[]): void };
+  /** 指定检索选择器使用的模型；不填则使用当前活动模型 */
+  modelName?: string;
 }
 
 /** user 类型记忆的字节子预算比例 */
@@ -148,7 +150,7 @@ async function selectAndFormatOtherMemories(
   } else {
     // 大集合：LLM 选择
     try {
-      selectedIds = await selectRelevantMemories(router, userText, unsurfaced);
+      selectedIds = await selectRelevantMemories(router, userText, unsurfaced, ctx.modelName);
     } catch (err) {
       logger?.warn('LLM 检索失败，降级到搜索:', err);
       const ftsResults = await provider.search(userText, 5);
@@ -171,6 +173,7 @@ async function selectRelevantMemories(
   router: any,
   userText: string,
   manifest: MemoryManifestEntry[],
+  modelName?: string,
 ): Promise<number[]> {
   const manifestText = formatManifest(manifest);
 
@@ -199,7 +202,7 @@ Respond with ONLY the JSON array, no explanation. Example: [3, 7, 12]`;
       maxOutputTokens: 100,
       temperature: 0,
     },
-  });
+  }, modelName);
 
   // 解析响应
   const content = response.content ?? response;

@@ -107,6 +107,8 @@ export interface BackendConfig {
   skills?: SkillDefinition[];
   /** 配置目录路径（用于 rememberPlatformModel 写回 platform.yaml） */
   configDir?: string;
+  /** 全局配置目录路径（用于写回全局 platform.yaml，避免 Agent 层与全局层隔离） */
+  globalConfigDir?: string;
   /** 是否记住各平台上次使用的模型 */
   rememberPlatformModel?: boolean;
   /** 是否启用异步子代理（默认 false，向后兼容） */

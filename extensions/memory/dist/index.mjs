@@ -157,7 +157,7 @@ function shouldExtractSessionMemory(sessionId, currentTokens) {
   return currentTokens - lastTokens >= UPDATE_TOKEN_DELTA;
 }
 async function extractSessionNotes(ctx) {
-  const { api, provider, sessionId, logger } = ctx;
+  const { api, provider, sessionId, modelName, logger } = ctx;
   const history = await api.storage.getHistory(sessionId);
   if (!history || history.length < 4)
     return;
@@ -187,7 +187,7 @@ async function extractSessionNotes(ctx) {
       generationConfig: {
         maxOutputTokens: 2000
       }
-    });
+    }, modelName);
     const content = response.content ?? response;
     const notesText = content.parts?.filter((p) => p.text).map((p) => p.text).join(`
 `) ?? "";
@@ -267,7 +267,7 @@ __export(exports_extract, {
   runMemoryExtraction: () => runMemoryExtraction
 });
 async function runMemoryExtraction(ctx) {
-  const { api, provider, sessionId, logger } = ctx;
+  const { api, provider, sessionId, modelName, logger } = ctx;
   const history = await api.storage.getHistory(sessionId);
   if (!history || history.length < 2)
     return 0;
@@ -328,7 +328,7 @@ async function runMemoryExtraction(ctx) {
       systemInstruction: {
         parts: [{ text: "You are a memory extraction agent. Analyze conversations and extract durable memories using the provided tools. Be selective — only save information that will be useful in future conversations." }]
       }
-    });
+    }, modelName);
     const responseContent = response.content ?? response;
     const parts = responseContent.parts ?? [];
     let savedCount = 0;
@@ -573,7 +573,7 @@ ${m.content}`;
     systemInstruction: {
       parts: [{ text: "You are a memory consolidation agent. Review and organize memories using the provided tools. Be conservative — prefer updating over deleting." }]
     }
-  });
+  }, ctx.config.model);
   const content = response.content ?? response;
   const parts = content.parts ?? [];
   let opCount = 0;
@@ -620,32 +620,39 @@ var init_consolidation = __esm(() => {
 
 // src/index.ts
 import * as path2 from "path";
-
-// ../../packages/extension-sdk/src/logger.ts
-var _logLevel = 1 /* INFO */;
+// ../../packages/extension-sdk/dist/logger.js
+var LogLevel;
+(function(LogLevel2) {
+  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
+  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
+  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
+  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
+  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
+})(LogLevel || (LogLevel = {}));
+var _logLevel = LogLevel.INFO;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= 0 /* DEBUG */)
+      if (_logLevel <= LogLevel.DEBUG)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= 1 /* INFO */)
+      if (_logLevel <= LogLevel.INFO)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= 2 /* WARN */)
+      if (_logLevel <= LogLevel.WARN)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= 3 /* ERROR */)
+      if (_logLevel <= LogLevel.ERROR)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
 
-// ../../packages/extension-sdk/src/plugin/context.ts
+// ../../packages/extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -1044,6 +1051,10 @@ var DEFAULT_CONFIG_TEMPLATE = `# 记忆插件配置
 # 是否启用记忆
 enabled: false
 
+# 指定记忆系统内部调用使用的模型（如提取、归纳、检索）。
+# 不填则默认使用当前活动模型。
+# model: gpt-4o-mini
+
 # 数据库路径（相对于数据目录，或绝对路径）
 # dbPath: ./memory.db
 
@@ -1071,6 +1082,7 @@ consolidation:
 // src/config.ts
 var DEFAULT_CONFIG = {
   enabled: false,
+  model: undefined,
   autoExtract: true,
   extractInterval: 1,
   autoRecall: true,
@@ -1089,6 +1101,7 @@ function resolveConfig(rawSection, pluginConfig) {
   return {
     enabled: toBool(source.enabled, DEFAULT_CONFIG.enabled),
     dbPath: source.dbPath,
+    model: source.model || DEFAULT_CONFIG.model,
     autoExtract: toBool(source.autoExtract, DEFAULT_CONFIG.autoExtract),
     extractInterval: toNum(source.extractInterval, DEFAULT_CONFIG.extractInterval),
     autoRecall: toBool(source.autoRecall, DEFAULT_CONFIG.autoRecall),
@@ -1299,7 +1312,7 @@ async function selectAndFormatOtherMemories(ctx, maxBytes, smallSetThreshold) {
     logger?.info(`小集合 bypass: ${unsurfaced.length} 条非 user 记忆直接注入`);
   } else {
     try {
-      selectedIds = await selectRelevantMemories(router, userText, unsurfaced);
+      selectedIds = await selectRelevantMemories(router, userText, unsurfaced, ctx.modelName);
     } catch (err) {
       logger?.warn("LLM 检索失败，降级到搜索:", err);
       const ftsResults = await provider.search(userText, 5);
@@ -1313,7 +1326,7 @@ async function selectAndFormatOtherMemories(ctx, maxBytes, smallSetThreshold) {
     return;
   return formatRelevantMemories(memories, maxBytes);
 }
-async function selectRelevantMemories(router, userText, manifest) {
+async function selectRelevantMemories(router, userText, manifest, modelName) {
   const manifestText = formatManifest(manifest);
   const prompt = `Given the user's message below, select the most relevant memories from the manifest. Return ONLY a JSON array of memory IDs (numbers), maximum 5 entries. If no memories are relevant, return an empty array [].
 
@@ -1339,7 +1352,7 @@ Respond with ONLY the JSON array, no explanation. Example: [3, 7, 12]`;
       maxOutputTokens: 100,
       temperature: 0
     }
-  });
+  }, modelName);
   const content = response.content ?? response;
   const responseText = content.parts?.map((p) => p.text).filter(Boolean).join("") ?? "";
   const match = responseText.match(/\[[\d\s,]*\]/);
@@ -1387,302 +1400,95 @@ function formatRelevantMemories(memories, maxBytes) {
 // src/index.ts
 init_session_memory();
 var logger = createPluginLogger("memory");
-var activeProvider;
-var cachedApi;
-var currentConfig;
-var autoRecallEnabled = true;
-var systemRulesPart;
-var sessionStates = new Map;
-function getSessionState(sessionId) {
-  let state = sessionStates.get(sessionId);
-  if (!state) {
-    state = {
+var agentStateMap = new Map;
+function getSessionState(state, sessionId) {
+  let ss = state.sessionStates.get(sessionId);
+  if (!ss) {
+    ss = {
       memoryInjectedThisRound: false,
       memoryWrittenThisTurn: false,
       turnsSinceLastExtract: 0,
       surfacedIds: new Set,
       bytesUsed: 0
     };
-    sessionStates.set(sessionId, state);
+    state.sessionStates.set(sessionId, ss);
   }
-  return state;
+  return ss;
 }
-var _fallbackSessionId;
-function getActiveTurnSessionId() {
-  return cachedApi?.backend?.getActiveSessionId?.() ?? _fallbackSessionId;
+function getActiveTurnSessionId(state) {
+  return state.cachedApi?.backend?.getActiveSessionId?.() ?? state.fallbackSessionId;
 }
-async function enableMemorySystem(ctx) {
-  if (!cachedApi || activeProvider)
+async function enableMemorySystem(state, ctx) {
+  if (!state.cachedApi || state.activeProvider)
     return;
   const effectiveDataDir = ctx.getDataDir();
-  const dataPath = currentConfig.dbPath ? path2.resolve(effectiveDataDir, currentConfig.dbPath) : path2.join(effectiveDataDir, "memory.db");
-  activeProvider = new MemoryStore(dataPath, logger);
-  const tools = createMemoryTools(activeProvider);
-  cachedApi.tools.registerAll(tools);
-  cachedApi.memory = Object.assign(activeProvider, {
-    dream: () => runForcedConsolidation()
+  const dataPath = state.currentConfig.dbPath ? path2.resolve(effectiveDataDir, state.currentConfig.dbPath) : path2.join(effectiveDataDir, "memory.db");
+  state.activeProvider = new MemoryStore(dataPath, logger);
+  const tools = createMemoryTools(state.activeProvider);
+  state.cachedApi.tools.registerAll(tools);
+  state.cachedApi.memory = Object.assign(state.activeProvider, {
+    dream: () => runForcedConsolidation(state)
   });
-  const hasSubAgents = !!cachedApi.tools?.get?.("sub_agent");
-  autoRecallEnabled = !hasSubAgents;
-  const count = await activeProvider.count();
-  systemRulesPart = { text: buildMemorySystemRules(count) };
-  ctx.addSystemPromptPart(systemRulesPart);
+  const hasSubAgents = !!state.cachedApi.tools?.get?.("sub_agent");
+  state.autoRecallEnabled = !hasSubAgents;
+  const count = await state.activeProvider.count();
+  state.systemRulesPart = { text: buildMemorySystemRules(count) };
+  ctx.addSystemPromptPart(state.systemRulesPart);
   logger.info(`记忆系统已启用 (${tools.length} 工具, ${count} 条记忆)`);
 }
-function disableMemorySystem(ctx) {
-  if (!cachedApi)
+function disableMemorySystem(state, ctx) {
+  if (!state.cachedApi)
     return;
   for (const name of MEMORY_TOOL_NAMES) {
-    cachedApi.tools.unregister?.(name);
+    state.cachedApi.tools.unregister?.(name);
   }
-  if (systemRulesPart) {
-    ctx.removeSystemPromptPart(systemRulesPart);
-    systemRulesPart = undefined;
+  if (state.systemRulesPart) {
+    ctx.removeSystemPromptPart(state.systemRulesPart);
+    state.systemRulesPart = undefined;
   }
-  activeProvider = undefined;
-  cachedApi.memory = undefined;
+  state.activeProvider = undefined;
+  state.cachedApi.memory = undefined;
   logger.info("记忆系统已禁用");
 }
-var src_default = definePlugin({
-  name: "memory",
-  version: "0.2.0",
-  description: "长期记忆系统 — SQLite + FTS5 全文检索 + 自动提取 + 智能检索",
-  activate(ctx) {
-    ctx.ensureConfigFile("memory.yaml", DEFAULT_CONFIG_TEMPLATE);
-    const rawConfig = ctx.readConfigSection("memory");
-    currentConfig = resolveConfig(rawConfig, undefined);
-    ctx.onReady(async (api) => {
-      cachedApi = api;
-      registerSettingsTab(api, ctx);
-      if (currentConfig.enabled) {
-        await enableMemorySystem(ctx);
-      } else {
-        logger.info("记忆系统未启用（可在 /settings → 记忆 中开启）");
-      }
-    });
-    ctx.addHook({
-      name: "memory:capture-user-text",
-      priority: 200,
-      onBeforeChat({ sessionId, text }) {
-        if (!activeProvider)
-          return;
-        _fallbackSessionId = sessionId;
-        const s = getSessionState(sessionId);
-        s.lastUserText = text;
-        s.memoryInjectedThisRound = false;
-        s.memoryWrittenThisTurn = false;
-        return;
-      }
-    });
-    ctx.addHook({
-      name: "memory:auto-recall",
-      priority: 100,
-      async onBeforeLLMCall({ request, round }) {
-        if (!activeProvider || !cachedApi)
-          return;
-        const sid = getActiveTurnSessionId();
-        if (!sid)
-          return;
-        const s = getSessionState(sid);
-        if (s.memoryInjectedThisRound)
-          return;
-        if (round > 0)
-          return;
-        s.memoryInjectedThisRound = true;
-        const sysInst = request.systemInstruction;
-        const injectedParts = [];
-        if (autoRecallEnabled && currentConfig.autoRecall && s.lastUserText) {
-          try {
-            const result = await findAndFormatRelevantMemories({
-              router: cachedApi.router,
-              provider: activeProvider,
-              userText: s.lastUserText,
-              maxBytes: currentConfig.maxContextBytes,
-              surfaced: s.surfacedIds,
-              smallSetThreshold: currentConfig.smallSetThreshold,
-              logger
-            });
-            if (result) {
-              if (s.bytesUsed + result.bytes <= currentConfig.sessionBudgetBytes) {
-                s.bytesUsed += result.bytes;
-                for (const id of result.ids)
-                  s.surfacedIds.add(id);
-                injectedParts.push(result.text);
-              }
-            }
-          } catch (err) {
-            logger.warn("查询记忆失败:", err);
-          }
-        }
-        try {
-          const { getSessionNotesForCompact: getSessionNotesForCompact2 } = await Promise.resolve().then(() => (init_session_memory(), exports_session_memory));
-          const notes = getSessionNotesForCompact2(activeProvider, sid);
-          if (notes) {
-            const notesBytes = new TextEncoder().encode(notes).length;
-            if (s.bytesUsed + notesBytes <= currentConfig.sessionBudgetBytes) {
-              s.bytesUsed += notesBytes;
-              injectedParts.push(notes);
-            }
-          }
-        } catch {}
-        if (injectedParts.length === 0)
-          return;
-        const existingParts = sysInst?.parts ? [...sysInst.parts] : [];
-        existingParts.push({ text: injectedParts.join(`
-`) });
-        return {
-          request: { ...request, systemInstruction: { parts: existingParts } }
-        };
-      }
-    });
-    ctx.addHook({
-      name: "memory:detect-write",
-      priority: 100,
-      onAfterToolExec({ toolName }) {
-        if (!activeProvider)
-          return;
-        if (toolName === "memory_add" || toolName === "memory_update" || toolName === "memory_delete") {
-          const sid = getActiveTurnSessionId();
-          if (sid && (toolName === "memory_add" || toolName === "memory_update")) {
-            getSessionState(sid).memoryWrittenThisTurn = true;
-          }
-          if (systemRulesPart) {
-            activeProvider.count().then((count) => {
-              systemRulesPart.text = buildMemorySystemRules(count);
-            });
-          }
-        }
-        return;
-      }
-    });
-    ctx.addHook({
-      name: "memory:auto-extract",
-      priority: 100,
-      async onAfterChat({ sessionId }) {
-        if (!activeProvider || !cachedApi || !currentConfig.autoExtract)
-          return;
-        const s = getSessionState(sessionId);
-        if (s.memoryWrittenThisTurn)
-          return;
-        s.turnsSinceLastExtract++;
-        if (s.turnsSinceLastExtract < currentConfig.extractInterval)
-          return;
-        s.turnsSinceLastExtract = 0;
-        runExtraction(sessionId).catch((err) => {
-          logger.warn("自动提取失败:", err);
-        });
-        return;
-      }
-    });
-    ctx.addHook({
-      name: "memory:session-clear",
-      onSessionClear({ sessionId }) {
-        sessionStates.delete(sessionId);
-        clearSessionTracking(sessionId);
-      }
-    });
-    ctx.addHook({
-      name: "memory:consolidation-check",
-      async onSessionCreate() {
-        if (!activeProvider || !cachedApi || !currentConfig.consolidation.enabled)
-          return;
-        runConsolidation2().catch((err) => {
-          logger.warn("归纳检查失败:", err);
-        });
-      }
-    });
-    ctx.addHook({
-      name: "memory:session-notes",
-      priority: 50,
-      async onAfterLLMCall({ content }) {
-        if (!activeProvider || !cachedApi)
-          return;
-        const sid = getActiveTurnSessionId();
-        if (!sid)
-          return;
-        const tokens = content.usageMetadata?.totalTokenCount;
-        if (!tokens || tokens <= 0)
-          return;
-        if (shouldExtractSessionMemory(sid, tokens)) {
-          updateTokenTracking(sid, tokens);
-          extractSessionNotes({
-            api: cachedApi,
-            provider: activeProvider,
-            sessionId: sid,
-            logger
-          }).catch((err) => {
-            logger.warn("会话笔记提取失败:", err);
-          });
-        }
-        return;
-      }
-    });
-    ctx.addHook({
-      name: "memory:config-reload",
-      async onConfigReload() {
-        if (!cachedApi)
-          return;
-        const newRaw = ctx.readConfigSection("memory");
-        const newConfig = resolveConfig(newRaw, undefined);
-        const wasEnabled = currentConfig.enabled;
-        currentConfig = newConfig;
-        if (!newConfig.enabled) {
-          if (wasEnabled)
-            disableMemorySystem(ctx);
-          return;
-        }
-        if (wasEnabled)
-          disableMemorySystem(ctx);
-        await enableMemorySystem(ctx);
-      }
-    });
-  },
-  async deactivate() {
-    activeProvider = undefined;
-    cachedApi = undefined;
-    _fallbackSessionId = undefined;
-    systemRulesPart = undefined;
-    sessionStates.clear();
-  }
-});
-async function runExtraction(sessionId) {
-  if (!cachedApi || !activeProvider)
+async function runExtraction(state, sessionId) {
+  if (!state.cachedApi || !state.activeProvider)
     return;
   const { runMemoryExtraction: runMemoryExtraction2 } = await Promise.resolve().then(() => (init_extract(), exports_extract));
   const savedCount = await runMemoryExtraction2({
-    api: cachedApi,
-    provider: activeProvider,
+    api: state.cachedApi,
+    provider: state.activeProvider,
+    modelName: state.currentConfig.model,
     sessionId,
     logger
   });
-  if (savedCount > 0 && cachedApi.eventBus) {
-    cachedApi.eventBus.emit?.("memory:updated", { count: savedCount, sessionId });
+  if (savedCount > 0 && state.cachedApi.eventBus) {
+    state.cachedApi.eventBus.emit?.("memory:updated", { count: savedCount, sessionId });
   }
 }
-async function runConsolidation2() {
-  if (!cachedApi || !activeProvider)
+async function runConsolidation2(state) {
+  if (!state.cachedApi || !state.activeProvider)
     return;
   const { maybeRunConsolidation: maybeRunConsolidation2 } = await Promise.resolve().then(() => (init_consolidation(), exports_consolidation));
   await maybeRunConsolidation2({
-    api: cachedApi,
-    provider: activeProvider,
-    config: currentConfig,
+    api: state.cachedApi,
+    provider: state.activeProvider,
+    config: state.currentConfig,
     logger
   });
 }
-async function runForcedConsolidation() {
-  if (!cachedApi || !activeProvider) {
+async function runForcedConsolidation(state) {
+  if (!state.cachedApi || !state.activeProvider) {
     return { ok: false, message: "记忆系统未就绪。", opCount: 0 };
   }
   const { forceRunConsolidation: forceRunConsolidation2 } = await Promise.resolve().then(() => (init_consolidation(), exports_consolidation));
   return await forceRunConsolidation2({
-    api: cachedApi,
-    provider: activeProvider,
-    config: currentConfig,
+    api: state.cachedApi,
+    provider: state.activeProvider,
+    config: state.currentConfig,
     logger
   });
 }
-function registerSettingsTab(api, ctx) {
+function registerSettingsTab(state, api, ctx) {
   const registerTab = api.registerConsoleSettingsTab;
   if (!registerTab)
     return;
@@ -1696,6 +1502,13 @@ function registerSettingsTab(api, ctx) {
         type: "toggle",
         defaultValue: false,
         description: "启用后 LLM 可通过工具读写跨会话长期记忆"
+      },
+      {
+        key: "model",
+        label: "内部调用模型",
+        type: "text",
+        defaultValue: "",
+        description: "指定自动提取、归纳、检索使用的模型名称；留空则使用当前活动模型"
       },
       {
         key: "autoExtract",
@@ -1750,6 +1563,7 @@ function registerSettingsTab(api, ctx) {
       const consolidation = raw.consolidation ?? {};
       return {
         enabled: raw.enabled ?? false,
+        model: raw.model || "",
         autoExtract: raw.autoExtract ?? true,
         extractInterval: raw.extractInterval ?? 1,
         autoRecall: raw.autoRecall ?? true,
@@ -1766,6 +1580,7 @@ function registerSettingsTab(api, ctx) {
           return { success: false, error: "configManager unavailable" };
         const update = {
           enabled: values.enabled,
+          model: values.model || undefined,
           autoExtract: values.autoExtract,
           extractInterval: values.extractInterval,
           autoRecall: values.autoRecall,
@@ -1786,6 +1601,224 @@ function registerSettingsTab(api, ctx) {
     }
   });
 }
+var src_default = definePlugin({
+  name: "memory",
+  version: "0.2.0",
+  description: "长期记忆系统 — SQLite + FTS5 全文检索 + 自动提取 + 智能检索",
+  activate(ctx) {
+    ctx.ensureConfigFile("memory.yaml", DEFAULT_CONFIG_TEMPLATE);
+    const rawConfig = ctx.readConfigSection("memory");
+    const initialConfig = resolveConfig(rawConfig, undefined);
+    const instanceKey = ctx.getConfigDir();
+    const state = {
+      activeProvider: undefined,
+      cachedApi: undefined,
+      currentConfig: initialConfig,
+      autoRecallEnabled: true,
+      systemRulesPart: undefined,
+      fallbackSessionId: undefined,
+      sessionStates: new Map
+    };
+    agentStateMap.set(instanceKey, state);
+    ctx.onReady(async (api) => {
+      state.cachedApi = api;
+      registerSettingsTab(state, api, ctx);
+      if (state.currentConfig.enabled) {
+        await enableMemorySystem(state, ctx);
+      } else {
+        logger.info("记忆系统未启用（可在 /settings → 记忆 中开启）");
+      }
+    });
+    ctx.addHook({
+      name: "memory:capture-user-text",
+      priority: 200,
+      onBeforeChat({ sessionId, text }) {
+        if (!state.activeProvider)
+          return;
+        state.fallbackSessionId = sessionId;
+        const s = getSessionState(state, sessionId);
+        s.lastUserText = text;
+        s.memoryInjectedThisRound = false;
+        s.memoryWrittenThisTurn = false;
+        return;
+      }
+    });
+    ctx.addHook({
+      name: "memory:auto-recall",
+      priority: 100,
+      async onBeforeLLMCall({ request, round }) {
+        if (!state.activeProvider || !state.cachedApi)
+          return;
+        const sid = getActiveTurnSessionId(state);
+        if (!sid)
+          return;
+        const s = getSessionState(state, sid);
+        if (s.memoryInjectedThisRound)
+          return;
+        if (round > 0)
+          return;
+        s.memoryInjectedThisRound = true;
+        const sysInst = request.systemInstruction;
+        const injectedParts = [];
+        if (state.autoRecallEnabled && state.currentConfig.autoRecall && s.lastUserText) {
+          try {
+            const result = await findAndFormatRelevantMemories({
+              router: state.cachedApi.router,
+              provider: state.activeProvider,
+              userText: s.lastUserText,
+              maxBytes: state.currentConfig.maxContextBytes,
+              modelName: state.currentConfig.model,
+              surfaced: s.surfacedIds,
+              smallSetThreshold: state.currentConfig.smallSetThreshold,
+              logger
+            });
+            if (result) {
+              if (s.bytesUsed + result.bytes <= state.currentConfig.sessionBudgetBytes) {
+                s.bytesUsed += result.bytes;
+                for (const id of result.ids)
+                  s.surfacedIds.add(id);
+                injectedParts.push(result.text);
+              }
+            }
+          } catch (err) {
+            logger.warn("查询记忆失败:", err);
+          }
+        }
+        try {
+          const { getSessionNotesForCompact: getSessionNotesForCompact2 } = await Promise.resolve().then(() => (init_session_memory(), exports_session_memory));
+          const notes = getSessionNotesForCompact2(state.activeProvider, sid);
+          if (notes) {
+            const notesBytes = new TextEncoder().encode(notes).length;
+            if (s.bytesUsed + notesBytes <= state.currentConfig.sessionBudgetBytes) {
+              s.bytesUsed += notesBytes;
+              injectedParts.push(notes);
+            }
+          }
+        } catch {}
+        if (injectedParts.length === 0)
+          return;
+        const existingParts = sysInst?.parts ? [...sysInst.parts] : [];
+        existingParts.push({ text: injectedParts.join(`
+`) });
+        return {
+          request: { ...request, systemInstruction: { parts: existingParts } }
+        };
+      }
+    });
+    ctx.addHook({
+      name: "memory:detect-write",
+      priority: 100,
+      onAfterToolExec({ toolName }) {
+        if (!state.activeProvider)
+          return;
+        if (toolName === "memory_add" || toolName === "memory_update" || toolName === "memory_delete") {
+          const sid = getActiveTurnSessionId(state);
+          if (sid && (toolName === "memory_add" || toolName === "memory_update")) {
+            getSessionState(state, sid).memoryWrittenThisTurn = true;
+          }
+          if (state.systemRulesPart) {
+            state.activeProvider.count().then((count) => {
+              state.systemRulesPart.text = buildMemorySystemRules(count);
+            });
+          }
+        }
+        return;
+      }
+    });
+    ctx.addHook({
+      name: "memory:auto-extract",
+      priority: 100,
+      async onAfterChat({ sessionId }) {
+        if (!state.activeProvider || !state.cachedApi || !state.currentConfig.autoExtract)
+          return;
+        const s = getSessionState(state, sessionId);
+        if (s.memoryWrittenThisTurn)
+          return;
+        s.turnsSinceLastExtract++;
+        if (s.turnsSinceLastExtract < state.currentConfig.extractInterval)
+          return;
+        s.turnsSinceLastExtract = 0;
+        runExtraction(state, sessionId).catch((err) => {
+          logger.warn("自动提取失败:", err);
+        });
+        return;
+      }
+    });
+    ctx.addHook({
+      name: "memory:session-clear",
+      onSessionClear({ sessionId }) {
+        state.sessionStates.delete(sessionId);
+        clearSessionTracking(sessionId);
+      }
+    });
+    ctx.addHook({
+      name: "memory:consolidation-check",
+      async onSessionCreate() {
+        if (!state.activeProvider || !state.cachedApi || !state.currentConfig.consolidation.enabled)
+          return;
+        runConsolidation2(state).catch((err) => {
+          logger.warn("归纳检查失败:", err);
+        });
+      }
+    });
+    ctx.addHook({
+      name: "memory:session-notes",
+      priority: 50,
+      async onAfterLLMCall({ content }) {
+        if (!state.activeProvider || !state.cachedApi)
+          return;
+        const sid = getActiveTurnSessionId(state);
+        if (!sid)
+          return;
+        const tokens = content.usageMetadata?.totalTokenCount;
+        if (!tokens || tokens <= 0)
+          return;
+        if (shouldExtractSessionMemory(sid, tokens)) {
+          updateTokenTracking(sid, tokens);
+          extractSessionNotes({
+            api: state.cachedApi,
+            provider: state.activeProvider,
+            modelName: state.currentConfig.model,
+            sessionId: sid,
+            logger
+          }).catch((err) => {
+            logger.warn("会话笔记提取失败:", err);
+          });
+        }
+        return;
+      }
+    });
+    ctx.addHook({
+      name: "memory:config-reload",
+      async onConfigReload() {
+        if (!state.cachedApi)
+          return;
+        const newRaw = ctx.readConfigSection("memory");
+        const newConfig = resolveConfig(newRaw, undefined);
+        const wasEnabled = state.currentConfig.enabled;
+        state.currentConfig = newConfig;
+        if (!newConfig.enabled) {
+          if (wasEnabled)
+            disableMemorySystem(state, ctx);
+          return;
+        }
+        if (wasEnabled)
+          disableMemorySystem(state, ctx);
+        await enableMemorySystem(state, ctx);
+      }
+    });
+  },
+  async deactivate() {
+    for (const state of agentStateMap.values()) {
+      state.activeProvider = undefined;
+      state.cachedApi = undefined;
+      state.fallbackSessionId = undefined;
+      state.systemRulesPart = undefined;
+      state.sessionStates.clear();
+    }
+    agentStateMap.clear();
+  }
+});
 export {
   src_default as default
 };

@@ -188,7 +188,7 @@ async function runConsolidation(ctx: ConsolidationContext): Promise<number> {
     systemInstruction: {
       parts: [{ text: 'You are a memory consolidation agent. Review and organize memories using the provided tools. Be conservative — prefer updating over deleting.' }],
     },
-  });
+  }, ctx.config.model);
 
   // 5. 处理工具调用
   const content = response.content ?? response;

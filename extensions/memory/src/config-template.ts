@@ -9,6 +9,10 @@ export const DEFAULT_CONFIG_TEMPLATE = `# 记忆插件配置
 # 是否启用记忆
 enabled: false
 
+# 指定记忆系统内部调用使用的模型（如提取、归纳、检索）。
+# 不填则默认使用当前活动模型。
+# model: gpt-4o-mini
+
 # 数据库路径（相对于数据目录，或绝对路径）
 # dbPath: ./memory.db
 
