@@ -126,6 +126,9 @@ export function App({
   const renderer = useRenderer();
   const undoRedoRef = useRef<UndoRedoStack>(createUndoRedoStack());
 
+  // ── 聊天滚动区域 ref（供 F6 复制模式键盘滚动使用）──
+  const chatScrollBoxRef = useRef<any>(null);
+
   // ── 消息队列 ────────────────────────────────────────────
   const messageQueue = useMessageQueue();
 
@@ -262,6 +265,8 @@ export function App({
     viewMode,
     setViewMode,
     setCopyMode,
+    copyMode,
+    chatScrollBoxRef,
     pendingConfirm,
     confirmChoice,
     setPendingConfirm,
@@ -460,6 +465,7 @@ export function App({
           timerPaused={appState.pendingApprovals.length > 0 || appState.pendingApplies.length > 0}
           thoughtsToggleSignal={thoughtsToggleSignal}
           hasActiveTools={appState.toolInvocations.some(t => t.status === 'executing' || t.status === 'queued')}
+          scrollBoxRef={chatScrollBoxRef}
         />
       ) : null}
 

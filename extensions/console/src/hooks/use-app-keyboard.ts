@@ -35,6 +35,10 @@ interface UseAppKeyboardOptions {
   viewMode: ViewMode;
   setViewMode: SetState<ViewMode>;
   setCopyMode: SetState<boolean>;
+  /** 当前是否处于 F6 复制模式 */
+  copyMode: boolean;
+  /** 聊天消息 scrollbox 的 ref，用于复制模式下的键盘滚动 */
+  chatScrollBoxRef: MutableRefObject<any>;
   pendingConfirm: PendingConfirm | null;
   confirmChoice: ConfirmChoice;
   setPendingConfirm: SetState<PendingConfirm | null>;
@@ -128,6 +132,8 @@ export function useAppKeyboard({
   viewMode,
   setViewMode,
   setCopyMode,
+  copyMode,
+  chatScrollBoxRef,
   pendingConfirm,
   confirmChoice,
   setPendingConfirm,
@@ -771,6 +777,25 @@ export function useAppKeyboard({
         modelEditActions.set(initialValue, initialValue.length);
       }
       return;
+    }
+
+    // ── F6 复制模式：拦截方向键/翻页键，手动滚动聊天消息列表 ──
+    // useMouse=false 时终端可能将鼠标滚轮转为方向键序列，
+    // 这些键会被输入框消费。此处在全局层拦截并手动滚动 scrollbox，
+    // 同时 preventDefault 阻止事件传递到输入框。
+    if (copyMode) {
+      const sb = chatScrollBoxRef?.current;
+      if (sb && (key.name === 'up' || key.name === 'down' || key.name === 'pageup' || key.name === 'pagedown')) {
+        const viewportH = sb.viewport?.height ?? 20;
+        const step = Math.max(1, Math.round(viewportH / 5));
+        if (key.name === 'up') sb.scrollTop -= step;
+        else if (key.name === 'down') sb.scrollTop += step;
+        else if (key.name === 'pageup') sb.scrollTop -= Math.max(1, Math.round(viewportH / 2));
+        else if (key.name === 'pagedown') sb.scrollTop += Math.max(1, Math.round(viewportH / 2));
+        (sb as any)._hasManualScroll = true;
+        key.preventDefault();
+        return;
+      }
     }
   });
 }
