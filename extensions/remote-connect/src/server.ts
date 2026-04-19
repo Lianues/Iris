@@ -8,6 +8,8 @@
  * 设计原则：零修改 IPCServer。所有远程访问逻辑封装在此模块中。
  */
 
+/// <reference path="./ws.d.ts" />
+
 import net from 'node:net';
 import { createLogger } from '../../../src/logger';
 import { encodeFrame, FrameDecoder } from '../../../src/ipc/framing';

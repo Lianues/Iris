@@ -6,6 +6,10 @@
     "entry": "dist/index.mjs"
   },
   "distribution": {
-    "files": [".gitignore", "dist/index.mjs", "package.json"]
+    "files": [
+      ".gitignore",
+      "dist/index.mjs",
+      "package.json"
+    ]
   }
 }

@@ -46,7 +46,7 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// src/terminal-compat.ts
+// extensions/console/src/terminal-compat.ts
 function detectTier() {
   if (process.env.WT_SESSION)
     return "full";
@@ -113,7 +113,7 @@ var init_terminal_compat = __esm(() => {
   SPINNER_FRAMES = terminalTier === "basic" ? ["|", "/", "-", "\\", "|", "/", "-", "\\", "|", "/"] : ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 });
 
-// src/remote-wizard.ts
+// extensions/console/src/remote-wizard.ts
 var exports_remote_wizard = {};
 __export(exports_remote_wizard, {
   showSavePrompt: () => showSavePrompt,
@@ -571,7 +571,7 @@ var init_remote_wizard = __esm(() => {
   };
 });
 
-// ../../src/logger/index.ts
+// src/logger/index.ts
 import { AsyncLocalStorage } from "node:async_hooks";
 
 class Logger {
@@ -615,7 +615,7 @@ var init_logger = __esm(() => {
   agentContext = new AsyncLocalStorage;
 });
 
-// ../../src/ipc/protocol.ts
+// src/ipc/protocol.ts
 var Methods, Events, BACKEND_EVENT_TO_IPC, IPC_TO_BACKEND_EVENT;
 var init_protocol = __esm(() => {
   Methods = {
@@ -718,7 +718,7 @@ var init_protocol = __esm(() => {
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// ../../node_modules/ws/lib/constants.js
+// node_modules/ws/lib/constants.js
 var require_constants = __commonJS((exports, module) => {
   var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
   var hasBlob = typeof Blob !== "undefined";
@@ -738,7 +738,7 @@ var require_constants = __commonJS((exports, module) => {
   };
 });
 
-// ../../node_modules/ws/lib/buffer-util.js
+// node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS((exports, module) => {
   var { EMPTY_BUFFER } = require_constants();
   var FastBuffer = Buffer[Symbol.species];
@@ -816,7 +816,7 @@ var require_buffer_util = __commonJS((exports, module) => {
   }
 });
 
-// ../../node_modules/ws/lib/limiter.js
+// node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS((exports, module) => {
   var kDone = Symbol("kDone");
   var kRun = Symbol("kRun");
@@ -848,7 +848,7 @@ var require_limiter = __commonJS((exports, module) => {
   module.exports = Limiter;
 });
 
-// ../../node_modules/ws/lib/permessage-deflate.js
+// node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS((exports, module) => {
   var zlib = __require("zlib");
   var bufferUtil = require_buffer_util();
@@ -864,11 +864,11 @@ var require_permessage_deflate = __commonJS((exports, module) => {
   var zlibLimiter;
 
   class PerMessageDeflate {
-    constructor(options) {
+    constructor(options, isServer, maxPayload) {
+      this._maxPayload = maxPayload | 0;
       this._options = options || {};
       this._threshold = this._options.threshold !== undefined ? this._options.threshold : 1024;
-      this._maxPayload = this._options.maxPayload | 0;
-      this._isServer = !!this._options.isServer;
+      this._isServer = !!isServer;
       this._deflate = null;
       this._inflate = null;
       this.params = null;
@@ -1112,7 +1112,7 @@ var require_permessage_deflate = __commonJS((exports, module) => {
   }
 });
 
-// ../../node_modules/ws/lib/validation.js
+// node_modules/ws/lib/validation.js
 var require_validation = __commonJS((exports, module) => {
   var { isUtf8 } = __require("buffer");
   var { hasBlob } = require_constants();
@@ -1299,7 +1299,7 @@ var require_validation = __commonJS((exports, module) => {
   }
 });
 
-// ../../node_modules/ws/lib/receiver.js
+// node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS((exports, module) => {
   var { Writable } = __require("stream");
   var PerMessageDeflate = require_permessage_deflate();
@@ -1680,7 +1680,7 @@ var require_receiver = __commonJS((exports, module) => {
   module.exports = Receiver;
 });
 
-// ../../node_modules/ws/lib/sender.js
+// node_modules/ws/lib/sender.js
 var require_sender = __commonJS((exports, module) => {
   var { Duplex } = __require("stream");
   var { randomFillSync } = __require("crypto");
@@ -2034,7 +2034,7 @@ var require_sender = __commonJS((exports, module) => {
   }
 });
 
-// ../../node_modules/ws/lib/event-target.js
+// node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS((exports, module) => {
   var { kForOnEventAttribute, kListener } = require_constants();
   var kCode = Symbol("kCode");
@@ -2185,7 +2185,7 @@ var require_event_target = __commonJS((exports, module) => {
   }
 });
 
-// ../../node_modules/ws/lib/extension.js
+// node_modules/ws/lib/extension.js
 var require_extension = __commonJS((exports, module) => {
   var { tokenChars } = require_validation();
   function push(dest, name, elem) {
@@ -2350,7 +2350,7 @@ var require_extension = __commonJS((exports, module) => {
   module.exports = { format, parse };
 });
 
-// ../../node_modules/ws/lib/websocket.js
+// node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS((exports, module) => {
   var EventEmitter = __require("events");
   var https = __require("https");
@@ -2739,7 +2739,7 @@ var require_websocket = __commonJS((exports, module) => {
     } else {
       try {
         parsedUrl = new URL2(address);
-      } catch {
+      } catch (e) {
         throw new SyntaxError(`Invalid URL: ${address}`);
       }
     }
@@ -2787,11 +2787,7 @@ var require_websocket = __commonJS((exports, module) => {
     opts.path = parsedUrl.pathname + parsedUrl.search;
     opts.timeout = opts.handshakeTimeout;
     if (opts.perMessageDeflate) {
-      perMessageDeflate = new PerMessageDeflate({
-        ...opts.perMessageDeflate,
-        isServer: false,
-        maxPayload: opts.maxPayload
-      });
+      perMessageDeflate = new PerMessageDeflate(opts.perMessageDeflate !== true ? opts.perMessageDeflate : {}, false, opts.maxPayload);
       opts.headers["Sec-WebSocket-Extensions"] = format({
         [PerMessageDeflate.extensionName]: perMessageDeflate.offer()
       });
@@ -3116,7 +3112,7 @@ var require_websocket = __commonJS((exports, module) => {
   }
 });
 
-// ../../node_modules/ws/lib/stream.js
+// node_modules/ws/lib/stream.js
 var require_stream = __commonJS((exports, module) => {
   var WebSocket2 = require_websocket();
   var { Duplex } = __require("stream");
@@ -3219,7 +3215,7 @@ var require_stream = __commonJS((exports, module) => {
   module.exports = createWebSocketStream;
 });
 
-// ../../node_modules/ws/lib/subprotocol.js
+// node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS((exports, module) => {
   var { tokenChars } = require_validation();
   function parse(header) {
@@ -3264,7 +3260,7 @@ var require_subprotocol = __commonJS((exports, module) => {
   module.exports = { parse };
 });
 
-// ../../node_modules/ws/lib/websocket-server.js
+// node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS((exports, module) => {
   var EventEmitter = __require("events");
   var http = __require("http");
@@ -3437,11 +3433,7 @@ var require_websocket_server = __commonJS((exports, module) => {
       const secWebSocketExtensions = req.headers["sec-websocket-extensions"];
       const extensions = {};
       if (this.options.perMessageDeflate && secWebSocketExtensions !== undefined) {
-        const perMessageDeflate = new PerMessageDeflate({
-          ...this.options.perMessageDeflate,
-          isServer: true,
-          maxPayload: this.options.maxPayload
-        });
+        const perMessageDeflate = new PerMessageDeflate(this.options.perMessageDeflate, true, this.options.maxPayload);
         try {
           const offers = extension.parse(secWebSocketExtensions);
           if (offers[PerMessageDeflate.extensionName]) {
@@ -3570,33 +3562,27 @@ var require_websocket_server = __commonJS((exports, module) => {
   }
 });
 
-// ../../node_modules/ws/wrapper.mjs
+// node_modules/ws/wrapper.mjs
 var exports_wrapper = {};
 __export(exports_wrapper, {
-  subprotocol: () => import_subprotocol.default,
-  extension: () => import_extension.default,
   default: () => wrapper_default,
   createWebSocketStream: () => import_stream.default,
   WebSocketServer: () => import_websocket_server.default,
   WebSocket: () => import_websocket.default,
   Sender: () => import_sender.default,
-  Receiver: () => import_receiver.default,
-  PerMessageDeflate: () => import_permessage_deflate.default
+  Receiver: () => import_receiver.default
 });
-var import_stream, import_extension, import_permessage_deflate, import_receiver, import_sender, import_subprotocol, import_websocket, import_websocket_server, wrapper_default;
+var import_stream, import_receiver, import_sender, import_websocket, import_websocket_server, wrapper_default;
 var init_wrapper = __esm(() => {
   import_stream = __toESM(require_stream(), 1);
-  import_extension = __toESM(require_extension(), 1);
-  import_permessage_deflate = __toESM(require_permessage_deflate(), 1);
   import_receiver = __toESM(require_receiver(), 1);
   import_sender = __toESM(require_sender(), 1);
-  import_subprotocol = __toESM(require_subprotocol(), 1);
   import_websocket = __toESM(require_websocket(), 1);
   import_websocket_server = __toESM(require_websocket_server(), 1);
   wrapper_default = import_websocket.default;
 });
 
-// ../remote-connect/src/client.ts
+// extensions/remote-connect/src/client.ts
 var exports_client = {};
 __export(exports_client, {
   WsIPCClient: () => WsIPCClient
@@ -4034,7 +4020,7 @@ var init_client = __esm(() => {
   };
 });
 
-// ../remote-connect/src/discovery.ts
+// extensions/remote-connect/src/discovery.ts
 var exports_discovery = {};
 __export(exports_discovery, {
   discoverLanInstances: () => discoverLanInstances,
@@ -4197,12 +4183,12 @@ var init_discovery = __esm(() => {
   isWindows = process.platform === "win32";
 });
 
-// src/index.ts
-import React10 from "react";
+// extensions/console/src/index.ts
+import React11 from "react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// ../../packages/extension-sdk/dist/platform.js
+// extensions/console/node_modules/irises-extension-sdk/src/platform.ts
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -4328,17 +4314,7 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// ../../packages/extension-sdk/dist/logger.js
-var LogLevel;
-(function(LogLevel2) {
-  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
-  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
-  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
-  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
-  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
-})(LogLevel || (LogLevel = {}));
-var _logLevel = LogLevel.INFO;
-// node_modules/tokenx/dist/index.mjs
+// extensions/console/node_modules/tokenx/dist/index.mjs
 var PATTERNS = {
   whitespace: /^\s+$/,
   cjk: /[\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uFF00-\uFFEF\u30A0-\u30FF\u2E80-\u2EFF\u31C0-\u31EF\u3200-\u32FF\u3300-\u33FF\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]/,
@@ -4400,11 +4376,11 @@ function getCharacterCount(text) {
   return Array.from(text).length;
 }
 
-// src/App.tsx
+// extensions/console/src/App.tsx
 import { useCallback as useCallback11, useEffect as useEffect11, useRef as useRef9, useState as useState14 } from "react";
 import { useRenderer } from "@opentui/react";
 
-// src/theme.ts
+// extensions/console/src/theme.ts
 var C = {
   primary: "#6c5ce7",
   primaryLight: "#a29bfe",
@@ -4435,7 +4411,7 @@ var C = {
   command: "#00cec9"
 };
 
-// src/components/ApprovalBar.tsx
+// extensions/console/src/components/ApprovalBar.tsx
 init_terminal_compat();
 import { jsxDEV, Fragment } from "@opentui/react/jsx-dev-runtime";
 function ApprovalBar({ toolName, choice, remainingCount, isCommandTool, approvalPage = "basic" }) {
@@ -4514,7 +4490,7 @@ function ApprovalBar({ toolName, choice, remainingCount, isCommandTool, approval
   }, undefined, false, undefined, this);
 }
 
-// src/components/ConfirmBar.tsx
+// extensions/console/src/components/ConfirmBar.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV2 } from "@opentui/react/jsx-dev-runtime";
 function ConfirmBar({ message, choice }) {
@@ -4567,7 +4543,7 @@ function ConfirmBar({ message, choice }) {
   }, undefined, true, undefined, this);
 }
 
-// src/text-layout.ts
+// extensions/console/src/text-layout.ts
 var IS_CJK_LOCALE = (() => {
   const lang = (process.env.LANG || process.env.LC_ALL || process.env.LC_CTYPE || "").toLowerCase();
   return /^(zh|ja|ko|zh_|ja_|ko_)/.test(lang) || lang.includes(".gb") || lang.includes(".euc") || lang.includes(".big5") || lang.includes(".shift");
@@ -4600,7 +4576,7 @@ function getTextWidth(text) {
   return splitGraphemes(text).reduce((total, grapheme) => total + getGraphemeWidth(grapheme), 0);
 }
 
-// src/components/HintBar.tsx
+// extensions/console/src/components/HintBar.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV3, Fragment as Fragment2 } from "@opentui/react/jsx-dev-runtime";
 function truncatePath(fullPath, maxWidth) {
@@ -4714,11 +4690,11 @@ function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, remoteHo
   }, undefined, true, undefined, this);
 }
 
-// src/components/InputBar.tsx
+// extensions/console/src/components/InputBar.tsx
 import { useEffect as useEffect3, useMemo, useRef as useRef2, useState as useState3 } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 
-// src/input-commands.ts
+// extensions/console/src/input-commands.ts
 var COMMANDS = [
   { name: "/new", description: "新建对话" },
   { name: "/load", description: "加载历史对话" },
@@ -4747,7 +4723,7 @@ function isExactCommandValue(value, cmd) {
   return value === cmd.name || value === getCommandInput(cmd);
 }
 
-// src/hooks/use-text-input.ts
+// extensions/console/src/hooks/use-text-input.ts
 import { useState, useCallback } from "react";
 function wordBoundaryLeft(text, pos) {
   if (pos <= 0)
@@ -4846,7 +4822,7 @@ function useTextInput(initialValue = "") {
   return [state, { handleKey, insert, setValue, set }];
 }
 
-// src/hooks/use-cursor-blink.ts
+// extensions/console/src/hooks/use-cursor-blink.ts
 import { useState as useState2, useEffect } from "react";
 function useCursorBlink(intervalMs = 530) {
   const [visible, setVisible] = useState2(true);
@@ -4859,7 +4835,7 @@ function useCursorBlink(intervalMs = 530) {
   return visible;
 }
 
-// src/hooks/use-paste.ts
+// extensions/console/src/hooks/use-paste.ts
 import { useEffect as useEffect2, useCallback as useCallback2, useLayoutEffect, useRef } from "react";
 import { decodePasteBytes } from "@opentui/core";
 import { useAppContext } from "@opentui/react";
@@ -4880,7 +4856,7 @@ function usePaste(handler) {
   }, [keyHandler, stableHandler]);
 }
 
-// src/components/InputDisplay.tsx
+// extensions/console/src/components/InputDisplay.tsx
 import { jsxDEV as jsxDEV4, Fragment as Fragment3 } from "@opentui/react/jsx-dev-runtime";
 function InputDisplay({ value, cursor, availableWidth, isActive, cursorVisible, placeholder, transform }) {
   const display = transform ? transform(value) : value;
@@ -4976,7 +4952,7 @@ function InputDisplay({ value, cursor, availableWidth, isActive, cursorVisible, 
   }, undefined, true, undefined, this);
 }
 
-// src/components/InputBar.tsx
+// extensions/console/src/components/InputBar.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV5 } from "@opentui/react/jsx-dev-runtime";
 function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, isRemote }) {
@@ -5228,7 +5204,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
   }, undefined, true, undefined, this);
 }
 
-// src/components/StatusBar.tsx
+// extensions/console/src/components/StatusBar.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV6, Fragment as Fragment4 } from "@opentui/react/jsx-dev-runtime";
 function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, remoteHost, backgroundTaskCount, delegateTaskCount, backgroundTaskTokens, backgroundTaskSpinnerFrame }) {
@@ -5383,7 +5359,7 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
   }, undefined, true, undefined, this);
 }
 
-// src/components/ThinkingIndicator.tsx
+// extensions/console/src/components/ThinkingIndicator.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV7 } from "@opentui/react/jsx-dev-runtime";
 var BLOCK_COUNT = 4;
@@ -5443,7 +5419,7 @@ function ThinkingIndicator({ level, showHint, isRemote }) {
   }, undefined, true, undefined, this);
 }
 
-// src/components/BottomPanel.tsx
+// extensions/console/src/components/BottomPanel.tsx
 import { jsxDEV as jsxDEV8 } from "@opentui/react/jsx-dev-runtime";
 function BottomPanel({
   hasMessages,
@@ -5537,7 +5513,7 @@ function BottomPanel({
   }, undefined, true, undefined, this);
 }
 
-// src/components/AgentListView.tsx
+// extensions/console/src/components/AgentListView.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV9 } from "@opentui/react/jsx-dev-runtime";
 function AgentListView({ agents, selectedIndex, currentAgentName }) {
@@ -5612,10 +5588,14 @@ function AgentListView({ agents, selectedIndex, currentAgentName }) {
   }, undefined, true, undefined, this);
 }
 
-// src/components/GeneratingTimer.tsx
+// extensions/console/src/components/ChatMessageList.tsx
+import { useMemo as useMemo3 } from "react";
+import { useTerminalDimensions as useTerminalDimensions3 } from "@opentui/react";
+
+// extensions/console/src/components/GeneratingTimer.tsx
 import { useState as useState5, useEffect as useEffect5, useRef as useRef4 } from "react";
 
-// src/components/Spinner.tsx
+// extensions/console/src/components/Spinner.tsx
 import { useState as useState4, useEffect as useEffect4, useRef as useRef3 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV10 } from "@opentui/react/jsx-dev-runtime";
@@ -5640,7 +5620,7 @@ function Spinner() {
   }, undefined, false, undefined, this);
 }
 
-// src/components/GeneratingTimer.tsx
+// extensions/console/src/components/GeneratingTimer.tsx
 import { jsxDEV as jsxDEV11 } from "@opentui/react/jsx-dev-runtime";
 function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
   const [time, setTime] = useState5(0);
@@ -5708,11 +5688,11 @@ function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
   }, undefined, true, undefined, this);
 }
 
-// src/components/MessageItem.tsx
+// extensions/console/src/components/MessageItem.tsx
 import React5, { useEffect as useEffect6, useRef as useRef5, useState as useState6 } from "react";
 import { useTerminalDimensions as useTerminalDimensions2 } from "@opentui/react";
 
-// src/components/MarkdownText.tsx
+// extensions/console/src/components/MarkdownText.tsx
 import { useMemo as useMemo2 } from "react";
 import { SyntaxStyle, parseColor } from "@opentui/core";
 import { jsxDEV as jsxDEV12 } from "@opentui/react/jsx-dev-runtime";
@@ -5774,7 +5754,7 @@ function MarkdownText({ text, showCursor }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/default.tsx
+// extensions/console/src/tool-renderers/default.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV13 } from "@opentui/react/jsx-dev-runtime";
 function DefaultRenderer({ result }) {
@@ -5793,7 +5773,7 @@ function DefaultRenderer({ result }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/shell.tsx
+// extensions/console/src/tool-renderers/shell.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV14 } from "@opentui/react/jsx-dev-runtime";
 function lineCount(text) {
@@ -5849,7 +5829,7 @@ function ShellRenderer({ result }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/read-file.tsx
+// extensions/console/src/tool-renderers/read-file.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV15 } from "@opentui/react/jsx-dev-runtime";
 function basename(p) {
@@ -5906,7 +5886,7 @@ function ReadFileRenderer({ result }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/apply-diff.tsx
+// extensions/console/src/tool-renderers/apply-diff.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV16 } from "@opentui/react/jsx-dev-runtime";
 function countPatchLines(patch) {
@@ -5963,7 +5943,7 @@ function ApplyDiffRenderer({ args, result }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/search-in-files.tsx
+// extensions/console/src/tool-renderers/search-in-files.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV17 } from "@opentui/react/jsx-dev-runtime";
 function truncStr(s, max) {
@@ -6018,7 +5998,7 @@ function SearchInFilesRenderer({ args, result }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/find-files.tsx
+// extensions/console/src/tool-renderers/find-files.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV18 } from "@opentui/react/jsx-dev-runtime";
 function FindFilesRenderer({ result }) {
@@ -6039,7 +6019,7 @@ function FindFilesRenderer({ result }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/list-files.tsx
+// extensions/console/src/tool-renderers/list-files.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV19 } from "@opentui/react/jsx-dev-runtime";
 function ListFilesRenderer({ result }) {
@@ -6065,7 +6045,7 @@ function ListFilesRenderer({ result }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/write-file.tsx
+// extensions/console/src/tool-renderers/write-file.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV20 } from "@opentui/react/jsx-dev-runtime";
 function countLines(content) {
@@ -6123,7 +6103,7 @@ function WriteFileRenderer({ args, result }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/delete-code.tsx
+// extensions/console/src/tool-renderers/delete-code.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV21 } from "@opentui/react/jsx-dev-runtime";
 function DeleteCodeRenderer({ result }) {
@@ -6176,7 +6156,7 @@ function DeleteCodeRenderer({ result }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/insert-code.tsx
+// extensions/console/src/tool-renderers/insert-code.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV22 } from "@opentui/react/jsx-dev-runtime";
 function InsertCodeRenderer({ result }) {
@@ -6230,7 +6210,7 @@ function InsertCodeRenderer({ result }) {
   }, undefined, false, undefined, this);
 }
 
-// src/tool-renderers/index.ts
+// extensions/console/src/tool-renderers/index.ts
 var renderers = {
   shell: ShellRenderer,
   bash: ShellRenderer,
@@ -6251,7 +6231,7 @@ function getToolDetailRenderer(toolName) {
   return detailRenderers[toolName] ?? null;
 }
 
-// src/components/ToolCall.tsx
+// extensions/console/src/components/ToolCall.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV23 } from "@opentui/react/jsx-dev-runtime";
 var TERMINAL_STATUSES = new Set(["success", "warning", "error"]);
@@ -6457,7 +6437,7 @@ function ToolCall({ invocation }) {
   }, undefined, true, undefined, this);
 }
 
-// src/components/MessageItem.tsx
+// extensions/console/src/components/MessageItem.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV24 } from "@opentui/react/jsx-dev-runtime";
 function truncateRight(line, maxChars) {
@@ -6851,7 +6831,7 @@ var MessageItem = React5.memo(function MessageItem2({ msg, liveTools, liveParts,
   }, undefined, true, undefined, this);
 });
 
-// src/components/ChatMessageList.tsx
+// extensions/console/src/components/ChatMessageList.tsx
 import { jsxDEV as jsxDEV25 } from "@opentui/react/jsx-dev-runtime";
 function ChatMessageList({
   messages,
@@ -6863,8 +6843,15 @@ function ChatMessageList({
   generatingLabel,
   timerPaused,
   thoughtsToggleSignal,
-  hasActiveTools
+  hasActiveTools,
+  scrollBoxRef
 }) {
+  const { height: termHeight } = useTerminalDimensions3();
+  const scrollAccel = useMemo3(() => {
+    const chatViewportHeight = Math.max(5, termHeight - 8);
+    const step = Math.max(1, Math.round(chatViewportHeight / 5));
+    return { tick: () => step, reset: () => {} };
+  }, [termHeight]);
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const lastIsActiveAssistant = lastMessage?.role === "assistant" && (isStreaming || isGenerating && lastMessage.parts.length === 0);
   let lastAssistantIndex = -1;
@@ -6875,10 +6862,12 @@ function ChatMessageList({
     }
   }
   return /* @__PURE__ */ jsxDEV25("scrollbox", {
+    ref: scrollBoxRef,
     flexGrow: 1,
     stickyScroll: true,
     stickyStart: "bottom",
     paddingRight: 1,
+    scrollAcceleration: scrollAccel,
     children: [
       messages.map((message, index) => {
         const isLastActive = lastIsActiveAssistant && index === messages.length - 1;
@@ -6930,12 +6919,12 @@ function ChatMessageList({
   }, undefined, true, undefined, this);
 }
 
-// src/components/DiffApprovalView.tsx
-import { useMemo as useMemo3 } from "react";
+// extensions/console/src/components/DiffApprovalView.tsx
+import { useMemo as useMemo4 } from "react";
 import * as fs2 from "fs";
 import * as path2 from "path";
 
-// ../../packages/extension-sdk/dist/tool-utils.js
+// extensions/console/node_modules/irises-extension-sdk/src/tool-utils.ts
 import * as fs from "node:fs";
 import * as path from "node:path";
 function normalizeLineEndings(text) {
@@ -7256,7 +7245,7 @@ function normalizeDeleteCodeArgs(args) {
   });
 }
 
-// src/components/DiffApprovalView.tsx
+// extensions/console/src/components/DiffApprovalView.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV26 } from "@opentui/react/jsx-dev-runtime";
 var DEFAULT_SEARCH_PATTERN = "**/*";
@@ -7642,7 +7631,7 @@ function buildPreview(invocation) {
   };
 }
 function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumbers, wrapMode, previewIndex = 0 }) {
-  const preview = useMemo3(() => buildPreview(invocation), [invocation]);
+  const preview = useMemo4(() => buildPreview(invocation), [invocation]);
   const normalizedPreviewIndex = preview.items.length > 0 ? (previewIndex % preview.items.length + preview.items.length) % preview.items.length : 0;
   const currentItem = preview.items[normalizedPreviewIndex];
   return /* @__PURE__ */ jsxDEV26("box", {
@@ -7783,7 +7772,7 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
   }, undefined, true, undefined, this);
 }
 
-// src/components/InitWarnings.tsx
+// extensions/console/src/components/InitWarnings.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV27 } from "@opentui/react/jsx-dev-runtime";
 var MAX_VISIBLE_LINES = 3;
@@ -7818,7 +7807,7 @@ function InitWarnings({ warnings, color, icon }) {
   }, undefined, false, undefined, this);
 }
 
-// src/components/LogoScreen.tsx
+// extensions/console/src/components/LogoScreen.tsx
 import { jsxDEV as jsxDEV28 } from "@opentui/react/jsx-dev-runtime";
 function LogoScreen() {
   return /* @__PURE__ */ jsxDEV28("box", {
@@ -7863,7 +7852,7 @@ function LogoScreen() {
   }, undefined, false, undefined, this);
 }
 
-// src/components/ToolDetailView.tsx
+// extensions/console/src/components/ToolDetailView.tsx
 import { useState as useState7, useCallback as useCallback3 } from "react";
 import { useKeyboard as useKeyboard2 } from "@opentui/react";
 init_terminal_compat();
@@ -8378,7 +8367,7 @@ function FooterBar({ isFinal, hasAbort, hasChildren }) {
   }, undefined, false, undefined, this);
 }
 
-// src/components/ModelListView.tsx
+// extensions/console/src/components/ModelListView.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV30, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
 function formatContextWindow(tokens) {
@@ -8621,7 +8610,7 @@ function ModelListView({
   }, undefined, true, undefined, this);
 }
 
-// src/components/QueueListView.tsx
+// extensions/console/src/components/QueueListView.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV31 } from "@opentui/react/jsx-dev-runtime";
 function formatQueueTime(timestamp) {
@@ -8769,7 +8758,7 @@ function QueueListView({ queue, selectedIndex, editingId, editingValue, editingC
   }, undefined, true, undefined, this);
 }
 
-// src/components/ToolListView.tsx
+// extensions/console/src/components/ToolListView.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV32 } from "@opentui/react/jsx-dev-runtime";
 var STATUS_ICON2 = {
@@ -8938,7 +8927,7 @@ function ToolListView({ tools, selectedIndex }) {
   }, undefined, true, undefined, this);
 }
 
-// src/components/SessionListView.tsx
+// extensions/console/src/components/SessionListView.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV33 } from "@opentui/react/jsx-dev-runtime";
 function SessionListView({ sessions, selectedIndex }) {
@@ -9007,7 +8996,7 @@ function SessionListView({ sessions, selectedIndex }) {
   }, undefined, true, undefined, this);
 }
 
-// src/components/MemoryListView.tsx
+// extensions/console/src/components/MemoryListView.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV34 } from "@opentui/react/jsx-dev-runtime";
 var TYPE_LABELS = {
@@ -9143,7 +9132,7 @@ function formatAge(unixSec) {
   return new Date(unixSec * 1000).toLocaleDateString("zh-CN");
 }
 
-// src/components/ExtensionListView.tsx
+// extensions/console/src/components/ExtensionListView.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV35 } from "@opentui/react/jsx-dev-runtime";
 var STATUS_LABELS = {
@@ -9245,12 +9234,12 @@ function ExtensionListView({
   }, undefined, true, undefined, this);
 }
 
-// src/components/SettingsView.tsx
-import { useCallback as useCallback4, useEffect as useEffect7, useMemo as useMemo4, useState as useState8 } from "react";
-import { useKeyboard as useKeyboard3, useTerminalDimensions as useTerminalDimensions3 } from "@opentui/react";
+// extensions/console/src/components/SettingsView.tsx
+import { useCallback as useCallback4, useEffect as useEffect7, useMemo as useMemo5, useState as useState8 } from "react";
+import { useKeyboard as useKeyboard3, useTerminalDimensions as useTerminalDimensions4 } from "@opentui/react";
 init_terminal_compat();
 
-// src/diff-approval.ts
+// extensions/console/src/diff-approval.ts
 var CONSOLE_DIFF_APPROVAL_VIEW_TOOLS = new Set([
   "apply_diff",
   "write_file",
@@ -9278,7 +9267,7 @@ function getConsoleDiffApprovalViewDescription(toolName) {
   }
 }
 
-// src/settings.ts
+// extensions/console/src/settings.ts
 var CONSOLE_LLM_PROVIDER_OPTIONS = [
   "gemini",
   "openai-compatible",
@@ -9630,7 +9619,7 @@ class ConsoleSettingsController {
   }
 }
 
-// src/components/SettingsView.tsx
+// extensions/console/src/components/SettingsView.tsx
 import { jsxDEV as jsxDEV36 } from "@opentui/react/jsx-dev-runtime";
 function getToolPolicyMode(configured, autoApprove) {
   if (!configured)
@@ -9821,7 +9810,7 @@ var BUILTIN_SECTIONS = [
   { id: "mcp", label: "MCP 服务", icon: "03" }
 ];
 function SettingsView({ initialSection = "general", onBack, onLoad, onSave, pluginTabs }) {
-  const { width: termWidth, height: termHeight } = useTerminalDimensions3();
+  const { width: termWidth, height: termHeight } = useTerminalDimensions4();
   const [loading, setLoading] = useState8(true);
   const [saving, setSaving] = useState8(false);
   const [draft, setDraft] = useState8(null);
@@ -9834,7 +9823,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
   const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState8(false);
   const [pluginDraft, setPluginDraft] = useState8({});
   const [pluginBaseline, setPluginBaseline] = useState8({});
-  const sections = useMemo4(() => {
+  const sections = useMemo5(() => {
     const pluginSections = (pluginTabs ?? []).map((tab, i) => ({
       id: tab.id,
       label: tab.label,
@@ -9846,12 +9835,12 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
     setStatusText(text);
     setStatusKind(kind);
   }, []);
-  const isDirty = useMemo4(() => {
+  const isDirty = useMemo5(() => {
     const builtinDirty = getEditableFingerprint(draft) !== getEditableFingerprint(baseline);
     const pluginDirty = JSON.stringify(pluginDraft) !== JSON.stringify(pluginBaseline);
     return builtinDirty || pluginDirty;
   }, [draft, baseline, pluginDraft, pluginBaseline]);
-  const rows = useMemo4(() => {
+  const rows = useMemo5(() => {
     if (!draft)
       return [];
     const builtinRows = buildRows(draft, termWidth);
@@ -9904,15 +9893,15 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
     }
     return builtinRows;
   }, [draft, termWidth, pluginTabs, pluginDraft]);
-  const selectableRows = useMemo4(() => rows.filter((row) => row.target), [rows]);
-  const selectedRow = useMemo4(() => rows.find((row) => row.id === selectedRowId), [rows, selectedRowId]);
-  const currentSection = useMemo4(() => selectedRow?.section ?? initialSection, [selectedRow, initialSection]);
-  const sectionRows = useMemo4(() => rows.filter((r) => r.section === currentSection && r.kind !== "section"), [rows, currentSection]);
-  const selectedSelectableIndex = useMemo4(() => {
+  const selectableRows = useMemo5(() => rows.filter((row) => row.target), [rows]);
+  const selectedRow = useMemo5(() => rows.find((row) => row.id === selectedRowId), [rows, selectedRowId]);
+  const currentSection = useMemo5(() => selectedRow?.section ?? initialSection, [selectedRow, initialSection]);
+  const sectionRows = useMemo5(() => rows.filter((r) => r.section === currentSection && r.kind !== "section"), [rows, currentSection]);
+  const selectedSelectableIndex = useMemo5(() => {
     return selectableRows.findIndex((row) => row.id === selectedRowId);
   }, [selectableRows, selectedRowId]);
-  const sectionSelectableRows = useMemo4(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
-  const selectedSectionIndex = useMemo4(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
+  const sectionSelectableRows = useMemo5(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
+  const selectedSectionIndex = useMemo5(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
   useEffect7(() => {
     let cancelled = false;
     const load = async () => {
@@ -10663,10 +10652,10 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
   }, undefined, true, undefined, this);
 }
 
-// src/hooks/use-app-handle.ts
+// extensions/console/src/hooks/use-app-handle.ts
 import { useCallback as useCallback5, useEffect as useEffect8, useRef as useRef6, useState as useState9 } from "react";
 
-// src/message-utils.ts
+// extensions/console/src/message-utils.ts
 var msgIdCounter = 0;
 function nextMsgId() {
   return `msg-${++msgIdCounter}`;
@@ -10749,7 +10738,7 @@ function appendCommandMessage(setMessages, text, options) {
   ]);
 }
 
-// src/undo-redo.ts
+// extensions/console/src/undo-redo.ts
 var MAX_STACK_SIZE = 200;
 function createUndoRedoStack() {
   return { redoStack: [] };
@@ -10776,7 +10765,7 @@ function clearRedo(stack) {
   stack.redoStack.length = 0;
 }
 
-// src/hooks/use-app-handle.ts
+// extensions/console/src/hooks/use-app-handle.ts
 function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
   const [messages, setMessages] = useState9([]);
   const [streamingParts, setStreamingParts] = useState9([]);
@@ -11123,7 +11112,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef }) {
   };
 }
 
-// src/hooks/use-app-keyboard.ts
+// extensions/console/src/hooks/use-app-keyboard.ts
 import { useKeyboard as useKeyboard4 } from "@opentui/react";
 function closeConfirm(setPendingConfirm, setConfirmChoice) {
   setPendingConfirm(null);
@@ -11133,6 +11122,8 @@ function useAppKeyboard({
   viewMode,
   setViewMode,
   setCopyMode,
+  copyMode,
+  chatScrollBoxRef,
   pendingConfirm,
   confirmChoice,
   setPendingConfirm,
@@ -11719,10 +11710,28 @@ function useAppKeyboard({
       }
       return;
     }
+    if (copyMode) {
+      const sb = chatScrollBoxRef?.current;
+      if (sb && (key.name === "up" || key.name === "down" || key.name === "pageup" || key.name === "pagedown")) {
+        const viewportH = sb.viewport?.height ?? 20;
+        const step = Math.max(1, Math.round(viewportH / 5));
+        if (key.name === "up")
+          sb.scrollTop -= step;
+        else if (key.name === "down")
+          sb.scrollTop += step;
+        else if (key.name === "pageup")
+          sb.scrollTop -= Math.max(1, Math.round(viewportH / 2));
+        else if (key.name === "pagedown")
+          sb.scrollTop += Math.max(1, Math.round(viewportH / 2));
+        sb._hasManualScroll = true;
+        key.preventDefault();
+        return;
+      }
+    }
   });
 }
 
-// src/hooks/use-approval.ts
+// extensions/console/src/hooks/use-approval.ts
 import { useCallback as useCallback6, useEffect as useEffect9, useState as useState10 } from "react";
 function useApproval(pendingApprovals, pendingApplies) {
   const [approvalChoice, setApprovalChoice] = useState10("approve");
@@ -11778,7 +11787,7 @@ function useApproval(pendingApprovals, pendingApplies) {
   };
 }
 
-// src/hooks/use-command-dispatch.ts
+// extensions/console/src/hooks/use-command-dispatch.ts
 import { useCallback as useCallback7 } from "react";
 function resetRedo(undoRedoRef, onClearRedoStack) {
   clearRedo(undoRedoRef.current);
@@ -12095,7 +12104,7 @@ function useCommandDispatch({
   ]);
 }
 
-// src/hooks/use-exit-confirm.ts
+// extensions/console/src/hooks/use-exit-confirm.ts
 import { useCallback as useCallback8, useEffect as useEffect10, useRef as useRef7, useState as useState11 } from "react";
 function useExitConfirm({ timeoutMs = 1500 } = {}) {
   const [exitConfirmArmed, setExitConfirmArmed] = useState11(false);
@@ -12129,7 +12138,7 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
   };
 }
 
-// src/hooks/use-message-queue.ts
+// extensions/console/src/hooks/use-message-queue.ts
 import { useCallback as useCallback9, useRef as useRef8, useState as useState12 } from "react";
 var queueIdCounter = 0;
 function useMessageQueue() {
@@ -12227,7 +12236,7 @@ function useMessageQueue() {
   };
 }
 
-// src/hooks/use-model-state.ts
+// extensions/console/src/hooks/use-model-state.ts
 import { useCallback as useCallback10, useState as useState13 } from "react";
 function useModelState({ modelId, modelName, contextWindow }) {
   const [currentModelId, setCurrentModelId] = useState13(modelId);
@@ -12249,7 +12258,7 @@ function useModelState({ modelId, modelName, contextWindow }) {
   };
 }
 
-// src/App.tsx
+// extensions/console/src/App.tsx
 import { jsxDEV as jsxDEV37 } from "@opentui/react/jsx-dev-runtime";
 function App({
   onReady,
@@ -12327,6 +12336,7 @@ function App({
   const [modelEditState, modelEditActions] = useTextInput("");
   const renderer = useRenderer();
   const undoRedoRef = useRef9(createUndoRedoStack());
+  const chatScrollBoxRef = useRef9(null);
   const messageQueue = useMessageQueue();
   const drainCallbackRef = useRef9(null);
   drainCallbackRef.current = () => {
@@ -12446,6 +12456,8 @@ function App({
     viewMode,
     setViewMode,
     setCopyMode,
+    copyMode,
+    chatScrollBoxRef,
     pendingConfirm,
     confirmChoice,
     setPendingConfirm,
@@ -12635,7 +12647,8 @@ function App({
         generatingLabel: appState.generatingLabel,
         timerPaused: appState.pendingApprovals.length > 0 || appState.pendingApplies.length > 0,
         thoughtsToggleSignal,
-        hasActiveTools: appState.toolInvocations.some((t) => t.status === "executing" || t.status === "queued")
+        hasActiveTools: appState.toolInvocations.some((t) => t.status === "executing" || t.status === "queued"),
+        scrollBoxRef: chatScrollBoxRef
       }, undefined, false, undefined, this) : null,
       /* @__PURE__ */ jsxDEV37(BottomPanel, {
         hasMessages,
@@ -12668,7 +12681,7 @@ function App({
   }, undefined, true, undefined, this);
 }
 
-// src/opentui-runtime.ts
+// extensions/console/src/opentui-runtime.ts
 import * as fs3 from "node:fs";
 import * as path3 from "node:path";
 import { addDefaultParsers, clearEnvCache } from "@opentui/core";
@@ -12814,7 +12827,7 @@ function configureBundledOpenTuiTreeSitter(isCompiledBinary) {
   configured = true;
 }
 
-// src/resize-watcher.ts
+// extensions/console/src/resize-watcher.ts
 function getTerminalSize(renderer) {
   const width = process.stdout.columns || renderer.width || 80;
   const height = process.stdout.rows || renderer.height || 24;
@@ -12904,10 +12917,10 @@ function attachCompiledResizeWatcher(renderer, isCompiledBinary) {
   return dispose;
 }
 
-// src/index.ts
+// extensions/console/src/index.ts
 init_terminal_compat();
 
-// src/console-config.ts
+// extensions/console/src/console-config.ts
 var DEFAULT_CONSOLE_CONFIG = {
   expandSubAgentTools: false
 };
@@ -12918,7 +12931,7 @@ function resolveConsoleConfig(raw) {
   };
 }
 
-// src/index.ts
+// extensions/console/src/index.ts
 function generateCommandPattern(command) {
   const tokens = command.trim().split(/\s+/);
   if (tokens.length === 0 || !tokens[0])
@@ -13089,7 +13102,7 @@ class ConsolePlatform extends PlatformAdapter {
     return next;
   }
   async start() {
-    this.api?.setLogLevel?.(LogLevel.SILENT);
+    this.api?.setLogLevel?.(4 /* SILENT */);
     configureBundledOpenTuiTreeSitter(this.isCompiledBinary);
     this.backend.on("assistant:content", (sid, content) => {
       if (sid === this.sessionId) {
@@ -13293,7 +13306,7 @@ ${summaryText}`;
         };
         process.on("SIGCONT", this._sigcontHandler);
       }
-      const element = React10.createElement(App, {
+      const element = React11.createElement(App, {
         onReady: (handle) => {
           this.appHandle = handle;
           resolve3();

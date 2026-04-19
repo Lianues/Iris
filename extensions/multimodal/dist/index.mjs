@@ -1,38 +1,31 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
-// ../../packages/extension-sdk/dist/logger.js
-var LogLevel;
-(function(LogLevel2) {
-  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
-  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
-  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
-  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
-  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
-})(LogLevel || (LogLevel = {}));
-var _logLevel = LogLevel.INFO;
+
+// extensions/multimodal/node_modules/irises-extension-sdk/src/logger.ts
+var _logLevel = 1 /* INFO */;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= LogLevel.DEBUG)
+      if (_logLevel <= 0 /* DEBUG */)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= LogLevel.INFO)
+      if (_logLevel <= 1 /* INFO */)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= LogLevel.WARN)
+      if (_logLevel <= 2 /* WARN */)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= LogLevel.ERROR)
+      if (_logLevel <= 3 /* ERROR */)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
 
-// ../../packages/extension-sdk/dist/plugin/context.js
+// extensions/multimodal/node_modules/irises-extension-sdk/src/plugin/context.ts
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -40,7 +33,7 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
-// src/image-resize.ts
+// extensions/multimodal/src/image-resize.ts
 var DEFAULT_MAX_BYTES = 4.5 * 1024 * 1024;
 var DEFAULT_OPTIONS = {
   maxWidth: 2000,
@@ -188,7 +181,7 @@ function formatDimensionNote(result) {
   return `[Image: original ${result.originalWidth}x${result.originalHeight}, displayed at ${result.width}x${result.height}. Multiply coordinates by ${scale.toFixed(2)} to map to original image.]`;
 }
 
-// src/document-extract.ts
+// extensions/multimodal/src/document-extract.ts
 import JSZip from "jszip";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
@@ -582,7 +575,7 @@ function escapeXml(str) {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-// src/office-to-pdf.ts
+// extensions/multimodal/src/office-to-pdf.ts
 import { execSync } from "child_process";
 var _libreOfficeAvailable = null;
 var _npmPackageAvailable = null;
@@ -644,7 +637,7 @@ async function convertToPDF(buffer, _ext) {
   }
 }
 
-// src/ocr-service.ts
+// extensions/multimodal/src/ocr-service.ts
 var OCR_TEXT_MARKER_RE = /^\[\[IRIS_OCR_IMAGE_(\d+)\]\]\n/;
 var OCR_PROMPT = "请详细描述图片内容，优先完整、准确地提取其中所有可见文字；若存在段落、表格、列表或表单，请尽量保持原有结构。若图片中没有文字，再简要描述主要视觉内容。";
 var OCR_EMPTY_TEXT = "（OCR 未提取到可识别内容）";
@@ -694,7 +687,7 @@ function stripOCRTextMarker(text) {
   return text.replace(OCR_TEXT_MARKER_RE, "");
 }
 
-// src/index.ts
+// extensions/multimodal/src/index.ts
 var logger = createPluginLogger("multimodal");
 var DOCUMENT_MIME_TYPES = new Set([
   "application/pdf",

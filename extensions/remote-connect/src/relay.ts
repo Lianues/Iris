@@ -13,6 +13,8 @@
  * 启动方式：iris relay --port 9001
  */
 
+/// <reference path="./ws.d.ts" />
+
 import { createLogger } from '../../../src/logger';
 import { constantTimeEqual } from './auth';
 import type { RelayMessage } from './types';

@@ -192,11 +192,11 @@ var require_permessage_deflate = __commonJS((exports, module) => {
   var zlibLimiter;
 
   class PerMessageDeflate {
-    constructor(options) {
+    constructor(options, isServer, maxPayload) {
+      this._maxPayload = maxPayload | 0;
       this._options = options || {};
       this._threshold = this._options.threshold !== undefined ? this._options.threshold : 1024;
-      this._maxPayload = this._options.maxPayload | 0;
-      this._isServer = !!this._options.isServer;
+      this._isServer = !!isServer;
       this._deflate = null;
       this._inflate = null;
       this.params = null;
@@ -2067,7 +2067,7 @@ var require_websocket = __commonJS((exports, module) => {
     } else {
       try {
         parsedUrl = new URL2(address);
-      } catch {
+      } catch (e) {
         throw new SyntaxError(`Invalid URL: ${address}`);
       }
     }
@@ -2115,11 +2115,7 @@ var require_websocket = __commonJS((exports, module) => {
     opts.path = parsedUrl.pathname + parsedUrl.search;
     opts.timeout = opts.handshakeTimeout;
     if (opts.perMessageDeflate) {
-      perMessageDeflate = new PerMessageDeflate({
-        ...opts.perMessageDeflate,
-        isServer: false,
-        maxPayload: opts.maxPayload
-      });
+      perMessageDeflate = new PerMessageDeflate(opts.perMessageDeflate !== true ? opts.perMessageDeflate : {}, false, opts.maxPayload);
       opts.headers["Sec-WebSocket-Extensions"] = format({
         [PerMessageDeflate.extensionName]: perMessageDeflate.offer()
       });
@@ -2765,11 +2761,7 @@ var require_websocket_server = __commonJS((exports, module) => {
       const secWebSocketExtensions = req.headers["sec-websocket-extensions"];
       const extensions = {};
       if (this.options.perMessageDeflate && secWebSocketExtensions !== undefined) {
-        const perMessageDeflate = new PerMessageDeflate({
-          ...this.options.perMessageDeflate,
-          isServer: true,
-          maxPayload: this.options.maxPayload
-        });
+        const perMessageDeflate = new PerMessageDeflate(this.options.perMessageDeflate, true, this.options.maxPayload);
         try {
           const offers = extension.parse(secWebSocketExtensions);
           if (offers[PerMessageDeflate.extensionName]) {
@@ -2901,24 +2893,18 @@ var require_websocket_server = __commonJS((exports, module) => {
 // ../../node_modules/ws/wrapper.mjs
 var exports_wrapper = {};
 __export(exports_wrapper, {
-  subprotocol: () => import_subprotocol.default,
-  extension: () => import_extension.default,
   default: () => wrapper_default,
   createWebSocketStream: () => import_stream.default,
   WebSocketServer: () => import_websocket_server.default,
   WebSocket: () => import_websocket.default,
   Sender: () => import_sender.default,
-  Receiver: () => import_receiver.default,
-  PerMessageDeflate: () => import_permessage_deflate.default
+  Receiver: () => import_receiver.default
 });
-var import_stream, import_extension, import_permessage_deflate, import_receiver, import_sender, import_subprotocol, import_websocket, import_websocket_server, wrapper_default;
+var import_stream, import_receiver, import_sender, import_websocket, import_websocket_server, wrapper_default;
 var init_wrapper = __esm(() => {
   import_stream = __toESM(require_stream(), 1);
-  import_extension = __toESM(require_extension(), 1);
-  import_permessage_deflate = __toESM(require_permessage_deflate(), 1);
   import_receiver = __toESM(require_receiver(), 1);
   import_sender = __toESM(require_sender(), 1);
-  import_subprotocol = __toESM(require_subprotocol(), 1);
   import_websocket = __toESM(require_websocket(), 1);
   import_websocket_server = __toESM(require_websocket_server(), 1);
   wrapper_default = import_websocket.default;
@@ -9825,7 +9811,8 @@ var require_public_api = __commonJS((exports) => {
   exports.parseDocument = parseDocument;
   exports.stringify = stringify;
 });
-// ../../packages/extension-sdk/dist/plugin/context.js
+
+// ../../node_modules/irises-extension-sdk/src/plugin/context.ts
 function definePlugin(plugin) {
   return plugin;
 }
@@ -11524,7 +11511,7 @@ function resolveProjectRoot() {
 }
 var projectRoot = resolveProjectRoot();
 var workspaceExtensionsDir = path.join(projectRoot, "extensions");
-var isCompiledBinary = !fs.existsSync(path.join(path.resolve(path.dirname(__filename_paths), ".."), "data"));
+var isCompiledBinary = globalThis.__IRIS_COMPILED__ === true;
 
 // ../../src/config/raw.ts
 import * as fs2 from "fs";

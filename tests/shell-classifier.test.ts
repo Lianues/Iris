@@ -653,9 +653,13 @@ describe('detectInstallCommand', () => {
     expect(detectInstallCommand('npm install express')).toBeNull();
   });
 
-  it('npx create-react-app', () => {
-    const result = detectInstallCommand('npx create-react-app my-app');
-    expect(result).toEqual({ packageManager: 'npx', packages: ['create-react-app'] });
+  it('npx 是命令运行器，不应触发学习', () => {
+    // npx 只是临时执行 CLI，不是持久安装。
+    // 如果把它当成安装命令，会在后台派生一堆 --help/--version 探测，
+    // 例如 npx vitest run / npx tsc --noEmit 这种纯运行命令也会误触发学习 agent。
+    expect(detectInstallCommand('npx create-react-app my-app')).toBeNull();
+    expect(detectInstallCommand('npx vitest run tests/terminal-use-security.test.ts')).toBeNull();
+    expect(detectInstallCommand('npx tsc --noEmit')).toBeNull();
   });
 
   it('cargo install ripgrep', () => {

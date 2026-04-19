@@ -783,7 +783,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     showConnectingStatus(url);
 
     try {
-      // @ts-expect-error -- 跨 tsconfig 边界的运行时动态导入
+      // 跨 extension 边界的运行时动态导入
       const { WsIPCClient } = await import('../../remote-connect/src/client');
       // @ts-expect-error -- 跨 tsconfig 边界的运行时动态导入
       const { RemoteBackendHandle } = await import('../../src/ipc/remote-backend-handle');
@@ -961,7 +961,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     // 启动局域网发现
     let discoveryPromise: Promise<import('./remote-wizard').DiscoveredConnection[]> | undefined;
     try {
-      // @ts-expect-error -- 跨 tsconfig 边界的运行时动态导入
+      // 跨 extension 边界的运行时动态导入
       const { discoverLanInstances } = await import('../../remote-connect/src/discovery');
       discoveryPromise = discoverLanInstances();
     } catch {}

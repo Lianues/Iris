@@ -69,17 +69,6 @@ function extractNpmGlobalPackages(fullCommand: string): string[] {
 }
 
 /**
- * npx 包名提取。
- * npx 会临时安装并执行包，值得学习其 CLI 命令。
- */
-function extractNpxPackages(fullCommand: string): string[] {
-  const args = fullCommand.replace(/^npx\s*/i, '');
-  // npx 的第一个非 flag 参数就是包名
-  const packages = extractPositionalPackages(args);
-  return packages.slice(0, 1); // 只取第一个
-}
-
-/**
  * yarn/pnpm global add 包名提取。
  */
 function extractYarnPnpmGlobalPackages(fullCommand: string): string[] {
@@ -178,6 +167,12 @@ const INSTALL_PATTERNS: Array<{
  */
 export function detectInstallCommand(command: string): InstallDetection | null {
   const trimmed = command.trim();
+
+  // npx 是临时命令运行器，不是持久安装。
+  // 像 npx vitest run / npx tsc --noEmit 这类纯执行命令，
+  // 如果误触发学习 agent，会在后台派生一堆 --help/--version 探测进程。
+  if (/^npx\b/i.test(trimmed)) return null;
+
   for (const pattern of INSTALL_PATTERNS) {
     if (pattern.regex.test(trimmed)) {
       const packages = pattern.extractor(trimmed);

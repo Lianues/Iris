@@ -8,6 +8,8 @@
  * 服务端的 NetServer 负责在 WS 和 TCP（IPCServer）之间做帧格式转换。
  */
 
+/// <reference path="./ws.d.ts" />
+
 import { EventEmitter } from 'node:events';
 import { createLogger } from '../../../src/logger';
 import type { IPCClientLike } from '../../../src/ipc/client-like';

@@ -8,6 +8,8 @@
  * 双向桥接 Relay WS 消息与 IPCServer TCP 帧。
  */
 
+/// <reference path="./ws.d.ts" />
+
 import net from 'node:net';
 import { createLogger } from '../../../src/logger';
 import { encodeFrame, FrameDecoder } from '../../../src/ipc/framing';
