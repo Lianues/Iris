@@ -62,7 +62,7 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
   };
 
   // 保留字段名，不作为扩展平台配置
-  const RESERVED_KEYS = new Set(['type', 'pairing', 'web']);
+  const RESERVED_KEYS = new Set(['type', 'pairing', 'web', 'lastModel']);
 
   const result: Record<string, unknown> = {
     types: parseTypes(source.type),
@@ -70,10 +70,12 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
     web: {
       port: source.web?.port ?? 8192,
       host: source.web?.host ?? '127.0.0.1',
-      lastModel: source.web?.lastModel,
+      lastModel: source.lastModel?.web,
       authToken: source.web?.authToken,
       managementToken: source.web?.managementToken,
     },
+    // 顶层 lastModel 映射（rememberPlatformModel 持久化的各平台上次使用模型）
+    lastModel: source.lastModel && typeof source.lastModel === 'object' ? { ...source.lastModel } : {},
   };
 
   // 动态透传扩展平台配置
@@ -102,8 +104,13 @@ export function parsePlatformConfig(raw: any = {}): PlatformConfig {
 
 
 /**
- * 将平台上次使用的模型名写回 platform.yaml（保留注释和格式）。
+ * 将平台上次使用的模型名写回 platform.yaml 的顶层 lastModel 字段（保留注释和格式）。
  * 仅在 rememberPlatformModel 启用时由 Backend.switchModel 调用。
+ *
+ * 写入格式（与平台配置节并列，不侵入平台节内部）：
+ *   lastModel:
+ *     console: claude_main
+ *     web: gemini_flash
  */
 export function updatePlatformLastModel(configDir: string, platformName: string, modelName: string): void {
   const filePath = path.join(configDir, 'platform.yaml');
@@ -115,6 +122,6 @@ export function updatePlatformLastModel(configDir: string, platformName: string,
   }
 
   const doc = parseDocument(content);
-  doc.setIn([platformName, 'lastModel'], modelName);
+  doc.setIn(['lastModel', platformName], modelName);
   fs.writeFileSync(filePath, doc.toString(), 'utf-8');
 }

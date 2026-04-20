@@ -45,10 +45,8 @@ async function createPlatformsForCore(
     }
 
     if (!modelRestored && config.llm.rememberPlatformModel) {
-      const platformSubConfig = config.platform[platformType];
-      const lastModel = platformSubConfig && typeof platformSubConfig === 'object' && 'lastModel' in platformSubConfig
-        ? (platformSubConfig as { lastModel?: string }).lastModel
-        : undefined;
+      const lastModelMap = config.platform.lastModel as Record<string, string> | undefined;
+      const lastModel = lastModelMap?.[platformType];
       if (lastModel && router.hasModel(lastModel)) {
         try { core.backend.switchModel(lastModel); } catch { /* ignore */ }
       }
