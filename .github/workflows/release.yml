@@ -120,13 +120,19 @@ jobs:
       - name: Build Web UI
         run: npm run build:ui
 
+      - name: Pre-build setup
+        run: |
+          npm run sync:extensions
+          npm install --no-save react-devtools-core
+          tsx script/install-extension-deps.ts --embedded-only --frozen-lockfile
+
       - name: Build binary (cross-compile)
         if: matrix.cross == true
-        run: bun run build:compile -- --target ${{ matrix.platform }}-${{ matrix.arch }}
+        run: bun run script/build.ts --target ${{ matrix.platform }}-${{ matrix.arch }}
 
       - name: Build binary (native)
         if: matrix.cross != true
-        run: bun run build:compile -- --single
+        run: bun run script/build.ts --single
 
       - name: Archive (Linux/macOS)
         if: matrix.platform != 'windows'
@@ -371,6 +377,12 @@ jobs:
           done
           rm -rf npm-iris-*
           ls -la
+          echo ""
+          echo "=== package.json files ==="
+          for d in iris-*/; do
+            echo "--- $d ---"
+            cat "$d/package.json" 2>/dev/null || echo "(missing)"
+          done
 
       - name: Publish
         run: |
