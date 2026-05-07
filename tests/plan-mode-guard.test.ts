@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { filterToolDeclarationsForPlanMode, isAllowedPlanModeTool } from '../src/plan-mode/guard';
+import { planModePlugin } from '../src/plan-mode/plugin';
 
 describe('Plan Mode guard', () => {
   it('允许只读 memory_search', () => {
@@ -27,5 +28,24 @@ describe('Plan Mode guard', () => {
       'memory_search',
       'read_file',
     ]);
+  });
+
+  it('EnterPlanMode 应自动执行，不触发 scheduler 层 Y/N 审批', () => {
+    const registeredTools: Array<{ declaration: { name: string }; approvalMode?: string }> = [];
+    const context = {
+      registerTools(tools: typeof registeredTools) {
+        registeredTools.push(...tools);
+      },
+      getServiceRegistry() {
+        return { register: () => ({ dispose() {} }) };
+      },
+      addHook() {},
+      trackDisposable() {},
+    };
+
+    planModePlugin.activate(context as any);
+
+    const enterTool = registeredTools.find(tool => tool.declaration.name === 'EnterPlanMode');
+    expect(enterTool?.approvalMode).toBe('handler');
   });
 });

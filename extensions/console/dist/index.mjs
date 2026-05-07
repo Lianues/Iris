@@ -99,7 +99,7 @@ function normalizePastedSingleLine(text) {
 function pick(modern, basic) {
   return terminalTier === "basic" ? basic : modern;
 }
-var KNOWN_MODERN_TERMS, terminalTier, BORDER_CHARS, ICONS, SPINNER_FRAMES;
+var KNOWN_MODERN_TERMS, terminalTier, BORDER_CHARS, ICONS, SPINNER_FRAMES, HOURGLASS_SPINNER_FRAMES, SPINNER_INTERVAL_MS = 80, HOURGLASS_SPINNER_INTERVAL_MS;
 var init_terminal_compat = __esm(() => {
   KNOWN_MODERN_TERMS = new Set([
     "iTerm.app",
@@ -166,6 +166,8 @@ var init_terminal_compat = __esm(() => {
     separator: pick("·", "-")
   };
   SPINNER_FRAMES = terminalTier === "basic" ? ["|", "/", "-", "\\", "|", "/", "-", "\\", "|", "/"] : ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  HOURGLASS_SPINNER_FRAMES = terminalTier === "basic" ? [".  ", " . ", "  .", " . "] : ["⌛··", "·⌛·", "··⌛", "⏳··", "·⏳·", "··⏳"];
+  HOURGLASS_SPINNER_INTERVAL_MS = terminalTier === "basic" ? 240 : 360;
 });
 
 // src/remote-wizard.ts
@@ -1439,11 +1441,14 @@ function buildMissingInstallSpecs(dependencySpecs, missingDependencies) {
   }
   return installSpecs;
 }
+function resolvePackageManagerExecutable(command) {
+  return process.platform === "win32" && command === "npm" ? "npm.cmd" : command;
+}
 function defaultCommandRunner(command, args, cwd) {
-  const result = childProcess.spawnSync(command, args, {
+  const result = childProcess.spawnSync(resolvePackageManagerExecutable(command), args, {
     cwd,
     stdio: "inherit",
-    shell: process.platform === "win32"
+    shell: false
   });
   if (result.error)
     throw result.error;
@@ -1479,6 +1484,7 @@ async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
     "--package-lock=false",
     "--no-audit",
     "--no-fund",
+    "--",
     ...installSpecs
   ];
   const runner = options.commandRunner ?? defaultCommandRunner;
@@ -3004,6 +3010,7 @@ function isPlanModeToggleShortcut(key) {
 function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition }) {
   const [inputState, inputActions] = useTextInput("");
   const [selectedIndex, setSelectedIndex] = useState4(0);
+  const [queuePromptFrame, setQueuePromptFrame] = useState4(0);
   const cursorVisible = useCursorBlink();
   const { width: termWidth } = useTerminalDimensions3();
   const visibleCommands = useMemo3(() => {
@@ -3201,10 +3208,26 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       pasteGuardRef.current = false;
     }, 150);
   });
+  useEffect4(() => {
+    if (!isQueueMode) {
+      setQueuePromptFrame(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setQueuePromptFrame((frame) => (frame + 1) % HOURGLASS_SPINNER_FRAMES.length);
+    }, HOURGLASS_SPINNER_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [isQueueMode]);
   const maxLen = filtered.length > 0 ? Math.max(...filtered.map((cmd) => cmd.name.length)) : 0;
   const maxArgLen = argSuggestions.length > 0 ? Math.max(...argSuggestions.map((item) => item.value.length)) : 0;
   const MAX_VISIBLE_INPUT_LINES = 8;
-  const baseAvailableWidth = Math.max(1, termWidth - 9);
+  const promptColor = inputDisabled ? C.dim : isQueueMode ? C.warn : C.accent;
+  const queuePromptChar = HOURGLASS_SPINNER_FRAMES[queuePromptFrame % HOURGLASS_SPINNER_FRAMES.length];
+  const promptText = isQueueMode ? `${queuePromptChar}  ` : `${ICONS.selectorArrow}  `;
+  const promptVisualWidth = getTextWidth(promptText);
+  const placeholder = isQueueMode ? `输入消息（将排队发送）${ICONS.ellipsis}` : `输入消息${ICONS.ellipsis}`;
+  const inputChromeWidth = 6 + promptVisualWidth;
+  const baseAvailableWidth = Math.max(1, termWidth - inputChromeWidth);
   const visualLineCount = useMemo3(() => {
     if (!value)
       return 1;
@@ -3219,9 +3242,6 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
   }, [value, baseAvailableWidth]);
   const needsInputScroll = visualLineCount > MAX_VISIBLE_INPUT_LINES;
   const availableWidth = needsInputScroll ? Math.max(1, baseAvailableWidth - 1) : baseAvailableWidth;
-  const promptColor = inputDisabled ? C.dim : isQueueMode ? C.warn : C.accent;
-  const promptChar = isQueueMode ? `${ICONS.hourglass} ` : `${ICONS.selectorArrow} `;
-  const placeholder = isQueueMode ? `输入消息（将排队发送）${ICONS.ellipsis}` : `输入消息${ICONS.ellipsis}`;
   const inputRow = /* @__PURE__ */ jsxDEV8("box", {
     flexDirection: "row",
     border: false,
@@ -3229,11 +3249,8 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       /* @__PURE__ */ jsxDEV8("text", {
         fg: promptColor,
         children: /* @__PURE__ */ jsxDEV8("strong", {
-          children: [
-            promptChar,
-            " "
-          ]
-        }, undefined, true, undefined, this)
+          children: promptText
+        }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
       /* @__PURE__ */ jsxDEV8("box", {
         flexGrow: 1,
@@ -3818,24 +3835,24 @@ import { useState as useState6, useEffect as useEffect6, useRef as useRef4 } fro
 import { useState as useState5, useEffect as useEffect5, useRef as useRef3 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV13 } from "@opentui/react/jsx-dev-runtime";
-var INTERVAL = 80;
-function Spinner() {
+function Spinner({ color = C.accent, frames = SPINNER_FRAMES, intervalMs = SPINNER_INTERVAL_MS }) {
   const [frame, setFrame] = useState5(0);
   const mountedRef = useRef3(true);
   useEffect5(() => {
+    mountedRef.current = true;
     const timer = setInterval(() => {
       if (mountedRef.current) {
-        setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+        setFrame((f) => (f + 1) % frames.length);
       }
-    }, INTERVAL);
+    }, intervalMs);
     return () => {
       mountedRef.current = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [frames, intervalMs]);
   return /* @__PURE__ */ jsxDEV13("span", {
-    fg: C.accent,
-    children: SPINNER_FRAMES[frame]
+    fg: color,
+    children: frames[frame % frames.length]
   }, undefined, false, undefined, this);
 }
 

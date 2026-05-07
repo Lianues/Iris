@@ -9,24 +9,30 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { C } from '../theme';
-import { SPINNER_FRAMES as FRAMES } from '../terminal-compat';
-const INTERVAL = 80;
+import { SPINNER_FRAMES as FRAMES, SPINNER_INTERVAL_MS } from '../terminal-compat';
 
-export function Spinner() {
+interface SpinnerProps {
+  color?: string;
+  frames?: readonly string[];
+  intervalMs?: number;
+}
+
+export function Spinner({ color = C.accent, frames = FRAMES, intervalMs = SPINNER_INTERVAL_MS }: SpinnerProps) {
   const [frame, setFrame] = useState(0);
   const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     const timer = setInterval(() => {
       if (mountedRef.current) {
-        setFrame(f => (f + 1) % FRAMES.length);
+        setFrame(f => (f + 1) % frames.length);
       }
-    }, INTERVAL);
+    }, intervalMs);
     return () => {
       mountedRef.current = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [frames, intervalMs]);
 
-  return <span fg={C.accent}>{FRAMES[frame]}</span>;
+  return <span fg={color}>{frames[frame % frames.length]}</span>;
 }

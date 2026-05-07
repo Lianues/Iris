@@ -156,7 +156,20 @@ export const ICONS = {
 
 // ── Spinner 帧 ───────────────────────────────────────────
 
-/** Braille 旋转帧 (modern) / ASCII 旋转帧 (basic) */
+/**
+ * 通用执行 spinner 帧（工具执行、后台任务等）。
+ */
 export const SPINNER_FRAMES: readonly string[] = terminalTier === 'basic'
   ? ['|', '/', '-', '\\', '|', '/', '-', '\\', '|', '/']
   : ['\u280B', '\u2819', '\u2839', '\u2838', '\u283C', '\u2834', '\u2826', '\u2827', '\u2807', '\u280F'];
+
+/**
+ * 输入栏排队状态专用沙漏 spinner 帧。
+ * modern 终端使用“沙漏 + 沙粒波浪”帧，basic 终端使用单宽 ASCII 波浪帧。
+ */
+export const HOURGLASS_SPINNER_FRAMES: readonly string[] = terminalTier === 'basic'
+  ? ['.  ', ' . ', '  .', ' . ']
+  : ['⌛··', '·⌛·', '··⌛', '⏳··', '·⏳·', '··⏳'];
+
+export const SPINNER_INTERVAL_MS = 80;
+export const HOURGLASS_SPINNER_INTERVAL_MS = terminalTier === 'basic' ? 240 : 360;

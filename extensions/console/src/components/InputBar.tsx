@@ -19,7 +19,7 @@ import { usePaste } from '../hooks/use-paste';
 import { InputDisplay } from './InputDisplay';
 import { C } from '../theme';
 import { getTextWidth } from '../text-layout';
-import { ICONS } from '../terminal-compat';
+import { HOURGLASS_SPINNER_FRAMES, HOURGLASS_SPINNER_INTERVAL_MS, ICONS } from '../terminal-compat';
 
 /** 待发送的文件附件信息 */
 export interface PendingFile {
@@ -61,6 +61,7 @@ interface InputBarProps {
 export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [queuePromptFrame, setQueuePromptFrame] = useState(0);
   const cursorVisible = useCursorBlink();
   const { width: termWidth } = useTerminalDimensions();
 
@@ -292,6 +293,17 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     setTimeout(() => { pasteGuardRef.current = false; }, 150);
   });
 
+  useEffect(() => {
+    if (!isQueueMode) {
+      setQueuePromptFrame(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setQueuePromptFrame(frame => (frame + 1) % HOURGLASS_SPINNER_FRAMES.length);
+    }, HOURGLASS_SPINNER_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [isQueueMode]);
+
   const maxLen = filtered.length > 0
     ? Math.max(...filtered.map((cmd) => cmd.name.length))
     : 0;
@@ -301,9 +313,18 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
 
   // ── 输入区域滚动判定 ──────────────────────────────────────
   // 根据终端宽度计算实际渲染行数（含自动换行），超过上限才启用 scrollbox。
-  // 水平开销 = paddingX(2) + border(2) + innerPadding(2) + prompt(3) = 9（不含滚动条）
+  // 水平开销 = paddingX(2) + border(2) + innerPadding(2) + promptVisualWidth（不含滚动条）。
+  // 沙漏波浪帧比普通选择箭头更宽，需动态计算，否则长输入换行/滚动条会偏差。
   const MAX_VISIBLE_INPUT_LINES = 8;
-  const baseAvailableWidth = Math.max(1, termWidth - 9);
+
+  // 提示符样式和 placeholder 根据状态变化
+  const promptColor = inputDisabled ? C.dim : isQueueMode ? C.warn : C.accent;
+  const queuePromptChar = HOURGLASS_SPINNER_FRAMES[queuePromptFrame % HOURGLASS_SPINNER_FRAMES.length];
+  const promptText = isQueueMode ? `${queuePromptChar}  ` : `${ICONS.selectorArrow}  `;
+  const promptVisualWidth = getTextWidth(promptText);
+  const placeholder = isQueueMode ? `输入消息（将排队发送）${ICONS.ellipsis}` : `输入消息${ICONS.ellipsis}`;
+  const inputChromeWidth = 6 + promptVisualWidth;
+  const baseAvailableWidth = Math.max(1, termWidth - inputChromeWidth);
 
   const visualLineCount = useMemo(() => {
     if (!value) return 1;
@@ -322,14 +343,11 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
   // 当滚动条可见时，减去滚动条宽度（1 列）以获得更准确的可用宽度
   const availableWidth = needsInputScroll ? Math.max(1, baseAvailableWidth - 1) : baseAvailableWidth;
 
-  // 提示符样式和 placeholder 根据状态变化
-  const promptColor = inputDisabled ? C.dim : isQueueMode ? C.warn : C.accent;
-  const promptChar = isQueueMode ? `${ICONS.hourglass} ` : `${ICONS.selectorArrow} `;
-  const placeholder = isQueueMode ? `输入消息（将排队发送）${ICONS.ellipsis}` : `输入消息${ICONS.ellipsis}`;
-
   const inputRow = (
     <box flexDirection="row" border={false}>
-      <text fg={promptColor}><strong>{promptChar} </strong></text>
+      <text fg={promptColor}>
+        <strong>{promptText}</strong>
+      </text>
       {/* ── Work-around: OpenTUI TextBufferRenderable measureFunc bug ──
         * 在 row 布局中，Yoga 以 widthMode=AtMost 测量 <text> 元素，
         * measureFunc 会将高度截断为 Math.min(effectiveHeight=1, measuredHeight)，

@@ -82,6 +82,8 @@ function createWritePlanTool(manager: PlanModeManager): ToolDefinition {
 
 function createEnterPlanModeTool(manager: PlanModeManager): ToolDefinition {
   return {
+    // 进入 Plan Mode 只切换当前 session 的规划状态，不修改业务文件；无需弹出 Y/N 审批。
+    approvalMode: 'handler',
     declaration: {
       name: 'EnterPlanMode',
       description: '进入 Iris Agent-local Plan Mode。适用于复杂、多文件或需求不明确的任务；简单明确的小改动不要调用。',

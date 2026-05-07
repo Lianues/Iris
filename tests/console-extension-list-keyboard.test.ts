@@ -113,4 +113,24 @@ describe('console /extension keyboard regressions', () => {
     expect(platformSource).toContain('ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace)');
     expect(keyboardSource).toContain("onToggleExtension(item.name, item.status === 'active')");
   });
+
+  it('等待与排队状态应使用沙漏动画 spinner，避免静态沙漏误导用户', () => {
+    const compatSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/terminal-compat.ts'),
+      'utf8',
+    );
+    const inputSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/components/InputBar.tsx'),
+      'utf8',
+    );
+
+    expect(compatSource).toContain('沙漏 spinner 帧');
+    expect(compatSource).toContain('HOURGLASS_SPINNER_FRAMES');
+    expect(compatSource).toContain("'⌛··'");
+    expect(compatSource).toContain("'·⌛·'");
+    expect(compatSource).toContain("'··⏳'");
+    expect(inputSource).toContain('promptVisualWidth = getTextWidth(promptText)');
+    expect(inputSource).toContain('const inputChromeWidth = 6 + promptVisualWidth');
+    expect(inputSource).toContain('setQueuePromptFrame(frame => (frame + 1) % HOURGLASS_SPINNER_FRAMES.length)');
+  });
 });
