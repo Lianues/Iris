@@ -6,6 +6,7 @@
 
 import * as childProcess from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 /** 需要路由到 terminal TUI 的子命令名称 */
@@ -15,6 +16,41 @@ export const TERMINAL_COMMANDS = new Set([
   'models',
   'settings',
 ]);
+
+function resolvePlatformPackageName(): string {
+  const platformMap: Record<string, string> = {
+    darwin: 'darwin',
+    linux: 'linux',
+    win32: 'windows',
+  };
+  const archMap: Record<string, string> = {
+    x64: 'x64',
+    arm64: 'arm64',
+    arm: 'arm',
+  };
+
+  const platform = platformMap[os.platform()] ?? os.platform();
+  const arch = archMap[os.arch()] ?? os.arch();
+  return `irises-${platform}-${arch}`;
+}
+
+function findPlatformPackageBinDir(pkgDir: string, binaryName: string): string | undefined {
+  const nodeModulesDir = path.join(pkgDir, 'node_modules');
+  if (!fs.existsSync(nodeModulesDir)) return undefined;
+
+  const preferred = path.join(nodeModulesDir, resolvePlatformPackageName(), 'bin');
+  if (fs.existsSync(path.join(preferred, binaryName))) return preferred;
+
+  try {
+    for (const entry of fs.readdirSync(nodeModulesDir)) {
+      if (!entry.startsWith('irises-')) continue;
+      const candidate = path.join(nodeModulesDir, entry, 'bin');
+      if (fs.existsSync(path.join(candidate, binaryName))) return candidate;
+    }
+  } catch { /* ignore */ }
+
+  return undefined;
+}
 
 /** 查找 iris-onboard 二进制路径 */
 export function resolveTerminalBinary(): string {
@@ -27,6 +63,8 @@ export function resolveTerminalBinary(): string {
   const pkgDir = process.env.__IRIS_PKG_DIR;
   if (pkgDir) {
     searchDirs.push(path.join(pkgDir, 'bin'));
+    const platformPackageBinDir = findPlatformPackageBinDir(pkgDir, binaryName);
+    if (platformPackageBinDir) searchDirs.push(platformPackageBinDir);
   }
 
   // 回退：从 process.execPath 推导（正常环境）
@@ -34,7 +72,9 @@ export function resolveTerminalBinary(): string {
     searchDirs.push(path.dirname(fs.realpathSync(process.execPath)));
   } catch { /* ignore */ }
 
-  const candidates = searchDirs.flatMap((dir) => [
+  const dedupedSearchDirs = Array.from(new Set(searchDirs.map((dir) => path.resolve(dir))));
+
+  const candidates = dedupedSearchDirs.flatMap((dir) => [
     path.join(dir, binaryName),
     path.join(dir, hiddenBinaryName),
   ]);

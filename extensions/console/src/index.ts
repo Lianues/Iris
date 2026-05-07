@@ -36,7 +36,7 @@ import {
   type ConfigManagerLike,
 } from 'irises-extension-sdk';
 import type { IPCClientLike } from 'irises-extension-sdk/ipc';
-import { readGitInstallMetadata } from 'irises-extension-sdk/utils';
+import { ensureExtensionRuntimeDependencies, readGitInstallMetadata } from 'irises-extension-sdk/utils';
 import { estimateTokenCount } from 'tokenx';
 import { App, AppHandle, MessageMeta } from './App';
 import { MessagePart } from './components/MessageItem';
@@ -1765,18 +1765,25 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       const active = (this.api as any)?.pluginManager?.listPlugins?.() ?? [];
       const activeNames = new Set(active.map((p: any) => p.name));
 
-      return packages.map(pkg => {
+      const allPackages: Array<{ manifest: { name: string; version: string; description?: string; entry?: string; plugin?: any; platforms?: any[] }; source: string; rootDir: string }> = ext.discoverAll?.() ?? packages;
+
+      return allPackages.map(pkg => {
         const name = pkg.manifest.name;
         const hasPlatforms = Array.isArray(pkg.manifest.platforms) && pkg.manifest.platforms.length > 0;
         const hasPlugin = !!pkg.manifest.plugin || !!pkg.manifest.entry || !hasPlatforms;
         const inConfig = pluginMap.get(name);
         const gitMetadata = readGitInstallMetadata(pkg.rootDir);
+        const workspaceEnabled = pkg.source === 'workspace' ? this.isWorkspaceExtensionEnabled(raw, name) : false;
         let status: string;
 
-        if (!hasPlugin) {
+        if (!hasPlugin && pkg.source !== 'workspace') {
           status = 'platform';
+        } else if (!hasPlugin && pkg.source === 'workspace') {
+          status = workspaceEnabled ? 'active' : 'available';
         } else if (activeNames.has(name)) {
           status = 'active';
+        } else if (pkg.source === 'workspace' && !workspaceEnabled) {
+          status = 'available';
         } else if (inConfig && inConfig.enabled === false) {
           status = 'disabled';
         } else if (inConfig) {
@@ -1808,6 +1815,50 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       console.error('[ConsolePlatform] handleListExtensions failed:', err);
       return [];
     }
+  }
+
+  private isWorkspaceExtensionEnabled(raw: Record<string, any> | undefined, name: string): boolean {
+    const extensions = raw?.system?.extensions;
+    if (!extensions || typeof extensions !== 'object' || extensions.loadWorkspaceExtensions !== true) return false;
+    const allowlist = Array.isArray(extensions.workspaceAllowlist)
+      ? extensions.workspaceAllowlist.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+    return allowlist.length === 0 || allowlist.includes(name);
+  }
+
+  private updateWorkspaceExtensionDiscoveryConfig(
+    name: string,
+    enabled: boolean,
+    packages: Array<{ manifest: { name: string }; source?: string }>,
+  ): { workspace: { enabled: boolean; allowlist: string[] }; mergedRaw?: Record<string, unknown> } {
+    const configManager = this.api?.configManager;
+    if (!configManager) return { workspace: { enabled: false, allowlist: [] } };
+
+    const raw = configManager.readEditableConfig() as Record<string, any>;
+    const system = raw.system && typeof raw.system === 'object' ? { ...raw.system } : {};
+    const currentExtensions = system.extensions && typeof system.extensions === 'object' ? { ...system.extensions } : {};
+    const workspaceNames = packages.filter(pkg => pkg.source === 'workspace').map(pkg => pkg.manifest.name);
+    const currentAllowlist = Array.isArray(currentExtensions.workspaceAllowlist)
+      ? currentExtensions.workspaceAllowlist.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+    const currentlyAllWorkspace = currentExtensions.loadWorkspaceExtensions === true && currentAllowlist.length === 0;
+
+    let nextAllowlist: string[];
+    let nextEnabled: boolean;
+    if (enabled) {
+      nextEnabled = true;
+      nextAllowlist = currentlyAllWorkspace ? [] : Array.from(new Set([...currentAllowlist, name]));
+    } else {
+      nextAllowlist = currentlyAllWorkspace
+        ? workspaceNames.filter((item: string) => item !== name)
+        : currentAllowlist.filter((item: string) => item !== name);
+      nextEnabled = nextAllowlist.length > 0;
+      if (!nextEnabled) nextAllowlist = [];
+    }
+
+    system.extensions = { ...currentExtensions, loadWorkspaceExtensions: nextEnabled, workspaceAllowlist: nextAllowlist };
+    const result = configManager.updateEditableConfig({ system } as any);
+    return { workspace: { enabled: nextEnabled, allowlist: nextAllowlist }, mergedRaw: result.mergedRaw as Record<string, unknown> };
   }
 
   private readPluginEntries(raw: Record<string, any> | undefined): Array<{ name: string; enabled?: boolean; [key: string]: any }> {
@@ -1854,7 +1905,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, nextEntries) as any);
   }
 
-  private async handleToggleExtension(name: string): Promise<{ ok: boolean; message: string }> {
+  private async handleToggleExtension(name: string, desiredEnabled?: boolean): Promise<{ ok: boolean; message: string }> {
     const ext = (this.api as any)?.extensions;
     const configManager = this.api?.configManager;
     if (!ext || !configManager) {
@@ -1866,31 +1917,55 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       const raw = configManager.readEditableConfig() as Record<string, any>;
       const pluginEntries: Array<{ name: string; enabled?: boolean; [k: string]: any }> = [...this.readPluginEntries(raw)];
       const existing = pluginEntries.find(p => p.name === name);
+      const packages: Array<{ manifest: { name: string; entry?: string; plugin?: any; platforms?: any[] }; source?: string; rootDir?: string }> = ext.discoverAll?.() ?? ext.discover?.() ?? [];
+      const pkg = packages.find((item) => item.manifest.name === name);
+      const hasPlugin = pkg ? this.hasPluginContribution(pkg.manifest) : true;
+      const isWorkspace = pkg?.source === 'workspace';
 
       // 判断运行时状态
       const active = (this.api as any)?.pluginManager?.listPlugins?.() ?? [];
       const isActive = active.some((p: any) => p.name === name);
+      const shouldEnable = desiredEnabled ?? !isActive;
 
-      if (isActive) {
+      if (!shouldEnable) {
         // 禁用：停用插件 + 更新 yaml
-        await ext.deactivate(name);
+        if (isActive) await ext.deactivate(name);
+        if (isWorkspace) {
+          const workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, false, packages);
+          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
+        }
         if (existing) {
           existing.enabled = false;
-        } else {
+        } else if (hasPlugin) {
           pluginEntries.push({ name, enabled: false });
         }
         configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries) as any);
         return { ok: true, message: `已禁用 "${name}"` };
       } else {
-        // 启用：先激活插件，成功后再更新 yaml（防止 activate 失败导致状态不一致）
-        await ext.activate(name);
+        let workspaceUpdate: { workspace: { enabled: boolean; allowlist: string[] }; mergedRaw?: Record<string, unknown> } | undefined;
+        if (isWorkspace) {
+          workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, true, packages);
+          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
+        }
+
+        // 启用：插件扩展先激活，成功后再更新 yaml（防止 activate 失败导致状态不一致）。
+        // 纯平台 workspace 扩展只更新发现配置；配置 platform.yaml / 重启后生效。
+        let installedDeps: string[] = [];
+        if (hasPlugin) {
+          if (pkg?.rootDir) {
+            const depsResult = await ensureExtensionRuntimeDependencies(pkg.rootDir);
+            if (depsResult.installed) installedDeps = depsResult.missingDependencies;
+          }
+          await ext.activate(name);
+        }
         if (existing) {
           existing.enabled = true;
-        } else {
+        } else if (hasPlugin) {
           pluginEntries.push({ name, enabled: true });
         }
-        configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries) as any);
-        return { ok: true, message: `已启用 "${name}"` };
+        if (hasPlugin) configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries) as any);
+        if (!hasPlugin) return { ok: true, message: `已启用可选平台扩展 "${name}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。` };
+        return { ok: true, message: installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(', ')} 并启用 "${name}"` : `已启用 "${name}"` };
       }
     } catch (err) {
       return { ok: false, message: `操作失败: ${err instanceof Error ? err.message : String(err)}` };

@@ -38,7 +38,12 @@ import type {
   ExtensionSource,
   ResolvedLocalPlugin,
 } from 'irises-extension-sdk';
-import { isDirectory, MANIFEST_FILE, resolveSafeRelativePath } from 'irises-extension-sdk/utils';
+import {
+  getMissingExtensionRuntimeDependencies,
+  isDirectory,
+  MANIFEST_FILE,
+  resolveSafeRelativePath,
+} from 'irises-extension-sdk/utils';
 import { DISABLED_MARKER_FILE } from 'irises-extension-sdk/utils';
 
 const logger = createLogger('ExtensionRegistry');
@@ -433,6 +438,12 @@ export function registerExtensionPlatforms(
       }
 
       registry.register(contribution.name, async (context) => {
+        const depsResult = getMissingExtensionRuntimeDependencies(extensionPackage.rootDir);
+        if (depsResult.missingDependencies.length > 0) {
+          throw new Error(
+            `extension "${extensionPackage.manifest.name}" 缺少运行时依赖: ${depsResult.missingDependencies.join(', ')}。请在 TUI/Web 中重新启用该 extension 并确认安装依赖，或在 ${extensionPackage.rootDir} 手动运行 npm install。`,
+          );
+        }
         const mod = await importLocalExtensionModule(entryFile);
         const factory = resolvePlatformFactoryExport(mod, contribution, extensionPackage.manifest.name);
         return await factory(context);

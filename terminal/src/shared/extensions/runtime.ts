@@ -23,6 +23,9 @@ import {
   analyzeRuntimeEntries,
   describeRuntimeIssues,
   type ExtensionManifestLike,
+  ensureExtensionRuntimeDependencies,
+  getMissingExtensionRuntimeDependencies,
+  type EnsureExtensionRuntimeDependenciesResult,
   cloneGitRepository,
   resolveGitExtensionTarget,
   formatGitExtensionTarget,
@@ -296,6 +299,84 @@ function setDisabledMarker(rootDir: string, disabled: boolean): void {
   }
 }
 
+function readSystemConfigFile(): Record<string, unknown> {
+  const systemPath = path.join(resolveRuntimeConfigDir(), "system.yaml")
+  if (!fs.existsSync(systemPath)) return {}
+  try {
+    const parsed = parse(fs.readFileSync(systemPath, "utf-8"))
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeSystemConfigFile(systemConfig: Record<string, unknown>): void {
+  const configDir = resolveRuntimeConfigDir()
+  ensureDirectory(configDir)
+  const systemPath = path.join(configDir, "system.yaml")
+  fs.writeFileSync(systemPath, `# 系统配置\n\n${stringify(systemConfig, { indent: 2 })}`, "utf-8")
+}
+
+function getWorkspaceDiscoveryConfig(): { enabled: boolean; allowlist: string[] } {
+  const system = readSystemConfigFile()
+  const extensions = system.extensions && typeof system.extensions === "object"
+    ? system.extensions as Record<string, unknown>
+    : {}
+  const allowlist = Array.isArray(extensions.workspaceAllowlist)
+    ? extensions.workspaceAllowlist.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : []
+  return {
+    enabled: extensions.loadWorkspaceExtensions === true,
+    allowlist,
+  }
+}
+
+function isWorkspaceExtensionEnabled(name: string): boolean {
+  const config = getWorkspaceDiscoveryConfig()
+  if (!config.enabled) return false
+  return config.allowlist.length === 0 || config.allowlist.includes(name)
+}
+
+function readEmbeddedNameSet(embeddedRootDir: string): Set<string> {
+  const embeddedNames = new Set<string>()
+  const embeddedConfigPath = path.join(embeddedRootDir, "embedded.json")
+  if (!fs.existsSync(embeddedConfigPath)) return embeddedNames
+  try {
+    const raw = JSON.parse(fs.readFileSync(embeddedConfigPath, "utf-8")) as { extensions?: Array<{ name?: string }> }
+    for (const item of raw.extensions ?? []) {
+      const name = normalizeText(item?.name)
+      if (name) embeddedNames.add(name)
+    }
+  } catch { /* ignore */ }
+  return embeddedNames
+}
+
+function listWorkspaceExtensionNames(embeddedRootDir: string): string[] {
+  const embeddedNames = readEmbeddedNameSet(embeddedRootDir)
+  if (!fs.existsSync(embeddedRootDir) || !fs.statSync(embeddedRootDir).isDirectory()) return []
+  return fs.readdirSync(embeddedRootDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(embeddedRootDir, entry.name))
+    .map((rootDir) => readManifestFromDir(rootDir)?.name)
+    .filter((name): name is string => !!name && !embeddedNames.has(name))
+}
+
+function setWorkspaceExtensionEnabled(rootDir: string, name: string, enabled: boolean): void {
+  const system = readSystemConfigFile()
+  const current = getWorkspaceDiscoveryConfig()
+  const workspaceNames = listWorkspaceExtensionNames(path.dirname(rootDir))
+  const currentlyAllWorkspace = current.enabled && current.allowlist.length === 0
+  const nextAllowlist = enabled
+    ? (currentlyAllWorkspace ? [] : Array.from(new Set([...current.allowlist, name])))
+    : (currentlyAllWorkspace ? workspaceNames.filter((item) => item !== name) : current.allowlist.filter((item) => item !== name))
+  const nextEnabled = enabled || nextAllowlist.length > 0
+  const extensions = system.extensions && typeof system.extensions === "object" ? { ...(system.extensions as Record<string, unknown>) } : {}
+  system.extensions = { ...extensions, loadWorkspaceExtensions: nextEnabled, workspaceAllowlist: nextEnabled ? nextAllowlist : [] }
+  writeSystemConfigFile(system)
+}
+
 function resolveInstalledState(
   manifest: ExtensionManifestLike,
   rootDir: string,
@@ -558,24 +639,7 @@ function loadEmbeddedAndWorkspaceExtensions(installDir: string): ExtensionSummar
   const embeddedRootDir = getEmbeddedExtensionsDir(installDir)
   if (!fs.existsSync(embeddedRootDir) || !fs.statSync(embeddedRootDir).isDirectory()) return []
 
-  // 读取 embedded.json 名单
-  const embeddedNames = new Set<string>()
-  const embeddedConfigPath = path.join(embeddedRootDir, "embedded.json")
-  if (fs.existsSync(embeddedConfigPath)) {
-    try {
-      const raw = JSON.parse(fs.readFileSync(embeddedConfigPath, "utf-8")) as {
-        extensions?: Array<{ name?: string }>
-      }
-      if (Array.isArray(raw.extensions)) {
-        for (const item of raw.extensions) {
-          const name = normalizeText(item?.name)
-          if (name) embeddedNames.add(name)
-        }
-      }
-    } catch {
-      // ignore — embedded.json 解析失败时按全部 workspace 处理
-    }
-  }
+  const embeddedNames = readEmbeddedNameSet(embeddedRootDir)
 
   const results: ExtensionSummary[] = []
   for (const dirent of fs.readdirSync(embeddedRootDir, { withFileTypes: true })) {
@@ -588,15 +652,16 @@ function loadEmbeddedAndWorkspaceExtensions(installDir: string): ExtensionSummar
     const isEmbedded = embeddedNames.has(manifest.name!)
     const source: ExtensionLocalSource = isEmbedded ? "embedded" : "workspace"
     const sourceLabel = isEmbedded ? "源码内嵌" : "源码 workspace"
-    const stateLabel = isEmbedded ? "源码内嵌" : "源码 workspace（默认不加载）"
+    const workspaceEnabled = !isEmbedded && isWorkspaceExtensionEnabled(manifest.name!)
+    const stateLabel = isEmbedded ? "源码内嵌" : (workspaceEnabled ? "已开启" : "可选（未开启）")
     const statusDetail = isEmbedded
       ? "当前安装目录已内嵌该 extension。若用户目录安装同名版本，运行时将优先加载用户目录版本。"
-      : "源码仓库中的额外扩展，默认不被加载。需在 system.yaml 中开启 loadWorkspaceExtensions 才能生效。"
+      : "源码仓库中的可选扩展，可在 TUI 中开启/关闭，无需手动编辑 system.yaml。"
 
     results.push(buildSummary(manifest.name!, manifest, {
       rootDir,
       installed: false,
-      enabled: getPluginEnabledState(manifest.name!) !== false && !hasDisabledMarker(rootDir),
+      enabled: isEmbedded ? getPluginEnabledState(manifest.name!) !== false && !hasDisabledMarker(rootDir) : workspaceEnabled,
       stateLabel,
       statusDetail,
       localSource: source,
@@ -883,7 +948,7 @@ export async function updateGitInstalledExtension(
   if (preserveDisabledMarker) {
     disableInstalledExtension(updated)
   } else if (wasEnabled) {
-    enableInstalledExtension(updated)
+    await enableInstalledExtensionWithDependencies(updated)
   }
 
   // 同 scope 重新加载
@@ -900,10 +965,33 @@ export function enableInstalledExtension(summary: ExtensionSummary): void {
     throw new Error(`extension 不存在: ${summary.name}`)
   }
 
+  if (summary.localSource === "workspace") {
+    setWorkspaceExtensionEnabled(rootDir, summary.name, true)
+  }
+
   setDisabledMarker(rootDir, false)
   if (summary.hasPlugin) {
     upsertLocalPluginEnabled(summary.name, true, scope)
   }
+}
+
+export function getExtensionRuntimeDependencyStatus(summary: ExtensionSummary): EnsureExtensionRuntimeDependenciesResult {
+  const scope = scopeFromSummary(summary)
+  const rootDir = summary.rootDir || path.join(resolveInstallDirForScope(scope), summary.name)
+  if (!fs.existsSync(rootDir)) {
+    throw new Error(`extension 不存在: ${summary.name}`)
+  }
+  return getMissingExtensionRuntimeDependencies(rootDir)
+}
+
+export async function enableInstalledExtensionWithDependencies(summary: ExtensionSummary): Promise<void> {
+  const scope = scopeFromSummary(summary)
+  const rootDir = summary.rootDir || path.join(resolveInstallDirForScope(scope), summary.name)
+  if (!fs.existsSync(rootDir)) {
+    throw new Error(`extension 不存在: ${summary.name}`)
+  }
+  await ensureExtensionRuntimeDependencies(rootDir)
+  enableInstalledExtension(summary)
 }
 
 export function disableInstalledExtension(summary: ExtensionSummary): void {
@@ -911,6 +999,14 @@ export function disableInstalledExtension(summary: ExtensionSummary): void {
   const rootDir = summary.rootDir || path.join(resolveInstallDirForScope(scope), summary.name)
   if (!fs.existsSync(rootDir)) {
     throw new Error(`extension 不存在: ${summary.name}`)
+  }
+
+  if (summary.localSource === "workspace") {
+    setWorkspaceExtensionEnabled(rootDir, summary.name, false)
+    if (summary.hasPlugin) {
+      upsertLocalPluginEnabled(summary.name, false, scope)
+    }
+    return
   }
 
   setDisabledMarker(rootDir, true)

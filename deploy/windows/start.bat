@@ -7,7 +7,7 @@ set "INSTALL_DIR=%~dp0"
 if exist "!INSTALL_DIR!bin\iris.exe" goto :found_install_dir
 set "INSTALL_DIR=%~dp0..\.."
 :found_install_dir
-for %%I in ("!INSTALL_DIR!") do set "INSTALL_DIR=%%~fI"
+for %%I in ("!INSTALL_DIR!\.") do set "INSTALL_DIR=%%~fI"
 
 if defined IRIS_DATA_DIR (
   set "DATA_DIR=!IRIS_DATA_DIR!"

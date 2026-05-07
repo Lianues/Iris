@@ -52,6 +52,14 @@ export {
   getInstalledExtensionsDir,
 } from './runtime-paths.js';
 
+// ---- dependencies ----
+export type {
+  EnsureExtensionRuntimeDependenciesOptions,
+  EnsureExtensionRuntimeDependenciesResult,
+  ExtensionDependencyCommandRunner,
+} from './dependencies.js';
+export { ensureExtensionRuntimeDependencies, getMissingExtensionRuntimeDependencies } from './dependencies.js';
+
 // ---- installer ----
 export type {
   ExtensionInstallOptions,

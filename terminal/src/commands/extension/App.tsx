@@ -13,8 +13,9 @@ import { gracefulExit } from "../../shared/runtime.js"
 import {
   deleteInstalledExtension,
   disableInstalledExtension,
-  enableInstalledExtension,
+  enableInstalledExtensionWithDependencies,
   getRemoteExtensionRequestTimeoutMs,
+  getExtensionRuntimeDependencyStatus,
   inspectGitExtension,
   inspectGitExtensionUpdate,
   installGitExtension as installGitExtensionFromRuntime,
@@ -155,12 +156,13 @@ function buildInstalledExtensionOption(summary: ExtensionSummary): OptionSelectI
 }
 
 function buildManageActionOptions(summary: ExtensionSummary): OptionSelectItem[] {
-  // embedded / workspace 不可在 TUI 内删除/启用/关闭（属于发行包/源码仓库），只显示提示
-  if (summary.localSource === "embedded" || summary.localSource === "workspace") {
+  // embedded 不可在 TUI 内删除/启用/关闭（属于发行包），只显示提示。
+  // workspace 是源码仓库中的可选扩展，可通过 TUI 写 system.yaml 的 workspace allowlist 来开启/关闭。
+  if (summary.localSource === "embedded") {
     return [{
       value: "noop",
-      label: summary.localSource === "embedded" ? "（内嵌扩展不可在此操作）" : "（源码 workspace 扩展不可在此操作）",
-      description: "请通过对应层 plugins.yaml 设置 enabled: false 来禁用，或在 system.yaml 中调整 loadWorkspaceExtensions。",
+      label: "（内嵌扩展不可在此操作）",
+      description: "请通过对应层 plugins.yaml 设置 enabled: false 来禁用。",
     }]
   }
 
@@ -187,11 +189,11 @@ function buildManageActionOptions(summary: ExtensionSummary): OptionSelectItem[]
           } satisfies OptionSelectItem,
         ]
       : []),
-    {
+    ...(summary.localSource === "workspace" ? [] : [{
       value: "delete",
       label: "删除",
       description: "从本地已安装目录删除该 extension。若包含插件入口，也会移除对应插件配置。",
-    },
+    } satisfies OptionSelectItem]),
   ]
 }
 
@@ -218,6 +220,29 @@ function buildActionDescription(action: ManageAction, summary: ExtensionSummary)
       return `将删除 ${summary.name} 的本地安装目录，并移除相关本地插件配置。`
     case "update":
       return `将按已记录的 Git 来源拉取并升级 ${summary.name}。`
+  }
+}
+
+function buildDependencyNotice(summary: ExtensionSummary): InfoConfirmNotice | undefined {
+  let dependencyStatus: ReturnType<typeof getExtensionRuntimeDependencyStatus>
+  try {
+    dependencyStatus = getExtensionRuntimeDependencyStatus(summary)
+  } catch {
+    return undefined
+  }
+  if (dependencyStatus.missingDependencies.length === 0) return undefined
+  const specs = dependencyStatus.missingDependencies.map((name) => {
+    const spec = dependencyStatus.dependencySpecs[name]
+    return spec ? `${name}@${spec}` : name
+  })
+  return {
+    tone: "warning",
+    title: "需要安装依赖",
+    lines: [
+      `该 extension 缺少运行时依赖：${specs.join(", ")}`,
+      "确认后将执行 npm install，把缺失依赖安装到该 extension 的 node_modules 下。",
+      "如不希望联网或执行第三方依赖安装脚本，请按 Esc / n 返回。",
+    ],
   }
 }
 
@@ -630,6 +655,14 @@ export function App({ installDir, initialScope }: ExtensionAppProps) {
           "请确认仓库来源可信，并优先使用固定 tag 或 commit。",
         ],
       },
+      {
+        tone: "warning",
+        title: "依赖安装提示",
+        lines: [
+          "如果安装后的 extension 声明了未安装的运行时依赖，确认后会执行 npm install 安装缺失项。",
+          "如不希望联网或执行第三方依赖安装脚本，请按 Esc / n 返回。",
+        ],
+      },
     ]
 
     return (
@@ -647,7 +680,7 @@ export function App({ installDir, initialScope }: ExtensionAppProps) {
             ref: gitPreview.target.ref,
             subdir: gitPreview.target.subdir,
           }, {}, currentScope)
-          enableInstalledExtension(installed)
+          await enableInstalledExtensionWithDependencies(installed)
           setInstalledRefreshToken((value) => value + 1)
           setRemoteCatalogState({ status: "idle", items: [] })
           setTimeout(() => {
@@ -780,6 +813,14 @@ export function App({ installDir, initialScope }: ExtensionAppProps) {
           "安装成功后扩展将自动注册，无需手动配置。",
         ],
       },
+      {
+        tone: "warning",
+        title: "依赖安装提示",
+        lines: [
+          "如果安装后的 extension 声明了未安装的运行时依赖，确认后会执行 npm install 安装缺失项。",
+          "如不希望联网或执行第三方依赖安装脚本，请按 Esc / n 返回。",
+        ],
+      },
     ]
 
     const downloadListStep = downloadCategory === "platform" ? "download-platform-list" : "download-plugin-list"
@@ -795,7 +836,7 @@ export function App({ installDir, initialScope }: ExtensionAppProps) {
             throw new Error("当前远程包缺少可运行入口，例如 dist/index.mjs，不可直接安装。")
           }
           const installed = await installRemoteExtension(selectedRemoteExtension.requestedPath, currentScope)
-          enableInstalledExtension(installed)
+          await enableInstalledExtensionWithDependencies(installed)
           setInstalledRefreshToken((value) => value + 1)
           setRemoteCatalogState({ status: "idle", items: [] })
           setTimeout(() => {
@@ -954,6 +995,14 @@ export function App({ installDir, initialScope }: ExtensionAppProps) {
             : "升级完成后会保留当前关闭/未启用状态。",
         ],
       },
+      ...(selectedInstalledExtension.enabled ? [{
+        tone: "warning" as const,
+        title: "依赖安装提示",
+        lines: [
+          "如果升级后的 extension 声明了未安装的运行时依赖，确认后会执行 npm install 安装缺失项。",
+          "如不希望联网或执行第三方依赖安装脚本，请按 Esc / n 返回。",
+        ],
+      }] : []),
     ]
 
     return (
@@ -992,6 +1041,8 @@ export function App({ installDir, initialScope }: ExtensionAppProps) {
   // ==================== 管理确认 ====================
   if (step === "manage-confirm" && selectedInstalledExtension && selectedManageAction) {
     const manageListStep = manageCategory === "platform" ? "manage-platform-list" : "manage-plugin-list"
+    const dependencyNotice = selectedManageAction === "enable" ? buildDependencyNotice(selectedInstalledExtension) : undefined
+    const notices = dependencyNotice ? [dependencyNotice] : []
 
     const sections: InfoConfirmSection[] = [
       {
@@ -1016,9 +1067,10 @@ export function App({ installDir, initialScope }: ExtensionAppProps) {
         title={buildActionTitle(selectedManageAction)}
         description="确认后将修改本地 extension 状态。"
         sections={sections}
+        notices={notices}
         onConfirm={async () => {
           if (selectedManageAction === "enable") {
-            enableInstalledExtension(selectedInstalledExtension)
+            await enableInstalledExtensionWithDependencies(selectedInstalledExtension)
           } else if (selectedManageAction === "disable") {
             disableInstalledExtension(selectedInstalledExtension)
           } else if (selectedManageAction === "delete") {
@@ -1035,6 +1087,7 @@ export function App({ installDir, initialScope }: ExtensionAppProps) {
           }, 1200)
         }}
         onBack={() => setStep("manage-action")}
+        confirmActionText={dependencyNotice ? "Enter / y 安装依赖并开启" : undefined}
         successTitle={`✅ ${buildActionTitle(selectedManageAction)}已完成！`}
         successLines={["1.2 秒后将返回列表。"]}
       />

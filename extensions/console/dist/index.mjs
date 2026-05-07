@@ -16,30 +16,39 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/irises-extension-sdk/src/logger.ts
+// ../../packages/extension-sdk/dist/logger.js
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= 0 /* DEBUG */)
+      if (_logLevel <= LogLevel.DEBUG)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= 1 /* INFO */)
+      if (_logLevel <= LogLevel.INFO)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= 2 /* WARN */)
+      if (_logLevel <= LogLevel.WARN)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= 3 /* ERROR */)
+      if (_logLevel <= LogLevel.ERROR)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
-var _logLevel = 1 /* INFO */;
-var init_logger = () => {};
+var LogLevel, _logLevel;
+var init_logger = __esm(() => {
+  (function(LogLevel2) {
+    LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
+    LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
+    LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
+    LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
+    LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
+  })(LogLevel || (LogLevel = {}));
+  _logLevel = LogLevel.INFO;
+});
 
 // src/terminal-compat.ts
 import { execFileSync } from "child_process";
@@ -170,7 +179,7 @@ __export(exports_remote_wizard, {
   showConnectError: () => showConnectError
 });
 function showSelectionPhase(options) {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const stdin = process.stdin;
     const stdout = process.stdout;
     const wasRaw = stdin.isRaw;
@@ -279,7 +288,7 @@ function showSelectionPhase(options) {
       const key = buf.toString("utf-8");
       if (key === "\x1B" || key === "\x03") {
         cleanup();
-        resolve4(null);
+        resolve5(null);
         return;
       }
       if (key === "\x1B[A") {
@@ -325,11 +334,11 @@ function showSelectionPhase(options) {
           return;
         cleanup();
         if (item.type === "saved") {
-          resolve4({ action: "connect-saved", name: item.name, url: item.url, hasToken: item.hasToken });
+          resolve5({ action: "connect-saved", name: item.name, url: item.url, hasToken: item.hasToken });
         } else if (item.type === "discovered") {
-          resolve4({ action: "connect-discovered", host: item.host, port: item.port, name: item.name });
+          resolve5({ action: "connect-discovered", host: item.host, port: item.port, name: item.name });
         } else {
-          resolve4({ action: "manual" });
+          resolve5({ action: "manual" });
         }
         return;
       }
@@ -339,7 +348,7 @@ function showSelectionPhase(options) {
   });
 }
 function showInputPhase(opts = {}) {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const stdin = process.stdin;
     const stdout = process.stdout;
     let url = opts.prefillUrl || "ws://";
@@ -408,7 +417,7 @@ function showInputPhase(opts = {}) {
       const key = buf.toString("utf-8");
       if (key === "\x1B" || key === "\x03") {
         cleanup();
-        resolve4(null);
+        resolve5(null);
         return;
       }
       if (key === "\t") {
@@ -437,7 +446,7 @@ function showInputPhase(opts = {}) {
             return;
           }
           cleanup();
-          resolve4({ url: url.trim(), token: token.trim() });
+          resolve5({ url: url.trim(), token: token.trim() });
           return;
         }
         nextField();
@@ -478,7 +487,7 @@ function showInputPhase(opts = {}) {
   });
 }
 function showSavePrompt() {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const stdin = process.stdin;
     const stdout = process.stdout;
     let name = "";
@@ -514,7 +523,7 @@ function showSavePrompt() {
       const key = buf.toString("utf-8");
       if (key === "\x1B" || key === "\x03") {
         cleanup();
-        resolve4(null);
+        resolve5(null);
         return;
       }
       if (key === "\r" || key === `
@@ -531,7 +540,7 @@ function showSavePrompt() {
           return;
         }
         cleanup();
-        resolve4(trimmed);
+        resolve5(trimmed);
         return;
       }
       if (key === "" || key === "\b") {
@@ -617,7 +626,7 @@ var init_remote_wizard = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/framing.ts
+// ../../packages/extension-sdk/dist/ipc/framing.js
 import { Transform } from "node:stream";
 function encodeFrame(data) {
   const payload = Buffer.from(JSON.stringify(data), "utf-8");
@@ -668,7 +677,7 @@ var init_framing = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/protocol.ts
+// ../../packages/extension-sdk/dist/ipc/protocol.js
 function isRequest(msg) {
   return "id" in msg && "method" in msg;
 }
@@ -721,6 +730,7 @@ var init_protocol = __esm(() => {
     SET_CWD: "backend.setCwd",
     GET_CONFIG: "server.getConfig",
     GET_CONFIG_DIR: "server.getConfigDir",
+    SERVER_SHUTDOWN: "server.shutdown",
     HANDLE_APPROVE: "handle.approve",
     HANDLE_REJECT: "handle.reject",
     HANDLE_APPLY: "handle.apply",
@@ -791,7 +801,7 @@ var init_protocol = __esm(() => {
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// node_modules/irises-extension-sdk/src/ipc/remote-tool-handle.ts
+// ../../packages/extension-sdk/dist/ipc/remote-tool-handle.js
 import { EventEmitter } from "node:events";
 var logger, RemoteToolHandle;
 var init_remote_tool_handle = __esm(() => {
@@ -895,7 +905,7 @@ var init_remote_tool_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/remote-backend-handle.ts
+// ../../packages/extension-sdk/dist/ipc/remote-backend-handle.js
 import { EventEmitter as EventEmitter2 } from "node:events";
 var logger2, RemoteBackendHandle;
 var init_remote_backend_handle = __esm(() => {
@@ -1119,7 +1129,7 @@ var init_remote_backend_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/remote-api-proxy.ts
+// ../../packages/extension-sdk/dist/ipc/remote-api-proxy.js
 function callApi(client, targetAgentName, method, params) {
   if (!targetAgentName) {
     return client.call(method, params);
@@ -1193,16 +1203,7 @@ var init_remote_api_proxy = __esm(() => {
   logger3 = createExtensionLogger("RemoteApiProxy");
 });
 
-// node_modules/irises-extension-sdk/src/ipc/index.ts
-var init_ipc = __esm(() => {
-  init_framing();
-  init_protocol();
-  init_remote_backend_handle();
-  init_remote_tool_handle();
-  init_remote_api_proxy();
-});
-
-// node_modules/irises-extension-sdk/dist/ipc/index.js
+// ../../packages/extension-sdk/dist/ipc/index.js
 var exports_ipc = {};
 __export(exports_ipc, {
   isResponse: () => isResponse,
@@ -1219,8 +1220,12 @@ __export(exports_ipc, {
   ErrorCodes: () => ErrorCodes,
   BACKEND_EVENT_TO_IPC: () => BACKEND_EVENT_TO_IPC
 });
-var init_ipc2 = __esm(() => {
-  init_ipc();
+var init_ipc = __esm(() => {
+  init_framing();
+  init_protocol();
+  init_remote_backend_handle();
+  init_remote_tool_handle();
+  init_remote_api_proxy();
 });
 
 // src/index.ts
@@ -1228,7 +1233,7 @@ import React12 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// node_modules/irises-extension-sdk/src/platform.ts
+// ../../packages/extension-sdk/dist/platform.js
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1354,7 +1359,147 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// node_modules/irises-extension-sdk/src/utils/paths.ts
+
+// ../../packages/extension-sdk/dist/index.js
+init_logger();
+// ../../packages/extension-sdk/dist/utils/dependencies.js
+import * as childProcess from "node:child_process";
+import * as fs from "node:fs";
+import { createRequire as createRequire2 } from "node:module";
+import * as path from "node:path";
+var INTERNAL_HOST_DEPENDENCIES = new Set([
+  "irises-extension-sdk"
+]);
+function readPackageJson(packageJsonPath) {
+  if (!fs.existsSync(packageJsonPath))
+    return;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+    return parsed && typeof parsed === "object" ? parsed : undefined;
+  } catch {
+    return;
+  }
+}
+function collectRuntimeDependencySpecs(packageJson) {
+  const specs = {};
+  for (const source of [packageJson?.dependencies, packageJson?.optionalDependencies]) {
+    if (!source || typeof source !== "object")
+      continue;
+    for (const [name, spec] of Object.entries(source)) {
+      const depName = name.trim();
+      if (!depName || INTERNAL_HOST_DEPENDENCIES.has(depName))
+        continue;
+      if (typeof spec === "string" && spec.trim()) {
+        specs[depName] = spec.trim();
+      }
+    }
+  }
+  return specs;
+}
+function isDependencyResolvable(extensionDir, dependencyName) {
+  const resolvedExtensionDir = path.resolve(extensionDir);
+  const packageJsonPath = path.join(resolvedExtensionDir, "package.json");
+  const requireFromExtension = createRequire2(packageJsonPath);
+  try {
+    requireFromExtension.resolve(`${dependencyName}/package.json`);
+    return true;
+  } catch {}
+  try {
+    requireFromExtension.resolve(dependencyName);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function isRegistryInstallableSpec(spec) {
+  const normalized = spec.trim().toLowerCase();
+  if (!normalized)
+    return false;
+  return !(normalized.startsWith("file:") || normalized.startsWith("link:") || normalized.startsWith("workspace:") || normalized.startsWith("portal:") || normalized.startsWith("git+") || normalized.startsWith("http:") || normalized.startsWith("https:") || normalized.startsWith("ssh:"));
+}
+function formatInstallSpec(name, spec) {
+  const normalized = spec.trim();
+  if (!normalized || normalized === "*" || normalized === "latest")
+    return name;
+  return `${name}@${normalized}`;
+}
+function buildMissingInstallSpecs(dependencySpecs, missingDependencies) {
+  const installSpecs = [];
+  const nonInstallable = [];
+  for (const name of missingDependencies) {
+    const spec = dependencySpecs[name];
+    if (!isRegistryInstallableSpec(spec)) {
+      nonInstallable.push(`${name}@${spec}`);
+      continue;
+    }
+    installSpecs.push(formatInstallSpec(name, spec));
+  }
+  if (nonInstallable.length > 0) {
+    throw new Error(`extension 缺少无法自动安装的本地/非 registry 依赖: ${nonInstallable.join(", ")}`);
+  }
+  return installSpecs;
+}
+function defaultCommandRunner(command, args, cwd) {
+  const result = childProcess.spawnSync(command, args, {
+    cwd,
+    stdio: "inherit",
+    shell: process.platform === "win32"
+  });
+  if (result.error)
+    throw result.error;
+  if (typeof result.status === "number" && result.status !== 0) {
+    throw new Error(`命令执行失败: ${command} ${args.join(" ")} (exit=${result.status})`);
+  }
+}
+function getMissingExtensionRuntimeDependencies(extensionDir) {
+  const resolvedExtensionDir = path.resolve(extensionDir);
+  const packageJsonPath = path.join(resolvedExtensionDir, "package.json");
+  const packageJson = readPackageJson(packageJsonPath);
+  const dependencySpecs = collectRuntimeDependencySpecs(packageJson);
+  const missingDependencies = Object.keys(dependencySpecs).filter((name) => !isDependencyResolvable(resolvedExtensionDir, name));
+  return {
+    packageJsonPath: packageJson ? packageJsonPath : undefined,
+    dependencySpecs,
+    missingDependencies,
+    installed: false
+  };
+}
+async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
+  const resolvedExtensionDir = path.resolve(extensionDir);
+  const result = getMissingExtensionRuntimeDependencies(resolvedExtensionDir);
+  if (result.missingDependencies.length === 0)
+    return result;
+  if (options.install === false)
+    return result;
+  const installSpecs = buildMissingInstallSpecs(result.dependencySpecs, result.missingDependencies);
+  const command = "npm";
+  const args = [
+    "install",
+    "--no-save",
+    "--package-lock=false",
+    "--no-audit",
+    "--no-fund",
+    ...installSpecs
+  ];
+  const runner = options.commandRunner ?? defaultCommandRunner;
+  await runner(command, args, resolvedExtensionDir);
+  const afterInstall = getMissingExtensionRuntimeDependencies(resolvedExtensionDir);
+  if (afterInstall.missingDependencies.length > 0) {
+    throw new Error(`extension 依赖安装后仍缺失: ${afterInstall.missingDependencies.join(", ")}`);
+  }
+  return {
+    ...afterInstall,
+    missingDependencies: result.missingDependencies,
+    installed: true,
+    installCommand: command,
+    installArgs: args
+  };
+}
+// ../../packages/extension-sdk/dist/utils/git.js
+import * as fs2 from "node:fs";
+import * as path2 from "node:path";
+
+// ../../packages/extension-sdk/dist/utils/paths.js
 function normalizeText(value) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -1370,9 +1515,7 @@ function normalizeRelativeFilePath(input, label = "文件路径") {
   return parts.join("/");
 }
 
-// node_modules/irises-extension-sdk/src/utils/git.ts
-import * as fs from "node:fs";
-import * as path from "node:path";
+// ../../packages/extension-sdk/dist/utils/git.js
 var GIT_INSTALL_METADATA_FILE = ".iris-extension-install.json";
 function stripGitPlusProtocol(url) {
   return url.startsWith("git+") ? url.slice("git+".length) : url;
@@ -1411,11 +1554,11 @@ function normalizeGitSubdir(input) {
   return normalizeRelativeFilePath(text.replace(/^\.\//, ""), "Git extension 子目录");
 }
 function readGitInstallMetadata(rootDir) {
-  const metadataPath = path.join(rootDir, GIT_INSTALL_METADATA_FILE);
-  if (!fs.existsSync(metadataPath))
+  const metadataPath = path2.join(rootDir, GIT_INSTALL_METADATA_FILE);
+  if (!fs2.existsSync(metadataPath))
     return;
   try {
-    const raw = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
+    const raw = JSON.parse(fs2.readFileSync(metadataPath, "utf8"));
     if (raw.source !== "git")
       return;
     const url = normalizeText(raw.url);
@@ -5128,12 +5271,12 @@ function ChatMessageList({
 
 // src/components/DiffApprovalView.tsx
 import { useMemo as useMemo5 } from "react";
-import * as fs3 from "fs";
-import * as path3 from "path";
+import * as fs4 from "fs";
+import * as path4 from "path";
 
-// node_modules/irises-extension-sdk/src/tool-utils.ts
-import * as fs2 from "node:fs";
-import * as path2 from "node:path";
+// ../../packages/extension-sdk/dist/tool-utils.js
+import * as fs3 from "node:fs";
+import * as path3 from "node:path";
 function normalizeLineEndings(text) {
   return text.replace(/\r\n/g, `
 `).replace(/\r/g, `
@@ -5248,7 +5391,7 @@ var DEFAULT_IGNORED_DIRS = new Set([
 ]);
 var BINARY_DETECT_BYTES = 8 * 1024;
 function toPosix(p) {
-  return p.split(path2.sep).join("/");
+  return p.split(path3.sep).join("/");
 }
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -5360,8 +5503,8 @@ function buildSearchRegex(query, isRegex) {
 function walkFiles(rootAbs, onFile, shouldStop, relPosixDir = "") {
   if (shouldStop())
     return;
-  const dirAbs = relPosixDir ? path2.join(rootAbs, relPosixDir) : rootAbs;
-  const entries = fs2.readdirSync(dirAbs, { withFileTypes: true });
+  const dirAbs = relPosixDir ? path3.join(rootAbs, relPosixDir) : rootAbs;
+  const entries = fs3.readdirSync(dirAbs, { withFileTypes: true });
   for (const ent of entries) {
     if (shouldStop())
       return;
@@ -5377,7 +5520,7 @@ function walkFiles(rootAbs, onFile, shouldStop, relPosixDir = "") {
     if (ent.isFile()) {
       if (shouldIgnoreByPath(relPosix))
         continue;
-      onFile(path2.join(dirAbs, ent.name), relPosix);
+      onFile(path3.join(dirAbs, ent.name), relPosix);
     }
   }
 }
@@ -5403,8 +5546,8 @@ function normalizeObjectArrayArg(args, options) {
 }
 function resolveProjectPath(inputPath, baseCwd) {
   const cwd = baseCwd ?? process.cwd();
-  const resolved = path2.resolve(cwd, inputPath);
-  if (resolved !== cwd && !resolved.startsWith(cwd + path2.sep)) {
+  const resolved = path3.resolve(cwd, inputPath);
+  if (resolved !== cwd && !resolved.startsWith(cwd + path3.sep)) {
     throw new Error(`路径超出项目目录: ${inputPath}`);
   }
   return resolved;
@@ -5614,8 +5757,8 @@ function buildWriteFilePreview(inv) {
     try {
       const resolved = resolveProjectPath(entry.path);
       let existed = false, before = "";
-      if (fs3.existsSync(resolved)) {
-        before = fs3.readFileSync(resolved, "utf-8");
+      if (fs4.existsSync(resolved)) {
+        before = fs4.readFileSync(resolved, "utf-8");
         existed = true;
       }
       if (existed && before === entry.content) {
@@ -5656,7 +5799,7 @@ function buildInsertCodePreview(inv) {
   fileList.forEach((entry, i) => {
     try {
       const resolved = resolveProjectPath(entry.path);
-      const before = fs3.readFileSync(resolved, "utf-8");
+      const before = fs4.readFileSync(resolved, "utf-8");
       const lines = before.split(`
 `);
       const insertLines = entry.content.split(`
@@ -5694,7 +5837,7 @@ function buildDeleteCodePreview(inv) {
   fileList.forEach((entry, i) => {
     try {
       const resolved = resolveProjectPath(entry.path);
-      const before = fs3.readFileSync(resolved, "utf-8");
+      const before = fs4.readFileSync(resolved, "utf-8");
       const lines = before.split(`
 `);
       const after = [...lines.slice(0, entry.start_line - 1), ...lines.slice(entry.end_line)].join(`
@@ -5734,7 +5877,7 @@ function buildSearchReplacePreview(inv) {
   try {
     const regex = buildSearchRegex(query, isRegex);
     const rootAbs = resolveProjectPath(inputPath);
-    const stat = fs3.statSync(rootAbs);
+    const stat = fs4.statSync(rootAbs);
     const patternRe = globToRegExp(pattern);
     const items = [];
     let processedFiles = 0, changedFiles = 0, unchangedFiles = 0;
@@ -5747,8 +5890,8 @@ function buildSearchReplacePreview(inv) {
       if (stat.isDirectory() && !patternRe.test(relPosix))
         return;
       processedFiles++;
-      const displayPath = stat.isDirectory() ? toPosix(path3.join(inputPath, relPosix)) : toPosix(inputPath);
-      const buf = fs3.readFileSync(fileAbs);
+      const displayPath = stat.isDirectory() ? toPosix(path4.join(inputPath, relPosix)) : toPosix(inputPath);
+      const buf = fs4.readFileSync(fileAbs);
       if (buf.length > maxFileSizeBytes) {
         skippedTooLarge++;
         return;
@@ -5786,7 +5929,7 @@ function buildSearchReplacePreview(inv) {
       totalReplacements += replacements;
     };
     if (stat.isFile())
-      processFile(rootAbs, toPosix(path3.basename(rootAbs)));
+      processFile(rootAbs, toPosix(path4.basename(rootAbs)));
     else {
       walkFiles(rootAbs, processFile, shouldStop);
       if (processedFiles >= maxFiles)
@@ -6237,8 +6380,8 @@ function childArgsSummary(toolName, args) {
     case "insert_code": {
       if (Array.isArray(args.files) && args.files.length > 0) {
         const first = args.files[0];
-        const path4 = typeof first === "object" && first ? String(first.path || "") : "";
-        return args.files.length > 1 ? `${path4} +${args.files.length - 1}` : path4;
+        const path5 = typeof first === "object" && first ? String(first.path || "") : "";
+        return args.files.length > 1 ? `${path5} +${args.files.length - 1}` : path5;
       }
       return String(args.path || "");
     }
@@ -7110,8 +7253,8 @@ function argsSummary(toolName, args) {
     case "insert_code": {
       if (Array.isArray(args.files) && args.files.length > 0) {
         const first = args.files[0];
-        const path4 = typeof first === "object" && first ? String(first.path || "") : "";
-        return args.files.length > 1 ? `${path4} +${args.files.length - 1}` : path4;
+        const path5 = typeof first === "object" && first ? String(first.path || "") : "";
+        return args.files.length > 1 ? `${path5} +${args.files.length - 1}` : path5;
       }
       return String(args.path || "");
     }
@@ -7630,7 +7773,7 @@ function ExtensionListView({
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV39("text", {
             fg: C.dim,
-            children: busy ? "  处理中，请稍候..." : `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 标记  S 保存  G 拉取 Git  U 升级  D 删除  Esc 返回`
+            children: busy ? "  处理中，请稍候..." : `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 标记  S 保存(启用时会安装缺失依赖)  G 拉取 Git  U 升级  D 删除  Esc 返回`
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
@@ -9716,8 +9859,8 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
       setPendingFiles(files) {
         setPendingFilesRef.current?.(files);
       },
-      openFileBrowser(path4, entries) {
-        openFileBrowserRef.current?.(path4, entries);
+      openFileBrowser(path5, entries) {
+        openFileBrowserRef.current?.(path5, entries);
       },
       fileBrowserSelect(dirPath, entry, showHidden) {
         fileBrowserCallbackRef.current?.select(dirPath, entry, showHidden);
@@ -10156,7 +10299,7 @@ function useAppKeyboard({
         (async () => {
           for (const item of changed) {
             setExtensionTogglingName(item.name);
-            const result = await onToggleExtension(item.name);
+            const result = await onToggleExtension(item.name, item.status === "active");
             if (!result.ok) {
               setExtensionTogglingName(null);
               setExtensionStatusMessage(result.message);
@@ -11529,8 +11672,8 @@ function App({
   const setPendingFilesRef = useRef9(null);
   setPendingFilesRef.current = setPendingFiles;
   const openFileBrowserRef = useRef9(null);
-  openFileBrowserRef.current = (path4, entries) => {
-    setFileBrowserPath(path4);
+  openFileBrowserRef.current = (path5, entries) => {
+    setFileBrowserPath(path5);
     setFileBrowserEntries(entries);
     setSelectedIndex(0);
     setViewMode("file-browser");
@@ -11947,8 +12090,8 @@ function App({
 }
 
 // src/opentui-runtime.ts
-import * as fs4 from "node:fs";
-import * as path4 from "node:path";
+import * as fs5 from "node:fs";
+import * as path5 from "node:path";
 import { addDefaultParsers, clearEnvCache } from "@opentui/core";
 var OPENTUI_RUNTIME_DIR_NAME = "opentui";
 var REQUIRED_ASSET_FILES = [
@@ -11978,36 +12121,36 @@ function resolveBundledRuntimeDir(isCompiledBinary) {
   const searchDirs = [];
   const pkgDir = process.env.__IRIS_PKG_DIR;
   if (pkgDir) {
-    searchDirs.push(path4.join(pkgDir, "bin"));
+    searchDirs.push(path5.join(pkgDir, "bin"));
     try {
-      const nodeModulesDir = path4.join(pkgDir, "node_modules");
-      if (fs4.existsSync(nodeModulesDir)) {
-        for (const entry of fs4.readdirSync(nodeModulesDir)) {
+      const nodeModulesDir = path5.join(pkgDir, "node_modules");
+      if (fs5.existsSync(nodeModulesDir)) {
+        for (const entry of fs5.readdirSync(nodeModulesDir)) {
           if (entry.startsWith("irises-")) {
-            searchDirs.push(path4.join(nodeModulesDir, entry, "bin"));
+            searchDirs.push(path5.join(nodeModulesDir, entry, "bin"));
           }
         }
       }
     } catch {}
   }
   try {
-    const execDir = path4.dirname(fs4.realpathSync(process.execPath));
+    const execDir = path5.dirname(fs5.realpathSync(process.execPath));
     searchDirs.push(execDir);
-    searchDirs.push(path4.resolve(execDir, ".."));
+    searchDirs.push(path5.resolve(execDir, ".."));
   } catch {}
   for (const dir of searchDirs) {
-    const candidate = path4.join(dir, OPENTUI_RUNTIME_DIR_NAME);
-    if (fs4.existsSync(path4.join(candidate, "parser.worker.js"))) {
+    const candidate = path5.join(dir, OPENTUI_RUNTIME_DIR_NAME);
+    if (fs5.existsSync(path5.join(candidate, "parser.worker.js"))) {
       return candidate;
     }
   }
   return null;
 }
 function hasBundledAssets(assetsRoot) {
-  return REQUIRED_ASSET_FILES.every((relativePath) => fs4.existsSync(path4.join(assetsRoot, relativePath)));
+  return REQUIRED_ASSET_FILES.every((relativePath) => fs5.existsSync(path5.join(assetsRoot, relativePath)));
 }
 function createBundledParsers(assetsRoot) {
-  const asset = (...segments) => path4.join(assetsRoot, ...segments);
+  const asset = (...segments) => path5.join(assetsRoot, ...segments);
   return [
     {
       filetype: "javascript",
@@ -12071,7 +12214,7 @@ function configureBundledOpenTuiTreeSitter(isCompiledBinary) {
   if (configured)
     return;
   const runtimeDir = resolveBundledRuntimeDir(isCompiledBinary);
-  const workerPath = process.env.OTUI_TREE_SITTER_WORKER_PATH?.trim() || (runtimeDir ? path4.join(runtimeDir, "parser.worker.js") : "");
+  const workerPath = process.env.OTUI_TREE_SITTER_WORKER_PATH?.trim() || (runtimeDir ? path5.join(runtimeDir, "parser.worker.js") : "");
   if (!workerPath) {
     if (isCompiledBinary) {
       warnRuntimeIssue("未找到 OpenTUI tree-sitter worker，Markdown 标题和加粗高亮可能不可用。");
@@ -12082,7 +12225,7 @@ function configureBundledOpenTuiTreeSitter(isCompiledBinary) {
   process.env.OTUI_TREE_SITTER_WORKER_PATH = workerPath;
   clearEnvCache();
   if (runtimeDir) {
-    const assetsRoot = path4.join(runtimeDir, "assets");
+    const assetsRoot = path5.join(runtimeDir, "assets");
     if (hasBundledAssets(assetsRoot)) {
       addDefaultParsers(createBundledParsers(assetsRoot));
     } else {
@@ -12315,17 +12458,17 @@ function generateSessionId() {
   return `${ts2}_${rand}`;
 }
 function restoreWindowsAlternateScreen() {
-  const { spawnSync } = __require("child_process");
+  const { spawnSync: spawnSync2 } = __require("child_process");
   const { writeSync } = __require("fs");
   const seq = "\x1B[?1049l\x1B[?25h";
   try {
-    const r1 = spawnSync("node", ["-e", `process.stdout.write(${JSON.stringify(seq)})`], { stdio: "inherit", timeout: 2000, windowsHide: true });
+    const r1 = spawnSync2("node", ["-e", `process.stdout.write(${JSON.stringify(seq)})`], { stdio: "inherit", timeout: 2000, windowsHide: true });
     if (r1.status === 0)
       return;
   } catch {}
   try {
     const psCmd = `[Console]::Write([char]27 + '[?1049l' + [char]27 + '[?25h')`;
-    const r2 = spawnSync("powershell", ["-NoProfile", "-Command", psCmd], { stdio: "inherit", timeout: 2000, windowsHide: true });
+    const r2 = spawnSync2("powershell", ["-NoProfile", "-Command", psCmd], { stdio: "inherit", timeout: 2000, windowsHide: true });
     if (r2.status === 0)
       return;
   } catch {}
@@ -12566,7 +12709,7 @@ class ConsolePlatform extends PlatformAdapter {
     return next;
   }
   async start() {
-    this.api?.setLogLevel?.(4 /* SILENT */);
+    this.api?.setLogLevel?.(LogLevel.SILENT);
     configureBundledOpenTuiTreeSitter(this.isCompiledBinary);
     this.onBackend("assistant:content", (sid, content) => {
       if (sid === this.sessionId) {
@@ -12734,7 +12877,7 @@ ${summaryText}`;
         this.appHandle?.addSummaryMessage(fullText, tokenCount > 0 ? tokenCount : undefined);
       }
     });
-    return new Promise(async (resolve4, reject) => {
+    return new Promise(async (resolve5, reject) => {
       try {
         this.renderer = await createCliRenderer({
           exitOnCtrlC: false,
@@ -12777,7 +12920,7 @@ ${summaryText}`;
         onReady: (handle) => {
           this.appHandle = handle;
           this.syncPlanModeStatus();
-          resolve4();
+          resolve5();
         },
         onSubmit: (text) => this.handleInput(text),
         onFileAttach: (filePath) => this.handleFileAttach(filePath),
@@ -12927,15 +13070,15 @@ ${summaryText}`;
     } else {
       r.destroy();
     }
-    await new Promise((resolve4) => setTimeout(resolve4, 100));
+    await new Promise((resolve5) => setTimeout(resolve5, 100));
     if (process.platform === "win32" && options.headlessTransition) {
       clearWindowsScreenForHeadless();
       printHeadlessTransitionMessage();
     }
   }
   waitForExit() {
-    return new Promise((resolve4) => {
-      this.exitResolve = resolve4;
+    return new Promise((resolve5) => {
+      this.exitResolve = resolve5;
     });
   }
   handleListAgents() {
@@ -12987,7 +13130,7 @@ ${summaryText}`;
       if (!WsIPCClient) {
         throw new Error("remote-connect 扩展服务不可用，请确认 remote-connect 扩展已安装并启用");
       }
-      const { RemoteBackendHandle: RemoteBackendHandle2, createRemoteApiProxy: createRemoteApiProxy2 } = await Promise.resolve().then(() => (init_ipc2(), exports_ipc));
+      const { RemoteBackendHandle: RemoteBackendHandle2, createRemoteApiProxy: createRemoteApiProxy2 } = await Promise.resolve().then(() => (init_ipc(), exports_ipc));
       const wsClient = new WsIPCClient;
       const handshake = await wsClient.connect(url, token);
       let remoteBackend;
@@ -13549,17 +13692,23 @@ ${summaryText}`;
       const pluginMap = new Map(pluginEntries.map((p) => [p.name, p]));
       const active = this.api?.pluginManager?.listPlugins?.() ?? [];
       const activeNames = new Set(active.map((p) => p.name));
-      return packages.map((pkg) => {
+      const allPackages = ext.discoverAll?.() ?? packages;
+      return allPackages.map((pkg) => {
         const name = pkg.manifest.name;
         const hasPlatforms = Array.isArray(pkg.manifest.platforms) && pkg.manifest.platforms.length > 0;
         const hasPlugin = !!pkg.manifest.plugin || !!pkg.manifest.entry || !hasPlatforms;
         const inConfig = pluginMap.get(name);
         const gitMetadata = readGitInstallMetadata(pkg.rootDir);
+        const workspaceEnabled = pkg.source === "workspace" ? this.isWorkspaceExtensionEnabled(raw, name) : false;
         let status;
-        if (!hasPlugin) {
+        if (!hasPlugin && pkg.source !== "workspace") {
           status = "platform";
+        } else if (!hasPlugin && pkg.source === "workspace") {
+          status = workspaceEnabled ? "active" : "available";
         } else if (activeNames.has(name)) {
           status = "active";
+        } else if (pkg.source === "workspace" && !workspaceEnabled) {
+          status = "available";
         } else if (inConfig && inConfig.enabled === false) {
           status = "disabled";
         } else if (inConfig) {
@@ -13590,6 +13739,38 @@ ${summaryText}`;
       console.error("[ConsolePlatform] handleListExtensions failed:", err);
       return [];
     }
+  }
+  isWorkspaceExtensionEnabled(raw, name) {
+    const extensions = raw?.system?.extensions;
+    if (!extensions || typeof extensions !== "object" || extensions.loadWorkspaceExtensions !== true)
+      return false;
+    const allowlist = Array.isArray(extensions.workspaceAllowlist) ? extensions.workspaceAllowlist.filter((item) => typeof item === "string" && item.trim().length > 0) : [];
+    return allowlist.length === 0 || allowlist.includes(name);
+  }
+  updateWorkspaceExtensionDiscoveryConfig(name, enabled, packages) {
+    const configManager = this.api?.configManager;
+    if (!configManager)
+      return { workspace: { enabled: false, allowlist: [] } };
+    const raw = configManager.readEditableConfig();
+    const system = raw.system && typeof raw.system === "object" ? { ...raw.system } : {};
+    const currentExtensions = system.extensions && typeof system.extensions === "object" ? { ...system.extensions } : {};
+    const workspaceNames = packages.filter((pkg) => pkg.source === "workspace").map((pkg) => pkg.manifest.name);
+    const currentAllowlist = Array.isArray(currentExtensions.workspaceAllowlist) ? currentExtensions.workspaceAllowlist.filter((item) => typeof item === "string" && item.trim().length > 0) : [];
+    const currentlyAllWorkspace = currentExtensions.loadWorkspaceExtensions === true && currentAllowlist.length === 0;
+    let nextAllowlist;
+    let nextEnabled;
+    if (enabled) {
+      nextEnabled = true;
+      nextAllowlist = currentlyAllWorkspace ? [] : Array.from(new Set([...currentAllowlist, name]));
+    } else {
+      nextAllowlist = currentlyAllWorkspace ? workspaceNames.filter((item) => item !== name) : currentAllowlist.filter((item) => item !== name);
+      nextEnabled = nextAllowlist.length > 0;
+      if (!nextEnabled)
+        nextAllowlist = [];
+    }
+    system.extensions = { ...currentExtensions, loadWorkspaceExtensions: nextEnabled, workspaceAllowlist: nextAllowlist };
+    const result = configManager.updateEditableConfig({ system });
+    return { workspace: { enabled: nextEnabled, allowlist: nextAllowlist }, mergedRaw: result.mergedRaw };
   }
   readPluginEntries(raw) {
     const section = raw?.plugins;
@@ -13634,7 +13815,7 @@ ${summaryText}`;
     const nextEntries = this.readPluginEntries(raw).filter((entry) => entry.name !== name);
     configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, nextEntries));
   }
-  async handleToggleExtension(name) {
+  async handleToggleExtension(name, desiredEnabled) {
     const ext = this.api?.extensions;
     const configManager = this.api?.configManager;
     if (!ext || !configManager) {
@@ -13644,26 +13825,52 @@ ${summaryText}`;
       const raw = configManager.readEditableConfig();
       const pluginEntries = [...this.readPluginEntries(raw)];
       const existing = pluginEntries.find((p) => p.name === name);
+      const packages = ext.discoverAll?.() ?? ext.discover?.() ?? [];
+      const pkg = packages.find((item) => item.manifest.name === name);
+      const hasPlugin = pkg ? this.hasPluginContribution(pkg.manifest) : true;
+      const isWorkspace = pkg?.source === "workspace";
       const active = this.api?.pluginManager?.listPlugins?.() ?? [];
       const isActive = active.some((p) => p.name === name);
-      if (isActive) {
-        await ext.deactivate(name);
+      const shouldEnable = desiredEnabled ?? !isActive;
+      if (!shouldEnable) {
+        if (isActive)
+          await ext.deactivate(name);
+        if (isWorkspace) {
+          const workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, false, packages);
+          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
+        }
         if (existing) {
           existing.enabled = false;
-        } else {
+        } else if (hasPlugin) {
           pluginEntries.push({ name, enabled: false });
         }
         configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries));
         return { ok: true, message: `已禁用 "${name}"` };
       } else {
-        await ext.activate(name);
+        let workspaceUpdate;
+        if (isWorkspace) {
+          workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, true, packages);
+          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
+        }
+        let installedDeps = [];
+        if (hasPlugin) {
+          if (pkg?.rootDir) {
+            const depsResult = await ensureExtensionRuntimeDependencies(pkg.rootDir);
+            if (depsResult.installed)
+              installedDeps = depsResult.missingDependencies;
+          }
+          await ext.activate(name);
+        }
         if (existing) {
           existing.enabled = true;
-        } else {
+        } else if (hasPlugin) {
           pluginEntries.push({ name, enabled: true });
         }
-        configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries));
-        return { ok: true, message: `已启用 "${name}"` };
+        if (hasPlugin)
+          configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries));
+        if (!hasPlugin)
+          return { ok: true, message: `已启用可选平台扩展 "${name}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。` };
+        return { ok: true, message: installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(", ")} 并启用 "${name}"` : `已启用 "${name}"` };
       }
     } catch (err) {
       return { ok: false, message: `操作失败: ${err instanceof Error ? err.message : String(err)}` };
@@ -13868,14 +14075,14 @@ ${summaryText}`;
       this.appHandle?.addCommandMessage("已清空所有待发送附件");
       return;
     }
-    const fs5 = __require("fs");
-    const path5 = __require("path");
-    const resolved = path5.resolve(filePath);
-    if (!fs5.existsSync(resolved)) {
+    const fs6 = __require("fs");
+    const path6 = __require("path");
+    const resolved = path6.resolve(filePath);
+    if (!fs6.existsSync(resolved)) {
       this.appHandle?.addCommandMessage(`文件不存在: ${resolved}`);
       return;
     }
-    const stat = fs5.statSync(resolved);
+    const stat = fs6.statSync(resolved);
     if (!stat.isFile()) {
       this.appHandle?.addCommandMessage(`不是一个文件: ${resolved}`);
       return;
@@ -13885,11 +14092,11 @@ ${summaryText}`;
       this.appHandle?.addCommandMessage(`文件过大 (${(stat.size / 1024 / 1024).toFixed(1)}MB)，最大支持 20MB`);
       return;
     }
-    const ext = path5.extname(resolved).toLowerCase();
+    const ext = path6.extname(resolved).toLowerCase();
     const mimeType = this.detectMimeType(ext);
     const fileType = this.classifyFileType(mimeType);
-    const data = fs5.readFileSync(resolved).toString("base64");
-    const fileName = path5.basename(resolved);
+    const data = fs6.readFileSync(resolved).toString("base64");
+    const fileName = path6.basename(resolved);
     if (fileType === "image") {
       this._pendingImages.push({ mimeType, data, fileName });
     } else if (fileType === "audio") {
@@ -14014,22 +14221,22 @@ ${summaryText}`;
     this.appHandle?.openFileBrowser(dirPath, entries);
   }
   listDirectory(dirPath, showHidden = false) {
-    const fs5 = __require("fs");
-    const path5 = __require("path");
+    const fs6 = __require("fs");
+    const path6 = __require("path");
     try {
-      const items = fs5.readdirSync(dirPath);
+      const items = fs6.readdirSync(dirPath);
       const entries = [];
       for (const name of items) {
         if (!showHidden && name.startsWith("."))
           continue;
         try {
-          const fullPath = path5.join(dirPath, name);
-          const stat = fs5.statSync(fullPath);
-          const isDirectory = stat.isDirectory();
-          if (isDirectory) {
+          const fullPath = path6.join(dirPath, name);
+          const stat = fs6.statSync(fullPath);
+          const isDirectory2 = stat.isDirectory();
+          if (isDirectory2) {
             entries.push({ name, isDirectory: true });
           } else {
-            const ext = path5.extname(name).toLowerCase();
+            const ext = path6.extname(name).toLowerCase();
             const mimeType = this.detectMimeType(ext);
             const fileType = this.classifyFileType(mimeType);
             entries.push({ name, isDirectory: false, size: stat.size, fileType });
@@ -14048,19 +14255,19 @@ ${summaryText}`;
     }
   }
   handleFileBrowserSelect(dirPath, entry, showHidden) {
-    const path5 = __require("path");
+    const path6 = __require("path");
     if (entry.isDirectory) {
-      const newPath = path5.resolve(dirPath, entry.name);
+      const newPath = path6.resolve(dirPath, entry.name);
       const entries = this.listDirectory(newPath, showHidden);
       this.appHandle?.openFileBrowser(newPath, entries);
     } else {
-      const fullPath = path5.join(dirPath, entry.name);
+      const fullPath = path6.join(dirPath, entry.name);
       this.handleFileAttach(fullPath);
     }
   }
   handleFileBrowserGoUp(dirPath, showHidden) {
-    const path5 = __require("path");
-    const parentPath = path5.dirname(dirPath);
+    const path6 = __require("path");
+    const parentPath = path6.dirname(dirPath);
     if (parentPath === dirPath)
       return;
     const entries = this.listDirectory(parentPath, showHidden);

@@ -66,7 +66,7 @@ export interface AppProps {
   onListMemories?: () => Promise<MemoryItem[]>;
   onDeleteMemory?: (id: number) => Promise<boolean>;
   onListExtensions?: () => Promise<ExtensionItem[]>;
-  onToggleExtension?: (name: string) => Promise<{ ok: boolean; message: string }>;
+  onToggleExtension?: (name: string, enabled?: boolean) => Promise<{ ok: boolean; message: string }>;
   onInstallGitExtension?: (target: string) => Promise<{ ok: boolean; message: string }>;
   onPreviewUpdateExtension?: (name: string) => Promise<{ ok: boolean; message: string }>;
   onDeleteExtension?: (name: string) => Promise<{ ok: boolean; message: string }>;

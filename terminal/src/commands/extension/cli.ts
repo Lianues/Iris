@@ -25,7 +25,7 @@ import { isGitExtensionUrlLike } from "irises-extension-sdk/utils"
 import {
   deleteInstalledExtension,
   disableInstalledExtension,
-  enableInstalledExtension,
+  enableInstalledExtensionWithDependencies,
   inspectGitExtensionUpdate,
   installGitExtension,
   installLocalExtension,
@@ -87,7 +87,7 @@ export async function runExtensionCli(args: string[], installDir: string): Promi
       case "delete": case "remove": case "rm":
         return runDelete(target, installDir, scope)
       case "enable":
-        return runEnable(target, installDir, scope)
+        return await runEnable(target, installDir, scope)
       case "disable":
         return runDisable(target, installDir, scope)
       default:
@@ -159,7 +159,7 @@ async function runInstall(target: string | undefined, scope: InstallScope): Prom
 
 async function runInstallRemote(requested: string, scope: InstallScope): Promise<CliResult> {
   const result = await installRemoteExtension(requested, scope)
-  enableInstalledExtension(result)
+  await enableInstalledExtensionWithDependencies(result)
   return {
     ok: true,
     message: formatInstalled(result, scope, "下载安装"),
@@ -173,7 +173,7 @@ async function runInstallGit(
 ): Promise<CliResult> {
   if (!url?.trim()) return { ok: false, message: "缺少 url 参数。\n\n" + HELP_TEXT, exitCode: 2 }
   const result = await installGitExtension({ url, ...gitFlags }, {}, scope)
-  enableInstalledExtension(result)
+  await enableInstalledExtensionWithDependencies(result)
   return {
     ok: true,
     message: formatInstalled(result, scope, "Git 拉取安装"),
@@ -183,7 +183,7 @@ async function runInstallGit(
 async function runInstallLocal(_name: string | undefined, _scope: InstallScope): Promise<CliResult> {
   if (!_name?.trim()) return { ok: false, message: "缺少 extension 名称或路径参数。\n\n" + HELP_TEXT, exitCode: 2 }
   const result = await installLocalExtension(_name, _scope)
-  enableInstalledExtension(result)
+  await enableInstalledExtensionWithDependencies(result)
   return {
     ok: true,
     message: formatInstalled(result, _scope, "本地安装"),
@@ -235,11 +235,11 @@ function runDelete(name: string | undefined, installDir: string, scope: InstallS
   return { ok: true, message: `已删除：${name}（${summary.rootDir}）` }
 }
 
-function runEnable(name: string | undefined, installDir: string, scope: InstallScope): CliResult {
+async function runEnable(name: string | undefined, installDir: string, scope: InstallScope): Promise<CliResult> {
   if (!name?.trim()) return { ok: false, message: "缺少 extension 名称参数。", exitCode: 2 }
   const summary = findInstalledByName(name, installDir, scope)
   if (!summary) return { ok: false, message: `未发现扩展: ${name}（scope: ${describeScope(scope)}）`, exitCode: 1 }
-  enableInstalledExtension(summary)
+  await enableInstalledExtensionWithDependencies(summary)
   return { ok: true, message: `已启用：${name}（写入 ${pluginsYamlForSummary(summary)}）` }
 }
 

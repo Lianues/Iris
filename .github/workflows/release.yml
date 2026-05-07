@@ -124,7 +124,7 @@ jobs:
         run: |
           npm run sync:extensions
           npm install --no-save react-devtools-core
-          tsx script/install-extension-deps.ts --embedded-only --frozen-lockfile
+          npx tsx script/install-extension-deps.ts --embedded-only --frozen-lockfile
 
       - name: Build binary (cross-compile)
         if: matrix.cross == true

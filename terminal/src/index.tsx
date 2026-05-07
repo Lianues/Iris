@@ -27,7 +27,9 @@ async function main() {
 
   // ── 提前 CLI 子命令分支：iris extension <subcommand> 不进 OpenTUI ──
   if (commandName === "extension" && commandArgs[0] && CLI_SUBCOMMANDS.has(commandArgs[0])) {
-    const installDir = resolveTerminalInstallDir(commandArgs, process.execPath)
+    // commandArgs 的位置参数是 extension 子命令/目标名，不是 install-dir 覆盖。
+    // 如需覆盖安装目录，使用 IRIS_DIR；常规发行包/npm 场景会从可执行文件或 __IRIS_PKG_DIR 推导。
+    const installDir = resolveTerminalInstallDir(commandArgs, process.execPath, { allowPositionalOverride: false })
     const result = await runExtensionCli(commandArgs, installDir)
     if (result.message) console.log(result.message)
     process.exit(result.exitCode ?? (result.ok ? 0 : 1))

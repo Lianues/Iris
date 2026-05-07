@@ -194,7 +194,7 @@ export function ExtensionListView({
         <text fg={C.dim}>{`(${pluginCount} plugins, ${platformCount} platforms)`}</text>
         <text fg={C.dim}>{busy
           ? '  处理中，请稍候...'
-          : `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 标记  S 保存  G 拉取 Git  U 升级  D 删除  Esc 返回`}
+          : `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 标记  S 保存(启用时会安装缺失依赖)  G 拉取 Git  U 升级  D 删除  Esc 返回`}
         </text>
       </box>
       {scopePickMode && (

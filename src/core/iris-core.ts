@@ -213,7 +213,7 @@ export class IrisCore {
     const extensions = createBootstrapExtensionRegistry();
 
     // 构造扩展发现选项：决定 workspace 源是否被纳入 + 白名单收窄。
-    const extDiscoveryOptions = {
+    let extDiscoveryOptions = {
       agentExtensionsDir: agentPaths?.extensionsDir,
       workspace: {
         enabled: config.system.extensions?.loadWorkspaceExtensions === true,
@@ -787,6 +787,17 @@ export class IrisCore {
 
       (irisAPI as any).extensions = {
         discover: () => discoverLocalExtensions(extDiscoveryOptions),
+        discoverAll: () => discoverLocalExtensions({
+          agentExtensionsDir: agentPaths?.extensionsDir,
+          workspace: { enabled: true, allowlist: [] },
+        }),
+        setWorkspaceDiscovery: (workspace: { enabled: boolean; allowlist?: string[] }) => {
+          extDiscoveryOptions = {
+            agentExtensionsDir: agentPaths?.extensionsDir,
+            workspace: { enabled: workspace.enabled === true, allowlist: workspace.allowlist ?? [] },
+          };
+          pluginManager.setExtensionDiscoveryOptions(extDiscoveryOptions);
+        },
         activate: (name: string) => pluginManager.activatePlugin(name),
         deactivate: (name: string) => pluginManager.deactivatePlugin(name),
         installGit: (target: string, options?: { ref?: string; subdir?: string; scope?: InstallScope }) =>

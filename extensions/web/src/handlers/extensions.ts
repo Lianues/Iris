@@ -36,6 +36,7 @@ import {
   getRemoteDistributionFiles,
   analyzeRuntimeEntries,
   describeRuntimeIssues,
+  ensureExtensionRuntimeDependencies,
   type ExtensionManifestLike,
 } from 'irises-extension-sdk/utils';
 
@@ -525,9 +526,15 @@ export function createExtensionHandlers(installDir: string) {
             return;
           }
 
+          await ensureExtensionRuntimeDependencies(tempDir);
+
           const targetDir = path.join(installedRootDir, installed.name!);
           fs.rmSync(targetDir, { recursive: true, force: true });
           fs.renameSync(tempDir, targetDir);
+
+          if (hasPluginContribution(installed)) {
+            upsertLocalPluginEnabled(installed.name!, true);
+          }
 
           sendJSON(res, 200, {
             ok: true,
@@ -561,6 +568,7 @@ export function createExtensionHandlers(installDir: string) {
           sendJSON(res, 404, { error: `extension 不存在: ${name}` });
           return;
         }
+        await ensureExtensionRuntimeDependencies(rootDir);
         setDisabledMarker(rootDir, false);
         const manifest = readManifestFromDir(rootDir);
         if (manifest && hasPluginContribution(manifest)) {

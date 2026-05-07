@@ -12,10 +12,10 @@ describe('console /extension keyboard regressions', () => {
     const enterBranch = source.match(/else if \(key\.name === 'return' \|\| key\.name === 'enter'\) \{[\s\S]*?\n      \} else if \(key\.name === 's'\)/)?.[0] ?? '';
     expect(enterBranch).toContain('setExtensionList');
     expect(enterBranch).toContain('S 保存');
-    expect(enterBranch).not.toContain('onToggleExtension(item.name)');
+    expect(enterBranch).not.toContain('onToggleExtension(');
 
     const saveBranch = source.match(/else if \(key\.name === 's'\) \{[\s\S]*?\n      \}/)?.[0] ?? '';
-    expect(saveBranch).toContain('onToggleExtension(item.name)');
+    expect(saveBranch).toContain("onToggleExtension(item.name, item.status === 'active')");
     expect(saveBranch).toContain('已保存并热重载');
   });
 
@@ -51,7 +51,7 @@ describe('console /extension keyboard regressions', () => {
     expect(keyboardSource).toContain('blockIfDirty');
     expect(keyboardSource).toContain("key.ctrl && key.name === 'v'");
     expect(keyboardSource).toContain('readClipboardText');
-    expect(keyboardSource).toContain('onInstallGitExtension(target)');
+    expect(keyboardSource).toContain('onInstallGitExtension(target, extensionInstallScope)');
     expect(keyboardSource).toContain('onDeleteExtension(item.name)');
     expect(keyboardSource).toContain('onPreviewUpdateExtension(item.name)');
     expect(keyboardSource).toContain('onUpdateExtension(item.name)');
@@ -96,5 +96,21 @@ describe('console /extension keyboard regressions', () => {
     expect(appSource).toContain('item.originalStatus ?? item.status');
     expect(appSource).toContain('refreshPluginSettingsTabs');
     expect(keyboardSource).toContain('onRefreshPluginSettingsTabs');
+  });
+
+  it('/extension 应展示并可切换 workspace 可选扩展，而不是要求用户手改 system.yaml', () => {
+    const platformSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/index.ts'),
+      'utf8',
+    );
+    const keyboardSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/hooks/use-app-keyboard.ts'),
+      'utf8',
+    );
+
+    expect(platformSource).toContain('ext.discoverAll?.() ?? packages');
+    expect(platformSource).toContain('updateWorkspaceExtensionDiscoveryConfig');
+    expect(platformSource).toContain('ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace)');
+    expect(keyboardSource).toContain("onToggleExtension(item.name, item.status === 'active')");
   });
 });

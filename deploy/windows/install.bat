@@ -11,7 +11,7 @@ REM
 REM  Steps:
 REM    1. Detect install directory
 REM    2. Initialize config directory
-REM    3. Optionally add iris to system PATH
+REM    3. Optionally add iris to user PATH
 REM    4. Run onboard wizard
 REM ==========================================
 
@@ -20,7 +20,7 @@ set "INSTALL_DIR=%~dp0"
 if exist "!INSTALL_DIR!bin\iris.exe" goto :found_install_dir
 set "INSTALL_DIR=%~dp0..\.."
 :found_install_dir
-for %%I in ("!INSTALL_DIR!") do set "INSTALL_DIR=%%~fI"
+for %%I in ("!INSTALL_DIR!\.") do set "INSTALL_DIR=%%~fI"
 
 if defined IRIS_DATA_DIR (
   set "DATA_DIR=!IRIS_DATA_DIR!"
@@ -64,40 +64,47 @@ if exist "!CONFIG_DIR!" (
 REM --- Add to PATH ---
 echo.
 echo ============================================
-echo   Add iris to system PATH?
-echo   Directory: !INSTALL_DIR!\bin
+echo   Add iris to user PATH?
+set "IRIS_BIN_DIR=!INSTALL_DIR!\bin"
+echo   Directory: !IRIS_BIN_DIR!
 echo ============================================
 echo.
 
 set /p "ADD_PATH=Add to PATH? [Y/n]: "
 if /I "!ADD_PATH!"=="n" goto :skip_path
 
-REM Check if already in PATH
-echo !PATH! | findstr /I /C:"!INSTALL_DIR!\bin" >nul 2>&1
-if !ERRORLEVEL!==0 (
-  echo [OK] Already in PATH.
-  goto :after_path
-)
+REM Write to user-level PATH (no admin required).
+REM Use PowerShell/.NET instead of reg query + setx so non-ASCII paths
+REM (for example Chinese Windows user names) are not corrupted by CMD code pages,
+REM and long PATH values are not truncated by setx.
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference = 'Stop'; " ^
+  "$bin = [Environment]::GetEnvironmentVariable('IRIS_BIN_DIR', 'Process'); " ^
+  "if ([string]::IsNullOrWhiteSpace($bin)) { throw 'IRIS_BIN_DIR is empty' }; " ^
+  "$userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); " ^
+  "$binNorm = [System.IO.Path]::GetFullPath($bin).TrimEnd('\'); " ^
+  "$exists = $false; " ^
+  "foreach ($entry in ($userPath -split ';')) { " ^
+  "  if ([string]::IsNullOrWhiteSpace($entry)) { continue }; " ^
+  "  try { $entryNorm = [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($entry)).TrimEnd('\') } catch { $entryNorm = $entry.Trim().TrimEnd('\') }; " ^
+  "  if ($entryNorm -ieq $binNorm) { $exists = $true; break }; " ^
+  "}; " ^
+  "if ($exists) { exit 10 }; " ^
+  "$newPath = if ([string]::IsNullOrWhiteSpace($userPath)) { $bin } else { $userPath.TrimEnd(';') + ';' + $bin }; " ^
+  "[Environment]::SetEnvironmentVariable('Path', $newPath, 'User');"
 
-REM Write to user-level PATH (no admin required)
-set "USER_PATH="
-for /f "tokens=2*" %%A in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "USER_PATH=%%B"
-if not defined USER_PATH (
-  setx PATH "!INSTALL_DIR!\bin" >nul 2>&1
-) else (
-  setx PATH "!USER_PATH!;!INSTALL_DIR!\bin" >nul 2>&1
-)
-
-if !ERRORLEVEL!==0 (
-  echo [OK] Added to PATH. Reopen your terminal to use "iris" globally.
+if !ERRORLEVEL!==10 (
+  echo [OK] Already in user PATH.
+) else if !ERRORLEVEL!==0 (
+  echo [OK] Added to user PATH. Reopen your terminal to use "iris" globally.
 ) else (
   echo [WARN] Failed. Please add this directory to PATH manually:
-  echo        !INSTALL_DIR!\bin
+  echo        !IRIS_BIN_DIR!
 )
 goto :after_path
 
 :skip_path
-echo [SKIP] You can add !INSTALL_DIR!\bin to PATH later.
+echo [SKIP] You can add !IRIS_BIN_DIR! to PATH later.
 
 :after_path
 

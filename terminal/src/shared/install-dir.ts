@@ -1,4 +1,5 @@
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import {
   resolveScopeInstallDir,
@@ -33,6 +34,38 @@ export function describeScope(scope: InstallScope): string {
   return scope.kind === "global" ? "全局 (~/.iris/extensions/)" : `agent: ${scope.agentName}`
 }
 
+function hasPackagedRuntimeResources(dir: string): boolean {
+  return fs.existsSync(path.join(dir, "data", "configs.example"))
+}
+
+function resolvePlatformPackageName(): string {
+  const platformMap: Record<string, string> = { darwin: "darwin", linux: "linux", win32: "windows" }
+  const archMap: Record<string, string> = { x64: "x64", arm64: "arm64", arm: "arm" }
+  const platform = platformMap[os.platform()] ?? os.platform()
+  const arch = archMap[os.arch()] ?? os.arch()
+  return `irises-${platform}-${arch}`
+}
+
+function findPlatformPackageInNodeModules(baseDir: string): string | undefined {
+  const nodeModulesDir = path.join(baseDir, "node_modules")
+  if (!fs.existsSync(nodeModulesDir)) return undefined
+
+  const preferred = path.join(nodeModulesDir, resolvePlatformPackageName())
+  if (hasPackagedRuntimeResources(preferred)) return preferred
+
+  try {
+    for (const entry of fs.readdirSync(nodeModulesDir)) {
+      if (!entry.startsWith("irises-")) continue
+      const candidate = path.join(nodeModulesDir, entry)
+      if (hasPackagedRuntimeResources(candidate)) {
+        return candidate
+      }
+    }
+  } catch { /* ignore */ }
+
+  return undefined
+}
+
 /**
  * （旧接口）解析"内嵌扩展所在的安装目录"，用于 embedded.json 查找。
  *
@@ -40,20 +73,41 @@ export function describeScope(scope: InstallScope): string {
  *   - InstallScope 决定写入位置（agent vs global）
  *   - 此函数返回值用于读取内嵌的 extensions/ 子目录
  */
-export function resolveTerminalInstallDir(commandArgs: string[], executablePath: string): string {
-  // 跳过 --global / --agent <name> 等 scope 参数，找到第一个非选项位置参数作为 install-dir 覆盖
-  const positional = extractPositional(commandArgs)
-  const cliArg = positional[0]
-  if (cliArg) return path.resolve(cliArg)
+export function resolveTerminalInstallDir(
+  commandArgs: string[],
+  executablePath: string,
+  options: { allowPositionalOverride?: boolean } = {},
+): string {
+  const allowPositionalOverride = options.allowPositionalOverride !== false
+  if (allowPositionalOverride) {
+    // 跳过 --global / --agent <name> 等 scope 参数，找到第一个非选项位置参数作为 install-dir 覆盖。
+    // 注意：extension CLI 子命令的位置参数不是 install-dir，调用方应显式关闭此行为。
+    const positional = extractPositional(commandArgs)
+    const cliArg = positional[0]
+    if (cliArg) return path.resolve(cliArg)
+  }
 
   if (process.env.IRIS_DIR) {
     return path.resolve(process.env.IRIS_DIR)
   }
 
+  const pkgDir = process.env.__IRIS_PKG_DIR
+  if (pkgDir) {
+    const resolvedPkgDir = path.resolve(pkgDir)
+    if (hasPackagedRuntimeResources(resolvedPkgDir)) {
+      return resolvedPkgDir
+    }
+    const found = findPlatformPackageInNodeModules(resolvedPkgDir)
+    if (found) return found
+  }
+
   const executableInstallDir = path.resolve(path.dirname(executablePath), "..")
-  if (fs.existsSync(path.join(executableInstallDir, "data", "configs.example"))) {
+  if (hasPackagedRuntimeResources(executableInstallDir)) {
     return executableInstallDir
   }
+
+  const found = findPlatformPackageInNodeModules(executableInstallDir)
+  if (found) return found
 
   return process.cwd()
 }

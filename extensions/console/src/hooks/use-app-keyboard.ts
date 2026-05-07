@@ -118,7 +118,7 @@ interface UseAppKeyboardOptions {
   /** extension-list 视图用 */
   extensionList: any[];
   setExtensionList: SetState<any[]>;
-  onToggleExtension?: (name: string) => Promise<{ ok: boolean; message: string }>;
+  onToggleExtension?: (name: string, enabled?: boolean) => Promise<{ ok: boolean; message: string }>;
   onInstallGitExtension?: (target: string, scope?: 'global' | 'agent') => Promise<{ ok: boolean; message: string }>;
   onDeleteExtension?: (name: string) => Promise<{ ok: boolean; message: string }>;
   onPreviewUpdateExtension?: (name: string) => Promise<{ ok: boolean; message: string }>;
@@ -597,7 +597,7 @@ export function useAppKeyboard({
         void (async () => {
           for (const item of changed) {
             setExtensionTogglingName(item.name);
-            const result = await onToggleExtension(item.name);
+            const result = await onToggleExtension(item.name, item.status === 'active');
             if (!result.ok) {
               setExtensionTogglingName(null);
               setExtensionStatusMessage(result.message);

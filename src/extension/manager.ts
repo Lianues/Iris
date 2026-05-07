@@ -15,6 +15,7 @@ import type { AppConfig } from '../config/types';
 import type { LLMRouter } from '../llm/router';
 import type { BootstrapExtensionRegistry } from '../bootstrap/extensions';
 import type { IrisPlugin, PluginEntry, InlinePluginEntry, PluginHook, IrisAPI } from 'irises-extension-sdk';
+import { getMissingExtensionRuntimeDependencies } from 'irises-extension-sdk/utils';
 import type { PluginInfo, LoadedPlugin } from './types';
 import { PluginContextImpl } from './context';
 import { PreBootstrapContextImpl } from './prebootstrap-context';
@@ -436,6 +437,12 @@ export class PluginManager {
       this._devSourceExtensions,
       this._extensionDiscoveryOptions,
     );
+    const depsResult = getMissingExtensionRuntimeDependencies(localSource.rootDir);
+    if (depsResult.missingDependencies.length > 0) {
+      throw new Error(
+        `extension "${name}" 缺少运行时依赖: ${depsResult.missingDependencies.join(', ')}。请在 TUI/Web 中重新启用该 extension 并确认安装依赖，或在 ${localSource.rootDir} 手动运行 npm install。`,
+      );
+    }
     const mod = await importLocalExtensionModule(localSource.entryFile);
     const plugin = mod.default ?? mod;
     this.validatePlugin(plugin, name);
