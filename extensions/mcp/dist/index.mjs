@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/irises-extension-sdk/src/logger.ts
+// extensions/mcp/node_modules/irises-extension-sdk/src/logger.ts
 var _logLevel = 1 /* INFO */;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
@@ -25,7 +25,7 @@ function createExtensionLogger(extensionName, tag) {
   };
 }
 
-// node_modules/irises-extension-sdk/src/plugin/context.ts
+// extensions/mcp/node_modules/irises-extension-sdk/src/plugin/context.ts
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -33,7 +33,7 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
-// src/client.ts
+// extensions/mcp/src/client.ts
 var logger = createPluginLogger("mcp", "client");
 
 class MCPClient {
@@ -195,7 +195,7 @@ class MCPClient {
   }
 }
 
-// src/manager.ts
+// extensions/mcp/src/manager.ts
 import derefModule from "dereference-json-schema";
 var { dereferenceSync } = derefModule;
 var logger2 = createPluginLogger("mcp", "manager");
@@ -288,7 +288,7 @@ function sanitizeName(name) {
   return name.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
-// src/config.ts
+// extensions/mcp/src/config.ts
 var logger3 = createPluginLogger("mcp", "config");
 function normalizeTransport(value) {
   if (value === "http")
@@ -335,7 +335,7 @@ function parseMCPConfig(raw) {
   return { servers };
 }
 
-// src/config-template.ts
+// extensions/mcp/src/config-template.ts
 var DEFAULT_MCP_CONFIG_TEMPLATE = `# MCP 服务器配置
 # 连接外部 MCP 服务器，自动将其工具注入 LLM 工具列表
 # 启动时后台异步连接，不阻塞启动
@@ -379,7 +379,7 @@ var DEFAULT_MCP_CONFIG_TEMPLATE = `# MCP 服务器配置
 #     url: "https://qyapi.weixin.qq.com/mcp/robot-doc?apikey=your-mcp-apikey"
 `;
 
-// src/index.ts
+// extensions/mcp/src/index.ts
 var logger4 = createPluginLogger("mcp");
 var SERVICE_ID = "mcp.manager";
 var manager = null;
