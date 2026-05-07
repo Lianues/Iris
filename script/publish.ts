@@ -38,14 +38,27 @@ const wrapperName = "irises"
 // 收集已构建的平台二进制（目录名为 iris-*，但 package.json 中的 npm 包名为 irises-*）
 const distBinDir = path.join(dir, "dist", "bin")
 const binaries: Record<string, string> = {}
+console.log(`[publish] distBinDir: ${distBinDir}`)
+console.log(`[publish] exists: ${fs.existsSync(distBinDir)}`)
+if (fs.existsSync(distBinDir)) {
+  for (const entry of fs.readdirSync(distBinDir, { withFileTypes: true })) {
+    console.log(`[publish]   entry: ${entry.name}  dir=${entry.isDirectory()}`)
+  }
+}
+console.log("")
 
 for (const entry of fs.readdirSync(distBinDir, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue
   const pkgJsonPath = path.join(distBinDir, entry.name, "package.json")
+  console.log(`[publish] checking: ${pkgJsonPath}  exists=${fs.existsSync(pkgJsonPath)}`)
   if (!fs.existsSync(pkgJsonPath)) continue
   const p = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"))
+  console.log(`[publish]   name=${p.name} version=${p.version} startsWith(irises-)=${p.name?.startsWith("irises-")}`)
   if (p.name && p.version && p.name !== wrapperName && p.name.startsWith("irises-")) {
     binaries[p.name] = p.version
+    console.log(`[publish]   -> MATCH`)
+  } else {
+    console.log(`[publish]   -> SKIP (name=${p.name}, version=${p.version}, wrapperName=${wrapperName})`)
   }
 }
 
