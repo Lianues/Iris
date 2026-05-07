@@ -44,6 +44,7 @@ describe('extension runtime dependencies', () => {
 
     const runner = vi.fn(async (command: string, args: string[], cwd: string) => {
       expect(command).toBe('npm');
+      expect(args).toContain('--');
       expect(args).toContain('ssh2@^1.15.0');
       expect(args.join(' ')).not.toContain('irises-extension-sdk');
       createResolvedDependency(cwd, 'ssh2');

@@ -122,11 +122,15 @@ function buildMissingInstallSpecs(dependencySpecs: Record<string, string>, missi
   return installSpecs;
 }
 
+function resolvePackageManagerExecutable(command: string): string {
+  return process.platform === 'win32' && command === 'npm' ? 'npm.cmd' : command;
+}
+
 function defaultCommandRunner(command: string, args: string[], cwd: string): void {
-  const result = childProcess.spawnSync(command, args, {
+  const result = childProcess.spawnSync(resolvePackageManagerExecutable(command), args, {
     cwd,
     stdio: 'inherit',
-    shell: process.platform === 'win32',
+    shell: false,
   });
 
   if (result.error) throw result.error;
@@ -177,6 +181,7 @@ export async function ensureExtensionRuntimeDependencies(
     '--package-lock=false',
     '--no-audit',
     '--no-fund',
+    '--',
     ...installSpecs,
   ];
   const runner = options.commandRunner ?? defaultCommandRunner;
