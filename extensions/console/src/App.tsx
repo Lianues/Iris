@@ -65,6 +65,7 @@ export function App({
   onToolAbort,
   onNewSession,
   onLoadSession,
+  onDeleteSession,
   onListSessions,
   onRunCommand,
   onListModels,
@@ -111,6 +112,9 @@ export function App({
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsInitialSection>('general');
   const [modelList, setModelList] = useState<LLMModelInfo[]>([]);
   const [defaultModelName, setDefaultModelName] = useState('');
+  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState<string | null>(null);
+  const [sessionStatusMessage, setSessionStatusMessage] = useState<string | null>(null);
+  const [sessionStatusIsError, setSessionStatusIsError] = useState(false);
   const [agentList, setAgentList] = useState<AgentDefinitionLike[]>([]);
   const [copyMode, setCopyMode] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
@@ -360,6 +364,13 @@ export function App({
     modelEditActions.setValue('');
   }, [viewMode]);
 
+  useEffect(() => {
+    if (viewMode === 'session-list') return;
+    setSessionPendingDeleteId(null);
+    setSessionStatusMessage(null);
+    setSessionStatusIsError(false);
+  }, [viewMode]);
+
   // 工具详情数据变化时自动切换视图
   useEffect(() => {
     if (appState.toolDetailData && viewMode !== 'tool-detail') {
@@ -418,6 +429,7 @@ export function App({
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
     onLoadSession,
+    onDeleteSession,
     onListModels,
     onSwitchModel,
     onSetDefaultModel,
@@ -444,6 +456,11 @@ export function App({
     queueEditActions,
     onToggleThoughts: () => setThoughtsToggleSignal((prev) => prev + 1),
     toolListItems: appState.toolListItems,
+    setSessionList,
+    sessionPendingDeleteId,
+    setSessionPendingDeleteId,
+    setSessionStatusMessage,
+    setSessionStatusIsError,
     agentList,
     onSelectAgent,
     memoryList,
@@ -506,7 +523,15 @@ export function App({
   }
 
   if (viewMode === 'session-list') {
-    return <SessionListView sessions={sessionList} selectedIndex={selectedIndex} />;
+    return (
+      <SessionListView
+        sessions={sessionList}
+        selectedIndex={selectedIndex}
+        pendingDeleteId={sessionPendingDeleteId}
+        statusMessage={sessionStatusMessage}
+        statusIsError={sessionStatusIsError}
+      />
+    );
   }
 
   if (viewMode === 'model-list') {

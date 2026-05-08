@@ -38,6 +38,7 @@ export interface AppProps {
   onCloseToolDetail: () => void;
   onNewSession: () => void;
   onLoadSession: (id: string) => Promise<void>;
+  onDeleteSession?: (id: string) => Promise<{ ok: boolean; message: string; deletedCurrent?: boolean }>;
   onListSessions: () => Promise<SessionMeta[]>;
   onRunCommand: (cmd: string) => { output: string; cwd: string };
   onListModels: () => { models: LLMModelInfo[]; defaultModelName: string };

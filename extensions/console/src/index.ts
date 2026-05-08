@@ -875,6 +875,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         },
         onNewSession: () => this.handleNewSession(),
         onLoadSession: (id: string) => this.handleLoadSession(id),
+        onDeleteSession: (id: string) => this.handleDeleteSession(id),
         onListSessions: () => this.handleListSessions(),
         onRunCommand: (cmd: string) => this.handleRunCommand(cmd),
         onListModels: () => this.handleListModels(),
@@ -1611,6 +1612,20 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       if (msg.usageMetadata) {
         this.appHandle?.setUsage(msg.usageMetadata);
       }
+    }
+  }
+
+  private async handleDeleteSession(id: string): Promise<{ ok: boolean; message: string; deletedCurrent?: boolean }> {
+    try {
+      const deletedCurrent = id === this.sessionId;
+      this.backend.abortChat?.(id);
+      await this.backend.clearSession(id);
+      if (deletedCurrent) {
+        this.handleNewSession();
+      }
+      return { ok: true, message: '已删除历史对话。', deletedCurrent };
+    } catch (err) {
+      return { ok: false, message: `删除失败：${err instanceof Error ? err.message : String(err)}` };
     }
   }
 

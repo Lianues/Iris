@@ -7405,9 +7405,75 @@ function ToolListView({ tools, selectedIndex }) {
 }
 
 // src/components/SessionListView.tsx
+import { useTerminalDimensions as useTerminalDimensions6 } from "@opentui/react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV37 } from "@opentui/react/jsx-dev-runtime";
-function SessionListView({ sessions, selectedIndex }) {
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function fitLine(text, width) {
+  const targetWidth = Math.max(1, width);
+  let used = 0;
+  let out = "";
+  for (const grapheme of splitGraphemes(text)) {
+    const w = getTextWidth(grapheme);
+    if (used + w > targetWidth)
+      break;
+    out += grapheme;
+    used += w;
+  }
+  return `${out}${" ".repeat(Math.max(0, targetWidth - used))}`;
+}
+function sessionLine(meta, selected) {
+  const time = new Date(meta.updatedAt ?? 0).toLocaleString("zh-CN");
+  const marker = selected ? `${ICONS.selectorArrow} ` : "  ";
+  return `${marker}${meta.title}  ${meta.cwd}  ${time}`;
+}
+function SessionListView({ sessions, selectedIndex, pendingDeleteId, statusMessage, statusIsError }) {
+  const { height: terminalHeight, width: terminalWidth } = useTerminalDimensions6();
+  const rowWidth = Math.max(20, terminalWidth || 80);
+  const safeSelectedIndex = sessions.length > 0 ? clamp(selectedIndex, 0, sessions.length - 1) : 0;
+  const reservedRows = 4 + (statusMessage ? 1 : 0);
+  const bodyRows = Math.max(4, terminalHeight - reservedRows);
+  const pendingDeleteExtraRows = pendingDeleteId ? 1 : 0;
+  const reserveIndicatorRows = sessions.length > Math.max(1, bodyRows - pendingDeleteExtraRows) ? 2 : 0;
+  const visibleItemCount = Math.max(1, bodyRows - pendingDeleteExtraRows - reserveIndicatorRows);
+  const startIndex = sessions.length <= visibleItemCount ? 0 : clamp(safeSelectedIndex - visibleItemCount + 1, 0, sessions.length - visibleItemCount);
+  const endIndex = Math.min(sessions.length, startIndex + visibleItemCount);
+  const visibleSessions = sessions.slice(startIndex, endIndex);
+  const hasAbove = startIndex > 0;
+  const hasBelow = endIndex < sessions.length;
+  const rows = [];
+  if (sessions.length === 0) {
+    rows.push({ key: "empty", text: "暂无历史对话", color: C.dim });
+  } else {
+    if (hasAbove) {
+      rows.push({ key: "above", text: `↑ 还有 ${startIndex} 条更早/更近的历史`, color: C.dim });
+    }
+    visibleSessions.forEach((meta, localIndex) => {
+      const index = startIndex + localIndex;
+      const isSelected = index === safeSelectedIndex;
+      rows.push({
+        key: meta.id,
+        text: sessionLine(meta, isSelected),
+        color: isSelected ? C.text : C.textSec,
+        bold: isSelected
+      });
+      if (meta.id === pendingDeleteId) {
+        rows.push({
+          key: `${meta.id}:delete`,
+          text: "    再次按 D 将删除该历史对话；Esc 或切换选择取消。",
+          color: C.error
+        });
+      }
+    });
+    if (hasBelow) {
+      rows.push({ key: "below", text: `↓ 还有 ${sessions.length - endIndex} 条历史`, color: C.dim });
+    }
+  }
+  while (rows.length < bodyRows) {
+    rows.push({ key: `blank:${rows.length}`, text: "", color: C.dim });
+  }
   return /* @__PURE__ */ jsxDEV37("box", {
     flexDirection: "column",
     width: "100%",
@@ -7418,57 +7484,36 @@ function SessionListView({ sessions, selectedIndex }) {
         children: [
           /* @__PURE__ */ jsxDEV37("text", {
             fg: C.primary,
-            children: "历史对话"
+            children: "对话"
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV37("text", {
             fg: C.dim,
-            children: `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 加载  Esc 返回`
+            children: `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 加载  D 删除  Esc 返回`
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV37("scrollbox", {
+      statusMessage && /* @__PURE__ */ jsxDEV37("box", {
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingBottom: 1,
+        children: /* @__PURE__ */ jsxDEV37("text", {
+          wrapMode: "none",
+          fg: statusIsError ? C.error : C.accent,
+          children: fitLine(statusMessage, rowWidth - 4)
+        }, undefined, false, undefined, this)
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV37("box", {
+        flexDirection: "column",
         flexGrow: 1,
-        children: [
-          sessions.length === 0 && /* @__PURE__ */ jsxDEV37("text", {
-            fg: C.dim,
-            paddingLeft: 2,
-            children: "暂无历史对话"
-          }, undefined, false, undefined, this),
-          sessions.map((meta, index) => {
-            const isSelected = index === selectedIndex;
-            const time = new Date(meta.updatedAt ?? 0).toLocaleString("zh-CN");
-            return /* @__PURE__ */ jsxDEV37("box", {
-              paddingLeft: 1,
-              children: /* @__PURE__ */ jsxDEV37("text", {
-                children: [
-                  /* @__PURE__ */ jsxDEV37("span", {
-                    fg: isSelected ? C.accent : C.dim,
-                    children: isSelected ? `${ICONS.selectorArrow} ` : "  "
-                  }, undefined, false, undefined, this),
-                  isSelected ? /* @__PURE__ */ jsxDEV37("strong", {
-                    children: /* @__PURE__ */ jsxDEV37("span", {
-                      fg: C.text,
-                      children: meta.title
-                    }, undefined, false, undefined, this)
-                  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV37("span", {
-                    fg: C.textSec,
-                    children: meta.title
-                  }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV37("span", {
-                    fg: C.dim,
-                    children: [
-                      "  ",
-                      meta.cwd,
-                      "  ",
-                      time
-                    ]
-                  }, undefined, true, undefined, this)
-                ]
-              }, undefined, true, undefined, this)
-            }, meta.id, false, undefined, this);
-          })
-        ]
-      }, undefined, true, undefined, this)
+        height: bodyRows,
+        children: rows.slice(0, bodyRows).map((row) => /* @__PURE__ */ jsxDEV37("text", {
+          wrapMode: "none",
+          fg: row.color,
+          children: row.bold ? /* @__PURE__ */ jsxDEV37("strong", {
+            children: fitLine(row.text, rowWidth)
+          }, undefined, false, undefined, this) : fitLine(row.text, rowWidth)
+        }, row.key, false, undefined, this))
+      }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
 }
@@ -7610,7 +7655,7 @@ function formatAge(unixSec) {
 }
 
 // src/components/ExtensionListView.tsx
-import { useTerminalDimensions as useTerminalDimensions6 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions7 } from "@opentui/react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV39, Fragment as Fragment6 } from "@opentui/react/jsx-dev-runtime";
 var STATUS_LABELS = {
@@ -7626,7 +7671,7 @@ var SOURCE_BADGES = {
   workspace: { label: "W", color: "#fdcb6e" }
 };
 var GIT_INPUT_PLACEHOLDER = "https://github.com/user/repo.git#main:extensions/demo";
-function clamp(value, min, max) {
+function clamp2(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 function splitFixedWidth(value, width) {
@@ -7655,11 +7700,11 @@ function GitInputFrame({
   cursor,
   cursorVisible
 }) {
-  const { width: terminalWidth } = useTerminalDimensions6();
+  const { width: terminalWidth } = useTerminalDimensions7();
   const safeTerminalWidth = Math.max(20, terminalWidth || 80);
   const frameWidth = Math.max(12, Math.min(88, safeTerminalWidth - 8));
   const innerWidth = Math.max(12, frameWidth - 4);
-  const safeCursor = clamp(cursor, 0, value.length);
+  const safeCursor = clamp2(cursor, 0, value.length);
   const topBorder = `${BORDER_CHARS.topLeft}${BORDER_CHARS.horizontal.repeat(innerWidth + 2)}${BORDER_CHARS.topRight}`;
   const bottomBorder = `${BORDER_CHARS.bottomLeft}${BORDER_CHARS.horizontal.repeat(innerWidth + 2)}${BORDER_CHARS.bottomRight}`;
   const lines = value ? splitFixedWidth(value, innerWidth) : splitFixedWidth(` ${GIT_INPUT_PLACEHOLDER}`, innerWidth - 1);
@@ -7933,7 +7978,7 @@ function ExtensionListView({
 
 // src/components/SettingsView.tsx
 import { useCallback as useCallback4, useEffect as useEffect8, useMemo as useMemo6, useState as useState9 } from "react";
-import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions7 } from "@opentui/react";
+import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions8 } from "@opentui/react";
 init_terminal_compat();
 
 // src/diff-approval.ts
@@ -8510,7 +8555,7 @@ var BUILTIN_SECTIONS = [
   { id: "mcp", label: "MCP 服务", icon: "03" }
 ];
 function SettingsView({ initialSection = "general", onBack, onLoad, onSave, pluginTabs }) {
-  const { width: termWidth, height: termHeight } = useTerminalDimensions7();
+  const { width: termWidth, height: termHeight } = useTerminalDimensions8();
   const [loading, setLoading] = useState9(true);
   const [saving, setSaving] = useState9(false);
   const [draft, setDraft] = useState9(null);
@@ -9963,6 +10008,12 @@ function useAppKeyboard({
   setMessages,
   commitTools,
   onLoadSession,
+  onDeleteSession,
+  setSessionList,
+  sessionPendingDeleteId,
+  setSessionPendingDeleteId,
+  setSessionStatusMessage,
+  setSessionStatusIsError,
   onListModels,
   onSwitchModel,
   onSetDefaultModel,
@@ -10706,13 +10757,30 @@ function useAppKeyboard({
       return;
     }
     if (viewMode === "session-list") {
-      if (key.name === "up")
+      if (key.name === "escape") {
+        if (sessionPendingDeleteId) {
+          setSessionPendingDeleteId(null);
+          setSessionStatusMessage(null);
+          setSessionStatusIsError(false);
+        } else {
+          setViewMode("chat");
+        }
+      } else if (key.name === "up") {
         setSelectedIndex((prev) => Math.max(0, prev - 1));
-      else if (key.name === "down")
+        setSessionPendingDeleteId(null);
+        setSessionStatusMessage(null);
+        setSessionStatusIsError(false);
+      } else if (key.name === "down") {
         setSelectedIndex((prev) => Math.min(sessionList.length - 1, prev + 1));
-      else if (key.name === "enter" || key.name === "return") {
+        setSessionPendingDeleteId(null);
+        setSessionStatusMessage(null);
+        setSessionStatusIsError(false);
+      } else if (key.name === "enter" || key.name === "return") {
         const selected = sessionList[selectedIndex];
         if (selected) {
+          setSessionPendingDeleteId(null);
+          setSessionStatusMessage(null);
+          setSessionStatusIsError(false);
           clearRedo(undoRedoRef.current);
           onClearRedoStack();
           setMessages([]);
@@ -10720,6 +10788,45 @@ function useAppKeyboard({
           setViewMode("chat");
           onLoadSession(selected.id).catch(() => {});
         }
+      } else if (key.name === "d") {
+        const selected = sessionList[selectedIndex];
+        if (!selected)
+          return;
+        if (!onDeleteSession) {
+          setSessionStatusMessage("当前平台不支持删除历史对话。");
+          setSessionStatusIsError(true);
+          return;
+        }
+        if (sessionPendingDeleteId !== selected.id) {
+          setSessionPendingDeleteId(selected.id);
+          setSessionStatusMessage(`再次按 D 删除「${selected.title || selected.id}」。`);
+          setSessionStatusIsError(true);
+          return;
+        }
+        setSessionStatusMessage(`正在删除「${selected.title || selected.id}」...`);
+        setSessionStatusIsError(false);
+        onDeleteSession(selected.id).then((result) => {
+          if (!result.ok) {
+            setSessionStatusMessage(result.message);
+            setSessionStatusIsError(true);
+            return;
+          }
+          const nextList = sessionList.filter((item) => item.id !== selected.id);
+          setSessionList(nextList);
+          setSelectedIndex((prev) => Math.min(Math.max(0, prev), Math.max(0, nextList.length - 1)));
+          setSessionPendingDeleteId(null);
+          setSessionStatusMessage(result.message);
+          setSessionStatusIsError(false);
+          if (result.deletedCurrent) {
+            clearRedo(undoRedoRef.current);
+            onClearRedoStack();
+            setMessages([]);
+            commitTools();
+          }
+        }).catch((err) => {
+          setSessionStatusMessage(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+          setSessionStatusIsError(true);
+        });
       }
       return;
     }
@@ -11577,6 +11684,7 @@ function App({
   onToolAbort,
   onNewSession,
   onLoadSession,
+  onDeleteSession,
   onListSessions,
   onRunCommand,
   onListModels,
@@ -11623,6 +11731,9 @@ function App({
   const [settingsInitialSection, setSettingsInitialSection] = useState15("general");
   const [modelList, setModelList] = useState15([]);
   const [defaultModelName, setDefaultModelName] = useState15("");
+  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState15(null);
+  const [sessionStatusMessage, setSessionStatusMessage] = useState15(null);
+  const [sessionStatusIsError, setSessionStatusIsError] = useState15(false);
   const [agentList, setAgentList] = useState15([]);
   const [copyMode, setCopyMode] = useState15(false);
   const [pendingConfirm, setPendingConfirm] = useState15(null);
@@ -11813,6 +11924,13 @@ function App({
     modelEditActions.setValue("");
   }, [viewMode]);
   useEffect12(() => {
+    if (viewMode === "session-list")
+      return;
+    setSessionPendingDeleteId(null);
+    setSessionStatusMessage(null);
+    setSessionStatusIsError(false);
+  }, [viewMode]);
+  useEffect12(() => {
     if (appState.toolDetailData && viewMode !== "tool-detail") {
       setViewMode("tool-detail");
     } else if (!appState.toolDetailData && viewMode === "tool-detail") {
@@ -11861,6 +11979,7 @@ function App({
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
     onLoadSession,
+    onDeleteSession,
     onListModels,
     onSwitchModel,
     onSetDefaultModel,
@@ -11887,6 +12006,11 @@ function App({
     queueEditActions,
     onToggleThoughts: () => setThoughtsToggleSignal((prev) => prev + 1),
     toolListItems: appState.toolListItems,
+    setSessionList,
+    sessionPendingDeleteId,
+    setSessionPendingDeleteId,
+    setSessionStatusMessage,
+    setSessionStatusIsError,
     agentList,
     onSelectAgent,
     memoryList,
@@ -11946,7 +12070,10 @@ function App({
   if (viewMode === "session-list") {
     return /* @__PURE__ */ jsxDEV41(SessionListView, {
       sessions: sessionList,
-      selectedIndex
+      selectedIndex,
+      pendingDeleteId: sessionPendingDeleteId,
+      statusMessage: sessionStatusMessage,
+      statusIsError: sessionStatusIsError
     }, undefined, false, undefined, this);
   }
   if (viewMode === "model-list") {
@@ -13005,6 +13132,7 @@ ${summaryText}`;
         },
         onNewSession: () => this.handleNewSession(),
         onLoadSession: (id) => this.handleLoadSession(id),
+        onDeleteSession: (id) => this.handleDeleteSession(id),
         onListSessions: () => this.handleListSessions(),
         onRunCommand: (cmd) => this.handleRunCommand(cmd),
         onListModels: () => this.handleListModels(),
@@ -13580,6 +13708,19 @@ ${summaryText}`;
       if (msg.usageMetadata) {
         this.appHandle?.setUsage(msg.usageMetadata);
       }
+    }
+  }
+  async handleDeleteSession(id) {
+    try {
+      const deletedCurrent = id === this.sessionId;
+      this.backend.abortChat?.(id);
+      await this.backend.clearSession(id);
+      if (deletedCurrent) {
+        this.handleNewSession();
+      }
+      return { ok: true, message: "已删除历史对话。", deletedCurrent };
+    } catch (err) {
+      return { ok: false, message: `删除失败：${err instanceof Error ? err.message : String(err)}` };
     }
   }
   async handleListSessions() {
