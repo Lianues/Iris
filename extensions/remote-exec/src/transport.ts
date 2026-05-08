@@ -84,11 +84,28 @@ export class SshTransport {
       let exitSignal: string | undefined;
       let timedOut = false;
       let timer: NodeJS.Timeout | undefined;
+      let drainTimer: NodeJS.Timeout | undefined;
       let onAbort: (() => void) | undefined;
+      let settled = false;
+      let currentStream: any;
 
       const cleanup = () => {
         if (timer) clearTimeout(timer);
+        if (drainTimer) clearTimeout(drainTimer);
         if (signal && onAbort) signal.removeEventListener('abort', onAbort);
+      };
+
+      // 统一收尾：forceClose=true 时主动关闭并销毁 channel
+      // （用于"远端进程已退出但后台进程持有 fd 导致 close 不触发"场景）
+      const settle = (forceClose: boolean) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (forceClose && currentStream) {
+          try { currentStream.close?.(); } catch { /* ignore */ }
+          try { currentStream.destroy?.(); } catch { /* ignore */ }
+        }
+        resolve({ stdout, stderr, exitCode, signal: exitSignal, timedOut });
       };
 
       client.exec(command, { pty: false }, (err, stream) => {
@@ -98,6 +115,7 @@ export class SshTransport {
           reject(err);
           return;
         }
+        currentStream = stream;
 
         if (this.sshCfg.commandTimeoutMs > 0) {
           timer = setTimeout(() => {
@@ -120,14 +138,40 @@ export class SshTransport {
         }
 
         stream
-          .on('close', (code: number | null, sig?: string) => {
-            cleanup();
-            exitCode = code;
-            exitSignal = sig;
-            resolve({ stdout, stderr, exitCode, signal: exitSignal, timedOut });
+          .on('close', (code?: number | null, sig?: string) => {
+            // 兼容老版本 ssh2：close 也可能带 code/sig；优先采用已记录的 exit 信息
+            if (exitCode === null && code !== null && code !== undefined) exitCode = code;
+            if (!exitSignal && sig) exitSignal = sig;
+            settle(false);
+          })
+          .on('exit', (code: number | null, sig?: string) => {
+            // 远端进程已退出（SSH exit-status 消息）。记录信息，启动排空计时器。
+            // 正常命令：close 会很快跟上，drainTimer 在 settle() 中被取消。
+            // 后台进程持有 channel：close 不会自然触发，drainTimer 到时强制关闭。
+            if (code !== null && code !== undefined) exitCode = code;
+            if (sig) exitSignal = sig;
+            if (!drainTimer && !settled) {
+              const drainMs = this.sshCfg.postExitDrainMs;
+              if (drainMs > 0) {
+                drainTimer = setTimeout(() => settle(true), drainMs);
+              } else {
+                // 显式禁用 drain：立即结束（旧行为兜底）
+                settle(true);
+              }
+            }
+          })
+          .on('error', (err: Error) => {
+            // ssh2 channel 极少 emit error；不监听会导致 Node UnhandledError。
+            // 记入 stderr 让上层可见，并确保 settle 触发（'close' 通常会跟上）。
+            stderr += `[stream-error] ${err.message}\n`;
+            if (!drainTimer && !settled) {
+              const drainMs = this.sshCfg.postExitDrainMs > 0 ? this.sshCfg.postExitDrainMs : 200;
+              drainTimer = setTimeout(() => settle(true), drainMs);
+            }
           })
           .on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
         stream.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
+        stream.stderr.on('error', () => { /* 防 unhandled，本体已在 stream.on('error') 处理 */ });
 
         if (input !== undefined) stream.end(input);
         else stream.end();
@@ -145,10 +189,12 @@ export class SshTransport {
       let exitSignal: string | undefined;
       let timedOut = false;
       let timer: NodeJS.Timeout | undefined;
+      let drainTimer: NodeJS.Timeout | undefined;
       let onAbort: (() => void) | undefined;
 
       const cleanup = () => {
         if (timer) clearTimeout(timer);
+        if (drainTimer) clearTimeout(drainTimer);
         if (signal && onAbort) signal.removeEventListener('abort', onAbort);
       };
 
@@ -181,15 +227,43 @@ export class SshTransport {
         }
 
         const done = new Promise<ExecResult>((resolveDone) => {
-          stream.on('close', (code: number | null, sig?: string) => {
+          let settled = false;
+          const finishDone = (forceClose: boolean) => {
+            if (settled) return;
+            settled = true;
             cleanup();
-            exitCode = code;
-            exitSignal = sig;
+            if (forceClose) {
+              try { stream.close(); } catch { /* ignore */ }
+              try { (stream as any).destroy?.(); } catch { /* ignore */ }
+            }
             resolveDone({ stdout: '', stderr, exitCode, signal: exitSignal, timedOut });
+          };
+          stream.on('close', (code?: number | null, sig?: string) => {
+            if (exitCode === null && code !== null && code !== undefined) exitCode = code;
+            if (!exitSignal && sig) exitSignal = sig;
+            finishDone(false);
+          });
+          stream.on('exit', (code: number | null, sig?: string) => {
+            if (code !== null && code !== undefined) exitCode = code;
+            if (sig) exitSignal = sig;
+            if (!drainTimer && !settled) {
+              const drainMs = this.sshCfg.postExitDrainMs;
+              if (drainMs > 0) drainTimer = setTimeout(() => finishDone(true), drainMs);
+              else finishDone(true);
+            }
+          });
+          stream.on('error', (err: Error) => {
+            // 防 Node UnhandledError；记到 stderr，依赖 'close' 或 drainTimer 收尾
+            stderr += `[stream-error] ${err.message}\n`;
+            if (!drainTimer && !settled) {
+              const drainMs = this.sshCfg.postExitDrainMs > 0 ? this.sshCfg.postExitDrainMs : 200;
+              drainTimer = setTimeout(() => finishDone(true), drainMs);
+            }
           });
           stream.stderr.on('data', (chunk: Buffer) => {
             if (stderr.length < 64_000) stderr += chunk.toString('utf8');
           });
+          stream.stderr.on('error', () => { /* 防 unhandled；主路径已处理 */ });
         });
 
         resolve({

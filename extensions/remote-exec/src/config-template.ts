@@ -36,6 +36,10 @@ ssh:
   connectTimeoutMs: 10000
   keepAliveSec: 30
   commandTimeoutMs: 0
+  # 远端进程退出后，等待 stdout/stderr 排空的最长时间（毫秒）
+  # 解决 nohup/& 启动后台进程时 SSH channel 不自然关闭、工具调用挂起的问题
+  # 默认 200，正常命令几乎无感；设为 0 会退化为旧行为，不推荐
+  postExitDrainMs: 200
 `;
 
 export const DEFAULT_REMOTE_EXEC_SERVERS_YAML = `# remote-exec 服务器清单

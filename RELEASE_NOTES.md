@@ -1,5 +1,4 @@
-# Iris v1.0.20 Release Notes
+# Iris v1.0.21 Release Notes
 
-* **build**：修复内嵌扩展（cron / remote-connect / remote-exec 等）启动时报 `extension "xxx" 缺少运行时依赖` 的问题。`script/build.ts` 现在会清理目标 `package.json` 中所有不在 `embedded.json` `external` 列表中的依赖声明，避免与 bundle 后的 dist/index.mjs 不一致。
-* **remote-exec**：服务器配置新增 `os` 字段，`switch_environment` 工具描述会展示该环境的操作系统（如 `OS=linux`），帮助 AI 选择正确的命令语法。
-* **ci**：拆分 `build:compile` 命令到独立步骤，避免 `&&` 链中参数透传丢失；修复 `tsx` 直接调用问题，统一改用 `npx tsx`；发布脚本新增详细日志便于排查产物问题。
+* **remote-exec**：修复 SSH 执行 `nohup ... &` 等后台命令后工具调用永久挂起的问题。`transport.ts` 新增监听 ssh2 stream 的 `'exit'` 事件（远端进程退出后 200ms drain 排空缓冲，若 `'close'` 未触发则主动关闭 channel），同时补齐 `'error'` 事件监听防止 Node UnhandledError。新增配置项 `ssh.postExitDrainMs`（默认 200），设为 0 可退化为旧行为。
+* **remote-exec**：修复 `list_files` 递归列目录时 `set -o pipefail` 与 while 循环退出码冲突导致始终报 `exitCode=1 stderr=` 的问题。根因是 `[ "$count" -ge ${max} ] && break` 在计数未达上限时返回 1，`pipefail` 将其传播为管道整体退出码。修复：循环末尾加 `true;` 强制退出码为 0。

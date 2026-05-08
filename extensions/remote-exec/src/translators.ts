@@ -328,7 +328,7 @@ find . ${depth} -mindepth 1 \\( -name .git -o -name node_modules \\) -prune -o \
       if [ -d "$p" ]; then printf 'd\\t%s\\0' "$rel"; elif [ -f "$p" ]; then printf 'f\\t%s\\0' "$rel"; fi
       count=$((count + 1))
       [ "$count" -ge ${max} ] && break
-    done \
+    true; done \
   | base64 | tr -d '\\n\\r'`;
   const r = await execBash(ctx, script);
   assertExitOk(r, `列目录 ${dirPath}`);
