@@ -438,14 +438,17 @@ function createUpdateMilestonesTool(api: IrisAPI): ToolDefinition {
 - 复杂、多步骤、跨文件或用户明确要求跟踪进度时，先创建 3-8 个 milestone。
 - 开始某项工作前，把该项设为 in_progress；完成后立即设为 completed，不要批量拖到最后。
 - 同一时间只保留一个 in_progress；启动新项时旧的进行中项会自动回到 pending。
-- 默认按 title 增量合并：title 相同则更新原项，不存在则创建新项。
-- 初次建立完整清单或需要重置清单时可使用 replaceAll=true。
+- replaceAll=true 表示“我现在提交的是当前任务的完整进度清单”，会用 items 替换旧清单。
+- 遇到新的、明显不是同一批工作的用户任务/新计划/新阶段时，必须使用 replaceAll=true，避免把旧任务和新任务混在同一个进度面板里。
+- 如果本次 items 已经覆盖当前任务应显示的全部 milestone，也应使用 replaceAll=true。
+- 只有在继续更新同一批工作时才省略 replaceAll：例如只把某一项改为 in_progress/completed，或给同一清单少量追加/删除项。
+- 省略 replaceAll 时按 title 增量合并：title 相同则更新原项，不存在则创建新项；因此不要用它追加无关任务。
 - 这不是最终回复文本；调用后 UI 会自动显示进度清单。`,
       parameters: {
         type: 'object',
         properties: {
-          items: { type: 'array', items: ITEM_SCHEMA, description: '要创建、更新或删除的 milestone 项。默认按 title 增量合并。' },
-          replaceAll: { type: 'boolean', description: '是否用 items 完整替换当前会话 milestone。' },
+          items: { type: 'array', items: ITEM_SCHEMA, description: '要创建、更新或删除的 milestone 项。replaceAll=true 时表示完整清单；否则按 title 增量合并。' },
+          replaceAll: { type: 'boolean', description: '当 items 是当前任务/计划/阶段应显示的完整清单，或新任务与旧清单明显不同类时设为 true，以替换旧 milestone；仅继续更新同一批工作的一小部分时才省略。' },
         },
         required: ['items'],
       },
