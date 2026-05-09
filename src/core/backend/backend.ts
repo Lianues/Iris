@@ -51,7 +51,7 @@ import { TurnLock } from '../turn-lock';
 import { StreamingToolExecutor } from '../../tools/streaming-executor';
 import type { CrossAgentTaskBoard, TaskRecord } from '../cross-agent-task-board';
 import { ToolExecutionHandle } from '../../tools/handle';
-import type { SessionMilestoneManager, MilestoneSnapshot } from '../session-milestones';
+import type { SessionMilestoneManager, MilestoneArchiveEntry, MilestoneSnapshot, MilestoneUiState } from '../session-milestones';
 
 import type { BackendConfig, ImageInput, DocumentInput, AudioInput, VideoInput, UndoScope, UndoOperationResult, RedoOperationResult, NotificationPayload } from './types';
 import { buildMinimalParts, estimateMultimodalTokens } from './media';
@@ -314,6 +314,40 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     return this.getMilestones(sessionId);
   }
 
+  /** 从存储恢复指定 session 的已完成 milestone 历史归档。 */
+  async loadMilestoneArchives(sessionId: string): Promise<MilestoneArchiveEntry[]> {
+    const meta = await this.storage.getMeta(sessionId);
+    if (!meta) return [];
+    const archives = this.normalizeMilestoneArchives(meta.milestoneArchives, sessionId);
+
+    // 兼容旧数据：如果只有 latest completed snapshot，而还没有归档列表，至少在历史末尾恢复一次。
+    const latestSnapshot = meta.milestones;
+    if (latestSnapshot && this.isArchivableMilestoneSnapshot(latestSnapshot) && !archives.some(entry => entry.snapshot.updatedAt === latestSnapshot.updatedAt)) {
+      const historyLength = await this.getHistoryLengthSafe(sessionId);
+      this.upsertMilestoneArchive(meta, latestSnapshot, historyLength);
+      await this.storage.saveMeta(meta);
+      return this.normalizeMilestoneArchives(meta.milestoneArchives, sessionId);
+    }
+
+    return archives;
+  }
+
+  /** 读取最新 milestone 面板的展开状态。 */
+  async loadMilestoneUiState(sessionId: string): Promise<MilestoneUiState | undefined> {
+    const meta = await this.storage.getMeta(sessionId);
+    return this.normalizeMilestoneUiState(meta?.milestoneUiState);
+  }
+
+  /** 持久化最新 milestone 面板的展开状态（仅 UI 状态，不更新 session 排序时间）。 */
+  async setMilestoneUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void> {
+    await this.enqueueMetaUpdate(sessionId, async () => {
+      const meta = await this.storage.getMeta(sessionId);
+      if (!meta) return;
+      meta.milestoneUiState = this.createMilestoneUiState(state.expanded, state.snapshotUpdatedAt);
+      await this.storage.saveMeta(meta);
+    });
+  }
+
   private async enqueueMetaUpdate<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
     const previous = this.metaUpdateLocks.get(sessionId) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(fn);
@@ -333,8 +367,96 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const snapshot = this.milestoneManager.getSnapshot(meta.id);
     if (snapshot.items.length > 0) {
       meta.milestones = snapshot;
+      if (!this.normalizeMilestoneUiState(meta.milestoneUiState) || this.isArchivableMilestoneSnapshot(snapshot)) {
+        meta.milestoneUiState = this.createMilestoneUiState(true, snapshot.updatedAt);
+      }
     } else {
       delete meta.milestones;
+    }
+  }
+
+  private isArchivableMilestoneSnapshot(snapshot: MilestoneSnapshot | undefined): boolean {
+    return !!snapshot && snapshot.items.length > 0 && snapshot.stats.open === 0;
+  }
+
+  private normalizeMilestoneArchives(value: unknown, sessionId?: string): MilestoneArchiveEntry[] {
+    if (!Array.isArray(value)) return [];
+    const archives: MilestoneArchiveEntry[] = [];
+    for (const entry of value) {
+      if (!entry || typeof entry !== 'object') continue;
+      const record = entry as Partial<MilestoneArchiveEntry>;
+      const snapshot = record.snapshot;
+      if (!snapshot || typeof snapshot !== 'object' || !Array.isArray(snapshot.items)) continue;
+      if (sessionId && snapshot.sessionId !== sessionId) continue;
+      if (snapshot.routeAgent && this.milestoneRouteAgent && snapshot.routeAgent !== this.milestoneRouteAgent) continue;
+      const archivedAt = typeof record.archivedAt === 'number' ? record.archivedAt : (typeof snapshot.updatedAt === 'number' ? snapshot.updatedAt : Date.now());
+      const afterHistoryIndex = typeof record.afterHistoryIndex === 'number' && Number.isFinite(record.afterHistoryIndex)
+        ? Math.max(0, Math.floor(record.afterHistoryIndex))
+        : 0;
+      archives.push({
+        id: typeof record.id === 'string' && record.id ? record.id : `${snapshot.sessionId}:${snapshot.updatedAt}`,
+        snapshot,
+        archivedAt,
+        afterHistoryIndex,
+      });
+    }
+    return archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
+  }
+
+  private upsertMilestoneArchive(meta: SessionMeta, snapshot: MilestoneSnapshot, afterHistoryIndex: number): void {
+    if (!this.isArchivableMilestoneSnapshot(snapshot)) return;
+    if (snapshot.routeAgent && this.milestoneRouteAgent && snapshot.routeAgent !== this.milestoneRouteAgent) return;
+
+    const archives = this.normalizeMilestoneArchives(meta.milestoneArchives, snapshot.sessionId);
+    const safeIndex = Math.max(0, Math.floor(afterHistoryIndex));
+    const archiveId = `${snapshot.sessionId}:${snapshot.updatedAt}`;
+    const existingIndex = archives.findIndex(entry => entry.id === archiveId || entry.snapshot.updatedAt === snapshot.updatedAt);
+    if (existingIndex >= 0) {
+      const existing = archives[existingIndex];
+      archives[existingIndex] = {
+        ...existing,
+        id: existing.id || archiveId,
+        snapshot,
+        archivedAt: existing.archivedAt || snapshot.updatedAt || Date.now(),
+        afterHistoryIndex: Math.max(existing.afterHistoryIndex ?? 0, safeIndex),
+      };
+    } else {
+      archives.push({
+        id: archiveId,
+        snapshot,
+        archivedAt: snapshot.updatedAt || Date.now(),
+        afterHistoryIndex: safeIndex,
+      });
+    }
+    meta.milestoneArchives = archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
+  }
+
+  private normalizeMilestoneUiState(value: unknown): MilestoneUiState | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    const record = value as Partial<MilestoneUiState>;
+    if (typeof record.expanded !== 'boolean') return undefined;
+    const updatedAt = typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt)
+      ? record.updatedAt
+      : Date.now();
+    const snapshotUpdatedAt = typeof record.snapshotUpdatedAt === 'number' && Number.isFinite(record.snapshotUpdatedAt)
+      ? record.snapshotUpdatedAt
+      : undefined;
+    return { expanded: record.expanded, updatedAt, ...(snapshotUpdatedAt != null ? { snapshotUpdatedAt } : {}) };
+  }
+
+  private createMilestoneUiState(expanded: boolean, snapshotUpdatedAt?: number): MilestoneUiState {
+    return {
+      expanded,
+      updatedAt: Date.now(),
+      ...(typeof snapshotUpdatedAt === 'number' && Number.isFinite(snapshotUpdatedAt) ? { snapshotUpdatedAt } : {}),
+    };
+  }
+
+  private async getHistoryLengthSafe(sessionId: string): Promise<number> {
+    try {
+      return (await this.storage.getHistory(sessionId)).length;
+    } catch {
+      return 0;
     }
   }
 
@@ -344,6 +466,14 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         const meta = await this.storage.getMeta(snapshot.sessionId);
         if (!meta) return;
         meta.milestones = snapshot.items.length > 0 ? snapshot : undefined;
+        const existingUiState = this.normalizeMilestoneUiState(meta.milestoneUiState);
+        if (this.isArchivableMilestoneSnapshot(snapshot)) {
+          const historyLength = await this.getHistoryLengthSafe(snapshot.sessionId);
+          this.upsertMilestoneArchive(meta, snapshot, historyLength);
+          meta.milestoneUiState = this.createMilestoneUiState(true, snapshot.updatedAt);
+        } else if (snapshot.items.length > 0 && !existingUiState) {
+          meta.milestoneUiState = this.createMilestoneUiState(true, snapshot.updatedAt);
+        }
         await this.storage.saveMeta(meta);
       } catch (err) {
         logger.warn(`保存 milestone 状态失败 (session=${snapshot.sessionId}):`, err);
@@ -518,7 +648,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     if (MILESTONE_TOOL_SYNC_IGNORED.has(invocation.toolName)) return;
     if (invocation.parentToolId || (invocation.depth ?? 0) > 0) return;
     if (invocation.status === 'error') {
-      const snapshot = this.milestoneManager.markActiveBlockedByToolFailure(ctx.sessionId, { toolId: invocation.id, toolName: invocation.toolName, error: invocation.error ?? '未知错误', sourceAgent: ctx.sourceAgent, routeAgent: ctx.routeAgent });
+      // 工具错误不等于 milestone 被阻塞：一次命令失败/路径错误通常仍是“正在处理”。
+      // 只记录错误并刷新 lifecycle hint，blocked 由 Agent/用户显式设置。
+      const snapshot = this.milestoneManager.noteActiveToolFailure(ctx.sessionId, { toolId: invocation.id, toolName: invocation.toolName, error: invocation.error ?? '未知错误', sourceAgent: ctx.sourceAgent, routeAgent: ctx.routeAgent });
       if (snapshot) this.refreshMilestoneLifecycleHint(invocation.sessionId, ctx.sessionId);
       return;
     }
@@ -1651,6 +1783,10 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     // 9. 条件后置步骤：更新会话元数据（仅用户消息路径）
     if (options.updateMeta && options.storedUserParts) {
       await this.updateSessionMeta(sessionId, options.storedUserParts, false, options.platformName);
+      const currentMilestones = this.getMilestones(sessionId);
+      if (currentMilestones && this.isArchivableMilestoneSnapshot(currentMilestones)) {
+        await this.persistMilestones(currentMilestones);
+      }
     }
 
     // 10. 条件后置步骤：插件 onAfterChat 钩子（仅用户消息路径）

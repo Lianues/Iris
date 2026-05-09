@@ -31,6 +31,7 @@ import {
   type IrisBackendLike,
   type IrisModelInfoLike,
   type IrisSessionMetaLike,
+  type MilestoneSnapshotLike,
   type IrisAPI,
   type BootstrapExtensionRegistryLike,
   type ConfigManagerLike,
@@ -82,6 +83,13 @@ interface RemoteExecEnvironmentRestoreResultLike {
   current: string;
   message: string;
   error?: string;
+}
+
+interface MilestoneArchiveLike {
+  id: string;
+  snapshot: MilestoneSnapshotLike;
+  archivedAt: number;
+  afterHistoryIndex: number;
 }
 
 interface RemoteExecEnvironmentServiceLike {
@@ -958,6 +966,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onSubmit: (text: string) => this.handleInput(text),
         onFileAttach: (filePath: string) => this.handleFileAttach(filePath),
         getCurrentSessionId: () => this.sessionId,
+        onLoadMilestoneUiState: (sessionId: string) => this.loadMilestoneUiState(sessionId),
+        onSaveMilestoneUiState: (sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }) => this.saveMilestoneUiState(sessionId, state),
         onRemoveFile: (index: number) => this.handleRemoveFile(index),
         onFileBrowserSelect: (dirPath: string, entry: any, showHidden: boolean) => {
           this.handleFileBrowserSelect(dirPath, entry, showHidden);
@@ -1776,6 +1786,40 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
 
 
+  private async loadMilestoneArchives(sessionId: string): Promise<MilestoneArchiveLike[]> {
+    try {
+      const archives = await (this.backend as any).loadMilestoneArchives?.(sessionId);
+      if (Array.isArray(archives)) return archives as MilestoneArchiveLike[];
+      const meta = await (this.backend as any).getMeta?.(sessionId);
+      return Array.isArray(meta?.milestoneArchives) ? meta.milestoneArchives as MilestoneArchiveLike[] : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private async loadMilestoneUiState(sessionId: string): Promise<{ expanded: boolean; updatedAt?: number; snapshotUpdatedAt?: number } | undefined> {
+    try {
+      const state = await (this.backend as any).loadMilestoneUiState?.(sessionId);
+      if (state && typeof state.expanded === 'boolean') return state;
+      const meta = await (this.backend as any).getMeta?.(sessionId);
+      return meta?.milestoneUiState && typeof meta.milestoneUiState.expanded === 'boolean'
+        ? meta.milestoneUiState
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async saveMilestoneUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void> {
+    try {
+      await (this.backend as any).setMilestoneUiState?.(sessionId, state);
+    } catch {
+      // UI 偏好保存失败不影响对话主流程。
+    }
+  }
+
+
+
   private async handleLoadSession(id: string): Promise<void> {
     this.sessionId = id;
     this.currentToolIds.clear();
@@ -1787,6 +1831,16 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     await this.syncMilestones();
 
     const history = await this.backend.getHistory?.(id) ?? [];
+    const milestoneArchives = (await this.loadMilestoneArchives(id))
+      .filter(entry => entry?.snapshot?.items?.length > 0)
+      .sort((a, b) => (a.afterHistoryIndex ?? 0) - (b.afterHistoryIndex ?? 0) || (a.archivedAt ?? 0) - (b.archivedAt ?? 0));
+    let milestoneArchiveCursor = 0;
+    const insertMilestoneArchivesUpTo = (position: number) => {
+      while (milestoneArchiveCursor < milestoneArchives.length && (milestoneArchives[milestoneArchiveCursor].afterHistoryIndex ?? 0) <= position) {
+        const archive = milestoneArchives[milestoneArchiveCursor++];
+        this.appHandle?.addMilestoneArchive(archive.snapshot, archive.archivedAt);
+      }
+    };
 
     // 预处理：为每条 model 消息收集其对应的 functionResponse 列表
     // 历史结构: [model: functionCall...] → [user: functionResponse...] → [model: ...]
@@ -1802,6 +1856,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       }
     }
 
+    insertMilestoneArchivesUpTo(0);
+
     for (let i = 0; i < history.length; i++) {
       const msg = history[i];
       const role = msg.role === 'user' ? 'user' : 'assistant';
@@ -1816,13 +1872,16 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       }
       const meta = getMessageMeta(msg);
       if (parts.length > 0) {
-        this.appHandle?.addStructuredMessage(role as 'user' | 'assistant', parts, meta);
+        this.appHandle?.addHistoryMessage(role as 'user' | 'assistant', parts, meta);
       }
+
+      insertMilestoneArchivesUpTo(i + 1);
 
       if (msg.usageMetadata) {
         this.appHandle?.setUsage(msg.usageMetadata);
       }
     }
+    insertMilestoneArchivesUpTo(Number.MAX_SAFE_INTEGER);
 
     const envRestore = await envRestorePromise;
     // 如果用户在环境恢复完成前已经发送了新消息，或又切换/加载了其他会话，

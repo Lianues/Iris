@@ -378,8 +378,8 @@ function showInputPhase(opts = {}) {
       lines.push(`  ${connectStyle}`);
       lines.push("");
       if (status) {
-        const statusColor = statusIsError ? ansi.red : ansi.green;
-        lines.push(`  ${statusColor}${status}${ansi.reset}`);
+        const statusColor2 = statusIsError ? ansi.red : ansi.green;
+        lines.push(`  ${statusColor2}${status}${ansi.reset}`);
         lines.push("");
       }
       lines.push(`  ${ansi.dim}Tab 切换字段  Enter 确认  Esc 返回${ansi.reset}`);
@@ -741,6 +741,7 @@ var init_protocol = __esm(() => {
     API_CONFIG_MANAGER_UPDATE: "api.configManager.updateEditableConfig",
     API_ROUTER_REMOVE_REQUEST_BODY_KEYS: "api.router.removeCurrentModelRequestBodyKeys",
     API_ROUTER_PATCH_REQUEST_BODY: "api.router.patchCurrentModelRequestBody",
+    API_ROUTER_REMOVE_REQUEST_BODY_PATHS: "api.router.removeCurrentModelRequestBodyPaths",
     AGENT_BACKEND_CALL: "agent.backend.call",
     AGENT_API_CALL: "agent.api.call",
     SUBSCRIBE: "client.subscribe",
@@ -1176,6 +1177,9 @@ function createRemoteApiProxy(client, agentName = "__remote__", options) {
       },
       patchCurrentModelRequestBody(...args) {
         callApi(client, targetAgentName, Methods.API_ROUTER_PATCH_REQUEST_BODY, args).catch((err) => logger3.warn(`patchCurrentModelRequestBody 失败: ${err.message}`));
+      },
+      removeCurrentModelRequestBodyPaths(...args) {
+        callApi(client, targetAgentName, Methods.API_ROUTER_REMOVE_REQUEST_BODY_PATHS, args).catch((err) => logger3.warn(`removeCurrentModelRequestBodyPaths 失败: ${err.message}`));
       }
     },
     async initCaches() {
@@ -1230,7 +1234,7 @@ var init_ipc2 = __esm(() => {
 });
 
 // src/index.ts
-import React13 from "react";
+import React14 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
@@ -1341,6 +1345,12 @@ class BackendHandle {
   }
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
+  }
+  getMilestones(sessionId) {
+    return this._backend.getMilestones?.(sessionId);
+  }
+  loadMilestones(sessionId) {
+    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
   }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
@@ -1834,12 +1844,26 @@ function wordBoundaryRight(text, pos) {
     i++;
   return i;
 }
+function isTextInputKeyHandled(key) {
+  if (key.name === "left" || key.name === "right" || key.name === "home" || key.name === "end")
+    return true;
+  if (key.name === "backspace" || key.name === "delete")
+    return true;
+  if (["a", "e", "u", "k", "d"].includes(key.name) && key.ctrl)
+    return true;
+  if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta)
+    return true;
+  return false;
+}
 function useTextInput(initialValue = "") {
   const [state, setState] = useState({
     value: initialValue,
     cursor: initialValue.length
   });
   const handleKey = useCallback((key) => {
+    if (!isTextInputKeyHandled(key))
+      return false;
+    key.preventDefault?.();
     setState((s) => {
       const { value, cursor } = s;
       if (key.name === "left" && !key.ctrl && !key.meta) {
@@ -1885,15 +1909,7 @@ function useTextInput(initialValue = "") {
       }
       return s;
     });
-    if (key.name === "left" || key.name === "right" || key.name === "home" || key.name === "end")
-      return true;
-    if (key.name === "backspace" || key.name === "delete")
-      return true;
-    if (["a", "e", "u", "k", "d"].includes(key.name) && key.ctrl)
-      return true;
-    if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta)
-      return true;
-    return false;
+    return true;
   }, []);
   const insert = useCallback((text) => {
     setState((s) => ({
@@ -2998,6 +3014,18 @@ var FILE_TYPE_ICONS = {
   audio: "\uD83C\uDFB5",
   video: "\uD83C\uDFAC"
 };
+var SLASH_PANEL_MAX_HEIGHT_RATIO = 0.45;
+var SLASH_PANEL_MIN_VISIBLE_ROWS = 3;
+function buildSuggestionWindow(items, selectedIndex, maxRows) {
+  if (items.length === 0)
+    return [];
+  const visibleRows = Math.max(1, Math.min(items.length, Math.floor(maxRows)));
+  const selectedPos = Math.max(0, items.findIndex((row) => row.index === selectedIndex));
+  const halfWindow = Math.floor((visibleRows - 1) / 2);
+  const maxStart = Math.max(0, items.length - visibleRows);
+  const start = Math.min(maxStart, Math.max(0, selectedPos - halfWindow));
+  return items.slice(start, start + visibleRows);
+}
 function isPlanModeToggleShortcut(key) {
   return key.shift && key.name === "tab" || key.name === "backtab" || key.name === "shift-tab" || key.sequence === "\x1B[Z";
 }
@@ -3006,7 +3034,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
   const [selectedIndex, setSelectedIndex] = useState4(0);
   const [queuePromptFrame, setQueuePromptFrame] = useState4(0);
   const cursorVisible = useCursorBlink();
-  const { width: termWidth } = useTerminalDimensions3();
+  const { width: termWidth, height: termHeight } = useTerminalDimensions3();
   const visibleCommands = useMemo3(() => {
     const commands = [...COMMANDS, ...dynamicCommands];
     const seen = new Set;
@@ -3081,6 +3109,14 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
     }
     setSelectedIndex((prev) => Math.min(prev, filtered.length - 1));
   }, [showCommands, filtered.length, exactMatchIndex, showArgSuggestions, argSuggestions.length]);
+  const maxSlashPanelRows = useMemo3(() => {
+    const rowsByViewport = Math.floor(termHeight * SLASH_PANEL_MAX_HEIGHT_RATIO);
+    return Math.max(SLASH_PANEL_MIN_VISIBLE_ROWS, rowsByViewport);
+  }, [termHeight]);
+  const commandSuggestionRows = useMemo3(() => filtered.map((cmd, index) => ({ item: cmd, index })), [filtered]);
+  const argSuggestionRows = useMemo3(() => argSuggestions.map((item, index) => ({ item, index })), [argSuggestions]);
+  const visibleCommandRows = useMemo3(() => buildSuggestionWindow(commandSuggestionRows, selectedIndex, maxSlashPanelRows), [commandSuggestionRows, selectedIndex, maxSlashPanelRows]);
+  const visibleArgRows = useMemo3(() => buildSuggestionWindow(argSuggestionRows, selectedIndex, maxSlashPanelRows), [argSuggestionRows, selectedIndex, maxSlashPanelRows]);
   const applySelection = (index) => {
     const count = showArgSuggestions ? argSuggestions.length : filtered.length;
     if (count === 0)
@@ -3107,14 +3143,17 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
     }
     if (showCommands && filtered.length > 0 || showArgSuggestions && argSuggestions.length > 0) {
       if (key.name === "up") {
+        key.preventDefault?.();
         applySelection(selectedIndex + 1);
         return;
       }
       if (key.name === "down") {
+        key.preventDefault?.();
         applySelection(selectedIndex - 1);
         return;
       }
       if (key.name === "tab") {
+        key.preventDefault?.();
         if (showArgSuggestions && activeArgCommand) {
           const current2 = argSuggestions[selectedIndex];
           if (current2)
@@ -3140,6 +3179,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
     if (key.ctrl && key.name === "s") {
       if (!isQueueMode)
         return;
+      key.preventDefault?.();
       const text = value.trim();
       if (!text)
         return;
@@ -3149,6 +3189,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       return;
     }
     if (key.name === "enter" || key.name === "return") {
+      key.preventDefault?.();
       if (rapidKeyCountRef.current >= 3) {
         inputActions.insert(`
 `);
@@ -3172,17 +3213,20 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       return;
     }
     if (thinkingControlEnabled !== false && key.shift && (key.name === "left" || key.name === "right")) {
+      key.preventDefault?.();
       onCycleThinkingEffort(key.name === "right" ? 1 : -1);
       return;
     }
     if (key.name === "escape") {
       if (showCommands) {
+        key.preventDefault?.();
         setCommandsDismissed(true);
         setSelectedIndex(0);
       }
       return;
     }
     if (key.name === "backspace" && !value && pendingFiles.length > 0) {
+      key.preventDefault?.();
       onRemoveFile(pendingFiles.length - 1);
       return;
     }
@@ -3235,6 +3279,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
     return count;
   }, [value, baseAvailableWidth]);
   const needsInputScroll = visualLineCount > MAX_VISIBLE_INPUT_LINES;
+  const inputVisibleRows = Math.min(visualLineCount, MAX_VISIBLE_INPUT_LINES);
   const availableWidth = needsInputScroll ? Math.max(1, baseAvailableWidth - 1) : baseAvailableWidth;
   const inputRow = /* @__PURE__ */ jsxDEV8("box", {
     flexDirection: "row",
@@ -3260,20 +3305,32 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
+  const slashPanelBottom = inputVisibleRows + pendingFiles.length;
   return /* @__PURE__ */ jsxDEV8("box", {
     flexDirection: "column",
+    position: "relative",
+    width: "100%",
     children: [
       showArgSuggestions && argSuggestions.length > 0 && /* @__PURE__ */ jsxDEV8("box", {
+        position: "absolute",
+        left: 0,
+        width: "100%",
+        bottom: slashPanelBottom,
+        zIndex: 100,
+        height: visibleArgRows.length,
+        shouldFill: true,
         flexDirection: "column",
         backgroundColor: C.panelBg,
         paddingX: 1,
-        children: [...argSuggestions].reverse().map((item, _i) => {
-          const index = argSuggestions.indexOf(item);
+        children: [...visibleArgRows].reverse().map(({ item, index }) => {
           const padded = item.value.padEnd(maxArgLen);
           const isSelected = index === selectedIndex;
           return /* @__PURE__ */ jsxDEV8("box", {
+            width: "100%",
+            height: 1,
+            overflow: "hidden",
             paddingLeft: 1,
-            backgroundColor: isSelected ? C.border : undefined,
+            backgroundColor: isSelected ? C.border : C.panelBg,
             children: /* @__PURE__ */ jsxDEV8("text", {
               children: [
                 /* @__PURE__ */ jsxDEV8("span", {
@@ -3302,16 +3359,25 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         })
       }, undefined, false, undefined, this),
       !showArgSuggestions && filtered.length > 0 && /* @__PURE__ */ jsxDEV8("box", {
+        position: "absolute",
+        left: 0,
+        width: "100%",
+        bottom: slashPanelBottom,
+        zIndex: 100,
+        height: visibleCommandRows.length,
+        shouldFill: true,
         flexDirection: "column",
         backgroundColor: C.panelBg,
         paddingX: 1,
-        children: [...filtered].reverse().map((cmd, _i) => {
-          const index = filtered.indexOf(cmd);
+        children: [...visibleCommandRows].reverse().map(({ item: cmd, index }) => {
           const padded = cmd.name.padEnd(maxLen);
           const isSelected = index === selectedIndex;
           return /* @__PURE__ */ jsxDEV8("box", {
+            width: "100%",
+            height: 1,
+            overflow: "hidden",
             paddingLeft: 1,
-            backgroundColor: isSelected ? C.border : undefined,
+            backgroundColor: isSelected ? C.border : C.panelBg,
             children: /* @__PURE__ */ jsxDEV8("text", {
               children: [
                 /* @__PURE__ */ jsxDEV8("span", {
@@ -3373,7 +3439,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         })
       }, undefined, false, undefined, this),
       /* @__PURE__ */ jsxDEV8("scrollbox", {
-        height: Math.min(visualLineCount, MAX_VISIBLE_INPUT_LINES),
+        height: inputVisibleRows,
         stickyScroll: true,
         stickyStart: "bottom",
         verticalScrollbarOptions: { visible: needsInputScroll },
@@ -3385,9 +3451,21 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
 }
 
 // src/components/StatusBar.tsx
+import React4 from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV9, Fragment as Fragment4 } from "@opentui/react/jsx-dev-runtime";
-function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, planModeActive, remoteHost, backgroundTaskCount, delegateTaskCount, backgroundTaskTokens, backgroundTaskSpinnerFrame }) {
+function statusColor(color) {
+  if (color === "dim")
+    return C.dim;
+  if (color === "accent")
+    return C.accent;
+  if (color === "warn")
+    return C.warn;
+  if (color === "error")
+    return C.error;
+  return color ?? C.dim;
+}
+function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, planModeActive, remoteHost, backgroundTaskCount, delegateTaskCount, backgroundTaskTokens, backgroundTaskSpinnerFrame, statusSegments }) {
   const resolvedModeName = modeName ?? "normal";
   const modeNameCapitalized = resolvedModeName.charAt(0).toUpperCase() + resolvedModeName.slice(1);
   const contextStr = contextTokens > 0 ? contextTokens.toLocaleString() : "-";
@@ -3555,12 +3633,32 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
       /* @__PURE__ */ jsxDEV9("box", {
         flexShrink: 0,
         children: /* @__PURE__ */ jsxDEV9("text", {
-          fg: C.dim,
           children: [
-            " ctx ",
-            contextStr,
-            contextLimitStr,
-            contextPercent
+            /* @__PURE__ */ jsxDEV9("span", {
+              fg: C.dim,
+              children: [
+                " ctx ",
+                contextStr,
+                contextLimitStr,
+                contextPercent
+              ]
+            }, undefined, true, undefined, this),
+            (statusSegments ?? []).map((segment) => /* @__PURE__ */ jsxDEV9(React4.Fragment, {
+              children: [
+                /* @__PURE__ */ jsxDEV9("span", {
+                  fg: C.dim,
+                  children: [
+                    " ",
+                    ICONS.separator,
+                    " "
+                  ]
+                }, undefined, true, undefined, this),
+                /* @__PURE__ */ jsxDEV9("span", {
+                  fg: statusColor(segment.color),
+                  children: segment.text
+                }, undefined, false, undefined, this)
+              ]
+            }, segment.id, true, undefined, this))
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this)
@@ -3661,6 +3759,7 @@ function BottomPanel({
   pendingFiles,
   onRemoveFile,
   dynamicCommands,
+  statusSegments,
   supportsHeadlessTransition
 }) {
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
@@ -3729,7 +3828,8 @@ function BottomPanel({
             backgroundTaskCount,
             delegateTaskCount,
             backgroundTaskTokens,
-            backgroundTaskSpinnerFrame
+            backgroundTaskSpinnerFrame,
+            statusSegments
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
@@ -3920,7 +4020,7 @@ function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
 }
 
 // src/components/MessageItem.tsx
-import React7, { useEffect as useEffect7, useRef as useRef5, useState as useState7 } from "react";
+import React8, { useEffect as useEffect7, useRef as useRef5, useState as useState7 } from "react";
 import { useTerminalDimensions as useTerminalDimensions4 } from "@opentui/react";
 
 // src/tool-renderers/default.tsx
@@ -4795,7 +4895,8 @@ function ToolCall({ invocation }) {
 // src/components/MilestoneListView.tsx
 import { useMemo as useMemo4 } from "react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV28 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV28, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
+var MILESTONE_PANEL_MAX_ITEMS = 8;
 function compareById(a, b) {
   const an = parseInt(a.id.replace(/^m/i, ""), 10);
   const bn = parseInt(b.id.replace(/^m/i, ""), 10);
@@ -4825,7 +4926,7 @@ function statusLabel(status) {
     case "completed":
       return "完成";
     case "blocked":
-      return "阻塞";
+      return "受阻";
     case "cancelled":
       return "取消";
     default:
@@ -4890,75 +4991,187 @@ function buildOwnerGroups(items, preferredOwner, ownerStats = buildOwnerStats(it
     return a.owner.localeCompare(b.owner);
   });
 }
-function MilestoneListView({ snapshot, maxItems = 8, standalone = false }) {
+function normalizeMaxItems(maxItems) {
+  if (!Number.isFinite(maxItems))
+    return MILESTONE_PANEL_MAX_ITEMS;
+  return Math.max(1, Math.min(MILESTONE_PANEL_MAX_ITEMS, Math.floor(maxItems)));
+}
+function clampScrollOffset(offset, total, maxItems) {
+  const maxOffset = Math.max(0, total - maxItems);
+  if (!Number.isFinite(offset))
+    return 0;
+  return Math.min(maxOffset, Math.max(0, Math.floor(offset)));
+}
+function currentItemForCollapsed(sorted) {
+  return sorted.find((item) => item.status === "in_progress") ?? sorted.find((item) => item.status === "blocked") ?? sorted.find((item) => item.status === "pending") ?? sorted.find((item) => item.status === "cancelled") ?? sorted[sorted.length - 1];
+}
+function collapsedPrefix(item) {
+  if (!item)
+    return "当前";
+  switch (item.status) {
+    case "in_progress":
+      return "当前";
+    case "blocked":
+      return "受阻";
+    case "pending":
+      return "下一项";
+    case "completed":
+      return "已完成";
+    case "cancelled":
+      return "已取消";
+    default:
+      return "当前";
+  }
+}
+function controlHintText(collapsed, canScroll) {
+  const parts = [`alt+m ${collapsed ? "展开" : "折叠"}`];
+  if (!collapsed && canScroll)
+    parts.push(`alt+${ICONS.upArrow}/${ICONS.downArrow} 滚动`);
+  return parts.join(` ${ICONS.separator} `);
+}
+function MilestoneListView({
+  snapshot,
+  maxItems = MILESTONE_PANEL_MAX_ITEMS,
+  standalone = false,
+  collapsed = false,
+  scrollOffset = 0,
+  showControls = false
+}) {
   const items = snapshot?.items ?? [];
   const stats = snapshot?.stats;
-  const { hidden, groups } = useMemo4(() => {
-    const sorted = [...items].sort(compareById);
-    const visibleItems = sorted.slice(0, Math.max(0, maxItems));
-    const ownerStats = buildOwnerStats(sorted, snapshot?.routeAgent);
+  const itemLimit = normalizeMaxItems(maxItems);
+  const canCollapse = (stats?.open ?? 0) > 0;
+  const effectiveCollapsed = canCollapse && collapsed;
+  const { sorted, groups, hiddenBeforeCount, hiddenAfterCount, effectiveScrollOffset, visibleCount } = useMemo4(() => {
+    const all = [...items].sort(compareById);
+    const effectiveOffset = clampScrollOffset(scrollOffset, all.length, itemLimit);
+    const visibleItems = effectiveCollapsed ? [] : all.slice(effectiveOffset, effectiveOffset + itemLimit);
+    const ownerStats = buildOwnerStats(all, snapshot?.routeAgent);
     return {
-      hidden: sorted.slice(Math.max(0, maxItems)),
-      groups: buildOwnerGroups(visibleItems, snapshot?.routeAgent, ownerStats)
+      sorted: all,
+      groups: buildOwnerGroups(visibleItems, snapshot?.routeAgent, ownerStats),
+      hiddenBeforeCount: effectiveCollapsed ? 0 : effectiveOffset,
+      hiddenAfterCount: effectiveCollapsed ? 0 : Math.max(0, all.length - effectiveOffset - visibleItems.length),
+      effectiveScrollOffset: effectiveOffset,
+      visibleCount: visibleItems.length
     };
-  }, [items, maxItems, snapshot?.routeAgent]);
+  }, [items, itemLimit, effectiveCollapsed, scrollOffset, snapshot?.routeAgent]);
   if (items.length === 0)
     return null;
-  const hiddenSummary = hidden.length > 0 ? `另有 ${hidden.length} 项未显示（${hidden.filter((i) => i.status === "pending").length} 待处理，${hidden.filter((i) => i.status === "completed").length} 已完成）` : "";
+  const canScroll = sorted.length > itemLimit;
+  const currentItem = currentItemForCollapsed(sorted);
   const showOwnerHeadings = groups.length > 1;
+  const hiddenSummary = !effectiveCollapsed && (hiddenBeforeCount > 0 || hiddenAfterCount > 0) ? `显示 ${effectiveScrollOffset + 1}-${effectiveScrollOffset + visibleCount}/${sorted.length}` + (hiddenBeforeCount > 0 ? ` ${ICONS.separator} ${ICONS.upArrow} ${hiddenBeforeCount}` : "") + (hiddenAfterCount > 0 ? ` ${ICONS.separator} ${ICONS.downArrow} ${hiddenAfterCount}` : "") : "";
+  const renderHeader = () => {
+    if (!standalone || !stats)
+      return null;
+    const currentIcon = currentItem ? getStatusIcon(currentItem.status) : undefined;
+    const currentText = currentItem ? truncate3(currentItem.status === "in_progress" ? currentItem.activeForm ?? currentItem.title : currentItem.title, 72) : "暂无进度";
+    return /* @__PURE__ */ jsxDEV28("text", {
+      children: [
+        /* @__PURE__ */ jsxDEV28("span", {
+          fg: C.primaryLight,
+          children: "Iris 进度"
+        }, undefined, false, undefined, this),
+        showControls && canCollapse ? /* @__PURE__ */ jsxDEV28("span", {
+          fg: C.dim,
+          children: [
+            " ",
+            ICONS.separator,
+            " ",
+            controlHintText(effectiveCollapsed, canScroll)
+          ]
+        }, undefined, true, undefined, this) : null,
+        /* @__PURE__ */ jsxDEV28("span", {
+          fg: C.dim,
+          children: [
+            " ",
+            ICONS.separator,
+            " "
+          ]
+        }, undefined, true, undefined, this),
+        /* @__PURE__ */ jsxDEV28("span", {
+          fg: C.text,
+          children: /* @__PURE__ */ jsxDEV28("strong", {
+            children: stats.completed
+          }, undefined, false, undefined, this)
+        }, undefined, false, undefined, this),
+        /* @__PURE__ */ jsxDEV28("span", {
+          fg: C.dim,
+          children: "/"
+        }, undefined, false, undefined, this),
+        /* @__PURE__ */ jsxDEV28("span", {
+          fg: C.text,
+          children: /* @__PURE__ */ jsxDEV28("strong", {
+            children: stats.total
+          }, undefined, false, undefined, this)
+        }, undefined, false, undefined, this),
+        /* @__PURE__ */ jsxDEV28("span", {
+          fg: C.dim,
+          children: " 已完成"
+        }, undefined, false, undefined, this),
+        stats.inProgress > 0 ? /* @__PURE__ */ jsxDEV28("span", {
+          fg: C.accent,
+          children: [
+            " ",
+            ICONS.separator,
+            " ",
+            stats.inProgress,
+            " 进行中"
+          ]
+        }, undefined, true, undefined, this) : null,
+        stats.blocked > 0 ? /* @__PURE__ */ jsxDEV28("span", {
+          fg: C.warn,
+          children: [
+            " ",
+            ICONS.separator,
+            " ",
+            stats.blocked,
+            " 受阻"
+          ]
+        }, undefined, true, undefined, this) : null,
+        effectiveCollapsed ? /* @__PURE__ */ jsxDEV28(Fragment5, {
+          children: [
+            /* @__PURE__ */ jsxDEV28("span", {
+              fg: C.dim,
+              children: [
+                " ",
+                ICONS.separator,
+                " ",
+                collapsedPrefix(currentItem),
+                "："
+              ]
+            }, undefined, true, undefined, this),
+            currentIcon ? /* @__PURE__ */ jsxDEV28("span", {
+              fg: currentIcon.color,
+              children: [
+                currentIcon.icon,
+                " "
+              ]
+            }, undefined, true, undefined, this) : null,
+            /* @__PURE__ */ jsxDEV28("span", {
+              fg: currentItem?.status === "in_progress" ? C.text : C.textSec,
+              children: currentText
+            }, undefined, false, undefined, this)
+          ]
+        }, undefined, true, undefined, this) : null
+      ]
+    }, undefined, true, undefined, this);
+  };
+  if (effectiveCollapsed) {
+    return /* @__PURE__ */ jsxDEV28("box", {
+      flexDirection: "column",
+      marginTop: standalone ? 1 : 0,
+      paddingLeft: standalone ? 1 : 0,
+      children: renderHeader()
+    }, undefined, false, undefined, this);
+  }
   return /* @__PURE__ */ jsxDEV28("box", {
     flexDirection: "column",
     marginTop: standalone ? 1 : 0,
     paddingLeft: standalone ? 1 : 0,
     children: [
-      standalone && stats ? /* @__PURE__ */ jsxDEV28("text", {
-        children: [
-          /* @__PURE__ */ jsxDEV28("span", {
-            fg: C.primaryLight,
-            children: "Iris 进度 "
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV28("span", {
-            fg: C.text,
-            children: /* @__PURE__ */ jsxDEV28("strong", {
-              children: stats.completed
-            }, undefined, false, undefined, this)
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV28("span", {
-            fg: C.dim,
-            children: "/"
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV28("span", {
-            fg: C.text,
-            children: /* @__PURE__ */ jsxDEV28("strong", {
-              children: stats.total
-            }, undefined, false, undefined, this)
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV28("span", {
-            fg: C.dim,
-            children: " 已完成"
-          }, undefined, false, undefined, this),
-          stats.inProgress > 0 ? /* @__PURE__ */ jsxDEV28("span", {
-            fg: C.accent,
-            children: [
-              " ",
-              ICONS.separator,
-              " ",
-              stats.inProgress,
-              " 进行中"
-            ]
-          }, undefined, true, undefined, this) : null,
-          stats.blocked > 0 ? /* @__PURE__ */ jsxDEV28("span", {
-            fg: C.warn,
-            children: [
-              " ",
-              ICONS.separator,
-              " ",
-              stats.blocked,
-              " 阻塞"
-            ]
-          }, undefined, true, undefined, this) : null
-        ]
-      }, undefined, true, undefined, this) : null,
+      renderHeader(),
       groups.map((group) => /* @__PURE__ */ jsxDEV28("box", {
         flexDirection: "column",
         marginTop: standalone && showOwnerHeadings ? 1 : 0,
@@ -5001,7 +5214,7 @@ function MilestoneListView({ snapshot, maxItems = 8, standalone = false }) {
                 children: [
                   " · ",
                   group.stats.blocked,
-                  " 阻塞"
+                  " 受阻"
                 ]
               }, undefined, true, undefined, this) : null
             ]
@@ -5205,7 +5418,7 @@ function NotificationPayloadBlock({ payload }) {
     }, undefined, true, undefined, this)
   }, undefined, false, undefined, this);
 }
-var MessageItem = React7.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal }) {
+var MessageItem = React8.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal }) {
   const { width: rawTermWidth } = useTerminalDimensions4();
   const termWidth = rawTermWidth - 1;
   const [thoughtsExpanded, setThoughtsExpanded] = useState7(false);
@@ -5544,7 +5757,9 @@ function ChatMessageList({
   thoughtsToggleSignal,
   hasActiveTools,
   scrollBoxRef,
-  milestoneSnapshot
+  milestoneSnapshot,
+  milestoneCollapsed,
+  milestoneScrollOffset
 }) {
   const { height: termHeight } = useTerminalDimensions5();
   const scrollAccel = useMemo5(() => {
@@ -5610,7 +5825,10 @@ function ChatMessageList({
         paddingBottom: 1,
         children: /* @__PURE__ */ jsxDEV30(MilestoneListView, {
           snapshot: milestoneSnapshot,
-          standalone: true
+          standalone: true,
+          collapsed: milestoneCollapsed,
+          scrollOffset: milestoneScrollOffset,
+          showControls: true
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this) : null,
       isGenerating && !lastIsActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? /* @__PURE__ */ jsxDEV30("box", {
@@ -6791,19 +7009,24 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
   const ResultRenderer = isFinal && result != null ? getToolRenderer(toolName) : null;
   useKeyboard3(useCallback3((key) => {
     if (key.name === "escape" || key.name === "q") {
+      key.preventDefault?.();
       onClose();
       return;
     }
     if (key.name === "a" && !isFinal && onAbort) {
+      key.preventDefault?.();
       onAbort(invocation.id);
       return;
     }
     if (children.length > 0) {
       if (key.name === "up" || key.name === "k") {
+        key.preventDefault?.();
         setSelectedIdx((p) => Math.max(0, p - 1));
       } else if (key.name === "down" || key.name === "j") {
+        key.preventDefault?.();
         setSelectedIdx((p) => Math.min(children.length - 1, p + 1));
       } else if (key.name === "return") {
+        key.preventDefault?.();
         const c = children[selectedIdx];
         if (c)
           onNavigateChild(c.id);
@@ -7187,7 +7410,7 @@ function FooterBar({ isFinal, hasAbort, hasChildren }) {
 
 // src/components/ModelListView.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV36, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV36, Fragment as Fragment6 } from "@opentui/react/jsx-dev-runtime";
 function formatContextWindow(tokens) {
   if (tokens == null || tokens <= 0)
     return "";
@@ -7242,7 +7465,7 @@ function ModelListView({
             fg: C.primary,
             children: `切换模型 (${count})`
           }, undefined, false, undefined, this),
-          editingField ? /* @__PURE__ */ jsxDEV36(Fragment5, {
+          editingField ? /* @__PURE__ */ jsxDEV36(Fragment6, {
             children: [
               /* @__PURE__ */ jsxDEV36("text", {
                 fg: C.dim,
@@ -7253,7 +7476,7 @@ function ModelListView({
                 children: editingField === "contextWindow" ? "留空可清除上下文窗口配置" : "编辑模型别名（会同步更新 /model 使用名称）"
               }, undefined, false, undefined, this)
             ]
-          }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV36(Fragment5, {
+          }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV36(Fragment6, {
             children: [
               /* @__PURE__ */ jsxDEV36("text", {
                 fg: C.dim,
@@ -8034,7 +8257,7 @@ function formatAge(unixSec) {
 // src/components/ExtensionListView.tsx
 import { useTerminalDimensions as useTerminalDimensions7 } from "@opentui/react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV41, Fragment as Fragment6 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV41, Fragment as Fragment7 } from "@opentui/react/jsx-dev-runtime";
 var STATUS_LABELS = {
   active: { label: "active", color: "#2ecc71" },
   disabled: { label: "disabled", color: "#e74c3c" },
@@ -8121,7 +8344,7 @@ function GitInputFrame({
         }, `git-input-line-${lineIndex}`, true, undefined, this);
         if (!value) {
           const placeholderPart = line;
-          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment6, {
+          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment7, {
             children: [
               lineIndex === 0 && renderCursorChar(" ", cursorVisible),
               /* @__PURE__ */ jsxDEV41("span", {
@@ -8133,7 +8356,7 @@ function GitInputFrame({
         }
         if (safeCursor >= start && safeCursor < end) {
           const local = safeCursor - start;
-          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment6, {
+          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment7, {
             children: [
               /* @__PURE__ */ jsxDEV41("span", {
                 fg: C.text,
@@ -8148,7 +8371,7 @@ function GitInputFrame({
           }, undefined, true, undefined, this), line.length);
         }
         if (safeCursor === end && lineIndex === lines.length - 1) {
-          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment6, {
+          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment7, {
             children: [
               /* @__PURE__ */ jsxDEV41("span", {
                 fg: C.text,
@@ -10022,7 +10245,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
       setMilestoneSnapshot(null);
       return snapshot;
     };
-    const appendMilestoneArchive = (prev, snapshot) => {
+    const appendMilestoneArchive = (prev, snapshot, archivedAt) => {
       const part = { type: "milestone_snapshot", snapshot };
       const last = prev[prev.length - 1];
       if (last?.role === "assistant" && !last.isError && !last.isCommand && !last.isSummary && !last.isNotificationSummary) {
@@ -10037,7 +10260,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         id: nextMsgId(),
         role: "assistant",
         parts: [part],
-        createdAt: Date.now()
+        createdAt: archivedAt ?? Date.now()
       }];
     };
     const handle = {
@@ -10054,16 +10277,37 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
           { id: nextMsgId(), role, parts: [textPart], createdAt: Date.now(), ...meta }
         ]);
       },
+      addHistoryMessage(role, parts, meta) {
+        const normalizedParts = mergeMessageParts(parts);
+        if (normalizedParts.length === 0)
+          return;
+        if (role === "assistant") {
+          setMessages((prev) => appendAssistantParts(prev, normalizedParts, meta));
+          return;
+        }
+        setMessages((prev) => [
+          ...prev,
+          { id: nextMsgId(), role, parts: normalizedParts, ...meta }
+        ]);
+      },
+      addMilestoneArchive(snapshot, archivedAt) {
+        archivedMilestoneUpdatedAtRef.current = snapshot.updatedAt;
+        if (milestoneSnapshotRef.current?.updatedAt === snapshot.updatedAt && snapshot.stats.open === 0) {
+          milestoneSnapshotRef.current = null;
+          setMilestoneSnapshot(null);
+        }
+        setMessages((prev) => appendMilestoneArchive(prev, snapshot, archivedAt));
+      },
       addErrorMessage(text) {
         setMessages((prev) => [
           ...prev.filter((m) => !(m.role === "assistant" && m.parts.length === 0)),
           { id: nextMsgId(), role: "assistant", parts: [{ type: "text", text }], isError: true }
         ]);
       },
-      addCommandMessage(text) {
+      addCommandMessage(text, options) {
         setMessages((prev) => [
           ...prev.filter((m) => !m.isCommand),
-          { id: nextMsgId(), role: "assistant", parts: [{ type: "text", text }], isCommand: true }
+          { id: nextMsgId(), role: "assistant", parts: [{ type: "text", text }], isCommand: true, commandLabel: options?.label, isError: options?.isError }
         ]);
       },
       addStructuredMessage(role, parts, meta) {
@@ -10397,12 +10641,38 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
 // src/hooks/use-app-keyboard.ts
 import { useKeyboard as useKeyboard5 } from "@opentui/react";
 init_terminal_compat();
+var MILESTONE_PANEL_MAX_ITEMS2 = 8;
 function closeConfirm(setPendingConfirm, setConfirmChoice) {
   setPendingConfirm(null);
   setConfirmChoice("confirm");
 }
 function isPlanModeToggleShortcut2(key) {
   return key.shift && key.name === "tab" || key.name === "backtab" || key.name === "shift-tab" || key.sequence === "\x1B[Z";
+}
+function hasAltModifier(key) {
+  return key.alt === true || key.meta === true;
+}
+function isAltLetterShortcut(key, letter) {
+  return hasAltModifier(key) && key.name === letter || key.sequence === `\x1B${letter}` || key.sequence === `\x1B${letter.toUpperCase()}`;
+}
+function altScrollKeyName(key) {
+  if (hasAltModifier(key) && (key.name === "up" || key.name === "down" || key.name === "pageup" || key.name === "pagedown")) {
+    return key.name;
+  }
+  switch (key.sequence) {
+    case "\x1B[1;3A":
+    case "\x1B[1;9A":
+      return "up";
+    case "\x1B[1;3B":
+    case "\x1B[1;9B":
+      return "down";
+    case "\x1B[5;3~":
+      return "pageup";
+    case "\x1B[6;3~":
+      return "pagedown";
+    default:
+      return;
+  }
 }
 function useAppKeyboard({
   viewMode,
@@ -10471,6 +10741,9 @@ function useAppKeyboard({
   queueEditActions,
   onToggleThoughts,
   toolListItems,
+  milestoneSnapshot,
+  setMilestoneCollapsed,
+  setMilestoneScrollOffset,
   agentList,
   onSelectAgent,
   memoryList,
@@ -10569,6 +10842,26 @@ function useAppKeyboard({
     }
     if (key.ctrl && key.name === "o") {
       onToggleThoughts();
+      return;
+    }
+    const milestoneItemCount = milestoneSnapshot?.items.length ?? 0;
+    const milestoneOpenCount = milestoneSnapshot?.stats.open ?? 0;
+    const canControlMilestones = viewMode === "chat" && milestoneItemCount > 0 && milestoneOpenCount > 0 && !pendingConfirm && !askQuestionActive && pendingApprovals.length === 0 && pendingApplies.length === 0;
+    if (canControlMilestones && isAltLetterShortcut(key, "m")) {
+      key.preventDefault?.();
+      setMilestoneCollapsed((prev) => !prev);
+      return;
+    }
+    const milestoneScrollKey = canControlMilestones ? altScrollKeyName(key) : undefined;
+    if (milestoneScrollKey) {
+      key.preventDefault?.();
+      const maxOffset = Math.max(0, milestoneItemCount - MILESTONE_PANEL_MAX_ITEMS2);
+      if (maxOffset > 0) {
+        const pageStep = Math.max(1, Math.floor(MILESTONE_PANEL_MAX_ITEMS2 / 2));
+        const delta = milestoneScrollKey === "up" ? -1 : milestoneScrollKey === "down" ? 1 : milestoneScrollKey === "pageup" ? -pageStep : pageStep;
+        setMilestoneCollapsed(false);
+        setMilestoneScrollOffset((prev) => Math.min(maxOffset, Math.max(0, prev + delta)));
+      }
       return;
     }
     if (isPlanModeToggleShortcut2(key) && viewMode === "chat" && !isGenerating && pendingApprovals.length === 0 && pendingApplies.length === 0 && !pendingConfirm) {
@@ -11011,11 +11304,13 @@ function useAppKeyboard({
       }
       if (queueEditingId) {
         if (key.ctrl && (key.name === "j" || key.name === "return" || key.name === "enter")) {
+          key.preventDefault?.();
           queueEditActions.insert(`
 `);
           return;
         }
         if (!key.ctrl && (key.name === "enter" || key.name === "return")) {
+          key.preventDefault?.();
           const trimmed = queueEditState.value.trim();
           if (trimmed) {
             queueEdit(queueEditingId, trimmed);
@@ -11091,6 +11386,7 @@ function useAppKeyboard({
         return;
       }
       if (key.name === "l") {
+        key.preventDefault?.();
         approval.toggleLineNumbers();
         return;
       }
@@ -11525,11 +11821,16 @@ var consoleSlashCommandService = {
   canHandle(raw) {
     return !!matchCommand(raw);
   },
-  async dispatch(raw) {
+  async dispatch(raw, context) {
     const matched = matchCommand(raw);
     if (!matched)
       return;
-    const result = await matched.command.handle({ raw: raw.trim(), name: matched.command.name, arg: matched.arg });
+    const result = await matched.command.handle({
+      raw: raw.trim(),
+      name: matched.command.name,
+      arg: matched.arg,
+      sessionId: context?.sessionId
+    });
     return result ?? {};
   },
   onDidChange(listener) {
@@ -11548,8 +11849,8 @@ function onSlashCommandsChanged(listener) {
 function canHandleSlashCommand(raw) {
   return consoleSlashCommandService.canHandle(raw);
 }
-function dispatchSlashCommand(raw) {
-  return consoleSlashCommandService.dispatch(raw);
+function dispatchSlashCommand(raw, context) {
+  return consoleSlashCommandService.dispatch(raw, context);
 }
 
 // src/hooks/use-command-dispatch.ts
@@ -11561,6 +11862,7 @@ function useCommandDispatch({
   onSubmit,
   onFileAttach,
   onOpenFileBrowser,
+  getCurrentSessionId,
   onUndo,
   onRedo,
   onClearRedoStack,
@@ -11882,7 +12184,7 @@ function useCommandDispatch({
       return;
     }
     if (text.startsWith("/") && canHandleSlashCommand(text)) {
-      dispatchSlashCommand(text).then((result) => {
+      dispatchSlashCommand(text, { sessionId: getCurrentSessionId?.() }).then((result) => {
         if (!result?.message)
           return;
         appendCommandMessage(setMessages, result.message, {
@@ -11901,6 +12203,7 @@ function useCommandDispatch({
     onFileAttach,
     onOpenFileBrowser,
     modelState,
+    getCurrentSessionId,
     onClearRedoStack,
     onExit,
     onEnterHeadless,
@@ -12099,6 +12402,81 @@ function useModelState({ modelId, modelName, contextWindow, modelProvider, think
   };
 }
 
+// src/status-segment-service.ts
+var CONSOLE_STATUS_SEGMENT_SERVICE_ID = "console:status-segment";
+var providers2 = new Map;
+var listeners2 = new Set;
+function emitChange2() {
+  for (const listener of [...listeners2]) {
+    try {
+      listener();
+    } catch {}
+  }
+}
+function disposeRegistered(entry) {
+  try {
+    entry?.changeSubscription?.dispose();
+  } catch {}
+}
+var consoleStatusSegmentService = {
+  register(provider) {
+    const existing = providers2.get(provider.id);
+    disposeRegistered(existing);
+    const entry = {
+      provider,
+      changeSubscription: provider.onDidChange?.(() => emitChange2())
+    };
+    providers2.set(provider.id, entry);
+    emitChange2();
+    let disposed = false;
+    return {
+      dispose() {
+        if (disposed)
+          return;
+        disposed = true;
+        const current = providers2.get(provider.id);
+        if (current === entry) {
+          disposeRegistered(current);
+          providers2.delete(provider.id);
+          emitChange2();
+        }
+      }
+    };
+  },
+  list(context = {}, align = "right") {
+    const result = [];
+    for (const entry of providers2.values()) {
+      const providerAlign = entry.provider.align ?? "right";
+      if (providerAlign !== align)
+        continue;
+      try {
+        const snapshot = entry.provider.getSnapshot(context);
+        if (!snapshot || !snapshot.text)
+          continue;
+        result.push({
+          ...snapshot,
+          id: snapshot.id || entry.provider.id,
+          align: snapshot.align ?? providerAlign,
+          priority: snapshot.priority ?? entry.provider.priority ?? 0
+        });
+      } catch {}
+    }
+    return result.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0) || a.id.localeCompare(b.id));
+  },
+  onDidChange(listener) {
+    listeners2.add(listener);
+    return { dispose: () => {
+      listeners2.delete(listener);
+    } };
+  }
+};
+function getStatusSegments(context, align = "right") {
+  return consoleStatusSegmentService.list(context, align);
+}
+function onStatusSegmentsChanged(listener) {
+  return consoleStatusSegmentService.onDidChange(listener);
+}
+
 // src/App.tsx
 import { jsxDEV as jsxDEV43 } from "@opentui/react/jsx-dev-runtime";
 var PROVIDER_LEVELS = {
@@ -12117,6 +12495,9 @@ function App({
   onReady,
   onSubmit,
   onFileAttach,
+  getCurrentSessionId,
+  onLoadMilestoneUiState,
+  onSaveMilestoneUiState,
   onRemoveFile: onRemoveFileProp,
   onFileBrowserSelect,
   onFileBrowserGoUp,
@@ -12195,6 +12576,8 @@ function App({
   const initialMaxLevel = initialLevels[initialLevels.length - 1];
   const [thinkingEffort, setThinkingEffort] = useState15(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
   const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState15(0);
+  const [milestoneCollapsed, setMilestoneCollapsed] = useState15(false);
+  const [milestoneScrollOffset, setMilestoneScrollOffset] = useState15(0);
   const [modelStatusMessage, setModelStatusMessage] = useState15(null);
   const [modelStatusIsError, setModelStatusIsError] = useState15(false);
   const [modelEditingField, setModelEditingField] = useState15(null);
@@ -12222,6 +12605,11 @@ function App({
   useEffect12(() => {
     const disposable = onSlashCommandsChanged(() => setRuntimeSlashCommands(getSlashCommands()));
     setRuntimeSlashCommands(getSlashCommands());
+    return () => disposable.dispose();
+  }, []);
+  const [statusSegmentVersion, setStatusSegmentVersion] = useState15(0);
+  useEffect12(() => {
+    const disposable = onStatusSegmentsChanged(() => setStatusSegmentVersion((v) => v + 1));
     return () => disposable.dispose();
   }, []);
   const [fileBrowserPath, setFileBrowserPath] = useState15("");
@@ -12330,6 +12718,7 @@ function App({
     onSubmit: queueAwareSubmit,
     onFileAttach: handleFileAttach,
     onOpenFileBrowser: handleOpenFileBrowser,
+    getCurrentSessionId,
     onUndo,
     onRedo,
     onClearRedoStack,
@@ -12389,6 +12778,45 @@ function App({
       }
     }
   }, [viewMode, appState.isGenerating, messageQueue, onSubmit]);
+  useEffect12(() => {
+    const total = appState.milestoneSnapshot?.items.length ?? 0;
+    const maxOffset = Math.max(0, total - MILESTONE_PANEL_MAX_ITEMS);
+    setMilestoneScrollOffset((prev) => Math.min(Math.max(0, prev), maxOffset));
+  }, [appState.milestoneSnapshot?.items.length]);
+  useEffect12(() => {
+    const snapshot = appState.milestoneSnapshot;
+    if (!snapshot || snapshot.items.length === 0) {
+      setMilestoneCollapsed(false);
+      return;
+    }
+    if (snapshot.stats.open === 0) {
+      setMilestoneCollapsed(false);
+      onSaveMilestoneUiState?.(snapshot.sessionId, { expanded: true, snapshotUpdatedAt: snapshot.updatedAt });
+      return;
+    }
+    let cancelled = false;
+    onLoadMilestoneUiState?.(snapshot.sessionId).then((state) => {
+      if (cancelled)
+        return;
+      setMilestoneCollapsed(state?.expanded === false);
+    }).catch(() => {
+      if (!cancelled)
+        setMilestoneCollapsed(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [appState.milestoneSnapshot?.sessionId, appState.milestoneSnapshot?.updatedAt, appState.milestoneSnapshot?.stats.open, onLoadMilestoneUiState, onSaveMilestoneUiState]);
+  const setMilestoneCollapsedPersisted = useCallback11((action) => {
+    setMilestoneCollapsed((prev) => {
+      const next = typeof action === "function" ? action(prev) : action;
+      const snapshot = appState.milestoneSnapshot;
+      if (next !== prev && snapshot && snapshot.items.length > 0 && snapshot.stats.open > 0) {
+        onSaveMilestoneUiState?.(snapshot.sessionId, { expanded: !next, snapshotUpdatedAt: snapshot.updatedAt });
+      }
+      return next;
+    });
+  }, [appState.milestoneSnapshot, onSaveMilestoneUiState]);
   useEffect12(() => {
     if (viewMode === "model-list")
       return;
@@ -12481,6 +12909,9 @@ function App({
     queueEditActions,
     onToggleThoughts: () => setThoughtsToggleSignal((prev) => prev + 1),
     toolListItems: appState.toolListItems,
+    milestoneSnapshot: appState.milestoneSnapshot,
+    setMilestoneCollapsed: setMilestoneCollapsedPersisted,
+    setMilestoneScrollOffset,
     setSessionList,
     sessionPendingDeleteId,
     setSessionPendingDeleteId,
@@ -12536,6 +12967,7 @@ function App({
   const activeMilestone = appState.milestoneSnapshot?.items.find((item) => item.status === "in_progress");
   const milestoneGeneratingLabel = activeMilestone ? `${activeMilestone.activeForm ?? activeMilestone.title}...` : undefined;
   const effectiveGeneratingLabel = appState.generatingLabel ?? milestoneGeneratingLabel;
+  const rightStatusSegments = useMemo8(() => getStatusSegments({ sessionId: getCurrentSessionId?.() }, "right"), [statusSegmentVersion, getCurrentSessionId, viewMode, appState.messages.length]);
   if (viewMode === "settings") {
     return /* @__PURE__ */ jsxDEV43(SettingsView, {
       initialSection: settingsInitialSection,
@@ -12671,7 +13103,9 @@ function App({
         thoughtsToggleSignal,
         hasActiveTools: appState.toolInvocations.some((t) => t.status === "executing" || t.status === "queued"),
         scrollBoxRef: chatScrollBoxRef,
-        milestoneSnapshot: appState.milestoneSnapshot
+        milestoneSnapshot: appState.milestoneSnapshot,
+        milestoneCollapsed: (appState.milestoneSnapshot?.stats.open ?? 0) > 0 ? milestoneCollapsed : false,
+        milestoneScrollOffset
       }, undefined, false, undefined, this) : null,
       /* @__PURE__ */ jsxDEV43(BottomPanel, {
         hasMessages,
@@ -12708,6 +13142,7 @@ function App({
         pendingFiles,
         onRemoveFile: handleRemoveFile,
         dynamicCommands,
+        statusSegments: rightStatusSegments,
         supportsHeadlessTransition
       }, undefined, false, undefined, this)
     ]
@@ -12861,10 +13296,23 @@ function configureBundledOpenTuiTreeSitter(isCompiledBinary) {
 }
 
 // src/resize-watcher.ts
-function getTerminalSize(renderer) {
-  const width = process.stdout.columns || renderer.width || 80;
-  const height = process.stdout.rows || renderer.height || 24;
-  return { width, height };
+function isSameSize(a, b) {
+  return !!a && !!b && a.width === b.width && a.height === b.height;
+}
+function getStdoutTerminalSize(renderer) {
+  const stdout = process.stdout;
+  try {
+    const size = stdout.getWindowSize?.();
+    if (Array.isArray(size)) {
+      const [cols, rows] = size;
+      if (cols > 0 && rows > 0)
+        return { width: cols, height: rows };
+    }
+  } catch {}
+  return {
+    width: stdout.columns || renderer.width || 80,
+    height: stdout.rows || renderer.height || 24
+  };
 }
 function queryNativeTerminalSize() {
   if (process.platform === "win32")
@@ -12899,7 +13347,9 @@ function attachCompiledResizeWatcher(renderer, isCompiledBinary) {
     return () => {};
   }
   const internalRenderer = renderer;
-  let { width: lastWidth, height: lastHeight } = getTerminalSize(internalRenderer);
+  let { width: lastWidth, height: lastHeight } = getStdoutTerminalSize(internalRenderer);
+  let lastNativeSize = null;
+  let stdoutSizeStale = false;
   let disposed = false;
   const checkAndApply = (width, height) => {
     if (width <= 0 || height <= 0)
@@ -12913,15 +13363,26 @@ function attachCompiledResizeWatcher(renderer, isCompiledBinary) {
   const syncResize = () => {
     if (disposed)
       return;
-    const { width, height } = getTerminalSize(internalRenderer);
+    const stdoutSize = getStdoutTerminalSize(internalRenderer);
+    if (stdoutSizeStale) {
+      if (isSameSize(stdoutSize, lastNativeSize)) {
+        stdoutSizeStale = false;
+      } else {
+        return;
+      }
+    }
+    const { width, height } = stdoutSize;
     checkAndApply(width, height);
   };
   const nativeSyncResize = () => {
     if (disposed)
       return;
     const size = queryNativeTerminalSize();
-    if (size)
-      checkAndApply(size.width, size.height);
+    if (!size)
+      return;
+    lastNativeSize = size;
+    stdoutSizeStale = !isSameSize(getStdoutTerminalSize(internalRenderer), size);
+    checkAndApply(size.width, size.height);
   };
   const stdoutResizeListener = () => {
     syncResize();
@@ -12946,6 +13407,7 @@ function attachCompiledResizeWatcher(renderer, isCompiledBinary) {
     internalRenderer.off("destroy", dispose);
   };
   internalRenderer.on("destroy", dispose);
+  nativeSyncResize();
   syncResize();
   return dispose;
 }
@@ -12978,6 +13440,7 @@ function generateCommandPattern(command) {
 var REMOTE_CONNECT_WS_CLIENT_SERVICE = "remote-connect:WsIPCClient";
 var REMOTE_CONNECT_DISCOVERY_SERVICE = "remote-connect:discoverLanInstances";
 var PLAN_MODE_SERVICE_ID = "plan-mode";
+var REMOTE_EXEC_ENVIRONMENT_SERVICE_ID = "remote-exec:environment";
 function createToolInvocationFromFunctionCall(part, index, defaultStatus, response, durationMs) {
   let status = defaultStatus;
   let result;
@@ -13308,6 +13771,8 @@ class ConsolePlatform extends PlatformAdapter {
   originalAgentName;
   backendListenerDisposers = [];
   _isGenerating = false;
+  sessionLoadEpoch = 0;
+  userInputEpoch = 0;
   _pendingImages = [];
   _pendingDocuments = [];
   _pendingAudio = [];
@@ -13346,9 +13811,34 @@ class ConsolePlatform extends PlatformAdapter {
         version: "1.0.0"
       });
     }
+    if (services && !services.has(CONSOLE_STATUS_SEGMENT_SERVICE_ID)) {
+      services.register(CONSOLE_STATUS_SEGMENT_SERVICE_ID, consoleStatusSegmentService, {
+        description: "Console TUI 状态栏扩展片段服务",
+        version: "1.0.0"
+      });
+    }
   }
   getPlanModeService() {
     return this.api?.services?.get?.(PLAN_MODE_SERVICE_ID);
+  }
+  getRemoteExecEnvironmentService() {
+    return this.api?.services?.get?.(REMOTE_EXEC_ENVIRONMENT_SERVICE_ID);
+  }
+  async restoreRemoteExecEnvironmentForSession(sessionId, validate) {
+    const service = this.getRemoteExecEnvironmentService();
+    if (!service)
+      return;
+    try {
+      return await service.restoreForSession(sessionId, { validate, source: "session-load" });
+    } catch (err) {
+      const message = `remote-exec 环境恢复失败：${err instanceof Error ? err.message : String(err)}`;
+      return { ok: false, sessionId, source: "metadata", previous: "unknown", current: "local", message, error: message };
+    }
+  }
+  clearRemoteExecSession(sessionId) {
+    try {
+      this.getRemoteExecEnvironmentService()?.clearSession?.(sessionId);
+    } catch {}
   }
   syncPlanModeStatus() {
     try {
@@ -13611,7 +14101,7 @@ ${summaryText}`;
         };
         process.on("SIGCONT", this._sigcontHandler);
       }
-      const element = React13.createElement(App, {
+      const element = React14.createElement(App, {
         onReady: (handle) => {
           this.appHandle = handle;
           this.syncPlanModeStatus();
@@ -13620,6 +14110,9 @@ ${summaryText}`;
         },
         onSubmit: (text) => this.handleInput(text),
         onFileAttach: (filePath) => this.handleFileAttach(filePath),
+        getCurrentSessionId: () => this.sessionId,
+        onLoadMilestoneUiState: (sessionId) => this.loadMilestoneUiState(sessionId),
+        onSaveMilestoneUiState: (sessionId, state) => this.saveMilestoneUiState(sessionId, state),
         onRemoveFile: (index) => this.handleRemoveFile(index),
         onFileBrowserSelect: (dirPath, entry, showHidden) => {
           this.handleFileBrowserSelect(dirPath, entry, showHidden);
@@ -14072,6 +14565,7 @@ ${summaryText}`;
     this._activeHandles.clear();
     this.appHandle?.setPlanModeActive(false);
     this.appHandle?.setMilestones(null);
+    this.clearRemoteExecSession(this.sessionId);
   }
   openToolDetail(toolId) {
     if (!toolId) {
@@ -14270,13 +14764,51 @@ ${summaryText}`;
     } catch {}
     return true;
   }
+  async loadMilestoneArchives(sessionId) {
+    try {
+      const archives = await this.backend.loadMilestoneArchives?.(sessionId);
+      if (Array.isArray(archives))
+        return archives;
+      const meta = await this.backend.getMeta?.(sessionId);
+      return Array.isArray(meta?.milestoneArchives) ? meta.milestoneArchives : [];
+    } catch {
+      return [];
+    }
+  }
+  async loadMilestoneUiState(sessionId) {
+    try {
+      const state = await this.backend.loadMilestoneUiState?.(sessionId);
+      if (state && typeof state.expanded === "boolean")
+        return state;
+      const meta = await this.backend.getMeta?.(sessionId);
+      return meta?.milestoneUiState && typeof meta.milestoneUiState.expanded === "boolean" ? meta.milestoneUiState : undefined;
+    } catch {
+      return;
+    }
+  }
+  async saveMilestoneUiState(sessionId, state) {
+    try {
+      await this.backend.setMilestoneUiState?.(sessionId, state);
+    } catch {}
+  }
   async handleLoadSession(id) {
     this.sessionId = id;
     this.currentToolIds.clear();
     this._activeHandles.clear();
+    const loadEpoch = ++this.sessionLoadEpoch;
+    const userInputEpochAtLoadStart = this.userInputEpoch;
+    const envRestorePromise = this.restoreRemoteExecEnvironmentForSession(id, true);
     this.syncPlanModeStatus();
     await this.syncMilestones();
     const history = await this.backend.getHistory?.(id) ?? [];
+    const milestoneArchives = (await this.loadMilestoneArchives(id)).filter((entry) => entry?.snapshot?.items?.length > 0).sort((a, b) => (a.afterHistoryIndex ?? 0) - (b.afterHistoryIndex ?? 0) || (a.archivedAt ?? 0) - (b.archivedAt ?? 0));
+    let milestoneArchiveCursor = 0;
+    const insertMilestoneArchivesUpTo = (position) => {
+      while (milestoneArchiveCursor < milestoneArchives.length && (milestoneArchives[milestoneArchiveCursor].afterHistoryIndex ?? 0) <= position) {
+        const archive = milestoneArchives[milestoneArchiveCursor++];
+        this.appHandle?.addMilestoneArchive(archive.snapshot, archive.archivedAt);
+      }
+    };
     const responseMap = new Map;
     for (let i = 0;i < history.length; i++) {
       const msg = history[i];
@@ -14289,6 +14821,7 @@ ${summaryText}`;
         }
       }
     }
+    insertMilestoneArchivesUpTo(0);
     for (let i = 0;i < history.length; i++) {
       const msg = history[i];
       const role = msg.role === "user" ? "user" : "assistant";
@@ -14302,11 +14835,17 @@ ${summaryText}`;
       }
       const meta = getMessageMeta(msg);
       if (parts.length > 0) {
-        this.appHandle?.addStructuredMessage(role, parts, meta);
+        this.appHandle?.addHistoryMessage(role, parts, meta);
       }
+      insertMilestoneArchivesUpTo(i + 1);
       if (msg.usageMetadata) {
         this.appHandle?.setUsage(msg.usageMetadata);
       }
+    }
+    insertMilestoneArchivesUpTo(Number.MAX_SAFE_INTEGER);
+    const envRestore = await envRestorePromise;
+    if (envRestore && this.sessionId === id && this.sessionLoadEpoch === loadEpoch && this.userInputEpoch === userInputEpochAtLoadStart && !this._isGenerating) {
+      this.appHandle?.addCommandMessage(envRestore.message, { label: "env", isError: !envRestore.ok });
     }
   }
   async handleDeleteSession(id) {
@@ -14314,6 +14853,7 @@ ${summaryText}`;
       const deletedCurrent = id === this.sessionId;
       this.backend.abortChat?.(id);
       await this.backend.clearSession(id);
+      this.clearRemoteExecSession(id);
       if (deletedCurrent) {
         this.handleNewSession();
       }
@@ -15035,6 +15575,8 @@ ${summaryText}`;
     this.appHandle?.openFileBrowser(dirPath, entries);
   }
   async handleInput(text) {
+    this.userInputEpoch += 1;
+    this.sessionLoadEpoch += 1;
     this._isGenerating = true;
     this.appHandle?.setGenerating(true);
     const images = this._pendingImages.length > 0 ? [...this._pendingImages] : undefined;

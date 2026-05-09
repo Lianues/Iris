@@ -5,12 +5,20 @@ import type { MilestoneSnapshotLike, MilestoneItemLike, MilestoneStatusLike } fr
 import { C } from '../theme';
 import { ICONS } from '../terminal-compat';
 
+export const MILESTONE_PANEL_MAX_ITEMS = 8;
+
 interface MilestoneListViewProps {
   snapshot?: MilestoneSnapshotLike | null;
-  /** 当空间有限时最多显示多少条。 */
+  /** 当空间有限时最多显示多少条；TUI 面板上限固定为 8 条。 */
   maxItems?: number;
   /** 独立面板模式会显示汇总标题。 */
   standalone?: boolean;
+  /** 折叠为单行，仅展示当前进度。 */
+  collapsed?: boolean;
+  /** 展开模式下的列表滚动偏移。 */
+  scrollOffset?: number;
+  /** 是否在标题右侧展示快捷键提示。 */
+  showControls?: boolean;
 }
 
 interface OwnerStats {
@@ -53,7 +61,7 @@ function statusLabel(status: MilestoneStatusLike): string {
   switch (status) {
     case 'in_progress': return '进行中';
     case 'completed': return '完成';
-    case 'blocked': return '阻塞';
+    case 'blocked': return '受阻';
     case 'cancelled': return '取消';
     default: return '待处理';
   }
@@ -117,40 +125,122 @@ function buildOwnerGroups(items: MilestoneItemLike[], preferredOwner?: string, o
   });
 }
 
-export function MilestoneListView({ snapshot, maxItems = 8, standalone = false }: MilestoneListViewProps) {
+function normalizeMaxItems(maxItems: number): number {
+  if (!Number.isFinite(maxItems)) return MILESTONE_PANEL_MAX_ITEMS;
+  return Math.max(1, Math.min(MILESTONE_PANEL_MAX_ITEMS, Math.floor(maxItems)));
+}
+
+function clampScrollOffset(offset: number, total: number, maxItems: number): number {
+  const maxOffset = Math.max(0, total - maxItems);
+  if (!Number.isFinite(offset)) return 0;
+  return Math.min(maxOffset, Math.max(0, Math.floor(offset)));
+}
+
+function currentItemForCollapsed(sorted: MilestoneItemLike[]): MilestoneItemLike | undefined {
+  return sorted.find((item) => item.status === 'in_progress')
+    ?? sorted.find((item) => item.status === 'blocked')
+    ?? sorted.find((item) => item.status === 'pending')
+    ?? sorted.find((item) => item.status === 'cancelled')
+    ?? sorted[sorted.length - 1];
+}
+
+function collapsedPrefix(item?: MilestoneItemLike): string {
+  if (!item) return '当前';
+  switch (item.status) {
+    case 'in_progress': return '当前';
+    case 'blocked': return '受阻';
+    case 'pending': return '下一项';
+    case 'completed': return '已完成';
+    case 'cancelled': return '已取消';
+    default: return '当前';
+  }
+}
+
+function controlHintText(collapsed: boolean, canScroll: boolean): string {
+  const parts = [`alt+m ${collapsed ? '展开' : '折叠'}`];
+  if (!collapsed && canScroll) parts.push(`alt+${ICONS.upArrow}/${ICONS.downArrow} 滚动`);
+  return parts.join(` ${ICONS.separator} `);
+}
+
+export function MilestoneListView({
+  snapshot,
+  maxItems = MILESTONE_PANEL_MAX_ITEMS,
+  standalone = false,
+  collapsed = false,
+  scrollOffset = 0,
+  showControls = false,
+}: MilestoneListViewProps) {
   const items = snapshot?.items ?? [];
   const stats = snapshot?.stats;
+  const itemLimit = normalizeMaxItems(maxItems);
+  const canCollapse = (stats?.open ?? 0) > 0;
+  const effectiveCollapsed = canCollapse && collapsed;
 
-  const { hidden, groups } = useMemo(() => {
-    const sorted = [...items].sort(compareById);
-    const visibleItems = sorted.slice(0, Math.max(0, maxItems));
-    const ownerStats = buildOwnerStats(sorted, snapshot?.routeAgent);
+  const { sorted, groups, hiddenBeforeCount, hiddenAfterCount, effectiveScrollOffset, visibleCount } = useMemo(() => {
+    const all = [...items].sort(compareById);
+    const effectiveOffset = clampScrollOffset(scrollOffset, all.length, itemLimit);
+    const visibleItems = effectiveCollapsed ? [] : all.slice(effectiveOffset, effectiveOffset + itemLimit);
+    const ownerStats = buildOwnerStats(all, snapshot?.routeAgent);
     return {
-      hidden: sorted.slice(Math.max(0, maxItems)),
+      sorted: all,
       groups: buildOwnerGroups(visibleItems, snapshot?.routeAgent, ownerStats),
+      hiddenBeforeCount: effectiveCollapsed ? 0 : effectiveOffset,
+      hiddenAfterCount: effectiveCollapsed ? 0 : Math.max(0, all.length - effectiveOffset - visibleItems.length),
+      effectiveScrollOffset: effectiveOffset,
+      visibleCount: visibleItems.length,
     };
-  }, [items, maxItems, snapshot?.routeAgent]);
+  }, [items, itemLimit, effectiveCollapsed, scrollOffset, snapshot?.routeAgent]);
 
   if (items.length === 0) return null;
 
-  const hiddenSummary = hidden.length > 0
-    ? `另有 ${hidden.length} 项未显示（${hidden.filter(i => i.status === 'pending').length} 待处理，${hidden.filter(i => i.status === 'completed').length} 已完成）`
-    : '';
+  const canScroll = sorted.length > itemLimit;
+  const currentItem = currentItemForCollapsed(sorted);
   const showOwnerHeadings = groups.length > 1;
+  const hiddenSummary = !effectiveCollapsed && (hiddenBeforeCount > 0 || hiddenAfterCount > 0)
+    ? `显示 ${effectiveScrollOffset + 1}-${effectiveScrollOffset + visibleCount}/${sorted.length}`
+      + (hiddenBeforeCount > 0 ? ` ${ICONS.separator} ${ICONS.upArrow} ${hiddenBeforeCount}` : '')
+      + (hiddenAfterCount > 0 ? ` ${ICONS.separator} ${ICONS.downArrow} ${hiddenAfterCount}` : '')
+    : '';
+
+  const renderHeader = () => {
+    if (!standalone || !stats) return null;
+    const currentIcon = currentItem ? getStatusIcon(currentItem.status) : undefined;
+    const currentText = currentItem
+      ? truncate(currentItem.status === 'in_progress' ? (currentItem.activeForm ?? currentItem.title) : currentItem.title, 72)
+      : '暂无进度';
+    return (
+      <text>
+        <span fg={C.primaryLight}>Iris 进度</span>
+        {showControls && canCollapse ? <span fg={C.dim}> {ICONS.separator} {controlHintText(effectiveCollapsed, canScroll)}</span> : null}
+        <span fg={C.dim}> {ICONS.separator} </span>
+        <span fg={C.text}><strong>{stats.completed}</strong></span>
+        <span fg={C.dim}>/</span>
+        <span fg={C.text}><strong>{stats.total}</strong></span>
+        <span fg={C.dim}> 已完成</span>
+        {stats.inProgress > 0 ? <span fg={C.accent}> {ICONS.separator} {stats.inProgress} 进行中</span> : null}
+        {stats.blocked > 0 ? <span fg={C.warn}> {ICONS.separator} {stats.blocked} 受阻</span> : null}
+        {effectiveCollapsed ? (
+          <>
+            <span fg={C.dim}> {ICONS.separator} {collapsedPrefix(currentItem)}：</span>
+            {currentIcon ? <span fg={currentIcon.color}>{currentIcon.icon} </span> : null}
+            <span fg={currentItem?.status === 'in_progress' ? C.text : C.textSec}>{currentText}</span>
+          </>
+        ) : null}
+      </text>
+    );
+  };
+
+  if (effectiveCollapsed) {
+    return (
+      <box flexDirection="column" marginTop={standalone ? 1 : 0} paddingLeft={standalone ? 1 : 0}>
+        {renderHeader()}
+      </box>
+    );
+  }
 
   return (
     <box flexDirection="column" marginTop={standalone ? 1 : 0} paddingLeft={standalone ? 1 : 0}>
-      {standalone && stats ? (
-        <text>
-          <span fg={C.primaryLight}>Iris 进度 </span>
-          <span fg={C.text}><strong>{stats.completed}</strong></span>
-          <span fg={C.dim}>/</span>
-          <span fg={C.text}><strong>{stats.total}</strong></span>
-          <span fg={C.dim}> 已完成</span>
-          {stats.inProgress > 0 ? <span fg={C.accent}> {ICONS.separator} {stats.inProgress} 进行中</span> : null}
-          {stats.blocked > 0 ? <span fg={C.warn}> {ICONS.separator} {stats.blocked} 阻塞</span> : null}
-        </text>
-      ) : null}
+      {renderHeader()}
 
       {groups.map((group) => (
         <box key={group.owner} flexDirection="column" marginTop={standalone && showOwnerHeadings ? 1 : 0}>
@@ -159,7 +249,7 @@ export function MilestoneListView({ snapshot, maxItems = 8, standalone = false }
             <span fg={C.primaryLight}><strong>{group.owner}</strong></span>
             <span fg={C.dim}> · {group.stats.completed}/{group.stats.total} 已完成</span>
             {group.stats.inProgress > 0 ? <span fg={C.accent}> · {group.stats.inProgress} 进行中</span> : null}
-            {group.stats.blocked > 0 ? <span fg={C.warn}> · {group.stats.blocked} 阻塞</span> : null}
+            {group.stats.blocked > 0 ? <span fg={C.warn}> · {group.stats.blocked} 受阻</span> : null}
           </text> : null}
           {group.items.map((item) => {
             const { icon, color } = getStatusIcon(item.status);

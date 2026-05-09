@@ -1,7 +1,7 @@
 import { useKeyboard } from '@opentui/react';
 import { usePaste } from './use-paste';
 import type { AgentDefinitionLike } from 'irises-extension-sdk';
-import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolInvocation } from 'irises-extension-sdk';
+import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, MilestoneSnapshotLike, ToolInvocation } from 'irises-extension-sdk';
 import type { TextInputState, TextInputActions } from './use-text-input';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { ApprovalChoice, ConfirmChoice, PendingConfirm, SwitchModelResult, ViewMode } from '../app-types';
@@ -14,6 +14,8 @@ import { filterMemories, nextFilter, type MemoryItem, type MemoryFilter } from '
 import { normalizePastedSingleLine, readClipboardText } from '../terminal-compat';
 
 type SetState<T> = Dispatch<SetStateAction<T>>;
+
+const MILESTONE_PANEL_MAX_ITEMS = 8;
 
 interface ApprovalController {
   approvalChoice: ApprovalChoice;
@@ -108,6 +110,11 @@ interface UseAppKeyboardOptions {
   queueEditActions: TextInputActions;
   onToggleThoughts: () => void;
   toolListItems: ToolInvocation[];
+  /** 当前会话 milestone/task 清单快照，用于底部 Iris 进度快捷键 */
+  milestoneSnapshot?: MilestoneSnapshotLike | null;
+  /** 底部 Iris 进度折叠/滚动控制 */
+  setMilestoneCollapsed: SetState<boolean>;
+  setMilestoneScrollOffset: SetState<number>;
   /** agent-list 视图用 */
   agentList: AgentDefinitionLike[];
   onSelectAgent?: (agentName: string) => void;
@@ -171,6 +178,38 @@ function isPlanModeToggleShortcut(key: any): boolean {
     || key.name === 'backtab'
     || key.name === 'shift-tab'
     || key.sequence === '\x1b[Z';
+}
+
+function hasAltModifier(key: any): boolean {
+  return key.alt === true || key.meta === true;
+}
+
+function isAltLetterShortcut(key: any, letter: string): boolean {
+  return (hasAltModifier(key) && key.name === letter)
+    || key.sequence === `\x1b${letter}`
+    || key.sequence === `\x1b${letter.toUpperCase()}`;
+}
+
+function altScrollKeyName(key: any): 'up' | 'down' | 'pageup' | 'pagedown' | undefined {
+  if (hasAltModifier(key) && (
+    key.name === 'up' || key.name === 'down' || key.name === 'pageup' || key.name === 'pagedown'
+  )) {
+    return key.name;
+  }
+  switch (key.sequence) {
+    case '\x1b[1;3A':
+    case '\x1b[1;9A':
+      return 'up';
+    case '\x1b[1;3B':
+    case '\x1b[1;9B':
+      return 'down';
+    case '\x1b[5;3~':
+      return 'pageup';
+    case '\x1b[6;3~':
+      return 'pagedown';
+    default:
+      return undefined;
+  }
 }
 
 export function useAppKeyboard({
@@ -240,6 +279,9 @@ export function useAppKeyboard({
   queueEditActions,
   onToggleThoughts,
   toolListItems,
+  milestoneSnapshot,
+  setMilestoneCollapsed,
+  setMilestoneScrollOffset,
   agentList,
   onSelectAgent,
   memoryList,
@@ -350,6 +392,40 @@ export function useAppKeyboard({
 
     if (key.ctrl && key.name === 'o') {
       onToggleThoughts();
+      return;
+    }
+
+    // Alt+M：折叠/展开底部 Iris 进度；Alt+↑/↓：专门滚动 milestone 列表。
+    // 仅在聊天主视图且没有审批/确认/问答面板接管键盘时生效，避免干扰其它视图的方向键语义。
+    const milestoneItemCount = milestoneSnapshot?.items.length ?? 0;
+    const milestoneOpenCount = milestoneSnapshot?.stats.open ?? 0;
+    const canControlMilestones = viewMode === 'chat'
+      && milestoneItemCount > 0
+      && milestoneOpenCount > 0
+      && !pendingConfirm
+      && !askQuestionActive
+      && pendingApprovals.length === 0
+      && pendingApplies.length === 0;
+
+    if (canControlMilestones && isAltLetterShortcut(key, 'm')) {
+      key.preventDefault?.();
+      setMilestoneCollapsed((prev) => !prev);
+      return;
+    }
+
+    const milestoneScrollKey = canControlMilestones ? altScrollKeyName(key) : undefined;
+    if (milestoneScrollKey) {
+      key.preventDefault?.();
+      const maxOffset = Math.max(0, milestoneItemCount - MILESTONE_PANEL_MAX_ITEMS);
+      if (maxOffset > 0) {
+        const pageStep = Math.max(1, Math.floor(MILESTONE_PANEL_MAX_ITEMS / 2));
+        const delta = milestoneScrollKey === 'up' ? -1
+          : milestoneScrollKey === 'down' ? 1
+            : milestoneScrollKey === 'pageup' ? -pageStep
+              : pageStep;
+        setMilestoneCollapsed(false);
+        setMilestoneScrollOffset((prev) => Math.min(maxOffset, Math.max(0, prev + delta)));
+      }
       return;
     }
 

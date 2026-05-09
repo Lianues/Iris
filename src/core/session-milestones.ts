@@ -71,6 +71,28 @@ export interface MilestoneSnapshot {
   routeAgent?: string;
 }
 
+/**
+ * 已完成 milestone 面板的历史归档。
+ *
+ * afterHistoryIndex 表示「插入在前 N 条持久化 Content 历史之后」。
+ * Console/Web 重载对话时可据此把结构化进度快照还原到聊天记录中，
+ * 同时该归档不进入 LLM 上下文。
+ */
+export interface MilestoneArchiveEntry {
+  id: string;
+  snapshot: MilestoneSnapshot;
+  archivedAt: number;
+  afterHistoryIndex: number;
+}
+
+/** Console/Web 等前端对最新 milestone 面板的展开状态偏好。 */
+export interface MilestoneUiState {
+  /** true=展开显示完整列表；false=折叠为一行。完成态会被强制视为 true。 */
+  expanded: boolean;
+  updatedAt: number;
+  snapshotUpdatedAt?: number;
+}
+
 export interface MilestoneUpdateInput {
   id?: unknown;
   title?: unknown;
@@ -308,30 +330,46 @@ export class SessionMilestoneManager extends EventEmitter {
   }
 
   /**
-   * 工具失败时的轻量联动：只把当前「正在进行」的相关 milestone 标为 blocked。
+   * 工具失败时的轻量联动：只记录最近一次工具错误，不自动把「进行中」标为 blocked。
+   *
+   * 临时命令失败、搜索路径输错、一次验证未通过等情况通常仍属于“正在处理”。
+   * 自动改成 blocked 会让 Console/Web 进度显示成「受阻」，并打断 lifecycle guard
+   * 对当前 in_progress 项的判断。因此 blocked 只应由 Agent/用户显式设置。
    *
    * 多 Agent 策略：优先匹配同 owner 的 in_progress 项；只有当前执行 Agent
    * 就是 routeAgent（前台 Agent）时，才回退到任意 in_progress 项。
    */
-  markActiveBlockedByToolFailure(sessionId: string, input: ToolFailureMilestoneInput): MilestoneSnapshot | undefined {
+  noteActiveToolFailure(sessionId: string, input: ToolFailureMilestoneInput): MilestoneSnapshot | undefined {
     const target = this.findActiveMilestoneForToolSync(sessionId, input);
     if (!target) return undefined;
 
-    const reason = `工具 ${input.toolName} 执行失败：${truncateReason(input.error)}`;
-    const description = target.description?.includes(reason)
-      ? target.description
-      : [target.description, reason].filter(Boolean).join('\n\n');
+    const toolError = {
+      toolId: input.toolId,
+      toolName: input.toolName,
+      error: truncateReason(input.error),
+      at: Date.now(),
+    };
+    const previousErrors = Array.isArray(target.metadata?.toolErrors)
+      ? (target.metadata!.toolErrors as unknown[]).filter((entry) => entry && typeof entry === 'object')
+      : [];
 
     return this.update(sessionId, [{
       id: target.id,
       title: target.title,
-      status: 'blocked',
-      description,
+      status: target.status,
       metadata: {
         ...(target.metadata ?? {}),
-        toolSync: { kind: 'blocked_by_tool_error', toolId: input.toolId, toolName: input.toolName, error: input.error, at: Date.now() },
+        toolSync: { kind: 'tool_error_note', ...toolError },
+        toolErrors: [...previousErrors, toolError].slice(-5),
       },
     }], { sourceAgent: input.sourceAgent, routeAgent: input.routeAgent });
+  }
+
+  /**
+   * @deprecated 旧版会把工具错误自动标记为 blocked；现在仅记录错误，避免 UI 误显示「受阻」。
+   */
+  markActiveBlockedByToolFailure(sessionId: string, input: ToolFailureMilestoneInput): MilestoneSnapshot | undefined {
+    return this.noteActiveToolFailure(sessionId, input);
   }
 
   update(

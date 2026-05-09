@@ -190,6 +190,102 @@ describe('Backend milestone persistence', () => {
     expect(milestoneManager.getSnapshot('s1').items[0].status).toBe('completed');
   });
 
+  it('完成态 milestone 会归档到 session meta，并记录历史插入位置', async () => {
+    const storage = new InMemoryStorage();
+    const milestoneManager = new SessionMilestoneManager();
+    createBackend(storage, milestoneManager);
+
+    await storage.saveMeta({
+      id: 's1',
+      title: '归档测试',
+      cwd: process.cwd(),
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    });
+    await storage.addMessage('s1', { role: 'user', parts: [{ text: '开始' }] });
+
+    const snapshot = milestoneManager.update('s1', [
+      { id: 'm1', title: '完成一组任务', status: 'completed', owner: 'master' },
+    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const meta = await storage.getMeta('s1');
+    expect(meta?.milestones?.updatedAt).toBe(snapshot.updatedAt);
+    expect(meta?.milestoneArchives).toHaveLength(1);
+    expect(meta?.milestoneArchives?.[0].snapshot.updatedAt).toBe(snapshot.updatedAt);
+    expect(meta?.milestoneArchives?.[0].afterHistoryIndex).toBe(1);
+    expect(meta?.milestoneUiState?.expanded).toBe(true);
+    expect(meta?.milestoneUiState?.snapshotUpdatedAt).toBe(snapshot.updatedAt);
+  });
+
+  it('可在 session meta 中保存并读取最新 milestone 展开状态', async () => {
+    const storage = new InMemoryStorage();
+    const milestoneManager = new SessionMilestoneManager();
+    const backend = createBackend(storage, milestoneManager);
+    await storage.saveMeta({
+      id: 's1',
+      title: '展开状态测试',
+      cwd: process.cwd(),
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    });
+
+    await backend.setMilestoneUiState('s1', { expanded: false, snapshotUpdatedAt: 123 });
+
+    const state = await backend.loadMilestoneUiState('s1');
+    expect(state?.expanded).toBe(false);
+    expect(state?.snapshotUpdatedAt).toBe(123);
+    expect((await storage.getMeta('s1'))?.milestoneUiState?.expanded).toBe(false);
+  });
+
+  it('完成态 milestone 会把最新展开状态强制恢复为展开', async () => {
+    const storage = new InMemoryStorage();
+    const milestoneManager = new SessionMilestoneManager();
+    const backend = createBackend(storage, milestoneManager);
+    await storage.saveMeta({
+      id: 's1',
+      title: '完成态展开测试',
+      cwd: process.cwd(),
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    });
+    await backend.setMilestoneUiState('s1', { expanded: false, snapshotUpdatedAt: 1 });
+
+    const snapshot = milestoneManager.update('s1', [
+      { id: 'm1', title: '完成后应展开', status: 'completed', owner: 'master' },
+    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect((await storage.getMeta('s1'))?.milestoneUiState).toMatchObject({ expanded: true, snapshotUpdatedAt: snapshot.updatedAt });
+  });
+
+  it('loadMilestoneArchives 兼容只有 latest completed snapshot 的旧元数据', async () => {
+    const storage = new InMemoryStorage();
+    const milestoneManager = new SessionMilestoneManager();
+    const oldManager = new SessionMilestoneManager();
+    const completedSnapshot = oldManager.update('s1', [
+      { id: 'm1', title: '旧版已完成任务', status: 'completed', owner: 'master' },
+    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+
+    await storage.addMessage('s1', { role: 'user', parts: [{ text: '开始' }] });
+    await storage.addMessage('s1', { role: 'model', parts: [{ text: '完成' }] });
+    await storage.saveMeta({
+      id: 's1',
+      title: '旧会话',
+      cwd: process.cwd(),
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+      milestones: completedSnapshot,
+    });
+    const backend = createBackend(storage, milestoneManager);
+
+    const archives = await backend.loadMilestoneArchives('s1');
+    expect(archives).toHaveLength(1);
+    expect(archives[0].snapshot.items[0].title).toBe('旧版已完成任务');
+    expect(archives[0].afterHistoryIndex).toBe(2);
+    expect((await storage.getMeta('s1'))?.milestoneArchives).toHaveLength(1);
+  });
+
   it('clearSession 后不会把 milestone 重新写回已删除的 meta', async () => {
     const storage = new InMemoryStorage();
     const milestoneManager = new SessionMilestoneManager();

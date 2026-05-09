@@ -7,6 +7,12 @@ import type { SwitchModelResult, ThinkingEffortLevel } from './app-types';
 import type { AppHandle } from './hooks/use-app-handle';
 import type { ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
 
+export interface MilestoneUiStateSnapshot {
+  expanded: boolean;
+  updatedAt?: number;
+  snapshotUpdatedAt?: number;
+}
+
 export interface AppProps {
   onReady: (handle: AppHandle) => void;
   onSubmit: (text: string) => void;
@@ -14,6 +20,9 @@ export interface AppProps {
   onFileAttach?: (filePath: string) => void;
   /** 获取 Console 当前会话 ID（用于 /env 等扩展 slash command，不依赖 Backend turn 上下文） */
   getCurrentSessionId?: () => string;
+  /** 读取/保存当前会话最新 Iris 进度面板展开状态。 */
+  onLoadMilestoneUiState?: (sessionId: string) => Promise<MilestoneUiStateSnapshot | undefined>;
+  onSaveMilestoneUiState?: (sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }) => Promise<void> | void;
   /** 移除指定索引的待发送文件附件 */
   onRemoveFile?: (index: number) => void;
   /** 文件浏览器操作回调 */

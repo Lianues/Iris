@@ -151,14 +151,14 @@ describe('SessionMilestoneManager', () => {
     expect(manager.findActiveMilestoneForToolSync('s1', { sourceAgent: 'tester', routeAgent: 'master' })).toBeUndefined();
   });
 
-  it('工具失败时只阻塞同 owner 的进行中 milestone', () => {
+  it('工具失败时不自动阻塞进行中 milestone，仅记录同 owner 错误', () => {
     const manager = new SessionMilestoneManager();
     manager.update('s1', [
       { id: 'm1', title: '主任务', status: 'in_progress', owner: 'master' },
       { id: 'm2', title: '委派任务', status: 'in_progress', owner: 'worker' },
     ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
 
-    const snapshot = manager.markActiveBlockedByToolFailure('s1', {
+    const snapshot = manager.noteActiveToolFailure('s1', {
       toolId: 'tool-1',
       toolName: 'shell',
       error: 'exit code 1',
@@ -167,8 +167,12 @@ describe('SessionMilestoneManager', () => {
     })!;
 
     expect(snapshot.items.find(i => i.id === 'm1')?.status).toBe('in_progress');
-    expect(snapshot.items.find(i => i.id === 'm2')?.status).toBe('blocked');
-    expect(snapshot.items.find(i => i.id === 'm2')?.description).toContain('工具 shell 执行失败');
+    const workerMilestone = snapshot.items.find(i => i.id === 'm2')!;
+    expect(workerMilestone.status).toBe('in_progress');
+    expect((workerMilestone.metadata?.toolSync as any)?.kind).toBe('tool_error_note');
+    expect((workerMilestone.metadata?.toolSync as any)?.toolName).toBe('shell');
+    expect(Array.isArray(workerMilestone.metadata?.toolErrors)).toBe(true);
+    expect(workerMilestone.description).toBeUndefined();
   });
 });
 

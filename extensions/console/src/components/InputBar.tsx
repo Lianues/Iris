@@ -32,6 +32,26 @@ const FILE_TYPE_ICONS: Record<string, string> = {
   image: '📷', document: '📄', audio: '🎵', video: '🎬',
 };
 
+const SLASH_PANEL_MAX_HEIGHT_RATIO = 0.45;
+const SLASH_PANEL_MIN_VISIBLE_ROWS = 3;
+
+interface IndexedSuggestion<T> {
+  item: T;
+  index: number;
+}
+
+function buildSuggestionWindow<T>(items: ReadonlyArray<IndexedSuggestion<T>>, selectedIndex: number, maxRows: number): IndexedSuggestion<T>[] {
+  if (items.length === 0) return [];
+
+  const visibleRows = Math.max(1, Math.min(items.length, Math.floor(maxRows)));
+  const selectedPos = Math.max(0, items.findIndex((row) => row.index === selectedIndex));
+  const halfWindow = Math.floor((visibleRows - 1) / 2);
+  const maxStart = Math.max(0, items.length - visibleRows);
+  const start = Math.min(maxStart, Math.max(0, selectedPos - halfWindow));
+
+  return items.slice(start, start + visibleRows);
+}
+
 function isPlanModeToggleShortcut(key: any): boolean {
   return (key.shift && key.name === 'tab')
     || key.name === 'backtab'
@@ -65,7 +85,7 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [queuePromptFrame, setQueuePromptFrame] = useState(0);
   const cursorVisible = useCursorBlink();
-  const { width: termWidth } = useTerminalDimensions();
+  const { width: termWidth, height: termHeight } = useTerminalDimensions();
 
   const visibleCommands = useMemo(
     () => {
@@ -163,6 +183,27 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     }
     setSelectedIndex((prev) => Math.min(prev, filtered.length - 1));
   }, [showCommands, filtered.length, exactMatchIndex, showArgSuggestions, argSuggestions.length]);
+
+  const maxSlashPanelRows = useMemo(() => {
+    const rowsByViewport = Math.floor(termHeight * SLASH_PANEL_MAX_HEIGHT_RATIO);
+    return Math.max(SLASH_PANEL_MIN_VISIBLE_ROWS, rowsByViewport);
+  }, [termHeight]);
+
+  const commandSuggestionRows = useMemo<IndexedSuggestion<Command>[]>(() => (
+    filtered.map((cmd, index) => ({ item: cmd, index }))
+  ), [filtered]);
+
+  const argSuggestionRows = useMemo<IndexedSuggestion<CommandArgSuggestion>[]>(() => (
+    argSuggestions.map((item, index) => ({ item, index }))
+  ), [argSuggestions]);
+
+  const visibleCommandRows = useMemo(() => (
+    buildSuggestionWindow(commandSuggestionRows, selectedIndex, maxSlashPanelRows)
+  ), [commandSuggestionRows, selectedIndex, maxSlashPanelRows]);
+
+  const visibleArgRows = useMemo(() => (
+    buildSuggestionWindow(argSuggestionRows, selectedIndex, maxSlashPanelRows)
+  ), [argSuggestionRows, selectedIndex, maxSlashPanelRows]);
 
   const applySelection = (index: number) => {
     const count = showArgSuggestions ? argSuggestions.length : filtered.length;
@@ -349,6 +390,7 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
   const needsInputScroll = visualLineCount > MAX_VISIBLE_INPUT_LINES;
 
   // 当滚动条可见时，减去滚动条宽度（1 列）以获得更准确的可用宽度
+  const inputVisibleRows = Math.min(visualLineCount, MAX_VISIBLE_INPUT_LINES);
   const availableWidth = needsInputScroll ? Math.max(1, baseAvailableWidth - 1) : baseAvailableWidth;
 
   const inputRow = (
@@ -376,18 +418,37 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     </box>
   );
 
-  return (
-    <box flexDirection="column">
+  const slashPanelBottom = inputVisibleRows + pendingFiles.length;
 
-      {/* 指令列表（向上展开，位于输入框上方） */}
+  return (
+    <box flexDirection="column" position="relative" width="100%">
+
+      {/* 指令列表浮层：脱离主 flex 布局，避免候选过多时撑高 BottomPanel 并挤压聊天 scrollbox。 */}
       {showArgSuggestions && argSuggestions.length > 0 && (
-        <box flexDirection="column" backgroundColor={C.panelBg} paddingX={1}>
-          {[...argSuggestions].reverse().map((item: CommandArgSuggestion, _i) => {
-            const index = argSuggestions.indexOf(item);
+        <box
+          position="absolute"
+          left={0}
+          width="100%"
+          bottom={slashPanelBottom}
+          zIndex={100}
+          height={visibleArgRows.length}
+          shouldFill
+          flexDirection="column"
+          backgroundColor={C.panelBg}
+          paddingX={1}
+        >
+          {[...visibleArgRows].reverse().map(({ item, index }) => {
             const padded = item.value.padEnd(maxArgLen);
             const isSelected = index === selectedIndex;
             return (
-              <box key={`${item.value}-${index}`} paddingLeft={1} backgroundColor={isSelected ? C.border : undefined}>
+              <box
+                key={`${item.value}-${index}`}
+                width="100%"
+                height={1}
+                overflow="hidden"
+                paddingLeft={1}
+                backgroundColor={isSelected ? C.border : C.panelBg}
+              >
                 <text>
                   <span fg={isSelected ? C.accent : C.dim}>{isSelected ? `${ICONS.triangleRight} ` : '  '}</span>
                   {isSelected
@@ -401,13 +462,30 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
         </box>
       )}
       {!showArgSuggestions && filtered.length > 0 && (
-        <box flexDirection="column" backgroundColor={C.panelBg} paddingX={1}>
-          {[...filtered].reverse().map((cmd: Command, _i) => {
-            const index = filtered.indexOf(cmd);
+        <box
+          position="absolute"
+          left={0}
+          width="100%"
+          bottom={slashPanelBottom}
+          zIndex={100}
+          height={visibleCommandRows.length}
+          shouldFill
+          flexDirection="column"
+          backgroundColor={C.panelBg}
+          paddingX={1}
+        >
+          {[...visibleCommandRows].reverse().map(({ item: cmd, index }) => {
             const padded = cmd.name.padEnd(maxLen);
             const isSelected = index === selectedIndex;
             return (
-              <box key={cmd.name} paddingLeft={1} backgroundColor={isSelected ? C.border : undefined}>
+              <box
+                key={cmd.name}
+                width="100%"
+                height={1}
+                overflow="hidden"
+                paddingLeft={1}
+                backgroundColor={isSelected ? C.border : C.panelBg}
+              >
                 <text>
                   <span fg={isSelected ? C.accent : C.dim}>{isSelected ? `${ICONS.triangleRight} ` : '  '}</span>
                   {isSelected
@@ -444,7 +522,7 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
 
       {/* 输入区域：高度随内容增长，超出上限后固定并启用滚动 */}
       <scrollbox
-        height={Math.min(visualLineCount, MAX_VISIBLE_INPUT_LINES)}
+        height={inputVisibleRows}
         stickyScroll
         stickyStart="bottom"
         verticalScrollbarOptions={{ visible: needsInputScroll }}

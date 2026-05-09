@@ -26,6 +26,10 @@ interface ChatMessageListProps {
   scrollBoxRef?: MutableRefObject<any>;
   /** 当前会话 milestone/task 清单快照 */
   milestoneSnapshot?: MilestoneSnapshotLike | null;
+  /** 是否把底部 Iris 进度折叠为单行 */
+  milestoneCollapsed?: boolean;
+  /** 底部 Iris 进度展开列表的滚动偏移 */
+  milestoneScrollOffset?: number;
 }
 
 export function ChatMessageList({
@@ -41,6 +45,8 @@ export function ChatMessageList({
   hasActiveTools,
   scrollBoxRef,
   milestoneSnapshot,
+  milestoneCollapsed,
+  milestoneScrollOffset,
 }: ChatMessageListProps) {
   const { height: termHeight } = useTerminalDimensions();
 
@@ -104,7 +110,13 @@ export function ChatMessageList({
 
       {milestoneSnapshot && milestoneSnapshot.items.length > 0 ? (
         <box flexDirection="column" paddingBottom={1}>
-          <MilestoneListView snapshot={milestoneSnapshot} standalone />
+          <MilestoneListView
+            snapshot={milestoneSnapshot}
+            standalone
+            collapsed={milestoneCollapsed}
+            scrollOffset={milestoneScrollOffset}
+            showControls
+          />
         </box>
       ) : null}
 
