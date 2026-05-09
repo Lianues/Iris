@@ -47,7 +47,7 @@ interface PlanModeServiceLike {
   leave?(sessionId: string): unknown;
   exit(sessionId: string): unknown;
   isActive(sessionId?: string): boolean;
-  getState(sessionId?: string): { sessionId?: string; planFilePath: string; active: boolean; hasExited?: boolean } | null;
+  getState(sessionId?: string): { sessionId?: string; planFilePath: string; active: boolean } | null;
   readPlan(sessionId: string): string | null;
 }
 

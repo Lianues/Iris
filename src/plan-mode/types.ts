@@ -3,8 +3,6 @@ export const PLAN_MODE_SERVICE_ID = 'plan-mode';
 export interface PlanSessionState {
   sessionId: string;
   active: boolean;
-  hasExited: boolean;
-  needsExitReminder: boolean;
   planFilePath: string;
   createdAt: number;
   updatedAt: number;

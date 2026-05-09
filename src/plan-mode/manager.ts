@@ -36,13 +36,10 @@ export class PlanModeManager implements PlanModeService {
           ...existing,
           active: true,
           updatedAt: now,
-          needsExitReminder: false,
         }
       : {
           sessionId,
           active: true,
-          hasExited: false,
-          needsExitReminder: false,
           planFilePath,
           createdAt: now,
           updatedAt: now,
@@ -58,7 +55,6 @@ export class PlanModeManager implements PlanModeService {
     const state: PlanSessionState = {
       ...existing,
       active: false,
-      needsExitReminder: false,
       updatedAt: Date.now(),
     };
     this.states.set(sessionId, state);
@@ -71,24 +67,10 @@ export class PlanModeManager implements PlanModeService {
     const state: PlanSessionState = {
       ...existing,
       active: false,
-      hasExited: true,
-      needsExitReminder: true,
       updatedAt: Date.now(),
     };
     this.states.set(sessionId, state);
     return cloneState(state);
-  }
-
-  consumeExitReminder(sessionId: string): PlanSessionState | null {
-    const existing = this.states.get(sessionId);
-    if (!existing?.needsExitReminder) return null;
-    const state: PlanSessionState = {
-      ...existing,
-      needsExitReminder: false,
-      updatedAt: Date.now(),
-    };
-    this.states.set(sessionId, state);
-    return cloneState(existing);
   }
 
   isActive(sessionId: string | undefined): boolean {

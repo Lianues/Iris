@@ -151,8 +151,6 @@ export interface ToolInvocation {
 export interface PlanModeState {
   sessionId: string
   active: boolean
-  hasExited?: boolean
-  needsExitReminder?: boolean
   planFilePath: string
   createdAt?: number
   updatedAt?: number
