@@ -88,7 +88,7 @@ export function buildTransferFilesTool(
     declaration: {
       name: TRANSFER_FILES_TOOL_NAME,
       description: [
-        '在本地与远端环境之间传输文件或目录。支持 local ↔ remote、remote ↔ remote、local ↔ local。',
+        '在本地与远端服务器之间传输文件或目录。支持 local ↔ remote、remote ↔ remote、local ↔ local。',
         '注意：remote ↔ remote 传输会通过当前本地 Iris 实例中转。',
         '路径必须使用全路径/绝对路径：本地如 C:\\path\\file 或 /home/me/file，远端如 /root/file。',
         '路径以 / 或 \\ 结尾表示目录；否则表示文件。type=auto 时也会 stat 源路径自动判断。',
@@ -159,7 +159,7 @@ function transferProperties(envNames: string[]): Record<string, Record<string, u
     fromEnvironment: {
       type: 'string',
       enum: envNames,
-      description: `源环境。可选值：${envNames.join(' | ')}`,
+      description: `源服务器。可选值：${envNames.join(' | ')}`,
     },
     fromPath: {
       type: 'string',
@@ -168,7 +168,7 @@ function transferProperties(envNames: string[]): Record<string, Record<string, u
     toEnvironment: {
       type: 'string',
       enum: envNames,
-      description: `目标环境。可选值：${envNames.join(' | ')}`,
+      description: `目标服务器。可选值：${envNames.join(' | ')}`,
     },
     toPath: {
       type: 'string',
@@ -283,7 +283,7 @@ async function runTransfer(
 async function createEndpoint(environment: string, envMgr: EnvironmentManager, transport: SshTransport): Promise<Endpoint> {
   if (environment === LOCAL_ENV) return new LocalEndpoint();
   const env = envMgr.listEnvs().find(e => e.name === environment && !e.isLocal);
-  if (!env) throw new Error(`未知传输环境: ${environment}`);
+  if (!env) throw new Error(`未知传输服务器: ${environment}`);
   const mode = transport.getTransportMode(environment);
   if (mode === 'bash') return new RemoteBashEndpoint(environment, transport);
   try {

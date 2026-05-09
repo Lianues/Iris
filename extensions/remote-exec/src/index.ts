@@ -3,9 +3,9 @@
  *
  * 生命周期：
  *   activate()  释放默认配置，注册 onReady / onConfigReload
- *   onReady     读取配置 + 服务器清单 → 建 transport → 注册 switch_environment 工具 →
+ *   onReady     读取配置 + 服务器清单 → 建 transport → 注册 switch_server 工具 →
  *               安装工具 wrapper（含对将来注册工具的 monkey-patch 兜底）
- *   onConfigReload  重读配置/服务器清单，重建 transport，重注册 switch_environment（描述里的服务器列表会变化）
+ *   onConfigReload  重读配置/服务器清单，重建 transport，重注册 switch_server（描述里的服务器列表会变化）
  *   deactivate  关闭 SSH 连接，撤销 register patch
  */
 
@@ -39,14 +39,14 @@ let envMgr: EnvironmentManager | undefined;
 let installer: WrapInstaller | undefined;
 let cachedApi: IrisAPI | undefined;
 let cachedCtx: PluginContext | undefined;
-/** 当前已注册的 switch_environment 工具名（用于 unregister 后重注册） */
+/** 当前已注册的 switch_server 工具名（用于 unregister 后重注册） */
 let switchToolRegistered = false;
 let transferToolRegistered = false;
 
 export default definePlugin({
   name: 'remote-exec',
   version: '0.1.0',
-  description: '把工具调用透明转发到远端服务器执行（按"环境"切换，AI 无感）',
+  description: '把工具调用透明转发到远端服务器执行（按"服务器"切换，AI 无感）',
 
   activate(ctx: PluginContext) {
     cachedCtx = ctx;
@@ -63,7 +63,7 @@ export default definePlugin({
       await reloadAll(ctx, api);
     });
 
-    // 注册 hook：每个 turn 开始前从 session meta 预加载当前环境
+    // 注册 hook：每个 turn 开始前从 session meta 预加载当前服务器
     ctx.addHook({
       name: 'remote-exec:env-preload',
       priority: 50,
@@ -84,7 +84,7 @@ export default definePlugin({
         cfg = parseRemoteExecConfig(raw ?? {});
         servers = readServersSection(cachedCtx, rawMergedConfig as Record<string, unknown>);
         rebuildTransport();
-        // 重注册 remote-exec 工具（环境列表可能已变）
+        // 重注册 remote-exec 工具（服务器列表可能已变）
         reregisterRemoteExecTools(cachedApi);
         installer?.applyToExistingTools();
         logger.info(
@@ -100,7 +100,7 @@ export default definePlugin({
     transport?.closeAll();
     transport = undefined;
     if (cachedApi && switchToolRegistered) {
-      cachedApi.tools.unregister?.('switch_environment');
+      cachedApi.tools.unregister?.('switch_server');
       switchToolRegistered = false;
     }
     if (cachedApi && transferToolRegistered) {
@@ -170,9 +170,9 @@ function rebuildTransport(): void {
 
 function reregisterRemoteExecTools(api: IrisAPI): void {
   if (!envMgr) return;
-  // 总是先尝试注销旧的（描述里的环境列表可能已变）
+  // 总是先尝试注销旧的（描述里的服务器列表可能已变）
   if (switchToolRegistered) {
-    api.tools.unregister?.('switch_environment');
+    api.tools.unregister?.('switch_server');
     switchToolRegistered = false;
   }
   if (transferToolRegistered) {
