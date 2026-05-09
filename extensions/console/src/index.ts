@@ -1633,7 +1633,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     return { models: models as IrisModelInfoLike[], defaultModelName };
   }
 
-  private handleSwitchModel(modelName: string): { ok: boolean; message: string; modelId?: string; modelName?: string; contextWindow?: number } {
+  private handleSwitchModel(modelName: string): import('./app-types').SwitchModelResult {
     try {
       const info = this.backend.switchModel?.(modelName, 'console') as { modelName: string; modelId: string; contextWindow?: number } | undefined;
       if (!info) return { ok: false, message: '模型切换功能不可用' };
