@@ -59,19 +59,12 @@ import { prepareHistoryForLLM, preparePartsForLLM } from './history';
 import { callLLMStream } from './stream';
 import { UndoRedoManager } from './undo-redo';
 import { buildPluginHookConfig } from './plugins';
+import { BackendMilestoneCoordinator } from './milestones';
 
 import { sessionContext, getSessionCwd, setSessionCwd, getRememberedCwd, getActiveSessionId, clearSessionCwd } from './session-context';
 import type { SessionExecutionContext } from './session-context';
 
 const logger = createLogger('Backend');
-
-const MILESTONE_TOOL_SYNC_IGNORED = new Set([
-  'update_milestones', 'list_milestones',
-  'EnterPlanMode', 'ExitPlanMode', 'read_plan', 'write_plan',
-  'AskQuestionFirst',
-]);
-
-const CROSS_AGENT_SESSION_RE = /^cross-agent:[^:]+:(.+)$/;
 
 /**
  * 解析合并后的 <task-notification> XML 文本为结构化数据。
@@ -167,12 +160,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private taskBoard?: CrossAgentTaskBoard;
   /** setTaskBoard 注册的监听器清理函数（防止热重载泄漏） */
   private taskBoardCleanup?: () => void;
-  /** 会话级 milestone 管理器（驱动 Iris 进度清单 UI） */
-  private milestoneManager?: SessionMilestoneManager;
-  private milestoneCleanup?: () => void;
-  /** 当前 Backend 所属 Agent 名称，用于过滤共享 milestone 事件。 */
-  private milestoneRouteAgent?: string;
-  /** per-session meta 写队列，避免 milestone 持久化与 session meta 更新互相覆盖。 */
+  /** milestone 协调器：封装进度清单持久化、归档、UI 状态和工具失败同步。 */
+  private milestones: BackendMilestoneCoordinator;
+  /** per-session meta 写队列，避免各类元数据更新互相覆盖。 */
   private metaUpdateLocks = new Map<string, Promise<void>>();
 
   /**
@@ -219,6 +209,12 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     };
     this.toolLoop = new ToolLoop(tools, prompt, this.toolLoopConfig, toolState);
 
+    this.milestones = new BackendMilestoneCoordinator({
+      storage: this.storage,
+      enqueueMetaUpdate: (sessionId, fn) => this.enqueueMetaUpdate(sessionId, fn),
+      emitUpdate: (sessionId, snapshot) => this.emit('milestones:update', sessionId, snapshot),
+    });
+
     if (config?.milestoneManager) {
       this.setMilestoneManager(config.milestoneManager, config.milestoneRouteAgent);
     }
@@ -251,80 +247,32 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
 
   /** 注入会话级 milestone 管理器，并将更新事件转发给平台层。 */
   setMilestoneManager(manager: SessionMilestoneManager, routeAgent?: string): void {
-    this.milestoneCleanup?.();
-    this.milestoneManager = manager;
-    this.milestoneRouteAgent = routeAgent;
-
-    const onUpdated = (snapshot: MilestoneSnapshot) => {
-      if (this.milestoneRouteAgent && snapshot.routeAgent && snapshot.routeAgent !== this.milestoneRouteAgent) {
-        return;
-      }
-      void this.persistMilestones(snapshot);
-      this.emit('milestones:update', snapshot.sessionId, snapshot);
-    };
-    manager.on('updated', onUpdated);
-    this.milestoneCleanup = () => manager.off('updated', onUpdated);
+    this.milestones.setManager(manager, routeAgent);
   }
 
   /** 获取当前 session 的 milestone 快照，供平台或测试查询。 */
   getMilestones(sessionId: string): MilestoneSnapshot | undefined {
-    const snapshot = this.milestoneManager?.getSnapshot(sessionId);
-    if (snapshot?.routeAgent && this.milestoneRouteAgent && snapshot.routeAgent !== this.milestoneRouteAgent) {
-      return undefined;
-    }
-    return snapshot;
+    return this.milestones.getMilestones(sessionId);
   }
 
   /** 从存储恢复指定 session 的 milestone 快照，并刷新内存状态。 */
   async loadMilestones(sessionId: string): Promise<MilestoneSnapshot | undefined> {
-    if (!this.milestoneManager) return undefined;
-    const meta = await this.storage.getMeta(sessionId);
-    const snapshot = meta?.milestones;
-    if (!snapshot || snapshot.sessionId !== sessionId) return this.getMilestones(sessionId);
-    if (snapshot.routeAgent && this.milestoneRouteAgent && snapshot.routeAgent !== this.milestoneRouteAgent) {
-      return undefined;
-    }
-    const current = this.getMilestones(sessionId);
-    const storageUpdatedAt = typeof snapshot.updatedAt === 'number' ? snapshot.updatedAt : 0;
-    if (this.milestoneManager.hasSession(sessionId) && current && current.items.length > 0 && current.updatedAt >= storageUpdatedAt) {
-      return current;
-    }
-    this.milestoneManager.hydrate(snapshot);
-    return this.getMilestones(sessionId);
+    return this.milestones.loadMilestones(sessionId);
   }
 
   /** 从存储恢复指定 session 的已完成 milestone 历史归档。 */
   async loadMilestoneArchives(sessionId: string): Promise<MilestoneArchiveEntry[]> {
-    const meta = await this.storage.getMeta(sessionId);
-    if (!meta) return [];
-    const archives = this.normalizeMilestoneArchives(meta.milestoneArchives, sessionId);
-
-    // 兼容旧数据：如果只有 latest completed snapshot，而还没有归档列表，至少在历史末尾恢复一次。
-    const latestSnapshot = meta.milestones;
-    if (latestSnapshot && this.isArchivableMilestoneSnapshot(latestSnapshot) && !archives.some(entry => entry.snapshot.updatedAt === latestSnapshot.updatedAt)) {
-      const historyLength = await this.getHistoryLengthSafe(sessionId);
-      this.upsertMilestoneArchive(meta, latestSnapshot, historyLength);
-      await this.storage.saveMeta(meta);
-      return this.normalizeMilestoneArchives(meta.milestoneArchives, sessionId);
-    }
-
-    return archives;
+    return this.milestones.loadArchives(sessionId);
   }
 
   /** 读取最新 milestone 面板的展开状态。 */
   async loadMilestoneUiState(sessionId: string): Promise<MilestoneUiState | undefined> {
-    const meta = await this.storage.getMeta(sessionId);
-    return this.normalizeMilestoneUiState(meta?.milestoneUiState);
+    return this.milestones.loadUiState(sessionId);
   }
 
   /** 持久化最新 milestone 面板的展开状态（仅 UI 状态，不更新 session 排序时间）。 */
   async setMilestoneUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void> {
-    await this.enqueueMetaUpdate(sessionId, async () => {
-      const meta = await this.storage.getMeta(sessionId);
-      if (!meta) return;
-      meta.milestoneUiState = this.createMilestoneUiState(state.expanded, state.snapshotUpdatedAt);
-      await this.storage.saveMeta(meta);
-    });
+    await this.milestones.setUiState(sessionId, state);
   }
 
   private async enqueueMetaUpdate<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
@@ -341,157 +289,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     }
   }
 
-  private applyCurrentMilestonesToMeta(meta: SessionMeta): void {
-    if (!this.milestoneManager?.hasSession(meta.id)) return;
-    const snapshot = this.milestoneManager.getSnapshot(meta.id);
-    if (snapshot.items.length > 0) {
-      meta.milestones = snapshot;
-      if (!this.normalizeMilestoneUiState(meta.milestoneUiState) || this.isArchivableMilestoneSnapshot(snapshot)) {
-        meta.milestoneUiState = this.createMilestoneUiState(true, snapshot.updatedAt);
-      }
-    } else {
-      delete meta.milestones;
-    }
-  }
-
-  private isArchivableMilestoneSnapshot(snapshot: MilestoneSnapshot | undefined): boolean {
-    return !!snapshot && snapshot.items.length > 0 && snapshot.stats.open === 0;
-  }
-
-  private normalizeMilestoneArchives(value: unknown, sessionId?: string): MilestoneArchiveEntry[] {
-    if (!Array.isArray(value)) return [];
-    const archives: MilestoneArchiveEntry[] = [];
-    for (const entry of value) {
-      if (!entry || typeof entry !== 'object') continue;
-      const record = entry as Partial<MilestoneArchiveEntry>;
-      const snapshot = record.snapshot;
-      if (!snapshot || typeof snapshot !== 'object' || !Array.isArray(snapshot.items)) continue;
-      if (sessionId && snapshot.sessionId !== sessionId) continue;
-      if (snapshot.routeAgent && this.milestoneRouteAgent && snapshot.routeAgent !== this.milestoneRouteAgent) continue;
-      const archivedAt = typeof record.archivedAt === 'number' ? record.archivedAt : (typeof snapshot.updatedAt === 'number' ? snapshot.updatedAt : Date.now());
-      const afterHistoryIndex = typeof record.afterHistoryIndex === 'number' && Number.isFinite(record.afterHistoryIndex)
-        ? Math.max(0, Math.floor(record.afterHistoryIndex))
-        : 0;
-      archives.push({
-        id: typeof record.id === 'string' && record.id ? record.id : `${snapshot.sessionId}:${snapshot.updatedAt}`,
-        snapshot,
-        archivedAt,
-        afterHistoryIndex,
-      });
-    }
-    return archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
-  }
-
-  private upsertMilestoneArchive(meta: SessionMeta, snapshot: MilestoneSnapshot, afterHistoryIndex: number): void {
-    if (!this.isArchivableMilestoneSnapshot(snapshot)) return;
-    if (snapshot.routeAgent && this.milestoneRouteAgent && snapshot.routeAgent !== this.milestoneRouteAgent) return;
-
-    const archives = this.normalizeMilestoneArchives(meta.milestoneArchives, snapshot.sessionId);
-    const safeIndex = Math.max(0, Math.floor(afterHistoryIndex));
-    const archiveId = `${snapshot.sessionId}:${snapshot.updatedAt}`;
-    const existingIndex = archives.findIndex(entry => entry.id === archiveId || entry.snapshot.updatedAt === snapshot.updatedAt);
-    if (existingIndex >= 0) {
-      const existing = archives[existingIndex];
-      archives[existingIndex] = {
-        ...existing,
-        id: existing.id || archiveId,
-        snapshot,
-        archivedAt: existing.archivedAt || snapshot.updatedAt || Date.now(),
-        afterHistoryIndex: Math.max(existing.afterHistoryIndex ?? 0, safeIndex),
-      };
-    } else {
-      archives.push({
-        id: archiveId,
-        snapshot,
-        archivedAt: snapshot.updatedAt || Date.now(),
-        afterHistoryIndex: safeIndex,
-      });
-    }
-    meta.milestoneArchives = archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
-  }
-
-  private normalizeMilestoneUiState(value: unknown): MilestoneUiState | undefined {
-    if (!value || typeof value !== 'object') return undefined;
-    const record = value as Partial<MilestoneUiState>;
-    if (typeof record.expanded !== 'boolean') return undefined;
-    const updatedAt = typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt)
-      ? record.updatedAt
-      : Date.now();
-    const snapshotUpdatedAt = typeof record.snapshotUpdatedAt === 'number' && Number.isFinite(record.snapshotUpdatedAt)
-      ? record.snapshotUpdatedAt
-      : undefined;
-    return { expanded: record.expanded, updatedAt, ...(snapshotUpdatedAt != null ? { snapshotUpdatedAt } : {}) };
-  }
-
-  private createMilestoneUiState(expanded: boolean, snapshotUpdatedAt?: number): MilestoneUiState {
-    return {
-      expanded,
-      updatedAt: Date.now(),
-      ...(typeof snapshotUpdatedAt === 'number' && Number.isFinite(snapshotUpdatedAt) ? { snapshotUpdatedAt } : {}),
-    };
-  }
-
-  private async getHistoryLengthSafe(sessionId: string): Promise<number> {
-    try {
-      return (await this.storage.getHistory(sessionId)).length;
-    } catch {
-      return 0;
-    }
-  }
-
-  private async persistMilestones(snapshot: MilestoneSnapshot): Promise<void> {
-    await this.enqueueMetaUpdate(snapshot.sessionId, async () => {
-      try {
-        const meta = await this.storage.getMeta(snapshot.sessionId);
-        if (!meta) return;
-        meta.milestones = snapshot.items.length > 0 ? snapshot : undefined;
-        const existingUiState = this.normalizeMilestoneUiState(meta.milestoneUiState);
-        if (this.isArchivableMilestoneSnapshot(snapshot)) {
-          const historyLength = await this.getHistoryLengthSafe(snapshot.sessionId);
-          this.upsertMilestoneArchive(meta, snapshot, historyLength);
-          meta.milestoneUiState = this.createMilestoneUiState(true, snapshot.updatedAt);
-        } else if (snapshot.items.length > 0 && !existingUiState) {
-          meta.milestoneUiState = this.createMilestoneUiState(true, snapshot.updatedAt);
-        }
-        await this.storage.saveMeta(meta);
-      } catch (err) {
-        logger.warn(`保存 milestone 状态失败 (session=${snapshot.sessionId}):`, err);
-      }
-    });
-  }
-
-  private resolveMilestoneOwner(): string | undefined {
-    const base = this.milestoneRouteAgent;
-    const current = agentContext.getStore();
-    if (current && current !== 'main') {
-      return base ? `${base}:${current}` : current;
-    }
-    return base;
-  }
-
-  private resolveMilestoneContextFromToolSession(sessionId: string): { sessionId: string; sourceAgent?: string; routeAgent?: string } {
-    const owner = this.resolveMilestoneOwner();
-    const match = CROSS_AGENT_SESSION_RE.exec(sessionId);
-    if (match && this.taskBoard) {
-      const task = this.taskBoard.get(match[1]);
-      if (task?.type === 'delegate') {
-        return { sessionId: task.sourceSessionId, sourceAgent: owner, routeAgent: task.sourceAgent };
-      }
-    }
-    return { sessionId, sourceAgent: owner, routeAgent: this.milestoneRouteAgent };
-  }
-
-  private syncMilestoneOnToolCompletion(invocation: ToolInvocation): void {
-    if (!this.milestoneManager || !invocation.sessionId) return;
-    if (MILESTONE_TOOL_SYNC_IGNORED.has(invocation.toolName)) return;
-    if (invocation.parentToolId || (invocation.depth ?? 0) > 0) return;
-    if (invocation.status === 'error') {
-      const ctx = this.resolveMilestoneContextFromToolSession(invocation.sessionId);
-      // 工具错误不等于 milestone 被阻塞：一次命令失败/路径错误通常仍是“正在处理”。
-      // 只记录错误，blocked 由 Agent/用户显式设置。
-      this.milestoneManager.noteActiveToolFailure(ctx.sessionId, { toolId: invocation.id, toolName: invocation.toolName, error: invocation.error ?? '未知错误', sourceAgent: ctx.sourceAgent, routeAgent: ctx.routeAgent });
-    }
-  }
 
   /**
    * 注入全局任务板，将 board 生命周期事件转发为 BackendEvents。
@@ -502,6 +299,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.taskBoardCleanup?.();
 
     this.taskBoard = board;
+    this.milestones.setTaskBoard(board);
 
     // 转发 board 生命周期事件为 agent:notification。
     // 注意：board 事件名与 task.status 不完全对应（registered→running），
@@ -578,8 +376,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   dispose(): void {
     this.taskBoardCleanup?.();
     this.taskBoardCleanup = undefined;
-    this.milestoneCleanup?.();
-    this.milestoneCleanup = undefined;
+    this.taskBoard = undefined;
+    this.milestones.dispose();
+    this.milestones.setTaskBoard(undefined);
   }
 
   /**
@@ -677,7 +476,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     // 清除该会话的 turn 锁记录
     this.turnLock.clear(sessionId);
     // 清空会话级 milestone 面板状态
-    this.milestoneManager?.clear(sessionId, undefined, this.milestoneRouteAgent);
+    this.milestones.clear(sessionId);
 
     for (const hook of this.pluginHooks) {
       try {
@@ -1603,10 +1402,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     // 9. 条件后置步骤：更新会话元数据（仅用户消息路径）
     if (options.updateMeta && options.storedUserParts) {
       await this.updateSessionMeta(sessionId, options.storedUserParts, false, options.platformName);
-      const currentMilestones = this.getMilestones(sessionId);
-      if (currentMilestones && this.isArchivableMilestoneSnapshot(currentMilestones)) {
-        await this.persistMilestones(currentMilestones);
-      }
+      await this.milestones.persistCurrentIfArchivable(sessionId);
     }
 
     // 10. 条件后置步骤：插件 onAfterChat 钩子（仅用户消息路径）
@@ -1658,7 +1454,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       this.emit('tool:execute', sid, handle);
     });
     this.toolState.on('completed', (invocation: ToolInvocation) => {
-      this.syncMilestoneOnToolCompletion(invocation);
+      this.milestones.syncOnToolCompletion(invocation);
     });
   }
 
@@ -1706,7 +1502,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
           updatedAt: now,
           platforms: platformName ? [platformName] : [],
         };
-        this.applyCurrentMilestonesToMeta(meta);
+        this.milestones.applyCurrentToMeta(meta);
         await this.storage.saveMeta(meta);
       } else {
         const meta = await this.storage.getMeta(sessionId);
@@ -1722,7 +1518,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
             }
             meta.platforms = platforms;
           }
-          this.applyCurrentMilestonesToMeta(meta);
+          this.milestones.applyCurrentToMeta(meta);
           await this.storage.saveMeta(meta);
         }
       }
