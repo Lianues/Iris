@@ -112,13 +112,13 @@ describe('Backend milestone persistence', () => {
 
     const service = createMilestoneService(storage);
     service.update('s1', [
-      { id: 'm1', title: '实现 milestone 持久化', status: 'in_progress' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '实现 milestone 持久化', status: 'in_progress' },
+    ], { replaceAll: true });
     await new Promise(resolve => setTimeout(resolve, 0));
 
     const meta = await storage.getMeta('s1');
     expect(meta?.platforms).toContain('console');
-    expect(getPersisted(meta)?.latest?.items.map((item: any) => item.id)).toEqual(['m1']);
+    expect(getPersisted(meta)?.latest?.items.map((item: any) => item.title)).toEqual(['实现 milestone 持久化']);
     expect(getPersisted(meta)?.latest?.items[0].status).toBe('in_progress');
   });
 
@@ -159,8 +159,8 @@ describe('Backend milestone persistence', () => {
     backend.on('error', () => {});
 
     milestoneManager.update('s1', [
-      { id: 'm1', title: '下一步实现', status: 'pending', owner: 'master' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '下一步实现', status: 'pending' },
+    ], { replaceAll: true });
 
     await backend.chat('s1', '继续');
 
@@ -178,8 +178,8 @@ describe('Backend milestone persistence', () => {
 
     const oldManager = new SessionMilestoneManager();
     const oldSnapshot = oldManager.update('s1', [
-      { id: 'm1', title: '旧状态', status: 'pending' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '旧状态', status: 'pending' },
+    ], { replaceAll: true });
     oldSnapshot.updatedAt = 1;
     oldSnapshot.items = oldSnapshot.items.map(item => ({ ...item, updatedAt: 1 }));
     await storage.saveMeta({
@@ -193,8 +193,8 @@ describe('Backend milestone persistence', () => {
 
     const service = createMilestoneService(storage);
     service.update('s1', [
-      { id: 'm1', title: '新状态', status: 'completed' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '新状态', status: 'completed' },
+    ], { replaceAll: true });
 
     const loaded = await service.loadLatest('s1');
     expect(loaded?.items[0].title).toBe('新状态');
@@ -216,8 +216,8 @@ describe('Backend milestone persistence', () => {
     await storage.addMessage('s1', { role: 'user', parts: [{ text: '开始' }] });
 
     const snapshot = service.update('s1', [
-      { id: 'm1', title: '完成一组任务', status: 'completed', owner: 'master' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '完成一组任务', status: 'completed' },
+    ], { replaceAll: true });
     await new Promise(resolve => setTimeout(resolve, 0));
 
     const meta = await storage.getMeta('s1');
@@ -261,8 +261,8 @@ describe('Backend milestone persistence', () => {
     await service.setUiState('s1', { expanded: false, snapshotUpdatedAt: 1 });
 
     const snapshot = service.update('s1', [
-      { id: 'm1', title: '完成后应展开', status: 'completed', owner: 'master' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '完成后应展开', status: 'completed' },
+    ], { replaceAll: true });
     await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(getPersisted(await storage.getMeta('s1'))?.ui).toMatchObject({ expanded: true, snapshotUpdatedAt: snapshot.updatedAt });
@@ -272,8 +272,8 @@ describe('Backend milestone persistence', () => {
     const storage = new InMemoryStorage();
     const oldManager = new SessionMilestoneManager();
     const completedSnapshot = oldManager.update('s1', [
-      { id: 'm1', title: '旧版已完成任务', status: 'completed', owner: 'master' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '旧版已完成任务', status: 'completed' },
+    ], { replaceAll: true });
 
     await storage.addMessage('s1', { role: 'user', parts: [{ text: '开始' }] });
     await storage.addMessage('s1', { role: 'model', parts: [{ text: '完成' }] });
@@ -307,8 +307,8 @@ describe('Backend milestone persistence', () => {
       updatedAt: '2024-01-01T00:00:00.000Z',
     });
     milestoneManager.update('s1', [
-      { id: 'm1', title: '待清空 milestone', status: 'in_progress' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '待清空 milestone', status: 'in_progress' },
+    ], { replaceAll: true });
 
     await backend.clearSession('s1');
     await new Promise(resolve => setTimeout(resolve, 0));

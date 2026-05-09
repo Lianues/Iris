@@ -127,8 +127,8 @@ describe('Milestone prompt cache behavior', () => {
     const { backend } = createBackend(storage, milestoneManager, router);
 
     milestoneManager.update('s1', [
-      { id: 'm1', title: '实现最终检查', status: 'in_progress', owner: 'master' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '实现最终检查', status: 'in_progress' },
+    ], { replaceAll: true });
 
     await backend.chat('s1', '收尾');
 
@@ -168,8 +168,8 @@ describe('Milestone prompt cache behavior', () => {
     const { backend } = createBackend(storage, milestoneManager, router);
 
     milestoneManager.update('s1', [
-      { id: 'm1', title: '剩余工作', status: 'pending', owner: 'master' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '剩余工作', status: 'pending' },
+    ], { replaceAll: true });
 
     await backend.chat('s1', '收尾');
 

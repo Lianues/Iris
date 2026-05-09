@@ -31,169 +31,98 @@ describe('SessionMilestoneManager', () => {
     manager.on('updated', listener);
 
     const snapshot = manager.update('s1', [
-      { id: 'm1', title: '分析代码', status: 'completed' },
-      { id: 'm2', title: '实现功能', status: 'in_progress', activeForm: '实现功能' },
-      { id: 'm3', title: '运行测试', status: 'pending' },
-    ], { sourceAgent: 'master', replaceAll: true });
+      { title: '分析代码', status: 'completed' },
+      { title: '实现功能', status: 'in_progress', activeForm: '实现功能' },
+      { title: '运行测试', status: 'pending' },
+    ], { replaceAll: true });
 
     expect(snapshot.stats.total).toBe(3);
     expect(snapshot.stats.completed).toBe(1);
     expect(snapshot.stats.inProgress).toBe(1);
     expect(snapshot.stats.open).toBe(2);
-    expect(snapshot.items[1].owner).toBe('master');
+    expect(snapshot.items.map(item => item.title)).toEqual(['分析代码', '实现功能', '运行测试']);
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it('默认增量合并，保留其他 Agent 的条目', () => {
+  it('默认按 title 增量合并，保留未涉及条目', () => {
     const manager = new SessionMilestoneManager();
     manager.update('s1', [
-      { id: 'm1', title: '主 Agent 任务', status: 'in_progress', owner: 'master' },
-      { id: 'm2', title: '研究任务', status: 'pending', owner: 'researcher' },
+      { title: '主线任务', status: 'in_progress' },
+      { title: '研究任务', status: 'pending' },
     ], { replaceAll: true });
 
     const snapshot = manager.update('s1', [
-      { id: 'm2', title: '研究任务', status: 'completed' },
-    ], { sourceAgent: 'researcher' });
+      { title: '研究任务', status: 'completed' },
+    ]);
 
     expect(snapshot.items).toHaveLength(2);
-    expect(snapshot.items.find(i => i.id === 'm1')?.status).toBe('in_progress');
-    expect(snapshot.items.find(i => i.id === 'm2')?.status).toBe('completed');
-    expect(snapshot.items.find(i => i.id === 'm2')?.owner).toBe('researcher');
+    expect(snapshot.items.find(i => i.title === '主线任务')?.status).toBe('in_progress');
+    expect(snapshot.items.find(i => i.title === '研究任务')?.status).toBe('completed');
   });
 
-  it('同 owner 启动新 in_progress 时自动收敛旧活跃项', () => {
+  it('启动新 in_progress 时自动收敛旧活跃项', () => {
     const manager = new SessionMilestoneManager();
     manager.update('s1', [
-      { id: 'm1', title: '第一步', status: 'in_progress', owner: 'master' },
-      { id: 'm2', title: '第二步', status: 'pending', owner: 'master' },
-      { id: 'w1', title: 'Worker 并行项', status: 'in_progress', owner: 'worker' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
-
-    const snapshot = manager.update('s1', [
-      { id: 'm2', status: 'in_progress' },
-    ], { sourceAgent: 'master', routeAgent: 'master' });
-
-    expect(snapshot.items.find(i => i.id === 'm1')?.status).toBe('pending');
-    expect(snapshot.items.find(i => i.id === 'm2')?.status).toBe('in_progress');
-    expect(snapshot.items.find(i => i.id === 'w1')?.status).toBe('in_progress');
-    expect(snapshot.stats.inProgress).toBe(2);
-  });
-
-
-  it('维护 milestone version，并在 expectedVersion 不匹配时拒绝更新', () => {
-    const manager = new SessionMilestoneManager();
-    const first = manager.update('s1', [
-      { id: 'm1', title: '实现功能', status: 'in_progress' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
-
-    expect(first.items[0].version).toBe(1);
-    expect(first.items[0].updatedBy).toBe('master');
-
-    const second = manager.update('s1', [
-      { id: 'm1', status: 'completed', expectedVersion: 1 },
-    ], { sourceAgent: 'master', routeAgent: 'master' });
-
-    expect(second.items[0].status).toBe('completed');
-    expect(second.items[0].version).toBe(2);
-
-    expect(() => manager.update('s1', [
-      { id: 'm1', status: 'blocked', expectedVersion: 1 },
-    ], { sourceAgent: 'master', routeAgent: 'master' })).toThrow(/版本冲突/);
-
-    expect(manager.getSnapshot('s1').items[0].status).toBe('completed');
-    expect(manager.getSnapshot('s1').items[0].version).toBe(2);
-  });
-
-  it('阻止非 owner 的委派方直接覆盖 milestone，前台 routeAgent 可接管', () => {
-    const manager = new SessionMilestoneManager();
-    manager.update('s1', [{ id: 'm1', title: 'Worker 任务', status: 'pending', owner: 'worker' }], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
-
-    expect(() => manager.update('s1', [{ id: 'm1', status: 'completed' }], { sourceAgent: 'tester', routeAgent: 'master' })).toThrow(/无权/);
-    const snapshot = manager.update('s1', [{ id: 'm1', status: 'completed' }], { sourceAgent: 'master', routeAgent: 'master' });
-    expect(snapshot.items[0].status).toBe('completed');
-    expect(snapshot.items[0].version).toBe(2);
-  });
-
-  it('拒绝通过伪造 routeAgent 绕过 owner 保护或 replaceAll 主清单', () => {
-    const manager = new SessionMilestoneManager();
-    manager.update('s1', [
-      { id: 'm1', title: '主 Agent 任务', status: 'in_progress', owner: 'master' },
-      { id: 'm2', title: 'Worker 任务', status: 'pending', owner: 'worker' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
-
-    expect(() => manager.update('s1', [
-      { id: 'm1', status: 'completed' },
-    ], { sourceAgent: 'worker', routeAgent: 'worker' })).toThrow(/无权/);
-
-    const afterReplaceAttempt = manager.update('s1', [
-      { id: 'm3', title: '伪造替换', status: 'completed', owner: 'worker' },
-    ], { sourceAgent: 'worker', routeAgent: 'worker', replaceAll: true });
-
-    expect(afterReplaceAttempt.routeAgent).toBe('master');
-    expect(afterReplaceAttempt.items.map(item => item.id)).toEqual(['m1', 'm2', 'm3']);
-    expect(afterReplaceAttempt.items.find(item => item.id === 'm1')?.status).toBe('in_progress');
-  });
-
-  it('旧快照缺少 routeAgent 时仍不能让非 owner 伪造前台身份', () => {
-    const manager = new SessionMilestoneManager();
-    manager.update('legacy-session', [
-      { id: 'm1', title: '旧版主任务', status: 'in_progress', owner: 'master' },
+      { title: '第一步', status: 'in_progress' },
+      { title: '第二步', status: 'pending' },
+      { title: '第三步', status: 'pending' },
     ], { replaceAll: true });
 
-    expect(manager.getSnapshot('legacy-session').routeAgent).toBeUndefined();
-    expect(() => manager.update('legacy-session', [
-      { id: 'm1', status: 'completed' },
-    ], { sourceAgent: 'worker', routeAgent: 'worker' })).toThrow(/无权/);
+    const snapshot = manager.update('s1', [
+      { title: '第二步', status: 'in_progress' },
+    ]);
 
-    const afterReplaceAttempt = manager.update('legacy-session', [
-      { id: 'm2', title: 'Worker 增量任务', status: 'completed', owner: 'worker' },
-    ], { sourceAgent: 'worker', routeAgent: 'worker', replaceAll: true });
-
-    expect(afterReplaceAttempt.routeAgent).toBeUndefined();
-    expect(afterReplaceAttempt.items.map(item => item.id)).toEqual(['m1', 'm2']);
-    expect(afterReplaceAttempt.items.find(item => item.id === 'm1')?.status).toBe('in_progress');
-    expect(() => manager.update('legacy-session', [
-      { id: 'm1', status: 'completed' },
-    ], { sourceAgent: 'worker', routeAgent: 'worker' })).toThrow(/无权/);
+    expect(snapshot.items.find(i => i.title === '第一步')?.status).toBe('pending');
+    expect(snapshot.items.find(i => i.title === '第二步')?.status).toBe('in_progress');
+    expect(snapshot.items.find(i => i.title === '第三步')?.status).toBe('pending');
+    expect(snapshot.stats.inProgress).toBe(1);
   });
 
-
-
-
-  it('为工具成功提示查找同 owner 的活跃 milestone', () => {
+  it('不再维护并发版本字段', () => {
     const manager = new SessionMilestoneManager();
-    manager.update('s1', [
-      { id: 'm1', title: '主任务', status: 'in_progress', owner: 'master' },
-      { id: 'm2', title: 'Worker 子任务', status: 'in_progress', owner: 'worker' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+    const first = manager.update('s1', [
+      { title: '实现功能', status: 'in_progress' },
+    ], { replaceAll: true });
 
-    expect(manager.findActiveMilestoneForToolSync('s1', { sourceAgent: 'worker', routeAgent: 'master' })?.id).toBe('m2');
-    expect(manager.findActiveMilestoneForToolSync('s1', { sourceAgent: 'master', routeAgent: 'master' })?.id).toBe('m1');
-    expect(manager.findActiveMilestoneForToolSync('s1', { sourceAgent: 'tester', routeAgent: 'master' })).toBeUndefined();
+    expect((first.items[0] as any).version).toBeUndefined();
+
+    const second = manager.update('s1', [
+      { title: '实现功能', status: 'completed' },
+    ]);
+
+    expect(second.items[0].status).toBe('completed');
+    expect((second.items[0] as any).version).toBeUndefined();
   });
 
-  it('工具失败时不自动阻塞进行中 milestone，仅记录同 owner 错误', () => {
+  it('内部仍可保留 metadata 扩展字段', () => {
+    const manager = new SessionMilestoneManager();
+    const snapshot = manager.update('s1', [
+      { title: '主任务', status: 'in_progress', metadata: { origin: 'test' } } as any,
+    ], { replaceAll: true });
+
+    const active = snapshot.items.find(i => i.title === '主任务')!;
+    expect(active.status).toBe('in_progress');
+    expect((active.metadata as any)?.origin).toBe('test');
+  });
+
+  it('工具失败联动仍可写入内部 metadata，但不会阻塞任务', () => {
     const manager = new SessionMilestoneManager();
     manager.update('s1', [
-      { id: 'm1', title: '主任务', status: 'in_progress', owner: 'master' },
-      { id: 'm2', title: '委派任务', status: 'in_progress', owner: 'worker' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '主任务', status: 'in_progress' },
+      { title: '待办任务', status: 'pending' },
+    ], { replaceAll: true });
 
     const snapshot = manager.noteActiveToolFailure('s1', {
       toolId: 'tool-1',
       toolName: 'shell',
       error: 'exit code 1',
-      sourceAgent: 'worker',
-      routeAgent: 'master',
     })!;
 
-    expect(snapshot.items.find(i => i.id === 'm1')?.status).toBe('in_progress');
-    const workerMilestone = snapshot.items.find(i => i.id === 'm2')!;
-    expect(workerMilestone.status).toBe('in_progress');
-    expect((workerMilestone.metadata?.toolSync as any)?.kind).toBe('tool_error_note');
-    expect((workerMilestone.metadata?.toolSync as any)?.toolName).toBe('shell');
-    expect(Array.isArray(workerMilestone.metadata?.toolErrors)).toBe(true);
-    expect(workerMilestone.description).toBeUndefined();
+    const active = snapshot.items.find(i => i.title === '主任务')!;
+    expect(active.status).toBe('in_progress');
+    expect((active.metadata?.toolSync as any)?.kind).toBe('tool_error_note');
+    expect((active.metadata?.toolSync as any)?.toolName).toBe('shell');
+    expect(Array.isArray(active.metadata?.toolErrors)).toBe(true);
   });
 });
 
@@ -208,25 +137,32 @@ describe('milestone tools', () => {
 
     const result = await updateTool.handler({
       replaceAll: true,
-      items: [{ id: 'm1', title: '接入 UI', status: 'in_progress' }],
+      items: [{ title: '接入 UI', status: 'in_progress', metadata: { from: 'ai' } }],
     }) as any;
 
     expect(result.ok).toBe(true);
-    expect(result.snapshot.items[0].owner).toBe('agent-a');
+    expect(result.snapshot.items[0].title).toBe('接入 UI');
+    expect(result.snapshot.items[0].version).toBeUndefined();
+    expect(result.snapshot.items[0].metadata).toBeUndefined();
+    expect(manager.getSnapshot('s-tool').items[0].metadata).toBeUndefined();
+
+    const schemaProps = ((updateTool.declaration.parameters as any).properties.items.items as any).properties;
+    expect(schemaProps.metadata).toBeUndefined();
 
     const list = await listTool.handler({}) as any;
     expect(list.snapshot.sessionId).toBe('s-tool');
     expect(list.snapshot.items[0].title).toBe('接入 UI');
+    expect(list.snapshot.items[0].metadata).toBeUndefined();
   });
 
-  it('委派 Agent 的 milestone 更新会路由回发起方 session，并禁止 replaceAll 覆盖主清单', async () => {
+  it('委派 Agent 的 milestone 更新会路由回发起方 session', async () => {
     const manager = new SessionMilestoneManager();
     const taskBoard = new CrossAgentTaskBoard();
     const taskId = 'agent_task_test_1';
 
     manager.update('source-session', [
-      { id: 'm0', title: '主 Agent 总清单', status: 'in_progress', owner: 'master' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+      { title: '主 Agent 总清单', status: 'in_progress' },
+    ], { replaceAll: true });
 
     taskBoard.register({
       taskId,
@@ -245,15 +181,13 @@ describe('milestone tools', () => {
     });
 
     const result = await updateTool.handler({
-      replaceAll: true,
-      items: [{ id: 'm1', title: 'Worker 子任务', status: 'completed' }],
+      items: [{ title: 'Worker 子任务', status: 'completed' }],
     }) as any;
 
     expect(result.snapshot.sessionId).toBe('source-session');
-    expect(result.snapshot.routeAgent).toBe('master');
-    expect(result.snapshot.sourceAgent).toBe('worker');
-    expect(result.snapshot.items.map((item: any) => item.id)).toEqual(['m0', 'm1']);
-    expect(result.snapshot.items.find((item: any) => item.id === 'm1')?.owner).toBe('worker');
+    expect(result.snapshot.sourceAgent).toBeUndefined();
+    expect(result.snapshot.routeAgent).toBeUndefined();
+    expect(result.snapshot.items.map((item: any) => item.title)).toEqual(['主 Agent 总清单', 'Worker 子任务']);
     expect(manager.getSnapshot(`cross-agent:master:${taskId}`).items).toHaveLength(0);
   });
 });

@@ -9,7 +9,7 @@ export const PROGRESS_PANEL_MAX_ITEMS = 8;
 
 interface ProgressListViewProps {
   snapshot?: ProgressSnapshotLike | null;
-  /** 当空间有限时最多显示多少条；TUI 面板上限固定为 8 条。 */
+  /** 未完成进度在空间有限时最多显示多少条；已完成/历史归档会完整显示。 */
   maxItems?: number;
   /** 独立面板模式会显示汇总标题。 */
   standalone?: boolean;
@@ -103,7 +103,8 @@ export function ProgressListView({
 }: ProgressListViewProps) {
   const items = snapshot?.items ?? [];
   const stats = snapshot?.stats;
-  const itemLimit = normalizeMaxItems(maxItems);
+  const isCompletedSnapshot = items.length > 0 && (stats?.open ?? 0) === 0;
+  const itemLimit = isCompletedSnapshot ? Math.max(1, items.length) : normalizeMaxItems(maxItems);
   const canCollapse = (stats?.open ?? 0) > 0;
   const effectiveCollapsed = canCollapse && collapsed;
 

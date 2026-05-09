@@ -4951,7 +4951,8 @@ function ProgressListView({
 }) {
   const items = snapshot?.items ?? [];
   const stats = snapshot?.stats;
-  const itemLimit = normalizeMaxItems(maxItems);
+  const isCompletedSnapshot = items.length > 0 && (stats?.open ?? 0) === 0;
+  const itemLimit = isCompletedSnapshot ? Math.max(1, items.length) : normalizeMaxItems(maxItems);
   const canCollapse = (stats?.open ?? 0) > 0;
   const effectiveCollapsed = canCollapse && collapsed;
   const { sorted, visibleItems, hiddenBeforeCount, hiddenAfterCount, effectiveScrollOffset, visibleCount } = useMemo4(() => {

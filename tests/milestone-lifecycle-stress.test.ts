@@ -70,39 +70,33 @@ function systemText(request: LLMRequest): string {
 }
 
 describe('Milestone lifecycle stress', () => {
-  it('长任务顺序推进时同 owner 只保留一个 in_progress，其他 owner 不受影响', () => {
+  it('长任务顺序推进时只保留一个 in_progress', () => {
     const manager = new SessionMilestoneManager();
     const steps = 40;
     manager.update('stress-session', [
       ...Array.from({ length: steps }, (_, index) => ({
-        id: `m${index + 1}`,
         title: `主线步骤 ${index + 1}`,
         status: 'pending' as const,
-        owner: 'master',
       })),
-      { id: 'worker-active', title: 'Worker 并行步骤', status: 'in_progress' as const, owner: 'worker' },
-    ], { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+    ], { replaceAll: true });
 
     for (let index = 1; index <= steps; index++) {
       const started = manager.update('stress-session', [
-        { id: `m${index}`, status: 'in_progress' },
-      ], { sourceAgent: 'master', routeAgent: 'master' });
-      const masterActive = started.items.filter(item => item.owner === 'master' && item.status === 'in_progress');
-      expect(masterActive.map(item => item.id)).toEqual([`m${index}`]);
-      expect(started.items.find(item => item.id === 'worker-active')?.status).toBe('in_progress');
+        { title: `主线步骤 ${index}`, status: 'in_progress' },
+      ]);
+      const active = started.items.filter(item => item.status === 'in_progress');
+      expect(active.map(item => item.title)).toEqual([`主线步骤 ${index}`]);
 
-      const activeVersion = started.items.find(item => item.id === `m${index}`)!.version;
       const completed = manager.update('stress-session', [
-        { id: `m${index}`, status: 'completed', expectedVersion: activeVersion },
-      ], { sourceAgent: 'master', routeAgent: 'master' });
-      expect(completed.items.find(item => item.id === `m${index}`)?.status).toBe('completed');
-      expect(completed.items.filter(item => item.owner === 'master' && item.status === 'in_progress')).toHaveLength(0);
+        { title: `主线步骤 ${index}`, status: 'completed' },
+      ]);
+      expect(completed.items.find(item => item.title === `主线步骤 ${index}`)?.status).toBe('completed');
+      expect(completed.items.filter(item => item.status === 'in_progress')).toHaveLength(0);
     }
 
     const finalSnapshot = manager.getSnapshot('stress-session');
-    expect(finalSnapshot.stats.total).toBe(steps + 1);
+    expect(finalSnapshot.stats.total).toBe(steps);
     expect(finalSnapshot.stats.completed).toBe(steps);
-    expect(finalSnapshot.items.find(item => item.id === 'worker-active')?.status).toBe('in_progress');
   });
 
   it('Backend 长任务多轮 update_milestones 不注入生命周期守卫也能完成全部步骤', async () => {
@@ -129,7 +123,7 @@ describe('Milestone lifecycle stress', () => {
                 functionCall: {
                   name: 'update_milestones',
                   callId: 'start-m1',
-                  args: { items: [{ id: 'm1', status: 'in_progress', expectedVersion: 1 }] },
+                  args: { items: [{ title: '长任务步骤 1', status: 'in_progress' }] },
                 },
               }],
               createdAt: Date.now(),
@@ -150,8 +144,8 @@ describe('Milestone lifecycle stress', () => {
                   callId: `complete-m${currentStep}-start-m${nextStep}`,
                   args: {
                     items: [
-                      { id: `m${currentStep}`, status: 'completed', expectedVersion: 2 },
-                      { id: `m${nextStep}`, status: 'in_progress', expectedVersion: 1 },
+                      { title: `长任务步骤 ${currentStep}`, status: 'completed' },
+                      { title: `长任务步骤 ${nextStep}`, status: 'in_progress' },
                     ],
                   },
                 },
@@ -170,7 +164,7 @@ describe('Milestone lifecycle stress', () => {
                 functionCall: {
                   name: 'update_milestones',
                   callId: `complete-m${LONG_TASK_STEPS}`,
-                  args: { items: [{ id: `m${LONG_TASK_STEPS}`, status: 'completed', expectedVersion: 2 }] },
+                  args: { items: [{ title: `长任务步骤 ${LONG_TASK_STEPS}`, status: 'completed' }] },
                 },
               }],
               createdAt: Date.now(),
@@ -213,11 +207,9 @@ describe('Milestone lifecycle stress', () => {
     tools.registerAll(createMilestoneToolsForApi(api));
 
     milestoneManager.update('stress-session', Array.from({ length: LONG_TASK_STEPS }, (_, index) => ({
-      id: `m${index + 1}`,
       title: `长任务步骤 ${index + 1}`,
       status: 'pending' as const,
-      owner: 'master',
-    })), { sourceAgent: 'master', routeAgent: 'master', replaceAll: true });
+    })), { replaceAll: true });
 
     await backend.chat('stress-session', '执行长任务');
 

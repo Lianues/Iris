@@ -14,13 +14,13 @@ describe('Plan Mode milestone extraction', () => {
 3. 运行测试并修复问题
 `;
 
-    const items = buildMilestonesFromApprovedPlan(plan, { owner: 'master', planFilePath: '/tmp/plan.md' });
+    const items = buildMilestonesFromApprovedPlan(plan, { planFilePath: '/tmp/plan.md' });
     expect(items.map(item => item.title)).toEqual([
       '接入后端状态管理',
       '补充 Console 进度面板',
       '运行测试并修复问题',
     ]);
-    expect(items[0]).toMatchObject({ id: 'm1', status: 'pending', owner: 'master' });
+    expect(items[0]).toMatchObject({ status: 'pending' });
     expect((items[0].metadata as any).origin).toBe('plan_mode');
     expect((items[0].metadata as any).planFilePath).toBe('/tmp/plan.md');
   });
