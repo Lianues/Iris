@@ -489,7 +489,7 @@ async function runSubAgentAsync(
   // 整个异步子代理的生命周期都在 agentContext.run(taskId, ...) 内执行，
   // 使得子代理内部所有模块（ToolLoop、ToolScheduler、LLMRouter 等）
   // 的日志自动携带 [Module|taskId] 前缀，解决子代理工具执行日志
-  // 无法区分来源的问题。对标 CC issue #31939 的 agent_id 传播。
+  // 无法区分来源的问题。
   return agentContext.run(taskId, async () => {
   const startTime = Date.now();
 

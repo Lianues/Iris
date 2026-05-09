@@ -9,9 +9,7 @@
  *   自动在前缀中追加 agent 标识，格式变为 [Module|agentLabel]。
  *   这样无需修改任何函数签名，就能在日志中区分
  *   主 LLM turn 与各子代理的工具执行。
- *
- *   对标 Claude Code issue #31939：子代理工具调用需要携带 agent_id
- *   以便区分来源。Iris 通过 AsyncLocalStorage 在日志层实现同等能力。
+ *   Iris 通过 AsyncLocalStorage 在日志层传播 agent 标识，便于排查多 Agent 调用链。
  *
  * 用法：
  *   import { createLogger } from '../logger';

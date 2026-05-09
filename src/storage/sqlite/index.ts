@@ -46,7 +46,8 @@ export class SqliteStorage extends StorageProvider {
         cwd TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        platforms TEXT NOT NULL DEFAULT '[]'
+        platforms TEXT NOT NULL DEFAULT '[]',
+        milestones TEXT
       );
     `);
 
@@ -54,6 +55,9 @@ export class SqliteStorage extends StorageProvider {
     const columns = this.db.prepare("PRAGMA table_info(session_meta)").all() as { name: string }[];
     if (!columns.some(c => c.name === 'platforms')) {
       this.db.exec("ALTER TABLE session_meta ADD COLUMN platforms TEXT NOT NULL DEFAULT '[]'");
+    }
+    if (!columns.some(c => c.name === 'milestones')) {
+      this.db.exec("ALTER TABLE session_meta ADD COLUMN milestones TEXT");
     }
   }
 
@@ -116,7 +120,7 @@ export class SqliteStorage extends StorageProvider {
   async getMeta(sessionId: string): Promise<SessionMeta | null> {
     const row = this.db
       .prepare('SELECT * FROM session_meta WHERE session_id = ?')
-      .get(sessionId) as { session_id: string; title: string; cwd: string; created_at: string; updated_at: string; platforms: string } | undefined;
+      .get(sessionId) as { session_id: string; title: string; cwd: string; created_at: string; updated_at: string; platforms: string; milestones?: string | null } | undefined;
     if (!row) return null;
     return {
       id: row.session_id,
@@ -125,27 +129,29 @@ export class SqliteStorage extends StorageProvider {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       platforms: JSON.parse(row.platforms || '[]'),
+      ...(row.milestones ? { milestones: JSON.parse(row.milestones) } : {}),
     };
   }
 
   async saveMeta(meta: SessionMeta): Promise<void> {
     this.db
       .prepare(`
-        INSERT INTO session_meta (session_id, title, cwd, created_at, updated_at, platforms)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO session_meta (session_id, title, cwd, created_at, updated_at, platforms, milestones)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_id) DO UPDATE SET
           title = excluded.title,
           cwd = excluded.cwd,
           updated_at = excluded.updated_at,
-          platforms = excluded.platforms
+          platforms = excluded.platforms,
+          milestones = excluded.milestones
       `)
-      .run(meta.id, meta.title, meta.cwd, meta.createdAt, meta.updatedAt, JSON.stringify(meta.platforms ?? []));
+      .run(meta.id, meta.title, meta.cwd, meta.createdAt, meta.updatedAt, JSON.stringify(meta.platforms ?? []), meta.milestones ? JSON.stringify(meta.milestones) : null);
   }
 
   async listSessionMetas(): Promise<SessionMeta[]> {
     const rows = this.db
       .prepare('SELECT * FROM session_meta ORDER BY updated_at DESC')
-      .all() as { session_id: string; title: string; cwd: string; created_at: string; updated_at: string; platforms: string }[];
+      .all() as { session_id: string; title: string; cwd: string; created_at: string; updated_at: string; platforms: string; milestones?: string | null }[];
     return rows.map(row => ({
       id: row.session_id,
       title: row.title,
@@ -153,6 +159,7 @@ export class SqliteStorage extends StorageProvider {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       platforms: JSON.parse(row.platforms || '[]'),
+      ...(row.milestones ? { milestones: JSON.parse(row.milestones) } : {}),
     }));
   }
 }

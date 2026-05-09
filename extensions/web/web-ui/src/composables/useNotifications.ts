@@ -6,7 +6,7 @@
  */
 
 import { ref, onMounted, onUnmounted, type Ref } from 'vue'
-import type { AgentTaskInfo, NotificationCallbacks } from '../api/types'
+import type { AgentTaskInfo, MilestoneSnapshot, NotificationCallbacks } from '../api/types'
 import { loadAuthToken } from '../utils/authToken'
 
 export interface UseNotificationsReturn {
@@ -110,6 +110,8 @@ export function useNotifications(callbacks?: NotificationCallbacks): UseNotifica
       }
     } else if (event.type === 'turn_start' && sessionId) {
       callbacks?.onTurnStart?.(sessionId, event.turnId as string, event.mode as 'chat' | 'task-notification')
+    } else if (event.type === 'milestones_update' && sessionId) {
+      callbacks?.onMilestonesUpdate?.(sessionId, event.snapshot as MilestoneSnapshot)
     } else if (sessionId) {
       // 标准聊天事件通过 WS 回退接收
       callbacks?.onChatEvent?.(sessionId, event)

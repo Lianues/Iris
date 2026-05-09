@@ -19,6 +19,7 @@ import { WriteFileRenderer } from './write-file';
 import { DeleteCodeRenderer } from './delete-code';
 import { InsertCodeRenderer } from './insert-code';
 import { AskQuestionFirstRenderer } from './ask-question-first';
+import { MilestonesRenderer } from './milestones';
 
 const renderers: Record<string, FC<ToolRendererProps>> = {
   shell: ShellRenderer,
@@ -32,6 +33,8 @@ const renderers: Record<string, FC<ToolRendererProps>> = {
   delete_code: DeleteCodeRenderer,
   insert_code: InsertCodeRenderer,
   AskQuestionFirst: AskQuestionFirstRenderer,
+  update_milestones: MilestonesRenderer,
+  list_milestones: MilestonesRenderer,
 };
 
 export function getToolRenderer(toolName: string): FC<ToolRendererProps> {

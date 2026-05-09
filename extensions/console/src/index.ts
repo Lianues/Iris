@@ -222,6 +222,8 @@ export interface ConsolePlatformOptions {
   modeName?: string;
   modelName: string;
   modelId: string;
+  /** 当前模型的 provider 类型 */
+  modelProvider?: string;
   contextWindow?: number;
   configDir: string;
   /** 当前 Agent 名称（多 Agent 模式下显示在 TUI 中） */
@@ -397,6 +399,80 @@ function printHeadlessTransitionMessage(): void {
   } catch { /* ignore */ }
 }
 
+// ── 思考强度 — Provider 适配 ──────────────────────────────
+
+/** Gemini thinkingLevel 枚举值映射 */
+const GEMINI_LEVEL_MAP: Record<string, string> = {
+  minimal: 'THINKING_LEVEL_MINIMAL',
+  low:     'THINKING_LEVEL_LOW',
+  medium:  'THINKING_LEVEL_MEDIUM',
+  high:    'THINKING_LEVEL_HIGH',
+};
+
+/**
+ * 根据 provider 和 level 构造要深合并到 requestBody 的补丁。
+ * 只设置叶级 key，深合并时不会覆盖同级其他参数。
+ */
+function buildThinkingPatch(provider: string, level: string): Record<string, unknown> | null {
+  switch (provider) {
+    case 'claude': {
+      // none = 显式关闭思考（thinking.type: 'disabled'），不设 output_config.effort
+      if (level === 'none') {
+        return {
+          thinking: { type: 'disabled' },
+        };
+      }
+      return  {
+        thinking: { type: 'adaptive' },
+        output_config: { effort: level },
+      };
+    }
+    case 'gemini':
+      return {
+        generationConfig: {
+          thinkingConfig: {
+            includeThoughts: true,
+            thinkingLevel: GEMINI_LEVEL_MAP[level] ?? 'THINKING_LEVEL_MEDIUM',
+          },
+        },
+      };
+    case 'openai-compatible':
+      return { reasoning_effort: level };
+    case 'openai-responses':
+      return {
+        reasoning: { effort: level, summary: 'auto' },
+      };
+    default:
+      // 未知 provider：不做任何修改
+      return null;
+  }
+}
+
+/**
+ * 返回 provider 对应的、需要在 disable 时删除的 requestBody 路径列表。
+ * 顶层 key（不含 '.'）会走 removeCurrentModelRequestBodyKeys；
+ * 嵌套路径会走 removeCurrentModelRequestBodyPaths。
+ */
+function getThinkingRemovePaths(provider: string): string[] {
+  switch (provider) {
+    case 'claude':
+      return ['thinking.type', 'output_config.effort'];
+    case 'gemini':
+      return [
+        'generationConfig.thinkingConfig.includeThoughts',
+        'generationConfig.thinkingConfig.thinkingLevel',
+      ];
+    case 'openai-compatible':
+      return ['reasoning_effort'];
+    case 'openai-responses':
+      return ['reasoning.effort', 'reasoning.summary'];
+    default:
+      return [];
+  }
+}
+
+
+
 export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatform {
   private sessionId: string;
   private modeName?: string;
@@ -428,7 +504,10 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private currentToolIds = new Set<string>();
 
   /** 当前思考强度层级（用于模型切换后重新应用） */
-  private currentThinkingEffort: import('./app-types').ThinkingEffortLevel = 'none';
+  private currentThinkingEffort: import('./app-types').ThinkingEffortLevel = 'not-set';
+
+  /** 当前模型的 provider 类型（用于思考强度适配） */
+  private modelProvider: string = 'gemini';
 
   /** 当前正在查看详情的工具 ID 栈 */
   private _toolDetailStack: string[] = [];
@@ -470,6 +549,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.modelName = options.modelName;
     this.contextWindow = options.contextWindow;
     this.agentName = options.agentName;
+    this.modelProvider = options.modelProvider ?? 'gemini';
     this.initWarnings = options.initWarnings ?? [];
     this.api = options.api;
     this.isCompiledBinary = options.isCompiledBinary ?? false;
@@ -506,6 +586,15 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.appHandle?.setPlanModeActive(active);
     } catch {
       this.appHandle?.setPlanModeActive(false);
+    }
+  }
+
+  private async syncMilestones(): Promise<void> {
+    try {
+      const snapshot = await (this.backend as any).loadMilestones?.(this.sessionId) ?? this.backend.getMilestones?.(this.sessionId) as any;
+      this.appHandle?.setMilestones(snapshot ?? null);
+    } catch {
+      this.appHandle?.setMilestones(null);
     }
   }
 
@@ -747,6 +836,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.appHandle?.addMessage('assistant', text);
     });
 
+    this.onBackend('milestones:update', (sid: string, snapshot: any) => {
+      if (sid === this.sessionId) {
+        this.appHandle?.setMilestones(snapshot);
+      }
+    });
+
     this.onBackend('auto-compact', (sid: string, summaryText: string) => {
       if (sid === this.sessionId) {
         const fullText = `[Context Summary]\n\n${summaryText}`;
@@ -807,6 +902,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onReady: (handle: AppHandle) => {
           this.appHandle = handle;
           this.syncPlanModeStatus();
+          void this.syncMilestones();
           resolve();
         },
         onSubmit: (text: string) => this.handleInput(text),
@@ -875,6 +971,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         },
         onNewSession: () => this.handleNewSession(),
         onLoadSession: (id: string) => this.handleLoadSession(id),
+        onDeleteSession: (id: string) => this.handleDeleteSession(id),
         onListSessions: () => this.handleListSessions(),
         onRunCommand: (cmd: string) => this.handleRunCommand(cmd),
         onListModels: () => this.handleListModels(),
@@ -914,6 +1011,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         remoteHost: this._remoteHost || undefined,
         onThinkingEffortChange: (level: import('./app-types').ThinkingEffortLevel) => this.applyThinkingEffort(level),
         agentName: this.agentName,
+        modelProvider: this.modelProvider,
+        thinkingControlEnabled: this.getThinkingControlEnabled(),
         modeName: this.modeName,
         modelId: this.modelId,
         modelName: this.modelName,
@@ -1037,6 +1136,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         this.modelName = modelInfo.modelName;
         this.modelId = modelInfo.modelId;
         this.contextWindow = modelInfo.contextWindow;
+        if (modelInfo.provider) this.modelProvider = modelInfo.provider;
       }
 
       this.sessionId = generateSessionId();
@@ -1121,6 +1221,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         this.modelName = modelInfo.modelName ?? this.modelName;
         this.modelId = modelInfo.modelId ?? this.modelId;
         this.contextWindow = modelInfo.contextWindow ?? this.contextWindow;
+        if (modelInfo.provider) this.modelProvider = modelInfo.provider;
       }
 
       this.sessionId = generateSessionId();
@@ -1334,6 +1435,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.modelName = modelInfo.modelName ?? this.modelName;
       this.modelId = modelInfo.modelId ?? this.modelId;
       this.contextWindow = modelInfo.contextWindow ?? this.contextWindow;
+      if (modelInfo.provider) this.modelProvider = modelInfo.provider;
     }
 
     // 新 session
@@ -1375,6 +1477,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.currentToolIds.clear();
     this._activeHandles.clear();
     this.appHandle?.setPlanModeActive(false);
+    this.appHandle?.setMilestones(null);
   }
 
   /** 打开工具详情 */
@@ -1537,16 +1640,25 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.modelName = info.modelName;
       this.modelId = info.modelId;
       this.contextWindow = info.contextWindow;
-      // 模型切换后重新应用当前思考强度到新 provider
-      if (this.currentThinkingEffort !== 'none') {
+      // 从 getCurrentModelInfo 读取 provider（比 switchModel 返回值更可靠）
+      const currentInfo = this.backend.getCurrentModelInfo?.() as { provider?: string; thinkingControl?: boolean } | undefined;
+      // 模型切换：先移除旧 provider 的运行时补丁，再同步 provider，再重新应用
+      if (this.currentThinkingEffort !== 'not-set') {
+        this.removeThinkingRuntimePatch();
+      }
+      if (currentInfo?.provider) this.modelProvider = currentInfo.provider;
+      if (this.currentThinkingEffort !== 'not-set') {
         this.applyThinkingEffort(this.currentThinkingEffort);
       }
+      const thinkingControlEnabled = currentInfo?.thinkingControl !== false;
       return {
         ok: true,
         message: `当前模型已切换为：${info.modelName}  ${info.modelId}`,
         modelName: info.modelName,
         modelId: info.modelId,
         contextWindow: info.contextWindow,
+        modelProvider: this.modelProvider,
+        thinkingControlEnabled,
       };
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err);
@@ -1559,21 +1671,65 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     const router = this.api?.router as Record<string, any> | undefined;
     if (!router) return;
 
-    if (level === 'none') {
-      router.removeCurrentModelRequestBodyKeys?.('thinking', 'output_config');
-    } else {
-      router.patchCurrentModelRequestBody?.({
-        thinking: { type: 'enabled', budget_tokens: 10000 },
-        output_config: { effort: level },
-      });
+    // 检查 thinkingControl 配置
+    const config = router.getModelConfig?.() as Record<string, unknown> | undefined;
+    if (config?.thinkingControl === false) return;
+
+    const provider = this.modelProvider;
+
+    // 先移除旧的运行时补丁，避免级别切换时残留（如 high→none 残留 output_config.effort）
+    this.removeThinkingRuntimePatch();
+
+    if (level === 'not-set') {
+      // not-set = 便捷控制不设置任何值，完全由 YAML requestBody 决定
+    } else  {
+      const patch = buildThinkingPatch(provider, level);
+      if (patch) {
+        router.patchCurrentModelRequestBody?.(patch);
+      }
     }
   }
+
+  /**
+   * 移除当前 provider 的思考强度运行时补丁。
+   * 只删除由便捷控制设置的叶级 key，不误伤用户 YAML 配置和同级其他参数。
+   */
+  private removeThinkingRuntimePatch(): void {
+    const router = this.api?.router as Record<string, any> | undefined;
+    if (!router) return;
+    const paths = getThinkingRemovePaths(this.modelProvider);
+    if (paths.length === 0) return;
+
+    // 区分顶层 key 和嵌套路径
+    const topLevelKeys = paths.filter(p => !p.includes('.'));
+    const nestedPaths = paths.filter(p => p.includes('.'));
+
+    if (topLevelKeys.length > 0) {
+      router.removeCurrentModelRequestBodyKeys?.(...topLevelKeys);
+    }
+    if (nestedPaths.length > 0) {
+      router.removeCurrentModelRequestBodyPaths?.(...nestedPaths);
+    }
+  }
+
+  /** 读取当前模型的 thinkingControl 配置（默认 true） */
+  private getThinkingControlEnabled(): boolean {
+    try {
+      const router = this.api?.router as Record<string, any> | undefined;
+      const config = router?.getModelConfig?.() as Record<string, unknown> | undefined;
+      if (config?.thinkingControl === false) return false;
+    } catch { /* ignore */ }
+    return true;
+  }
+
+
 
   private async handleLoadSession(id: string): Promise<void> {
     this.sessionId = id;
     this.currentToolIds.clear();
     this._activeHandles.clear();
     this.syncPlanModeStatus();
+    await this.syncMilestones();
 
     const history = await this.backend.getHistory?.(id) ?? [];
 
@@ -1611,6 +1767,20 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       if (msg.usageMetadata) {
         this.appHandle?.setUsage(msg.usageMetadata);
       }
+    }
+  }
+
+  private async handleDeleteSession(id: string): Promise<{ ok: boolean; message: string; deletedCurrent?: boolean }> {
+    try {
+      const deletedCurrent = id === this.sessionId;
+      this.backend.abortChat?.(id);
+      await this.backend.clearSession(id);
+      if (deletedCurrent) {
+        this.handleNewSession();
+      }
+      return { ok: true, message: '已删除历史对话。', deletedCurrent };
+    } catch (err) {
+      return { ok: false, message: `删除失败：${err instanceof Error ? err.message : String(err)}` };
     }
   }
 
@@ -2560,6 +2730,7 @@ export default async function consoleFactory(rawContext: Record<string, unknown>
     modeName: context.config?.system?.defaultMode ?? 'default',
     modelName: currentModel.modelName ?? 'default',
     modelId: currentModel.modelId ?? '',
+    modelProvider: (currentModel as any).provider,
     contextWindow: currentModel.contextWindow,
     configDir: context.configDir ?? '',
     agentName: context.agentName,

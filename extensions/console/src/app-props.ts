@@ -38,6 +38,7 @@ export interface AppProps {
   onCloseToolDetail: () => void;
   onNewSession: () => void;
   onLoadSession: (id: string) => Promise<void>;
+  onDeleteSession?: (id: string) => Promise<{ ok: boolean; message: string; deletedCurrent?: boolean }>;
   onListSessions: () => Promise<SessionMeta[]>;
   onRunCommand: (cmd: string) => { output: string; cwd: string };
   onListModels: () => { models: LLMModelInfo[]; defaultModelName: string };
@@ -79,6 +80,10 @@ export interface AppProps {
   remoteHost?: string;
   onThinkingEffortChange?: (level: ThinkingEffortLevel) => void;
   agentName?: string;
+  /** 当前模型的 provider 类型（用于思考强度级别适配） */
+  modelProvider?: string;
+  /** 思考强度便捷控制是否启用（来自 LLMConfig.thinkingControl，默认 true） */
+  thinkingControlEnabled?: boolean;
   /** 初始化过程中的提示信息（首屏展示） */
   initWarnings?: string[];
   /** initWarnings 的颜色（默认黄色警告） */

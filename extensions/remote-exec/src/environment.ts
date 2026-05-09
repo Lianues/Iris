@@ -1,12 +1,12 @@
 /**
  * environment.ts
  *
- * 维护"当前活动环境"的状态。
+ * 维护"当前活动服务器"的状态。
  *
  * 状态作用域：按对话（session）隔离。
  * 通过 SessionMeta.remoteExecEnvironment 持久化，与对话历史天然一致。
  *
- * 暴露 EnvironmentManager 给 wrap.ts 和 switch_environment 工具调用。
+ * 暴露 EnvironmentManager 给 wrap.ts 和 switch_server 工具调用。
  */
 
 import type { IrisAPI } from 'irises-extension-sdk';
@@ -34,7 +34,7 @@ export class EnvironmentManager {
   ) {}
 
   /** 
-   * 获取当前会话的环境（同步）。
+   * 获取当前会话的服务器（同步）。
    * 调用前需确保 onBeforeLLMCall hook 已调用 ensureLoaded() 预加载。
    */
   getActive(): string {
@@ -55,7 +55,7 @@ export class EnvironmentManager {
   }
 
   /**
-   * 预加载当前会话的环境（由 onBeforeLLMCall hook 在 turn 开始时调用）。
+   * 预加载当前会话的服务器（由 onBeforeLLMCall hook 在 turn 开始时调用）。
    * 从 session meta 中读取 remoteExecEnvironment，验证服务器仍存在后写入缓存。
    */
   async ensureLoaded(sessionId: string): Promise<void> {
@@ -73,14 +73,14 @@ export class EnvironmentManager {
   }
 
   /**
-   * 切换活动环境（写入 session meta，立即持久化）。
-   * switch_environment 工具和 /env 命令调用。
+   * 切换活动服务器（写入 session meta，立即持久化）。
+   * switch_server 工具和 /env 命令调用。
    */
   async setActive(name: string): Promise<{ previous: string; current: string }> {
     const previous = this.getActive();
 
     if (name !== LOCAL_ENV && !this.getServers().has(name)) {
-      throw new Error(`未知环境 "${name}"。可用环境：${this.listEnvs().map(e => e.name).join(', ')}`);
+      throw new Error(`未知服务器 "${name}"。可用服务器：${this.listEnvs().map(e => e.name).join(', ')}`);
     }
 
     const sid = this.api.agentManager?.getActiveSessionId?.();
@@ -106,14 +106,14 @@ export class EnvironmentManager {
     this.sessionCache.delete(sessionId);
   }
 
-  /** 当前活动环境对应的 ServerEntry；返回 null 表示本地环境 */
+  /** 当前活动服务器对应的 ServerEntry；返回 null 表示本机 */
   getActiveServer(): ServerEntry | null {
     const name = this.getActive();
     if (name === LOCAL_ENV) return null;
     return this.getServers().get(name) ?? null;
   }
 
-  /** 列出所有可用环境（local + 所有 Host） */
+  /** 列出所有可用服务器（local + 所有 Host） */
   listEnvs(): EnvSummary[] {
     const list: EnvSummary[] = [
       { name: LOCAL_ENV, isLocal: true, description: '本机（不通过 SSH，直接在本地执行所有工具）' },

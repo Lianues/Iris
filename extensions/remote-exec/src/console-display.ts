@@ -79,8 +79,8 @@ function registerEnvironmentSlashCommands(api: IrisAPI, envMgr: EnvironmentManag
           const { previous, current } = await envMgr.setActive(name);
           return {
             message: previous === current
-              ? `当前已经在环境：${current}`
-              : `已切换环境：${previous} → ${current}`,
+              ? `当前已经在服务器：${current}`
+              : `已切换服务器：${previous} → ${current}`,
             label: 'env',
           };
         }
@@ -88,13 +88,13 @@ function registerEnvironmentSlashCommands(api: IrisAPI, envMgr: EnvironmentManag
         const store = api.globalStore.agent(api.agentName ?? '__global__').namespace('remote-exec');
         const prev = store.get<string>('activeEnvironment') ?? 'local';
         store.set('activeEnvironment', name);
-        const msg = prev === name ? `已将默认环境设为：${name}（新对话生效）` : `已将默认环境从 ${prev} 改为：${name}（新对话生效）`;
+        const msg = prev === name ? `已将默认服务器设为：${name}（新对话生效）` : `已将默认服务器从 ${prev} 改为：${name}（新对话生效）`;
         return { message: msg, label: 'env' };
       };
 
       slashRegistrations.push(service.register({
         name: '/env',
-        description: '查看或快速切换 remote-exec 执行环境',
+        description: '查看或快速切换 remote-exec 执行服务器',
         acceptsArgs: true,
         getArgSuggestions({ arg }) {
           const q = arg.trim().toLowerCase();
@@ -103,7 +103,7 @@ function registerEnvironmentSlashCommands(api: IrisAPI, envMgr: EnvironmentManag
             .map((env) => ({
               value: env.name,
               description: env.isLocal
-                ? '本地执行环境'
+                ? '本地执行'
                 : [env.description, env.hostName ? `${env.user ?? '?'}@${env.hostName}` : undefined].filter(Boolean).join(' · '),
             }));
         },
@@ -112,11 +112,11 @@ function registerEnvironmentSlashCommands(api: IrisAPI, envMgr: EnvironmentManag
           if (name) return switchTo(name);
           const current = envMgr.getActive();
           const lines = [
-            `当前环境：${current}`,
-            '可用环境：',
+            `当前服务器：${current}`,
+            '可用服务器：',
             ...envMgr.listEnvs().map((env) => `  - ${env.name}${env.isLocal ? ' (local)' : env.hostName ? ` (${env.user ?? '?'}@${env.hostName})` : ''}`),
             '',
-            '用法：/env <环境名>',
+            '用法：/env <服务器名>',
           ];
           return { message: lines.join('\n'), label: 'env' };
         },

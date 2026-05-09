@@ -63,6 +63,7 @@
         @clear-message-action-error="clearMessageActionError"
         @delete="deleteMessage"
       />
+      <MilestonePanel :snapshot="milestoneSnapshot" />
       <MessageQueueBar
         :queue="queue"
         @remove="handleQueueRemove"
@@ -90,20 +91,26 @@ import { useContextUsage } from '../composables/useContextUsage'
 import { useSlashCommands } from '../composables/useSlashCommands'
 import { useSessions } from '../composables/useSessions'
 import { useMessageQueue } from '../composables/useMessageQueue'
+import { useNotifications } from '../composables/useNotifications'
 import * as api from '../api/client'
 import type { Message } from '../api/types'
 import MessageList from '../components/MessageList.vue'
 import ChatInput from '../components/ChatInput.vue'
 import MessageQueueBar from '../components/MessageQueueBar.vue'
+import MilestonePanel from '../components/MilestonePanel.vue'
 import ToolApprovalBar from '../components/ToolApprovalBar.vue'
 import DiffApprovalDialog from '../components/DiffApprovalDialog.vue'
 import AppSelect from '../components/AppSelect.vue'
 
 const { currentSessionId } = useSessions()
-const { messages, messagesLoading, messagesError, messageActionError, sending, streamingText, isStreaming, streamingThought, streamingThoughtDurationMs, armedDeleteMessageIndex, deletingMessageIndex, retryInfo, clearMessageActionError, currentSessionSending, sendMessage, retryLastMessage, deleteMessage, reloadMessages, undoLastMessage, redoLastMessage } = useChat()
+const { messages, messagesLoading, messagesError, messageActionError, sending, streamingText, isStreaming, streamingThought, streamingThoughtDurationMs, armedDeleteMessageIndex, deletingMessageIndex, retryInfo, milestoneSnapshot, applyMilestoneSnapshot, clearMessageActionError, currentSessionSending, sendMessage, retryLastMessage, deleteMessage, reloadMessages, undoLastMessage, redoLastMessage } = useChat()
 const { totalTokenCount, contextWindow, usageLabel, usagePercent, setContextWindow } = useContextUsage()
 const { isSlashCommand, executeCommand } = useSlashCommands()
 const { queue, enqueue, remove: queueRemove, clear: queueClear, reorder: queueReorder, update: queueUpdate, size: queueSize } = useMessageQueue()
+
+useNotifications({
+  onMilestonesUpdate: (sessionId, snapshot) => applyMilestoneSnapshot(snapshot, sessionId),
+})
 
 // ---- 模型选择器 ----
 const currentModelName = ref<string | null>(null)

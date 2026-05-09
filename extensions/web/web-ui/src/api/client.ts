@@ -7,7 +7,7 @@
 import type {
   ImageInput, DocumentInput, ChatImageAttachment, ChatDocumentAttachment, Message, StatusInfo, ChatCallbacks, DetectResponse, DeployResponse, DeploySyncCloudflareResponse,
   DeployFormOptions, DeployStateResponse, DeployPreviewResponse,
-  CfStatusResponse, CfDnsRecord, CfDnsInput, CfSetupResponse, SessionSummary, ConfigModelListResponse, PlanModeResponse,
+  CfStatusResponse, CfDnsRecord, CfDnsInput, CfSetupResponse, SessionSummary, ConfigModelListResponse, PlanModeResponse, MilestoneSnapshot,
 } from './types'
 import { clearManagementToken, loadManagementToken } from '../utils/managementToken'
 import { clearAuthToken, loadAuthToken } from '../utils/authToken'
@@ -400,6 +400,11 @@ export async function redoMessage(sessionId: string): Promise<{ ok: boolean; cha
   return res.json()
 }
 
+export async function getMilestones(sessionId: string): Promise<{ snapshot: MilestoneSnapshot | null }> {
+  const res = await request(`/api/sessions/${encodeURIComponent(sessionId)}/milestones`)
+  return res.json()
+}
+
 // ============ Shell / 模型切换 ============
 
 export async function runShellCommand(command: string): Promise<{ output: string; cwd: string }> {
@@ -508,6 +513,7 @@ function dispatchChatStreamEvent(rawBlock: string, callbacks: ChatCallbacks): vo
       case 'user_token': callbacks.onUserToken?.(event.tokenCount); break
       case 'agent_notification': callbacks.onAgentNotification?.(event.taskId, event.status, event.summary); break
       case 'turn_start': callbacks.onTurnStart?.(event.turnId, event.mode); break
+      case 'milestones_update': callbacks.onMilestonesUpdate?.(event.snapshot); break
     }
   } catch {
     // 忽略解析错误（如心跳）

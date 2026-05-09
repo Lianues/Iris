@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { ToolInvocation, UsageMetadata } from 'irises-extension-sdk';
+import type { MilestoneSnapshotLike, ToolInvocation, UsageMetadata } from 'irises-extension-sdk';
 import type { ChatMessage, MessagePart, NotificationPayload } from '../components/MessageItem';
 import type { RetryInfo } from '../components/GeneratingTimer';
 import type { MessageMeta, ToolDetailData, ToolDetailBreadcrumb } from '../app-types';
@@ -28,6 +28,8 @@ export interface AppHandle {
   clearMessages(): void;
   /** 更新当前会话 Plan Mode 指示状态 */
   setPlanModeActive(active: boolean): void;
+  /** 更新当前会话 milestone/task 清单快照 */
+  setMilestones(snapshot: MilestoneSnapshotLike | null): void;
   setUserTokens(tokenCount: number): void;
   addSummaryMessage(summaryText: string, tokenCount?: number): void;
   commitTools(): void;
@@ -109,6 +111,8 @@ export interface UseAppHandleReturn {
   toolInvocations: ToolInvocation[];
   /** 当前会话是否处于 Plan Mode */
   planModeActive: boolean;
+  /** 当前会话 milestone/task 清单快照 */
+  milestoneSnapshot: MilestoneSnapshotLike | null;
   /** 当前后台运行中的异步子代理数量 */
   backgroundTaskCount: number;
   /** 当前后台运行中的委派任务数量（delegate_to_agent），与子代理分开计数 */
@@ -135,6 +139,9 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
   const [pendingApprovals, setPendingApprovals] = useState<ToolInvocation[]>([]);
   const [pendingApplies, setPendingApplies] = useState<ToolInvocation[]>([]);
   const [planModeActive, setPlanModeActive] = useState(false);
+  const [milestoneSnapshot, setMilestoneSnapshot] = useState<MilestoneSnapshotLike | null>(null);
+  const milestoneSnapshotRef = useRef<MilestoneSnapshotLike | null>(null);
+  const archivedMilestoneUpdatedAtRef = useRef<number | null>(null);
   const [toolInvocations, setToolInvocationsState] = useState<ToolInvocation[]>([]);
   const [backgroundTaskCount, setBackgroundTaskCount] = useState(0);
   // [职责分离] 委派任务独立计数，不与异步子代理的 spinner / token 混用
@@ -171,6 +178,39 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
   }, []);
 
   useEffect(() => {
+    const isCompletedMilestoneSnapshot = (snapshot: MilestoneSnapshotLike | null): snapshot is MilestoneSnapshotLike => {
+      return !!snapshot && snapshot.items.length > 0 && snapshot.stats.open === 0;
+    };
+
+    const consumeCompletedMilestoneSnapshot = (): MilestoneSnapshotLike | null => {
+      const snapshot = milestoneSnapshotRef.current;
+      if (!isCompletedMilestoneSnapshot(snapshot)) return null;
+      if (archivedMilestoneUpdatedAtRef.current === snapshot.updatedAt) return null;
+      archivedMilestoneUpdatedAtRef.current = snapshot.updatedAt;
+      milestoneSnapshotRef.current = null;
+      setMilestoneSnapshot(null);
+      return snapshot;
+    };
+
+    const appendMilestoneArchive = (prev: ChatMessage[], snapshot: MilestoneSnapshotLike): ChatMessage[] => {
+      const part: MessagePart = { type: 'milestone_snapshot', snapshot };
+      const last = prev[prev.length - 1];
+      if (last?.role === 'assistant' && !last.isError && !last.isCommand && !last.isSummary && !last.isNotificationSummary) {
+        const copy = [...prev];
+        copy[copy.length - 1] = {
+          ...last,
+          parts: mergeMessageParts([...last.parts, part]),
+        };
+        return copy;
+      }
+      return [...prev, {
+        id: nextMsgId(),
+        role: 'assistant',
+        parts: [part],
+        createdAt: Date.now(),
+      }];
+    };
+
     const handle: AppHandle = {
       addMessage(role, content, meta) {
         clearRedo(undoRedoRef.current);
@@ -180,8 +220,10 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
           return;
         }
         // 发送新用户消息时，清除错误消息、命令消息、以及残留的空 assistant 占位消息
+        const completedMilestoneSnapshot = consumeCompletedMilestoneSnapshot();
         setMessages((prev) => [
-          ...prev.filter((m) => !m.isError && !m.isCommand && !(m.role === 'assistant' && m.parts.length === 0)),
+          ...(completedMilestoneSnapshot ? appendMilestoneArchive(prev, completedMilestoneSnapshot) : prev)
+            .filter((m) => !m.isError && !m.isCommand && !(m.role === 'assistant' && m.parts.length === 0)),
           { id: nextMsgId(), role, parts: [textPart], createdAt: Date.now(), ...meta },
         ]);
       },
@@ -206,8 +248,10 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
           setMessages((prev) => appendAssistantParts(prev, normalizedParts, meta));
           return;
         }
+        const completedMilestoneSnapshot = consumeCompletedMilestoneSnapshot();
         setMessages((prev) => [
-          ...prev.filter((m) => !m.isError && !m.isCommand && !(m.role === 'assistant' && m.parts.length === 0)),
+          ...(completedMilestoneSnapshot ? appendMilestoneArchive(prev, completedMilestoneSnapshot) : prev)
+            .filter((m) => !m.isError && !m.isCommand && !(m.role === 'assistant' && m.parts.length === 0)),
           { id: nextMsgId(), role, parts: normalizedParts, createdAt: Date.now(), ...meta },
         ]);
       },
@@ -351,9 +395,26 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
         setStreamingParts([]);
         streamPartsRef.current = [];
         uncommittedStreamPartsRef.current = [];
+        milestoneSnapshotRef.current = null;
+        archivedMilestoneUpdatedAtRef.current = null;
+        setMilestoneSnapshot(null);
       },
       setPlanModeActive(active: boolean) {
         setPlanModeActive(active);
+      },
+      setMilestones(snapshot: MilestoneSnapshotLike | null) {
+        const next = snapshot && snapshot.items.length > 0 ? snapshot : null;
+        if (next && next.stats.open > 0) {
+          // 新一轮未完成任务出现后，允许未来完成态再次归档。
+          archivedMilestoneUpdatedAtRef.current = null;
+        }
+        if (next && next.stats.open === 0 && archivedMilestoneUpdatedAtRef.current === next.updatedAt) {
+          milestoneSnapshotRef.current = null;
+          setMilestoneSnapshot(null);
+          return;
+        }
+        milestoneSnapshotRef.current = next;
+        setMilestoneSnapshot(next);
       },
       commitTools,
       setUserTokens(tokenCount: number) {
@@ -506,6 +567,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
     pendingApprovals,
     pendingApplies,
     planModeActive,
+    milestoneSnapshot,
     toolInvocations,
     backgroundTaskCount,
     delegateTaskCount,

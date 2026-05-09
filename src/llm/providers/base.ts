@@ -52,25 +52,51 @@ export interface LLMProviderLike {
   setLogging(logsDir: string): void;
   chat(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse>;
   chatStream(request: LLMRequest, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk>;
-  /** 运行时浅合并 requestBody 覆盖（顶层 key 整体��换，不递归合并） */
+  /** 运行时深合并 requestBody 覆盖（递归合并嵌套对象） */
   patchRequestBodyOverrides?(patch: Record<string, unknown>): void;
-  /** 运行时移除 requestBody 覆盖中的指定 key */
+  /** 运行时按点分路径删除 requestBody 覆盖中的嵌套 key（如 'thinking.type'） */
+  removeRequestBodyOverridePaths?(...paths: string[]): void;
+  /** 运行时移除 requestBody 覆盖中的指定顶层 key */
   removeRequestBodyOverrideKeys?(...keys: string[]): void;
   readonly name: string;
 }
 
+/**
+ * LLM Provider 实现。
+ *
+ * requestBody 覆盖分为两层：
+ *   1. runtimeOverrides  — 运行时补丁（如便捷思考强度控制），低优先级
+ *   2. staticOverrides   — YAML requestBody 配置，高优先级
+ *
+ * 最终合并顺序：encodeRequest() ← runtimeOverrides ← staticOverrides
+ * 即用户在 YAML 中显式设置的字段始终胜出。
+ */
 export class LLMProvider implements LLMProviderLike {
   private providerName: string;
   /** 日志目录。有值时启用请求/响应日志，每个 Provider 实例独立。 */
   private loggingDir?: string;
+  /** 运行时请求体覆盖（来自便捷控制等），优先级低于 staticOverrides */
+  private runtimeOverrides?: Record<string, unknown>;
 
   constructor(
     private format: FormatAdapter,
     private endpoint: EndpointConfig,
     providerName?: string,
-    private requestBodyOverrides?: Record<string, unknown>,
+    /** 静态请求体覆盖（来自 YAML requestBody），优先级高于运行时补丁 */
+    private staticOverrides?: Record<string, unknown>,
   ) {
     this.providerName = providerName ?? 'LLMProvider';
+  }
+
+  /**
+   * 合并后的最终 requestBody 覆盖。
+   * 合并顺序：runtimeOverrides ← staticOverrides（static 优先）
+   */
+  private get effectiveOverrides(): Record<string, unknown> | undefined {
+    if (!this.runtimeOverrides && !this.staticOverrides) return undefined;
+    if (!this.runtimeOverrides) return this.staticOverrides;
+    if (!this.staticOverrides) return this.runtimeOverrides;
+    return deepMergeObjects(this.runtimeOverrides, this.staticOverrides);
   }
 
   /** 启用请求日志，日志写入指定目录 */
@@ -80,31 +106,74 @@ export class LLMProvider implements LLMProviderLike {
 
   /** 非流式调用 */
   async chat(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
-    const body = mergeRequestBody(this.format.encodeRequest(request, false), this.requestBodyOverrides);
+    const body = mergeRequestBody(this.format.encodeRequest(request, false), this.effectiveOverrides);
     const res = await sendRequest(this.endpoint, body, false, undefined, signal, this.loggingDir);
     return processResponse(res, this.format);
   }
 
   /** 流式调用 */
   async *chatStream(request: LLMRequest, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
-    const body = mergeRequestBody(this.format.encodeRequest(request, true), this.requestBodyOverrides);
+    const body = mergeRequestBody(this.format.encodeRequest(request, true), this.effectiveOverrides);
     const res = await sendRequest(this.endpoint, body, true, undefined, signal, this.loggingDir);
     yield* processStreamResponse(res, this.format);
   }
 
-  /** 运行时浅合并 requestBody 覆盖（顶层 key 整体替换，不递归合并） */
+  /** 运行时深合并 requestBody 覆盖（递归合并嵌套对象，不会覆盖整个父对象） */
   patchRequestBodyOverrides(patch: Record<string, unknown>): void {
-    this.requestBodyOverrides = { ...this.requestBodyOverrides, ...patch };
+    this.runtimeOverrides = this.runtimeOverrides
+      ? deepMergeObjects(this.runtimeOverrides, patch)
+      : { ...patch };
   }
 
-  /** 运行时移除 requestBody 覆盖中的指定 key */
+  /** 运行时移除 requestBody 覆盖中的指定顶层 key */
   removeRequestBodyOverrideKeys(...keys: string[]): void {
-    if (!this.requestBodyOverrides) return;
+    if (!this.runtimeOverrides) return;
     for (const key of keys) {
-      delete this.requestBodyOverrides[key];
+      delete this.runtimeOverrides[key];
     }
-    if (Object.keys(this.requestBodyOverrides).length === 0) {
-      this.requestBodyOverrides = undefined;
+    if (Object.keys(this.runtimeOverrides).length === 0) {
+      this.runtimeOverrides = undefined;
+    }
+  }
+
+  /**
+   * 按点分路径删除 requestBody 覆盖中的嵌套 key。
+   *
+   * 例如 removeRequestBodyOverridePaths('thinking.type', 'output_config.effort')
+   * 只删除 thinking.type 和 output_config.effort 两个叶节点，
+   * 保留 thinking / output_config 下的其他 key。
+   * 删除后递归清理空的祖先对象。
+   */
+  removeRequestBodyOverridePaths(...paths: string[]): void {
+    if (!this.runtimeOverrides) return;
+    for (const path of paths) {
+      const segments = path.split('.');
+      if (segments.length === 1) {
+        delete this.runtimeOverrides[segments[0]];
+      } else {
+        let obj: Record<string, unknown> = this.runtimeOverrides;
+        const parents: Array<{ obj: Record<string, unknown>; key: string }> = [];
+        let valid = true;
+        for (let i = 0; i < segments.length - 1; i++) {
+          parents.push({ obj, key: segments[i] });
+          const child = obj[segments[i]];
+          if (!isPlainObject(child)) { valid = false; break; }
+          obj = child as Record<string, unknown>;
+        }
+        if (valid) {
+          delete obj[segments[segments.length - 1]];
+          for (let i = parents.length - 1; i >= 0; i--) {
+            const { obj: parent, key } = parents[i];
+            const child = parent[key];
+            if (isPlainObject(child) && Object.keys(child as object).length === 0) {
+              delete parent[key];
+            } else break;
+          }
+        }
+      }
+    }
+    if (Object.keys(this.runtimeOverrides).length === 0) {
+      this.runtimeOverrides = undefined;
     }
   }
 

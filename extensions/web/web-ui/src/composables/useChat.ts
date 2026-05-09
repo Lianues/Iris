@@ -10,7 +10,7 @@ import { useSessions } from './useSessions'
 import { useToolApproval } from './useToolApproval'
 import { useContextUsage } from './useContextUsage'
 import * as api from '../api/client'
-import type { ChatDocumentAttachment, ChatImageAttachment, Message, MessagePart } from '../api/types'
+import type { ChatDocumentAttachment, ChatImageAttachment, Message, MessagePart, MilestoneSnapshot } from '../api/types'
 import { hasToolParts } from '../utils/message'
 import { useMessageQueue } from './useMessageQueue'
 
@@ -49,6 +49,9 @@ const streamingThoughtDurationMs = ref<number | undefined>()
 
 /** LLM 重试状态（重试中时非 null） */
 const retryInfo = ref<{ attempt: number; maxRetries: number; error: string } | null>(null)
+
+/** 当前会话 milestone/task 清单快照 */
+const milestoneSnapshot = ref<MilestoneSnapshot | null>(null)
 
 /** 尚未刷新到 UI 的流式增量，避免每个 chunk 都触发视图更新 */
 let pendingStreamingDelta = ''
@@ -266,6 +269,7 @@ async function loadMessagesForSession(id: string | null, preserveExisting = fals
   if (!id) {
     revokeBlobUrls(messages.value)
     messages.value = []
+    milestoneSnapshot.value = null
     messagesLoading.value = false
     return
   }
@@ -275,6 +279,7 @@ async function loadMessagesForSession(id: string | null, preserveExisting = fals
   if (!preserveExisting) {
     revokeBlobUrls(messages.value)
     messages.value = []
+    milestoneSnapshot.value = null
   }
 
   try {
@@ -282,10 +287,17 @@ async function loadMessagesForSession(id: string | null, preserveExisting = fals
     if (version !== loadVersion) return
     revokeBlobUrls(messages.value)
     messages.value = data.messages || []
+    try {
+      const milestoneData = await api.getMilestones(id)
+      if (version === loadVersion) {
+        milestoneSnapshot.value = milestoneData.snapshot && milestoneData.snapshot.items?.length > 0 ? milestoneData.snapshot : null
+      }
+    } catch { /* milestone 状态加载失败不阻塞历史加载 */ }
   } catch (err) {
     if (version !== loadVersion) return
     if (!preserveExisting) {
       messages.value = []
+      milestoneSnapshot.value = null
     }
     messagesError.value = err instanceof Error ? err.message : '加载会话消息失败'
   } finally {
@@ -328,6 +340,11 @@ export function useChat() {
         timestamp: Date.now(),
       })
     }
+  }
+
+  function applyMilestoneSnapshot(snapshot: MilestoneSnapshot | null | undefined, sessionId?: string | null) {
+    if (sessionId && currentSessionId.value !== sessionId) return
+    milestoneSnapshot.value = snapshot && snapshot.items?.length > 0 ? snapshot : null
   }
 
   function commitPlainAssistantMessage(text: string) {
@@ -518,6 +535,9 @@ export function useChat() {
         if (!existing) return
         activeToolInvocations.set(toolId, { ...existing, progress: data, updatedAt: Date.now() })
         publishToolInvocations()
+      },
+      onMilestonesUpdate(snapshot) {
+        if (!isStale()) applyMilestoneSnapshot(snapshot)
       },
       onSessionId(id) {
         if (isStale()) return
@@ -839,6 +859,8 @@ export function useChat() {
     armedDeleteMessageIndex,
     deletingMessageIndex,
     retryInfo,
+    milestoneSnapshot,
+    applyMilestoneSnapshot,
     clearMessageActionError,
     currentSessionSending,
     sendMessage,

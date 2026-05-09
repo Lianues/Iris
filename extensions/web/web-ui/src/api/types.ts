@@ -158,6 +158,42 @@ export interface PlanModeState {
   updatedAt?: number
 }
 
+export type MilestoneStatus = 'pending' | 'in_progress' | 'completed' | 'blocked' | 'cancelled'
+
+export interface MilestoneItem {
+  id: string
+  title: string
+  description?: string
+  activeForm?: string
+  status: MilestoneStatus
+  owner?: string
+  blockedBy?: string[]
+  blocks?: string[]
+  metadata?: Record<string, unknown>
+  version: number
+  createdAt: number
+  updatedAt: number
+  updatedBy?: string
+}
+
+export interface MilestoneSnapshot {
+  sessionId: string
+  items: MilestoneItem[]
+  stats: {
+    total: number
+    pending: number
+    inProgress: number
+    completed: number
+    blocked: number
+    cancelled: number
+    open: number
+  }
+  updatedAt: number
+  sourceAgent?: string
+  /** 应该向哪个前台 Agent 路由此快照 */
+  routeAgent?: string
+}
+
 export interface PlanModeResponse {
   state: PlanModeState | null
   plan: string
@@ -349,6 +385,8 @@ export interface ChatCallbacks {
   onAgentNotification?: (taskId: string, status: string, summary: string) => void
   /** Turn 开始（可区分 chat 和 task-notification turn） */
   onTurnStart?: (turnId: string, mode: 'chat' | 'task-notification') => void
+  /** 会话 milestone/task 清单更新 */
+  onMilestonesUpdate?: (snapshot: MilestoneSnapshot) => void
 }
 
 /** 异步子代理任务信息 */
@@ -365,6 +403,8 @@ export interface AgentTaskInfo {
 export interface NotificationCallbacks {
   onAgentNotification?: (sessionId: string, taskId: string, status: string, summary: string) => void
   onTurnStart?: (sessionId: string, turnId: string, mode: 'chat' | 'task-notification') => void
+  /** 通过 WS 接收的 milestone 更新（SSE 空闲时 fallback） */
+  onMilestonesUpdate?: (sessionId: string, snapshot: MilestoneSnapshot) => void
   /** 通过 WS 接收的标准聊天事件（SSE 不可用时的 fallback） */
   onChatEvent?: (sessionId: string, event: Record<string, unknown>) => void
 }

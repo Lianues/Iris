@@ -53,6 +53,8 @@ export interface LLMRouterLike {
   patchCurrentModelRequestBody?(patch: Record<string, unknown>): void;
   /** 运行时移除当前模型 requestBody 覆盖中的指定 key */
   removeCurrentModelRequestBodyKeys?(...keys: string[]): void;
+  /** 运行时按点分路径删除当前模型 requestBody 覆盖中的嵌套 key（如 'thinking.type'） */
+  removeCurrentModelRequestBodyPaths?(...paths: string[]): void;
 }
 
 export interface PromptAssemblerLike {

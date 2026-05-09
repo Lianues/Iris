@@ -763,11 +763,11 @@ export async function installRemoteExtension(
   const result = await sdkInstallExtension(requestedPath, {
     installedExtensionsDir: resolveInstallDirForScope(scope),
   })
-  const summary = summaryFromInstalledResult(result, scope)
-  if (summary.hasPlugin) {
-    upsertLocalPluginEnabled(summary.name, false, scope)
+  const installedManifest = readManifestFromDir(result.targetDir)
+  if (installedManifest && hasPluginContribution(installedManifest)) {
+    upsertLocalPluginEnabled(installedManifest.name!, false, scope)
   }
-  return summary
+  return summaryFromInstalledResult(result, scope)
 }
 
 type GitExtensionTargetInput = string | GitExtensionInstallInput
@@ -792,11 +792,11 @@ export async function installLocalExtension(
   const result = await sdkInstallLocalExtension(requestedName, {
     installedExtensionsDir: resolveInstallDirForScope(scope),
   })
-  const summary = summaryFromInstalledResult(result, scope)
-  if (summary.hasPlugin) {
-    upsertLocalPluginEnabled(summary.name, false, scope)
+  const installedManifest = readManifestFromDir(result.targetDir)
+  if (installedManifest && hasPluginContribution(installedManifest)) {
+    upsertLocalPluginEnabled(installedManifest.name!, false, scope)
   }
-  return summary
+  return summaryFromInstalledResult(result, scope)
 }
 
 function buildGitExtensionSummary(
@@ -880,11 +880,11 @@ export async function installGitExtension(
     commandRunner: options.commandRunner,
     installedExtensionsDir: resolveInstallDirForScope(scope),
   })
-  const summary = summaryFromInstalledResult(result, scope)
-  if (summary.hasPlugin) {
-    upsertLocalPluginEnabled(summary.name, false, scope)
+  const installedManifest = readManifestFromDir(result.targetDir)
+  if (installedManifest && hasPluginContribution(installedManifest)) {
+    upsertLocalPluginEnabled(installedManifest.name!, false, scope)
   }
-  return summary
+  return summaryFromInstalledResult(result, scope)
 }
 
 export async function inspectGitExtensionUpdate(

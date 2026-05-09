@@ -46,8 +46,10 @@ import { createManageVariablesTool } from '../tools/internal/manage_variables';
 import { createReadSkillTool } from '../tools/internal/read_skill';
 import { createInvokeSkillTool } from '../tools/internal/invoke_skill';
 import { createAskQuestionFirstTool } from '../tools/internal/ask_question_first';
+import { buildMilestoneSystemPrompt, createMilestoneTools } from '../tools/internal/milestones';
 import { DEFAULT_SYSTEM_PROMPT } from '../prompt/templates/default';
 import { Backend } from './backend';
+import { buildMilestonesFromApprovedPlan } from '../plan-mode/milestones';
 import type { StorageProvider } from '../storage/base';
 import {
   DeliveryRegistry,
@@ -77,7 +79,7 @@ import { applyRuntimeConfigReload, type RuntimeConfigReloadContext } from '../co
 import { DEFAULTS, parseLLMConfig } from '../config/llm';
 import { parseSystemConfig } from '../config/system';
 import { parseToolsConfig } from '../config/tools';
-import { setGlobalLogLevel, getGlobalLogLevel, LogLevel } from '../logger';
+import { createLogger, setGlobalLogLevel, getGlobalLogLevel, LogLevel } from '../logger';
 import { isCompiledBinary } from '../paths';
 import {
   // 多 Agent 配置分层重构：移除 setAgentEnabled / createManifestIfNotExists 导入
@@ -93,8 +95,14 @@ import { resolveProjectPath } from '../tools/utils';
 import { supportsVision as checkVision, supportsNativePDF as checkNativePDF, supportsNativeOffice as checkNativeOffice, isDocumentMimeType as checkDocMime } from '../llm/vision';
 import { setExtensionLogLevel } from 'irises-extension-sdk';
 import { planModePlugin } from '../plan-mode/plugin';
+import { SessionMilestoneManager } from './session-milestones';
+import { getActiveSessionId } from './backend/session-context';
+
 
 // ── 类型 ──
+
+const logger = createLogger('IrisCore');
+
 
 export type CoreState = 'init' | 'running' | 'stopping' | 'stopped';
 
@@ -125,6 +133,8 @@ export interface IrisCoreOptions {
   inlinePlugins?: InlinePluginEntry[];
   /** 外部注入的全局任务板（多 Agent 模式下由 IrisHost 创建并共享） */
   taskBoard?: CrossAgentTaskBoard;
+  /** 外部注入的共享 milestone 管理器（多 Agent 模式下由 IrisHost 创建并共享） */
+  milestoneManager?: SessionMilestoneManager;
   /** 多 Agent 模式下的 agentNetwork（由 IrisHost 构造时注入） */
   agentNetwork?: AgentNetworkProvider;
 }
@@ -273,6 +283,10 @@ export class IrisCore {
     // ---- 3. 注册工具 ----
     const tools = new ToolRegistry();
     setToolLimits(config.tools.limits);
+    // Milestone 工具只更新会话级 UI 状态，不修改业务文件或外部系统。
+    // 运行时默认放行，避免模型每次更新进度都触发人工审批。
+    config.tools.permissions.update_milestones ??= { autoApprove: true };
+    config.tools.permissions.list_milestones ??= { autoApprove: true };
 
     const isWindows = process.platform === 'win32';
     const commandToolName = isWindows ? 'shell' : 'bash';
@@ -316,8 +330,10 @@ export class IrisCore {
     const toolState = new ToolStateManager();
 
     // ---- 3.8 配置提示词 ----
+    const milestoneManager = options.milestoneManager ?? new SessionMilestoneManager();
     const prompt = new PromptAssembler();
     prompt.setSystemPrompt(config.system.systemPrompt || DEFAULT_SYSTEM_PROMPT);
+    prompt.addSystemPart({ text: buildMilestoneSystemPrompt() });
 
     // ---- 3.9 激活插件 ----
     if (pluginManager) {
@@ -325,6 +341,32 @@ export class IrisCore {
         { tools, modes: modeRegistry, prompt, router },
         config,
       );
+    }
+
+    // Plan Mode 批准后，把 Markdown 计划同步为 session milestone 初始清单。
+    // 这里包装内置 ExitPlanMode 工具，避免插件层耦合核心 milestone manager。
+    const exitPlanTool = tools.get('ExitPlanMode');
+    if (exitPlanTool) {
+      const originalExitPlanHandler = exitPlanTool.handler;
+      exitPlanTool.handler = async (args, context) => {
+        const result = await originalExitPlanHandler(args, context);
+        try {
+          const record = result && typeof result === 'object' ? result as Record<string, unknown> : undefined;
+          const approvedPlan = typeof record?.approvedPlan === 'string' ? record.approvedPlan : undefined;
+          const planFilePath = typeof record?.planFilePath === 'string' ? record.planFilePath : undefined;
+          if (record?.approved === true && approvedPlan) {
+            const sessionId = getActiveSessionId();
+            const agentName = options.agentName ?? 'master';
+            if (sessionId) {
+              const items = buildMilestonesFromApprovedPlan(approvedPlan, { owner: agentName, planFilePath });
+              milestoneManager.update(sessionId, items, { sourceAgent: agentName, routeAgent: agentName, replaceAll: true });
+            }
+          }
+        } catch (err) {
+          logger.warn('Plan Mode milestone 同步失败:', err);
+        }
+        return result;
+      };
     }
 
     // ---- 5. 创建 Backend ----
@@ -347,6 +389,8 @@ export class IrisCore {
       globalConfigDir: globalDir,
       rememberPlatformModel: config.llm.rememberPlatformModel,
       asyncSubAgents: asyncSubAgentsEnabled,
+      milestoneManager,
+      milestoneRouteAgent: options.agentName ?? 'master',
     }, modeRegistry);
 
     backend.setTaskBoard(taskBoard);
@@ -386,6 +430,16 @@ export class IrisCore {
 
     // 注册交互式澄清/选项询问工具
     tools.register(createAskQuestionFirstTool());
+
+    // 注册会话级 milestone 进度清单工具。
+    // 放在 backend 创建之后，以便工具能读取当前 active session；子代理/跨 Agent 场景
+    // 通过 sessionContext 和 owner 字段保持各自更新不互相覆盖。
+    tools.registerAll(createMilestoneTools({
+      manager: milestoneManager,
+      taskBoard,
+      getSessionId: () => backend.getActiveSessionId(),
+      getAgentName: () => options.agentName ?? 'master',
+    }));
 
     // 注册历史搜索工具
     tools.register(createHistorySearchTool({

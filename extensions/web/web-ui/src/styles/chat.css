@@ -157,6 +157,136 @@
   gap: 18px;
 }
 
+
+.milestone-panel {
+  width: min(100% - 48px, var(--conversation-max-width));
+  margin: 8px auto 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(var(--tint-rgb), 0.08);
+  background: rgba(var(--tint-rgb), 0.04);
+  box-shadow: var(--shadow-sm);
+}
+
+.milestone-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: var(--text-tertiary);
+  font-size: 0.78rem;
+}
+
+.milestone-kicker {
+  color: var(--accent-cyan);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.milestone-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.milestone-owner-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.milestone-owner-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-tertiary);
+  font-size: 0.8rem;
+}
+
+.milestone-owner-chevron {
+  color: var(--text-tertiary);
+}
+
+.milestone-owner-name {
+  color: var(--accent-cyan);
+  font-weight: 650;
+}
+
+.milestone-owner-stats {
+  color: var(--text-tertiary);
+}
+
+.milestone-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.milestone-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+}
+
+.milestone-icon {
+  width: 1.1em;
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+}
+
+.milestone-id,
+.milestone-owner,
+.milestone-blocked,
+.milestone-active,
+.milestone-hidden {
+  color: var(--text-tertiary);
+}
+
+.milestone-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.milestone-item.status-in_progress .milestone-icon,
+.milestone-item.status-in_progress .milestone-title {
+  color: var(--accent-cyan);
+  font-weight: 650;
+}
+
+.milestone-item.status-completed .milestone-icon {
+  color: var(--success);
+}
+
+.milestone-item.status-completed .milestone-title,
+.milestone-item.status-cancelled .milestone-title {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+}
+
+.milestone-item.status-blocked .milestone-icon,
+.milestone-item.status-blocked .milestone-blocked {
+  color: var(--warn, #ffa502);
+}
+
+.milestone-active {
+  margin-left: auto;
+  font-size: 0.82rem;
+}
+
+.milestone-hidden {
+  margin-top: 8px;
+  font-size: 0.78rem;
+}
+
 .welcome {
   display: flex;
   flex-direction: column;

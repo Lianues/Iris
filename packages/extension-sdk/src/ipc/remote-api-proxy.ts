@@ -109,6 +109,11 @@ export function createRemoteApiProxy(client: IPCClientLike, agentName: string = 
         callApi(client, targetAgentName, Methods.API_ROUTER_PATCH_REQUEST_BODY, args)
           .catch((err) => logger.warn(`patchCurrentModelRequestBody 失败: ${err.message}`));
       },
+
+      removeCurrentModelRequestBodyPaths(...args: unknown[]): void {
+        callApi(client, targetAgentName, Methods.API_ROUTER_REMOVE_REQUEST_BODY_PATHS, args)
+          .catch((err) => logger.warn(`removeCurrentModelRequestBodyPaths 失败: ${err.message}`));
+      },
     },
 
     /**

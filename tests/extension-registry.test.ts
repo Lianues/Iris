@@ -100,13 +100,15 @@ afterEach(() => {
 describe('extension registry', () => {
   it('支持从 workspace extensions 目录加载插件，并自动注册平台贡献', async () => {
     const extension = createWorkspaceExtension();
+    const discoveryOpts = { workspace: { enabled: true, allowlist: [extension.name] } };
 
-    const localSource = resolveLocalPluginSource(extension.name);
+    const localSource = resolveLocalPluginSource(extension.name, undefined, undefined, discoveryOpts);
     expect(localSource.type).toBe('extension-plugin');
     expect(localSource.entryFile).toBe(path.join(extension.rootDir, 'plugin.mjs'));
     expect(localSource.configPath).toBe(path.join(extension.rootDir, 'config.yaml'));
 
     const manager = new PluginManager();
+    manager.setExtensionDiscoveryOptions(discoveryOpts);
     await manager.prepareAll([
       {
         name: extension.name,
@@ -125,7 +127,7 @@ describe('extension registry', () => {
     });
 
     const registry = new PlatformRegistry();
-    const registered = registerExtensionPlatforms(registry);
+    const registered = registerExtensionPlatforms(registry, undefined, undefined, discoveryOpts);
     expect(registered).toContain(extension.platformName);
 
     const platform = await registry.create(extension.platformName, {} as any);

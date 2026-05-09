@@ -637,6 +637,9 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     const onTurnStart = (sid: string, turnId: string, mode: string) => {
       this.writeSSE(sid, { type: 'turn_start', turnId, mode });
     };
+    const onMilestonesUpdate = (sid: string, snapshot: unknown) => {
+      this.writeSSE(sid, { type: 'milestones_update', snapshot });
+    };
 
     backend.on('response', onResponse);
     backend.on('stream:start', onStreamStart);
@@ -653,6 +656,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     backend.on('user:token', onUserToken);
     backend.on('agent:notification' as any, onAgentNotification);
     backend.on('turn:start' as any, onTurnStart);
+    backend.on('milestones:update' as any, onMilestonesUpdate);
 
     // 记录清理函数，热重载时精确移除这些监听器而不影响其他平台
     if (agentName) {
@@ -672,6 +676,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
         backend.off!('user:token', onUserToken);
         backend.off!('agent:notification' as any, onAgentNotification);
         backend.off!('turn:start' as any, onTurnStart);
+        backend.off!('milestones:update' as any, onMilestonesUpdate);
       });
     }
   }
@@ -1061,6 +1066,12 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     });
 
     // 异步子代理任务查询 API
+    this.router.get('/api/sessions/:id/milestones', async (req, res, params) => {
+      const { backend } = this.resolveAgent(req);
+      const snapshot = await backend.loadMilestones?.(params.id) ?? backend.getMilestones?.(params.id) ?? null;
+      sendJSON(res, 200, { snapshot });
+    });
+
     this.router.get('/api/sessions/:id/tasks', async (req, res, params) => {
       const { backend } = this.resolveAgent(req);
       const tasks = backend.getAgentTasks?.(params.id) ?? [];

@@ -72,6 +72,12 @@ interface UseAppKeyboardOptions {
   setMessages: SetState<ChatMessage[]>;
   commitTools: () => void;
   onLoadSession: (id: string) => Promise<void>;
+  onDeleteSession?: (id: string) => Promise<{ ok: boolean; message: string; deletedCurrent?: boolean }>;
+  setSessionList: SetState<SessionMeta[]>;
+  sessionPendingDeleteId: string | null;
+  setSessionPendingDeleteId: SetState<string | null>;
+  setSessionStatusMessage: SetState<string | null>;
+  setSessionStatusIsError: SetState<boolean>;
   onListModels: () => { models: LLMModelInfo[]; defaultModelName: string };
   onSwitchModel: (modelName: string) => SwitchModelResult;
   onSetDefaultModel?: (modelName: string) => Promise<{ ok: boolean; message: string }>;
@@ -202,6 +208,12 @@ export function useAppKeyboard({
   setMessages,
   commitTools,
   onLoadSession,
+  onDeleteSession,
+  setSessionList,
+  sessionPendingDeleteId,
+  setSessionPendingDeleteId,
+  setSessionStatusMessage,
+  setSessionStatusIsError,
   onListModels,
   onSwitchModel,
   onSetDefaultModel,
@@ -1026,11 +1038,30 @@ export function useAppKeyboard({
     }
 
     if (viewMode === 'session-list') {
-      if (key.name === 'up') setSelectedIndex((prev) => Math.max(0, prev - 1));
-      else if (key.name === 'down') setSelectedIndex((prev) => Math.min(sessionList.length - 1, prev + 1));
-      else if (key.name === 'enter' || key.name === 'return') {
+      if (key.name === 'escape') {
+        if (sessionPendingDeleteId) {
+          setSessionPendingDeleteId(null);
+          setSessionStatusMessage(null);
+          setSessionStatusIsError(false);
+        } else {
+          setViewMode('chat');
+        }
+      } else if (key.name === 'up') {
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+        setSessionPendingDeleteId(null);
+        setSessionStatusMessage(null);
+        setSessionStatusIsError(false);
+      } else if (key.name === 'down') {
+        setSelectedIndex((prev) => Math.min(sessionList.length - 1, prev + 1));
+        setSessionPendingDeleteId(null);
+        setSessionStatusMessage(null);
+        setSessionStatusIsError(false);
+      } else if (key.name === 'enter' || key.name === 'return') {
         const selected = sessionList[selectedIndex];
         if (selected) {
+          setSessionPendingDeleteId(null);
+          setSessionStatusMessage(null);
+          setSessionStatusIsError(false);
           clearRedo(undoRedoRef.current);
           onClearRedoStack();
           setMessages([]);
@@ -1038,6 +1069,45 @@ export function useAppKeyboard({
           setViewMode('chat');
           onLoadSession(selected.id).catch(() => {});
         }
+      } else if (key.name === 'd') {
+        const selected = sessionList[selectedIndex];
+        if (!selected) return;
+        if (!onDeleteSession) {
+          setSessionStatusMessage('当前平台不支持删除历史对话。');
+          setSessionStatusIsError(true);
+          return;
+        }
+        if (sessionPendingDeleteId !== selected.id) {
+          setSessionPendingDeleteId(selected.id);
+          setSessionStatusMessage(`再次按 D 删除「${selected.title || selected.id}」。`);
+          setSessionStatusIsError(true);
+          return;
+        }
+
+        setSessionStatusMessage(`正在删除「${selected.title || selected.id}」...`);
+        setSessionStatusIsError(false);
+        void onDeleteSession(selected.id).then((result) => {
+          if (!result.ok) {
+            setSessionStatusMessage(result.message);
+            setSessionStatusIsError(true);
+            return;
+          }
+          const nextList = sessionList.filter((item) => item.id !== selected.id);
+          setSessionList(nextList);
+          setSelectedIndex((prev) => Math.min(Math.max(0, prev), Math.max(0, nextList.length - 1)));
+          setSessionPendingDeleteId(null);
+          setSessionStatusMessage(result.message);
+          setSessionStatusIsError(false);
+          if (result.deletedCurrent) {
+            clearRedo(undoRedoRef.current);
+            onClearRedoStack();
+            setMessages([]);
+            commitTools();
+          }
+        }).catch((err) => {
+          setSessionStatusMessage(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+          setSessionStatusIsError(true);
+        });
       }
       return;
     }

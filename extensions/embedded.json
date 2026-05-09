@@ -29,6 +29,24 @@
     },
     {
       "name": "telegram"
+    },
+    {
+      "name": "discord"
+    },
+    {
+      "name": "qq"
+    },
+    {
+      "name": "lark"
+    },
+    {
+      "name": "wxwork"
+    },
+    {
+      "name": "weixin"
+    },
+    {
+      "name": "virtual-lover"
     }
   ]
 }

@@ -121,6 +121,7 @@ export const Methods = {
   API_CONFIG_MANAGER_UPDATE: 'api.configManager.updateEditableConfig',
   API_ROUTER_REMOVE_REQUEST_BODY_KEYS: 'api.router.removeCurrentModelRequestBodyKeys',
   API_ROUTER_PATCH_REQUEST_BODY: 'api.router.patchCurrentModelRequestBody',
+  API_ROUTER_REMOVE_REQUEST_BODY_PATHS: 'api.router.removeCurrentModelRequestBodyPaths',
 
   // ---- Agent 路由（远程多 Agent 使用）----
   /** 经由当前 IPC 连接转发到指定 Agent 的 Backend 方法 */

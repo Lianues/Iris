@@ -29,6 +29,7 @@ export interface IrisModelInfoLike {
   modelName: string;
   modelId: string;
   provider?: string;
+  thinkingControl?: boolean;
   contextWindow?: number;
   supportsVision?: boolean;
 }
@@ -74,6 +75,42 @@ export interface AgentTaskInfoLike {
   endTime?: number;
 }
 
+export type MilestoneStatusLike = 'pending' | 'in_progress' | 'completed' | 'blocked' | 'cancelled';
+
+export interface MilestoneItemLike {
+  id: string;
+  title: string;
+  description?: string;
+  activeForm?: string;
+  status: MilestoneStatusLike;
+  owner?: string;
+  blockedBy?: string[];
+  blocks?: string[];
+  metadata?: Record<string, unknown>;
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+  updatedBy?: string;
+}
+
+export interface MilestoneSnapshotLike {
+  sessionId: string;
+  items: MilestoneItemLike[];
+  stats: {
+    total: number;
+    pending: number;
+    inProgress: number;
+    completed: number;
+    blocked: number;
+    cancelled: number;
+    open: number;
+  };
+  updatedAt: number;
+  sourceAgent?: string;
+  /** 应该向哪个前台 Agent 路由此快照；主要用于多 Agent 平台过滤。 */
+  routeAgent?: string;
+}
+
 /** Backend 事件签名（供 SDK 消费者使用，核心类型用 unknown 代替以保持解耦） */
 export interface BackendEventMap {
   'response':           (sessionId: string, text: string) => void;
@@ -94,6 +131,7 @@ export interface BackendEventMap {
   'agent:notification': (sessionId: string, taskId: string, status: string, summary: string, taskType?: string, silent?: boolean) => void;
   'task:result':        (sessionId: string, taskId: string, status: string, description: string, taskType?: string, silent?: boolean, result?: string) => void;
   'notification:payloads': (sessionId: string, payloads: unknown[]) => void;
+  'milestones:update':  (sessionId: string, snapshot: MilestoneSnapshotLike) => void;
 }
 
 export interface IrisBackendLike {
@@ -141,6 +179,10 @@ export interface IrisBackendLike {
   getRunningAgentTasks?(sessionId: string): AgentTaskInfoLike[];
   /** 按 taskId 查询单个异步子代理任务（只读） */
   getAgentTask?(taskId: string): AgentTaskInfoLike | undefined;
+  /** 查询指定 session 的 milestone/task 清单快照 */
+  getMilestones?(sessionId: string): MilestoneSnapshotLike | undefined;
+  /** 从存储恢复指定 session 的 milestone/task 清单快照 */
+  loadMilestones?(sessionId: string): Promise<MilestoneSnapshotLike | undefined>;
 
   // ── 补全：消除各平台的 as any 访问 ──
 
@@ -285,6 +327,14 @@ export class BackendHandle implements IrisBackendLike {
 
   getAgentTask(taskId: string): AgentTaskInfoLike | undefined {
     return this._backend.getAgentTask?.(taskId);
+  }
+
+  getMilestones(sessionId: string): MilestoneSnapshotLike | undefined {
+    return this._backend.getMilestones?.(sessionId);
+  }
+
+  loadMilestones(sessionId: string): Promise<MilestoneSnapshotLike | undefined> {
+    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
   }
 
   // ── 补全方法代理 ──

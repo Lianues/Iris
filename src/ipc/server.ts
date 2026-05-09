@@ -519,6 +519,10 @@ export class IPCServer extends EventEmitter {
           this.api?.router?.patchCurrentModelRequestBody?.(...params);
           result = null;
           break;
+        case Methods.API_ROUTER_REMOVE_REQUEST_BODY_PATHS:
+          this.api?.router?.removeCurrentModelRequestBodyPaths?.(...params);
+          result = null;
+          break;
 
         // ---- 服务端全局信息 ----
         case Methods.GET_CONFIG: {
@@ -695,6 +699,9 @@ export class IPCServer extends EventEmitter {
         return null;
       case Methods.API_ROUTER_PATCH_REQUEST_BODY:
         api.router?.patchCurrentModelRequestBody?.(...params);
+        return null;
+      case Methods.API_ROUTER_REMOVE_REQUEST_BODY_PATHS:
+        api.router?.removeCurrentModelRequestBodyPaths?.(...params);
         return null;
       default:
         throw new Error(`不支持的远程 Agent API 方法: ${method}`);

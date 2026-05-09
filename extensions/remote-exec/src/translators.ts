@@ -4,7 +4,7 @@
  * 性能最小策略：
  *   - 文件精确读写：auto/sftp 下走 SFTP（不启动远端进程，不 base64 膨胀）
  *   - 扫描/搜索/shell：走 SSH exec + bash/find/grep（避免大量 SFTP RTT）
- *   - Transport bash：所有文件读写也退化为纯 bash/coreutils，适配无 SFTP 环境
+ *   - Transport bash：所有文件读写也退化为纯 bash/coreutils，适配无 SFTP 服务器
  *   - 不依赖 Python。
  */
 

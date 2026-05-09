@@ -6,6 +6,7 @@ import type { LLMConfig, ToolsConfig, SkillDefinition, SummaryConfig } from '../
 import type { Part, Content, UsageMetadata, ToolInvocation, ToolAttachment } from '../../types';
 import type { ToolExecutionHandle } from '../../tools/handle';
 import type { LLMModelInfo } from '../../llm/router';
+import type { MilestoneSnapshot } from '../session-milestones';
 
 // ============ 常量 ============
 
@@ -114,6 +115,10 @@ export interface BackendConfig {
   rememberPlatformModel?: boolean;
   /** 是否启用异步子代理（默认 false，向后兼容） */
   asyncSubAgents?: boolean;
+  /** 会话级 milestone 状态管理器（用于结构化进度清单 UI） */
+  milestoneManager?: import('../session-milestones').SessionMilestoneManager;
+  /** 当前 Backend 所属 Agent 名称，用于过滤共享 milestone 事件 */
+  milestoneRouteAgent?: string;
 }
 
 /** 异步子代理通知的结构化数据（由 Backend 解析 <task-notification> XML 后生成） */
@@ -173,6 +178,8 @@ export interface BackendEvents {
    * 由具体平台自己决定如何发送给用户。
    */
   'attachments': (sessionId: string, attachments: ToolAttachment[]) => void;
+  /** 当前会话 milestone/task 清单更新（驱动 Console/Web 进度面板） */
+  'milestones:update': (sessionId: string, snapshot: MilestoneSnapshot) => void;
   /**
    * 异步子代理状态通知（供平台层展示后台任务状态）。
    *

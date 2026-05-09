@@ -127,6 +127,11 @@ export const ICONS = {
   hourglass:     pick('\u23F3', '.'),   // ⏳ / .
   planMode:      '||',                  // 纯文本 pause，避免 Windows Terminal 将 ⏸ 渲染成蓝色 emoji 方块
 
+  // Milestone / task list 状态（Iris 自有风格：圆点 + 星标）
+  milestonePending:    pick('\u25CB', 'o'), // ○ / o
+  milestoneInProgress: pick('\u2726', '*'), // ✦ / *
+  milestoneBlocked:    pick('\u25C6', '!'), // ◆ / !
+
   // 导航 / 选择
   selectorArrow:  pick('\u276F', '>'),  // ❯ / >
   triangleRight:  pick('\u25B8', '>'),  // ▸ / >

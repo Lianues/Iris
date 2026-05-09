@@ -3,9 +3,9 @@
  *
  * 生命周期：
  *   activate()  释放默认配置，注册 onReady / onConfigReload
- *   onReady     读取配置 + 服务器清单 → 建 transport → 注册 switch_environment 工具 →
+ *   onReady     读取配置 + 服务器清单 → 建 transport → 注册 switch_server 工具 →
  *               安装工具 wrapper（含对将来注册工具的 monkey-patch 兜底）
- *   onConfigReload  重读配置/服务器清单，重建 transport，重注册 switch_environment（描述里的服务器列表会变化）
+ *   onConfigReload  重读配置/服务器清单，重建 transport，重注册 switch_server（描述里的服务器列表会变化）
  *   deactivate  关闭 SSH 连接，撤销 register patch
  */
 
@@ -39,14 +39,15 @@ let envMgr: EnvironmentManager | undefined;
 let installer: WrapInstaller | undefined;
 let cachedApi: IrisAPI | undefined;
 let cachedCtx: PluginContext | undefined;
-/** 当前已注册的 switch_environment 工具名（用于 unregister 后重注册） */
+/** 当前已注册的 switch_server 工具名（用于 unregister 后重注册） */
 let switchToolRegistered = false;
 let transferToolRegistered = false;
+let lastConfigSignature = '';
 
 export default definePlugin({
   name: 'remote-exec',
   version: '0.1.0',
-  description: '把工具调用透明转发到远端服务器执行（按"环境"切换，AI 无感）',
+  description: '把工具调用透明转发到远端服务器执行（按"服务器"切换，AI 无感）',
 
   activate(ctx: PluginContext) {
     cachedCtx = ctx;
@@ -63,7 +64,7 @@ export default definePlugin({
       await reloadAll(ctx, api);
     });
 
-    // 注册 hook：每个 turn 开始前从 session meta 预加载当前环境
+    // 注册 hook：每个 turn 开始前从 session meta 预加载当前服务器
     ctx.addHook({
       name: 'remote-exec:env-preload',
       priority: 50,
@@ -80,11 +81,15 @@ export default definePlugin({
       name: 'remote-exec:config-reload',
       async onConfigReload({ rawMergedConfig }) {
         if (!cachedApi || !cachedCtx) return;
+        const nextSignature = makeRemoteExecConfigSignature(rawMergedConfig as Record<string, unknown>);
+        if (nextSignature === lastConfigSignature) return;
+        lastConfigSignature = nextSignature;
+
         const raw = (rawMergedConfig as Record<string, unknown>)?.remote_exec;
         cfg = parseRemoteExecConfig(raw ?? {});
         servers = readServersSection(cachedCtx, rawMergedConfig as Record<string, unknown>);
         rebuildTransport();
-        // 重注册 remote-exec 工具（环境列表可能已变）
+        // 重注册 remote-exec 工具（服务器列表可能已变）
         reregisterRemoteExecTools(cachedApi);
         installer?.applyToExistingTools();
         logger.info(
@@ -100,7 +105,7 @@ export default definePlugin({
     transport?.closeAll();
     transport = undefined;
     if (cachedApi && switchToolRegistered) {
-      cachedApi.tools.unregister?.('switch_environment');
+      cachedApi.tools.unregister?.('switch_server');
       switchToolRegistered = false;
     }
     if (cachedApi && transferToolRegistered) {
@@ -133,6 +138,7 @@ async function reloadAll(ctx: PluginContext, api: IrisAPI): Promise<void> {
   const rawSection = merged?.remote_exec ?? ctx.readConfigSection('remote_exec');
   cfg = parseRemoteExecConfig(rawSection ?? {});
   servers = readServersSection(ctx, merged);
+  lastConfigSignature = makeRemoteExecConfigSignature(merged ?? {});
 
   rebuildTransport();
 
@@ -170,20 +176,28 @@ function rebuildTransport(): void {
 
 function reregisterRemoteExecTools(api: IrisAPI): void {
   if (!envMgr) return;
-  // 总是先尝试注销旧的（描述里的环境列表可能已变）
-  if (switchToolRegistered) {
-    api.tools.unregister?.('switch_environment');
-    switchToolRegistered = false;
+  // 重要：启用状态下不要先 unregister 再 register。
+  // LLM 调用时工具声明和 registry 之间可能有时间差，热重载窗口内注销会导致
+  // “工具未找到”。ToolRegistry.register 对同名工具是原子覆盖，直接 register 即可。
+  if (!cfg.enabled) {
+    if (switchToolRegistered) {
+      api.tools.unregister?.('switch_server');
+      switchToolRegistered = false;
+    }
+    if (transferToolRegistered) {
+      api.tools.unregister?.(TRANSFER_FILES_TOOL_NAME);
+      transferToolRegistered = false;
+    }
+    disposeRemoteExecConsoleIntegration();
+    return;
   }
-  if (transferToolRegistered) {
-    api.tools.unregister?.(TRANSFER_FILES_TOOL_NAME);
-    transferToolRegistered = false;
-  }
-  if (!cfg.enabled) return;
   if (cfg.exposeSwitchTool) {
     const tool: ToolDefinition = buildSwitchEnvironmentTool(envMgr);
     api.tools.register(tool);
     switchToolRegistered = true;
+  } else if (switchToolRegistered) {
+    api.tools.unregister?.('switch_server');
+    switchToolRegistered = false;
   }
   const transferTool: ToolDefinition = buildTransferFilesTool(envMgr, () => {
     if (!transport) throw new Error('remote-exec: SSH transport 未就绪');
@@ -192,6 +206,27 @@ function reregisterRemoteExecTools(api: IrisAPI): void {
   api.tools.register(transferTool);
   transferToolRegistered = true;
   registerRemoteExecConsoleIntegration(api, envMgr);
+}
+
+function makeRemoteExecConfigSignature(rawMergedConfig: Record<string, unknown>): string {
+  return stableStringify({
+    remote_exec: rawMergedConfig.remote_exec ?? null,
+    remote_exec_servers: rawMergedConfig.remote_exec_servers ?? null,
+  });
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortForStableStringify(value));
+}
+
+function sortForStableStringify(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortForStableStringify);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => [k, sortForStableStringify(v)]),
+  );
 }
 
 

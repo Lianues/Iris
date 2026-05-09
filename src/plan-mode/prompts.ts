@@ -24,6 +24,7 @@ export function buildPlanModeExitReminder(state: PlanSessionState): string {
   return `【已退出 Plan Mode】
 
 用户已经批准当前 Agent 当前 session 的计划。计划文件：${state.planFilePath}
+如果计划中包含可识别的步骤，Iris 已将其同步到当前会话的进度面板。
 现在可以按已批准计划执行实现。后续工具权限仍遵循 Iris 当前 Agent 的原有 tools.yaml / 审批策略。`;
 }
 

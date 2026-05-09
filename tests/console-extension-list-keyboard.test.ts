@@ -133,4 +133,26 @@ describe('console /extension keyboard regressions', () => {
     expect(inputSource).toContain('const inputChromeWidth = 6 + promptVisualWidth');
     expect(inputSource).toContain('setQueuePromptFrame(frame => (frame + 1) % HOURGLASS_SPINNER_FRAMES.length)');
   });
+
+  it('/load 历史对话列表应支持键盘选中项自动滚动和 D 删除', () => {
+    const viewSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/components/SessionListView.tsx'),
+      'utf8',
+    );
+    const keyboardSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/hooks/use-app-keyboard.ts'),
+      'utf8',
+    );
+    const platformSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/index.ts'),
+      'utf8',
+    );
+
+    expect(viewSource).toContain('visibleSessions');
+    expect(viewSource).toContain('pendingDeleteExtraRows');
+    expect(viewSource).toContain('D 删除');
+    expect(keyboardSource).toContain('sessionPendingDeleteId');
+    expect(keyboardSource).toContain('onDeleteSession(selected.id)');
+    expect(platformSource).toContain('handleDeleteSession');
+  });
 });

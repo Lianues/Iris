@@ -50,6 +50,8 @@ interface InputBarProps {
   onCycleThinkingEffort: (direction: 1 | -1) => void;
   /** 当前待发送的文件附件列表 */
   pendingFiles: PendingFile[];
+  /** 思考强度便捷控制是否启用 */
+  thinkingControlEnabled?: boolean;
   /** 移除指定索引的待发送文件 */
   onRemoveFile: (index: number) => void;
   /** 当前是否处于远程连接状态 */
@@ -58,7 +60,7 @@ interface InputBarProps {
   supportsHeadlessTransition?: boolean;
 }
 
-export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition }: InputBarProps) {
+export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [queuePromptFrame, setQueuePromptFrame] = useState(0);
@@ -256,7 +258,7 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     }
 
     // Shift+Left/Right → 切换思考强度
-    if (key.shift && (key.name === 'left' || key.name === 'right')) {
+    if (thinkingControlEnabled !== false && key.shift && (key.name === 'left' || key.name === 'right')) {
       onCycleThinkingEffort(key.name === 'right' ? 1 : -1);
       return;
     }

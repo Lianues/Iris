@@ -1,7 +1,7 @@
 /**
  * transport.ts —— SSH/SFTP 传输层
  *
- * 维护每个远端环境的一条可复用 SSH 连接，并按需打开/缓存 SFTP 子系统。
+ * 维护每个远端服务器的一条可复用 SSH 连接，并按需打开/缓存 SFTP 子系统。
  * 上层翻译器根据 Host 的 `Transport` 字段选择：
  *   - auto/sftp：文件精确操作走 SFTP
  *   - bash：文件操作也走 SSH exec + bash/coreutils

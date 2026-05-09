@@ -97,6 +97,15 @@ export interface ToolLoopRunOptions {
   /** 关联的会话 ID（多会话并发时用于工具状态隔离） */
   sessionId?: string;
   /**
+   * 最终回复提交前的守卫钩子。
+   *
+   * 当一轮模型输出没有 functionCall、即将作为最终回复返回时调用。
+   * 返回 true 表示调用方已经补充了额外上下文（通常是 extraParts），
+   * ToolLoop 应丢弃本次未提交的最终回复并继续下一轮，让模型有机会先调用工具
+   * 或修正最终说明。返回 false/undefined 则按正常最终回复提交。
+   */
+  beforeFinalResponse?: (content: Content, round: number) => Promise<boolean> | boolean;
+  /**
    * 流式工具执行器（可选）。
    *
    * 由 Backend 在流式模式下注入。当提供时，callLLMStream 会在流式输出过程中
@@ -243,13 +252,19 @@ export class ToolLoop {
         return await this.buildAbortResult(history, historyBaseLength, options?.onMessageAppend);
       }
 
+      // 检查工具调用。对无工具调用的最终回复，先给调用方一次守卫机会；
+      // 守卫返回 true 时不提交本轮模型文本，继续下一轮 LLM 调用。
+      const functionCalls = modelContent.parts.filter(isFunctionCallPart);
+      if (functionCalls.length === 0) {
+        const shouldContinue = await options?.beforeFinalResponse?.(modelContent, rounds);
+        if (shouldContinue) continue;
+      }
+
       await options?.onModelContent?.(modelContent, rounds);
 
       history.push(modelContent);
       await options?.onMessageAppend?.(modelContent);
 
-      // 检查工具调用
-      const functionCalls = modelContent.parts.filter(isFunctionCallPart);
       if (functionCalls.length === 0) {
         const text = extractText(modelContent.parts);
         return { text, history };

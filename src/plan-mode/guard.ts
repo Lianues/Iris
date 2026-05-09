@@ -13,6 +13,7 @@ const READ_ONLY_TOOLS = new Set([
   'read_skill',
   'history_search',
   'memory_search',
+  'list_milestones',
 ]);
 
 const PLAN_TOOLS = new Set([

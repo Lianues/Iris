@@ -10,6 +10,7 @@
  */
 
 import { Content } from '../types';
+import type { MilestoneSnapshot } from '../core/session-milestones';
 
 /** 会话元数据 */
 export interface SessionMeta {
@@ -27,6 +28,8 @@ export interface SessionMeta {
   platforms?: string[];
   /** remote-exec 扩展：该对话的当前执行环境名（local 或服务器别名） */
   remoteExecEnvironment?: string;
+  /** 会话级进度清单快照（运行时可恢复，不发送给 LLM） */
+  milestones?: MilestoneSnapshot;
 }
 
 export abstract class StorageProvider {

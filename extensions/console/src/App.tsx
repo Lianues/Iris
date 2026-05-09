@@ -39,6 +39,20 @@ import { useTextInput } from './hooks/use-text-input';
 import { createUndoRedoStack, type UndoRedoStack } from './undo-redo';
 import { getSlashCommands, onSlashCommandsChanged } from './slash-command-service';
 
+// ── Provider 级别映射 ──────────────────────────────────────
+const PROVIDER_LEVELS: Record<string, ThinkingEffortLevel[]> = {
+  'claude':             ['not-set', 'none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'gemini':             ['not-set', 'minimal', 'low', 'medium', 'high'],
+  'openai-compatible':  ['not-set', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+  'openai-responses':   ['not-set', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+};
+const DEFAULT_LEVELS: ThinkingEffortLevel[] = ['not-set', 'low', 'medium', 'high'];
+
+function getProviderThinkingLevels(provider?: string): ThinkingEffortLevel[] {
+  if (!provider) return DEFAULT_LEVELS;
+  return PROVIDER_LEVELS[provider] ?? DEFAULT_LEVELS;
+}
+
 export type { AppHandle } from './hooks/use-app-handle';
 export type { MessageMeta } from './app-types';
 export type { AppProps } from './app-props';
@@ -65,6 +79,7 @@ export function App({
   onToolAbort,
   onNewSession,
   onLoadSession,
+  onDeleteSession,
   onListSessions,
   onRunCommand,
   onListModels,
@@ -102,6 +117,8 @@ export function App({
   onRemoteConnect,
   onRemoteDisconnect,
   remoteHost,
+  modelProvider,
+  thinkingControlEnabled,
   initWarningsColor,
   initWarningsIcon,
 }: AppProps) {
@@ -111,11 +128,16 @@ export function App({
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsInitialSection>('general');
   const [modelList, setModelList] = useState<LLMModelInfo[]>([]);
   const [defaultModelName, setDefaultModelName] = useState('');
+  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState<string | null>(null);
+  const [sessionStatusMessage, setSessionStatusMessage] = useState<string | null>(null);
+  const [sessionStatusIsError, setSessionStatusIsError] = useState(false);
   const [agentList, setAgentList] = useState<AgentDefinitionLike[]>([]);
   const [copyMode, setCopyMode] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [confirmChoice, setConfirmChoice] = useState<ConfirmChoice>('confirm');
-  const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffortLevel>('none');
+  const initialLevels = getProviderThinkingLevels(modelProvider);
+  const initialMaxLevel = initialLevels[initialLevels.length - 1];
+  const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffortLevel>(thinkingControlEnabled === false ? 'not-set' : initialMaxLevel);
   const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState(0);
 
   // /model 视图状态
@@ -243,7 +265,7 @@ export function App({
   const appState = useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef });
   const approval = useApproval(appState.pendingApprovals, appState.pendingApplies);
   const exitConfirm = useExitConfirm();
-  const modelState = useModelState({ modelId, modelName, contextWindow });
+  const modelState = useModelState({ modelId, modelName, contextWindow, modelProvider, thinkingControlEnabled });
 
   // ── 队列感知的提交处理器 ──────────────────────────────
   // 生成中提交的消息入队，空闲时直接发送
@@ -262,16 +284,40 @@ export function App({
   }, [messageQueue, onAbort]);
 
   const cycleThinkingEffort = useCallback((direction: 1 | -1) => {
-    const levels: ThinkingEffortLevel[] = ['none', 'low', 'medium', 'high', 'max'];
+    if (modelState.currentThinkingControlEnabled === false) return;
+    const levels = getProviderThinkingLevels(modelState.currentModelProvider);
     setThinkingEffort(prev => {
       const idx = levels.indexOf(prev);
-      const next = idx + direction;
+      // 如果当前 level 不在列表中（provider 切换后），从 'not-set' 开始
+      const safeIdx = idx >= 0 ? idx : 0;
+      const next = safeIdx + direction;
       if (next < 0 || next >= levels.length) return prev;
       const newLevel = levels[next];
       onThinkingEffortChange?.(newLevel);
       return newLevel;
     });
-  }, [onThinkingEffortChange]);
+  }, [onThinkingEffortChange, modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
+
+  // provider 变化时，如果当前 level 不在新 provider 支持的列表中，clamp 到新 provider 最大级别
+  useEffect(() => {
+    if (modelState.currentThinkingControlEnabled === false) return;
+    const levels = getProviderThinkingLevels(modelState.currentModelProvider);
+    setThinkingEffort(prev => {
+      if (levels.includes(prev)) return prev;
+      // clamp 到新 provider 的最大级别
+      const maxLevel = levels[levels.length - 1];
+      onThinkingEffortChange?.(maxLevel);
+      return maxLevel;
+    });
+  }, [modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
+
+  // 启动时将初始级别（最大值）apply 到后端
+  useEffect(() => {
+    if (thinkingControlEnabled !== false && initialMaxLevel !== 'not-set') {
+      onThinkingEffortChange?.(initialMaxLevel);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅启动时执行一次
+  }, []);
 
   const handleFileAttach = useCallback((filePath: string) => {
     onFileAttach?.(filePath);
@@ -360,6 +406,13 @@ export function App({
     modelEditActions.setValue('');
   }, [viewMode]);
 
+  useEffect(() => {
+    if (viewMode === 'session-list') return;
+    setSessionPendingDeleteId(null);
+    setSessionStatusMessage(null);
+    setSessionStatusIsError(false);
+  }, [viewMode]);
+
   // 工具详情数据变化时自动切换视图
   useEffect(() => {
     if (appState.toolDetailData && viewMode !== 'tool-detail') {
@@ -418,6 +471,7 @@ export function App({
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
     onLoadSession,
+    onDeleteSession,
     onListModels,
     onSwitchModel,
     onSetDefaultModel,
@@ -444,6 +498,11 @@ export function App({
     queueEditActions,
     onToggleThoughts: () => setThoughtsToggleSignal((prev) => prev + 1),
     toolListItems: appState.toolListItems,
+    setSessionList,
+    sessionPendingDeleteId,
+    setSessionPendingDeleteId,
+    setSessionStatusMessage,
+    setSessionStatusIsError,
     agentList,
     onSelectAgent,
     memoryList,
@@ -492,6 +551,9 @@ export function App({
 
   const currentApply = appState.isGenerating ? appState.pendingApplies[0] : undefined;
   const hasMessages = appState.messages.length > 0 || appState.isGenerating;
+  const activeMilestone = appState.milestoneSnapshot?.items.find((item) => item.status === 'in_progress');
+  const milestoneGeneratingLabel = activeMilestone ? `${activeMilestone.activeForm ?? activeMilestone.title}...` : undefined;
+  const effectiveGeneratingLabel = appState.generatingLabel ?? milestoneGeneratingLabel;
 
   if (viewMode === 'settings') {
     return (
@@ -506,7 +568,15 @@ export function App({
   }
 
   if (viewMode === 'session-list') {
-    return <SessionListView sessions={sessionList} selectedIndex={selectedIndex} />;
+    return (
+      <SessionListView
+        sessions={sessionList}
+        selectedIndex={selectedIndex}
+        pendingDeleteId={sessionPendingDeleteId}
+        statusMessage={sessionStatusMessage}
+        statusIsError={sessionStatusIsError}
+      />
+    );
   }
 
   if (viewMode === 'model-list') {
@@ -631,11 +701,12 @@ export function App({
           isGenerating={appState.isGenerating}
           retryInfo={appState.retryInfo}
           modelName={modelState.currentModelName}
-          generatingLabel={appState.generatingLabel}
+          generatingLabel={effectiveGeneratingLabel}
           timerPaused={appState.pendingApprovals.length > 0 || appState.pendingApplies.length > 0 || !!askQuestionInvocation}
           thoughtsToggleSignal={thoughtsToggleSignal}
           hasActiveTools={appState.toolInvocations.some(t => t.status === 'executing' || t.status === 'queued')}
           scrollBoxRef={chatScrollBoxRef}
+          milestoneSnapshot={appState.milestoneSnapshot}
         />
       ) : null}
 
@@ -667,6 +738,8 @@ export function App({
         backgroundTaskSpinnerFrame={appState.backgroundTaskSpinnerFrame}
         thinkingEffort={thinkingEffort}
         onCycleThinkingEffort={cycleThinkingEffort}
+        thinkingControlEnabled={modelState.currentThinkingControlEnabled}
+        providerLevels={getProviderThinkingLevels(modelState.currentModelProvider)}
         remoteHost={remoteHost}
         isRemote={!!remoteHost}
         pendingFiles={pendingFiles}

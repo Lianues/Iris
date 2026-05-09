@@ -5,6 +5,8 @@ import { useTerminalDimensions } from '@opentui/react';
 import { GeneratingTimer, type RetryInfo } from './GeneratingTimer';
 import { MessageItem, type ChatMessage, type MessagePart } from './MessageItem';
 import type { MutableRefObject } from 'react';
+import type { MilestoneSnapshotLike } from 'irises-extension-sdk';
+import { MilestoneListView } from './MilestoneListView';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -22,6 +24,8 @@ interface ChatMessageListProps {
   thoughtsToggleSignal?: number;
   /** 传入 ref 以供外部（如 F6 复制模式）程序化滚动 */
   scrollBoxRef?: MutableRefObject<any>;
+  /** 当前会话 milestone/task 清单快照 */
+  milestoneSnapshot?: MilestoneSnapshotLike | null;
 }
 
 export function ChatMessageList({
@@ -36,6 +40,7 @@ export function ChatMessageList({
   thoughtsToggleSignal,
   hasActiveTools,
   scrollBoxRef,
+  milestoneSnapshot,
 }: ChatMessageListProps) {
   const { height: termHeight } = useTerminalDimensions();
 
@@ -96,6 +101,12 @@ export function ChatMessageList({
           </box>
         );
       })}
+
+      {milestoneSnapshot && milestoneSnapshot.items.length > 0 ? (
+        <box flexDirection="column" paddingBottom={1}>
+          <MilestoneListView snapshot={milestoneSnapshot} standalone />
+        </box>
+      ) : null}
 
       {isGenerating && !lastIsActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? (
         <box flexDirection="column" paddingBottom={1}>

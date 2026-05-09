@@ -5,7 +5,7 @@
  */
 
 export interface ServerEntry {
-  /** 环境名 / 别名（remote_exec.yaml defaultEnvironment 与 switch_environment 使用） */
+  /** 服务器名 / 别名（remote_exec.yaml defaultEnvironment 与 switch_server 使用） */
   host: string;
   hostName: string;
   port: number;
@@ -17,7 +17,7 @@ export interface ServerEntry {
   workdir?: string;
   /** 服务器操作系统（AI 可见，用于选择正确的命令语法）。例如: linux / windows / macos */
   os?: string;
-  /** 该环境的人类可读描述（switch_environment 工具会展示给 AI） */
+  /** 该服务器的人类可读描述（switch_server 工具会展示给 AI） */
   description?: string;
   /** 传输策略：auto（默认）/ sftp / bash */
   transport?: 'auto' | 'sftp' | 'bash';

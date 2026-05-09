@@ -40,6 +40,9 @@ export type {
   IrisSessionMetaLike,
   IrisSkillInfoLike,
   IrisToolInvocationLike,
+  MilestoneItemLike,
+  MilestoneSnapshotLike,
+  MilestoneStatusLike,
   PlatformFactoryHelperOptions,
   ToolAttachment,
 } from './platform.js';
