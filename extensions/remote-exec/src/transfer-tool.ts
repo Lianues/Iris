@@ -13,6 +13,29 @@ import { shQuote } from './remote-shell.js';
 
 export const TRANSFER_FILES_TOOL_NAME = 'transfer_files';
 
+// ── 性能调优常量 ──
+
+/** SFTP 每次 READ/WRITE 请求的数据块大小（默认 32KB 太小，严重限制吞吐） */
+const SFTP_CHUNK_SIZE = 256 * 1024;       // 256KB
+/** Node.js 流缓冲区大小（读、写、Transform 统一） */
+const STREAM_HIGH_WATER_MARK = 1024 * 1024; // 1MB
+/** SFTP 并发写请求数（默认 5 太少，100ms RTT 下仅 1.6MB/s） */
+const SFTP_WRITE_CONCURRENCY = 32;
+/** SFTP 并发读请求数（默认 64，已足够） */
+const SFTP_READ_CONCURRENCY = 64;
+/** 目录传输时文件级并发度 */
+const FILE_CONCURRENCY = 8;
+interface SftpFastOptions {
+  chunkSize: number;
+  concurrency: number;
+}
+/**
+ * fastPut/fastGet 通用默认：兼顾首屏进度和吞吐。
+ */
+const SFTP_FAST_OPTIONS: SftpFastOptions = { chunkSize: 64 * 1024, concurrency: 16 }; // 1MB in-flight
+/** 进度上报最小间隔（ms），避免高频 IPC 开销 */
+const PROGRESS_THROTTLE_MS = 1000;
+
 type TransferKind = 'auto' | 'file' | 'directory';
 type ResolvedKind = 'file' | 'directory';
 type VerifyMode = 'none' | 'size';
@@ -35,23 +58,28 @@ interface StatInfo {
 interface DirEntry {
   name: string;
   type: ResolvedKind;
-}
-
-interface TransferStats {
-  files: number;
-  dirs: number;
-  bytes: number;
+  /** 文件大小（仅文件类型时有值，由支持的 readdir 实现填充，省掉后续 stat） */
+  size?: number;
 }
 
 interface TransferProgressTracker {
   context?: ToolExecutionContext;
   startedAt: number;
+  /** 上次上报时的时间戳和字节数（用于计算即时速度） */
+  prevReportTs: number;
+  prevReportBytes: number;
+  /** 上次计算出的有效速度（无新数据时保持显示） */
+  lastSpeed: number;
   totalBytes: number;
   totalFiles: number;
+  /** 总量是否已知（单文件=true，目录=false，边传边统计） */
+  totalKnown: boolean;
   transferredBytes: number;
   completedFiles: number;
   currentSourcePath?: string;
   currentTargetPath?: string;
+  /** 上次进度上报时间戳（节流用） */
+  lastReportTs: number;
 }
 
 interface StreamHandle {
@@ -245,10 +273,10 @@ async function runTransfer(
   }
 
   if (kind === 'file') {
-    const tracker = createTransferTracker(context, { files: 1, dirs: 0, bytes: sourceStat.size });
-    reportTransferProgress(tracker);
-    const copied = await copyFile({ from, to, sourcePath, targetPath, overwrite: item.overwrite, createDirs: item.createDirs, verify, tracker });
-    reportTransferProgress(tracker, true);
+    const tracker = createTransferTracker(context, { files: 1, dirs: 0, bytes: sourceStat.size }, true);
+    reportTransferProgress(tracker, false, true);
+    const copied = await copyFile({ from, to, sourcePath, targetPath, overwrite: item.overwrite, createDirs: item.createDirs, verify, tracker, knownSize: sourceStat.size });
+    reportTransferProgress(tracker, true, true);
     return {
       success: true,
       index,
@@ -262,11 +290,12 @@ async function runTransfer(
     };
   }
 
-  const planned = await collectTransferStats(from, sourcePath, sourceStat);
-  const tracker = createTransferTracker(context, planned);
-  reportTransferProgress(tracker);
-  const copied = await copyDirectory({ from, to, sourceDir: sourcePath, targetDir: targetPath, overwrite: item.overwrite, createDirs: item.createDirs, verify, tracker });
-  reportTransferProgress(tracker, true);
+  // 目录传输：不再预扫描 collectTransferStats，边传边统计
+  const tracker = createTransferTracker(context, { files: 0, dirs: 0, bytes: 0 }, false);
+  const mkdirCache = new Set<string>();
+  reportTransferProgress(tracker, false, true);
+  const copied = await copyDirectory({ from, to, sourceDir: sourcePath, targetDir: targetPath, overwrite: item.overwrite, createDirs: item.createDirs, verify, tracker, mkdirCache });
+  reportTransferProgress(tracker, true, true);
   return {
     success: true,
     index,
@@ -298,61 +327,77 @@ async function createEndpoint(environment: string, envMgr: EnvironmentManager, t
 }
 
 
-function createTransferTracker(context: ToolExecutionContext | undefined, stats: TransferStats): TransferProgressTracker {
+function createTransferTracker(context: ToolExecutionContext | undefined, stats: { files: number; dirs: number; bytes: number }, totalKnown: boolean): TransferProgressTracker {
+  const now = Date.now();
   return {
     context,
-    startedAt: Date.now(),
+    startedAt: now,
+    prevReportTs: now,
+    prevReportBytes: 0,
+    lastSpeed: 0,
     totalBytes: stats.bytes,
     totalFiles: stats.files,
+    totalKnown,
     transferredBytes: 0,
     completedFiles: 0,
+    lastReportTs: 0,
   };
 }
 
-async function collectTransferStats(endpoint: Endpoint, p: string, knownStat?: StatInfo): Promise<TransferStats> {
-  const st = knownStat ?? await endpoint.stat(p);
-  if (st.type === 'file') return { files: 1, dirs: 0, bytes: st.size };
-
-  let files = 0;
-  let dirs = 1;
-  let bytes = 0;
-  const entries = await endpoint.readdir(p);
-  for (const entry of entries) {
-    const child = endpoint.join(p, entry.name);
-    if (entry.type === 'directory') {
-      const nested = await collectTransferStats(endpoint, child);
-      files += nested.files;
-      dirs += nested.dirs;
-      bytes += nested.bytes;
-    } else {
-      const childStat = await endpoint.stat(child);
-      files += 1;
-      bytes += childStat.size;
-    }
+function reportTransferProgress(tracker: TransferProgressTracker, final: boolean, force: boolean): void {
+  const now = Date.now();
+  if (!force) {
+    if (now - tracker.lastReportTs < PROGRESS_THROTTLE_MS) return;
+    tracker.lastReportTs = now;
   }
-  return { files, dirs, bytes };
-}
 
-function reportTransferProgress(tracker: TransferProgressTracker, final = false): void {
-  const elapsedMs = Math.max(1, Date.now() - tracker.startedAt);
-  const speedBytesPerSec = tracker.transferredBytes / (elapsedMs / 1000);
-  const remainingBytes = Math.max(0, tracker.totalBytes - tracker.transferredBytes);
-  const percent = tracker.totalBytes > 0
-    ? Math.min(100, Math.round((tracker.transferredBytes / tracker.totalBytes) * 100))
-    : 100;
+  const elapsedMs = Math.max(1, now - tracker.startedAt);
+
+  // 速度计算：只在有新数据流入时重新计算，否则保持上次速度
+  const dt = now - tracker.prevReportTs;
+  const db = tracker.transferredBytes - tracker.prevReportBytes;
+  let speedBytesPerSec: number;
+  if (final) {
+    speedBytesPerSec = tracker.transferredBytes / (elapsedMs / 1000);
+  } else if (dt >= 500 && db > 0) {
+    // 有新数据到达——计算区间即时速度，更新锚点
+    speedBytesPerSec = db / (dt / 1000);
+    tracker.lastSpeed = speedBytesPerSec;
+    tracker.prevReportTs = now;
+    tracker.prevReportBytes = tracker.transferredBytes;
+  } else if (tracker.lastSpeed > 0) {
+    // 无新数据——保持上次速度，不更新锚点
+    speedBytesPerSec = tracker.lastSpeed;
+  } else {
+    speedBytesPerSec = 0;
+  }
+
+  let percent: number;
+  let etaSec: number | undefined;
+  if (final) {
+    percent = 100;
+  } else if (tracker.totalKnown && tracker.totalBytes > 0) {
+    const remainingBytes = Math.max(0, tracker.totalBytes - tracker.transferredBytes);
+    percent = Math.min(99, Math.round((tracker.transferredBytes / tracker.totalBytes) * 100));
+    etaSec = speedBytesPerSec > 0 ? Math.ceil(remainingBytes / speedBytesPerSec) : undefined;
+  } else {
+    // 目录传输：总量未知，不计算百分比
+    percent = -1;
+    etaSec = undefined;
+  }
 
   tracker.context?.reportProgress?.({
     kind: 'transfer_files',
     sourcePath: tracker.currentSourcePath,
     targetPath: tracker.currentTargetPath,
     bytesTransferred: tracker.transferredBytes,
-    totalBytes: tracker.totalBytes,
-    percent: final ? 100 : percent,
+    totalBytes: tracker.totalKnown ? tracker.totalBytes : undefined,
+    percent,
     speedBytesPerSec,
-    etaSec: speedBytesPerSec > 0 ? Math.ceil(remainingBytes / speedBytesPerSec) : undefined,
+    etaSec,
     elapsedMs,
     filesTransferred: tracker.completedFiles,
-    totalFiles: tracker.totalFiles,
+    totalFiles: tracker.totalKnown ? tracker.totalFiles : undefined,
   });
 }
 
@@ -365,11 +410,10 @@ async function copyDirectory(input: {
   createDirs: boolean;
   verify: VerifyMode;
   tracker: TransferProgressTracker;
+  mkdirCache: Set<string>;
 }): Promise<{ files: number; dirs: number; bytes: number; verifyOk: boolean }> {
-  const { from, to, sourceDir, targetDir, overwrite, createDirs, verify, tracker } = input;
-  const st = await from.stat(sourceDir);
-  if (st.type !== 'directory') throw new Error(`源路径不是目录: ${sourceDir}`);
-  if (createDirs) await to.mkdirp(targetDir);
+  const { from, to, sourceDir, targetDir, overwrite, createDirs, verify, tracker, mkdirCache } = input;
+  if (createDirs) await mkdirpCached(to, targetDir, mkdirCache);
 
   let files = 0;
   let dirs = 1;
@@ -377,22 +421,40 @@ async function copyDirectory(input: {
   let verifyOk = true;
 
   const entries = await from.readdir(sourceDir);
-  for (const entry of entries) {
-    const src = from.join(sourceDir, entry.name);
-    const dst = to.join(targetDir, entry.name);
-    if (entry.type === 'directory') {
-      const nested = await copyDirectory({ from, to, sourceDir: src, targetDir: dst, overwrite, createDirs, verify, tracker });
-      files += nested.files;
-      dirs += nested.dirs;
-      bytes += nested.bytes;
-      verifyOk = verifyOk && nested.verifyOk;
-    } else {
-      const one = await copyFile({ from, to, sourcePath: src, targetPath: dst, overwrite, createDirs, verify, tracker });
+  const dirEntries = entries.filter(e => e.type === 'directory');
+  const fileEntries = entries.filter(e => e.type === 'file');
+
+  // 先为子目录在目标端创建对应目录（保证后续文件写入的父目录存在）
+  for (const dir of dirEntries) {
+    const dst = to.join(targetDir, dir.name);
+    if (createDirs) await mkdirpCached(to, dst, mkdirCache);
+  }
+
+  // 文件级并发传输
+  if (fileEntries.length > 0) {
+    const fileResults = await pMap(fileEntries, FILE_CONCURRENCY, async (entry) => {
+      const src = from.join(sourceDir, entry.name);
+      const dst = to.join(targetDir, entry.name);
+      return copyFile({ from, to, sourcePath: src, targetPath: dst, overwrite, createDirs, verify, tracker, knownSize: entry.size, mkdirCache });
+    });
+    for (const one of fileResults) {
       files += 1;
       bytes += one.bytes;
       verifyOk = verifyOk && one.verifyOk;
     }
   }
+
+  // 子目录递归
+  for (const dir of dirEntries) {
+    const src = from.join(sourceDir, dir.name);
+    const dst = to.join(targetDir, dir.name);
+    const nested = await copyDirectory({ from, to, sourceDir: src, targetDir: dst, overwrite, createDirs, verify, tracker, mkdirCache });
+    files += nested.files;
+    dirs += nested.dirs;
+    bytes += nested.bytes;
+    verifyOk = verifyOk && nested.verifyOk;
+  }
+
   return { files, dirs, bytes, verifyOk };
 }
 
@@ -405,50 +467,120 @@ async function copyFile(input: {
   createDirs: boolean;
   verify: VerifyMode;
   tracker: TransferProgressTracker;
+  /** 已知源文件大小（从 readdir 的 DirEntry.size 传入，省掉 stat RTT） */
+  knownSize?: number;
+  /** 目录缓存（跳过已知存在的目录的 mkdirp） */
+  mkdirCache?: Set<string>;
 }): Promise<{ bytes: number; verifyOk: boolean }> {
-  const { from, to, sourcePath, targetPath, overwrite, createDirs, verify, tracker } = input;
-  const st = await from.stat(sourcePath);
-  if (st.type !== 'file') throw new Error(`源路径不是文件: ${sourcePath}`);
+  const { from, to, sourcePath, targetPath, overwrite, createDirs, verify, tracker, knownSize, mkdirCache } = input;
 
+  // 只有 knownSize 未知时才 stat（从 copyDirectory 调用时 readdir 已提供 size）
+  let sourceSize: number;
+  if (knownSize !== undefined && knownSize >= 0) {
+    sourceSize = knownSize;
+  } else {
+    const st = await from.stat(sourcePath);
+    if (st.type !== 'file') throw new Error(`源路径不是文件: ${sourcePath}`);
+    sourceSize = st.size;
+  }
+
+  // overwrite=true 时不需要 exists 检查（反正会覆盖/rename 会处理）
   if (!overwrite && await to.exists(targetPath)) {
     throw new Error(`目标已存在: ${targetPath}`);
   }
-  if (createDirs) await to.mkdirp(to.dirname(targetPath));
+
+  // 使用缓存版本避免重复 mkdirp
+  if (createDirs) {
+    const dir = to.dirname(targetPath);
+    if (mkdirCache) await mkdirpCached(to, dir, mkdirCache);
+    else await to.mkdirp(dir);
+  }
 
   const tempPath = makeTempPath(to, targetPath);
   tracker.currentSourcePath = sourcePath;
   tracker.currentTargetPath = targetPath;
-  const progress = new Transform({
-    transform(chunk, _encoding, callback) {
-      const n = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
-      tracker.transferredBytes += n;
-      reportTransferProgress(tracker);
-      callback(null, chunk);
-    },
-  });
 
-  const reader = await from.openRead(sourcePath);
-  const writer = await to.openWrite(tempPath, false);
+  // 快速路径：local ↔ SFTP 使用 ssh2 的 fastPut/fastGet（绕过流管道，精确进度）
+  const useFastPut = from instanceof LocalEndpoint && to instanceof RemoteSftpEndpoint;
+  const useFastGet = from instanceof RemoteSftpEndpoint && to instanceof LocalEndpoint;
 
   try {
-    await pipeline(reader.stream, progress, writer.stream);
-    if (reader.done) await reader.done();
-    if (writer.done) await writer.done();
+    if (useFastPut) {
+      await sftpFastPut((to as RemoteSftpEndpoint).sftp, sourcePath, tempPath, sourceSize, tracker, (to as RemoteSftpEndpoint).fastOptions);
+    } else if (useFastGet) {
+      await sftpFastGet((from as RemoteSftpEndpoint).sftp, sourcePath, tempPath, sourceSize, tracker, (from as RemoteSftpEndpoint).fastOptions);
+    } else {
+      // 通用路径：流管道（用于 remote↔remote、bash endpoint 等）
+      await copyFileViaStream(from, to, sourcePath, tempPath, tracker);
+    }
 
     let verifyOk = true;
     if (verify === 'size') {
       const tempStat = await to.stat(tempPath);
-      verifyOk = tempStat.type === 'file' && tempStat.size === st.size;
-      if (!verifyOk) throw new Error(`size 校验失败: source=${st.size}, temp=${tempStat.size}`);
+      verifyOk = tempStat.type === 'file' && tempStat.size === sourceSize;
+      if (!verifyOk) throw new Error(`size 校验失败: source=${sourceSize}, temp=${tempStat.size}`);
     }
 
     await to.rename(tempPath, targetPath, overwrite);
     tracker.completedFiles += 1;
-    reportTransferProgress(tracker);
-    return { bytes: st.size, verifyOk };
+    reportTransferProgress(tracker, false, true);
+    return { bytes: sourceSize, verifyOk };
   } catch (err) {
     await safeUnlink(to, tempPath);
     throw err;
+  }
+}
+
+/** ssh2 fastPut：本地→远端 SFTP，精确进度（step 计数 + 定时器显示） */
+function sftpFastPut(sftp: SFTPWrapper, localPath: string, remotePath: string, totalSize: number, tracker: TransferProgressTracker, options: SftpFastOptions): Promise<void> {
+  const baseBytes = tracker.transferredBytes;
+  const timer = setInterval(() => reportTransferProgress(tracker, false, true), PROGRESS_THROTTLE_MS);
+  return new Promise((resolve, reject) => {
+    sftp.fastPut(localPath, remotePath, {
+      concurrency: options.concurrency,
+      chunkSize: options.chunkSize,
+      step(transferred) {
+        // transferred = 本文件累计已传字节（由 ssh2 精确统计）
+        tracker.transferredBytes = baseBytes + transferred;
+      },
+    }, (err) => { clearInterval(timer); err ? reject(err) : resolve(); });
+  });
+}
+
+/** ssh2 fastGet：远端 SFTP→本地，精确进度（step 计数 + 定时器显示） */
+function sftpFastGet(sftp: SFTPWrapper, remotePath: string, localPath: string, totalSize: number, tracker: TransferProgressTracker, options: SftpFastOptions): Promise<void> {
+  const baseBytes = tracker.transferredBytes;
+  const timer = setInterval(() => reportTransferProgress(tracker, false, true), PROGRESS_THROTTLE_MS);
+  return new Promise((resolve, reject) => {
+    sftp.fastGet(remotePath, localPath, {
+      concurrency: options.concurrency,
+      chunkSize: options.chunkSize,
+      step(transferred) {
+        tracker.transferredBytes = baseBytes + transferred;
+      },
+    }, (err) => { clearInterval(timer); err ? reject(err) : resolve(); });
+  });
+}
+
+/** 通用流管道传输（remote↔remote、bash endpoint 等非 SFTP 直连场景） */
+async function copyFileViaStream(from: Endpoint, to: Endpoint, sourcePath: string, tempPath: string, tracker: TransferProgressTracker): Promise<void> {
+  const progress = new Transform({
+    highWaterMark: STREAM_HIGH_WATER_MARK,
+    transform(chunk, _encoding, callback) {
+      const n = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
+      tracker.transferredBytes += n;
+      callback(null, chunk);
+    },
+  });
+  const reader = await from.openRead(sourcePath);
+  const writer = await to.openWrite(tempPath, false);
+  const progressTimer = setInterval(() => reportTransferProgress(tracker, false, true), PROGRESS_THROTTLE_MS);
+  try {
+    await pipeline(reader.stream, progress, writer.stream);
+    if (reader.done) await reader.done();
+    if (writer.done) await writer.done();
+  } finally {
+    clearInterval(progressTimer);
   }
 }
 
@@ -474,6 +606,39 @@ function trimTrailingSeparators(p: string, isRemote: boolean): string {
   return out;
 }
 
+// ── mkdirp 缓存：已确认创建的目录加入 Set，后续跳过 ──
+
+async function mkdirpCached(endpoint: Endpoint, p: string, cache: Set<string>): Promise<void> {
+  const normalized = endpoint.normalize(p);
+  if (cache.has(normalized)) return;
+  await endpoint.mkdirp(normalized);
+  // 将该路径及其所有父路径都加入缓存
+  let cur = normalized;
+  while (cur && cur !== '/' && cur !== '.' && !cache.has(cur)) {
+    cache.add(cur);
+    const parent = endpoint.dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+}
+
+// ── 简单并发控制（不引入外部依赖） ──
+
+async function pMap<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let index = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+// ── LocalEndpoint ──
+
 class LocalEndpoint implements Endpoint {
   environment = LOCAL_ENV;
   isLocal = true;
@@ -497,9 +662,21 @@ class LocalEndpoint implements Endpoint {
   async mkdirp(p: string): Promise<void> { await fsp.mkdir(p, { recursive: true }); }
   async readdir(p: string): Promise<DirEntry[]> {
     const entries = await fsp.readdir(p, { withFileTypes: true });
-    return entries
-      .filter(e => e.isFile() || e.isDirectory())
-      .map(e => ({ name: e.name, type: e.isDirectory() ? 'directory' : 'file' }));
+    const out: DirEntry[] = [];
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        out.push({ name: e.name, type: 'directory' });
+      } else if (e.isFile()) {
+        // 本地 readdir 也顺带 stat 获取文件大小（批量 lstat 比逐个 stat 更快）
+        try {
+          const st = await fsp.stat(path.join(p, e.name));
+          out.push({ name: e.name, type: 'file', size: st.size });
+        } catch {
+          out.push({ name: e.name, type: 'file' });
+        }
+      }
+    }
+    return out;
   }
   async unlink(p: string): Promise<void> { await fsp.rm(p, { force: true }); }
   async rename(src: string, dst: string, overwrite: boolean): Promise<void> {
@@ -511,13 +688,21 @@ class LocalEndpoint implements Endpoint {
       await fsp.rename(src, dst);
     }
   }
-  async openRead(p: string): Promise<StreamHandle & { stream: Readable }> { return { stream: fs.createReadStream(p) }; }
-  async openWrite(p: string, overwrite: boolean): Promise<StreamHandle & { stream: Writable }> { return { stream: fs.createWriteStream(p, { flags: overwrite ? 'w' : 'wx' }) }; }
+  async openRead(p: string): Promise<StreamHandle & { stream: Readable }> {
+    return { stream: fs.createReadStream(p, { highWaterMark: STREAM_HIGH_WATER_MARK }) };
+  }
+  async openWrite(p: string, overwrite: boolean): Promise<StreamHandle & { stream: Writable }> {
+    return { stream: fs.createWriteStream(p, { flags: overwrite ? 'w' : 'wx', highWaterMark: STREAM_HIGH_WATER_MARK }) };
+  }
 }
+
+// ── RemoteSftpEndpoint ──
 
 class RemoteSftpEndpoint implements Endpoint {
   isLocal = false;
-  constructor(public environment: string, private sftp: SFTPWrapper) {}
+  /** public 以供 fastPut/fastGet 快速路径访问 */
+  readonly fastOptions = SFTP_FAST_OPTIONS;
+  constructor(public environment: string, public sftp: SFTPWrapper) {}
 
   assertAbsolute(p: string): void { if (!p.startsWith('/')) throw new Error(`远端路径必须是 / 开头的绝对路径: ${p}`); }
   normalize(p: string): string { return path.posix.normalize(trimTrailingSeparators(p.replace(/\\/g, '/'), true)); }
@@ -531,26 +716,50 @@ class RemoteSftpEndpoint implements Endpoint {
     throw new Error(`不支持的远端路径类型: ${p}`);
   }
   async exists(p: string): Promise<boolean> { try { await this.stat(p); return true; } catch { return false; } }
+
+  /**
+   * mkdirp 优化：先直接 mkdir 目标目录（快速路径，1 RTT），
+   * 如果目标已存在则 stat 确认后直接返回；否则逐层 mkdir。
+   */
   async mkdirp(p: string): Promise<void> {
     const normalized = this.normalize(p);
     if (!normalized || normalized === '/') return;
+    // 快速路径：直接 mkdir 最终目录
+    try {
+      await sftpMkdir(this.sftp, normalized);
+      return;
+    } catch { /* 可能已存在，也可能父目录不存在 */ }
+
+    // 常见路径（如 /root）已存在：确认是目录后直接返回，避免重复逐层 mkdir
+    try {
+      const st = await this.stat(normalized);
+      if (st.type === 'directory') return;
+      throw new Error(`${normalized} 已存在但不是目录`);
+    } catch { /* 不存在或 stat 失败，走慢路径 */ }
+
+    // 慢路径：逐层创建；每层失败时确认是否已经是目录
     const parts = normalized.split('/').filter(Boolean);
     let cur = '/';
     for (const part of parts) {
       cur = cur === '/' ? `/${part}` : path.posix.join(cur, part);
-      try {
-        const st = await this.stat(cur);
-        if (st.type !== 'directory') throw new Error(`${cur} 已存在但不是目录`);
-      } catch {
-        await new Promise<void>((resolve, reject) => this.sftp.mkdir(cur, err => err ? reject(err) : resolve()));
-      }
+      try { await sftpMkdir(this.sftp, cur); }
+      catch { const st = await this.stat(cur); if (st.type !== 'directory') throw new Error(`${cur} 已存在但不是目录`); }
     }
   }
+
+  /**
+   * readdir 优化：从 SFTP readdir 的 attrs 中直接提取文件大小，
+   * 省掉后续每个文件单独 stat 的 RTT。
+   */
   async readdir(p: string): Promise<DirEntry[]> {
     const list = await new Promise<any[]>((resolve, reject) => this.sftp.readdir(p, (err, entries) => err ? reject(err) : resolve(entries)));
     return list
       .filter(e => e.attrs?.isFile?.() || e.attrs?.isDirectory?.())
-      .map(e => ({ name: e.filename, type: e.attrs.isDirectory() ? 'directory' : 'file' }));
+      .map(e => ({
+        name: e.filename,
+        type: e.attrs.isDirectory() ? 'directory' as const : 'file' as const,
+        size: e.attrs.isFile?.() ? (e.attrs.size as number | undefined) : undefined,
+      }));
   }
   async unlink(p: string): Promise<void> {
     await new Promise<void>((resolve, reject) => this.sftp.unlink(p, err => err ? reject(err) : resolve()));
@@ -564,9 +773,50 @@ class RemoteSftpEndpoint implements Endpoint {
       await new Promise<void>((resolve, reject) => this.sftp.rename(src, dst, err2 => err2 ? reject(err2) : resolve()));
     }
   }
-  async openRead(p: string): Promise<StreamHandle & { stream: Readable }> { return { stream: this.sftp.createReadStream(p) as unknown as Readable }; }
-  async openWrite(p: string, overwrite: boolean): Promise<StreamHandle & { stream: Writable }> { return { stream: this.sftp.createWriteStream(p, { flags: overwrite ? 'w' : 'wx' }) as unknown as Writable }; }
+
+  /**
+   * SFTP 读流：大幅增加 chunkSize 和 highWaterMark 以提升吞吐
+   * - chunkSize 256KB（原 32KB）：减少 SFTP READ 请求次数
+   * - highWaterMark 1MB（原 64KB）：增大 Node.js 流缓冲区
+   * - concurrency 64（保持默认）：并发读请求数已足够
+   */
+  async openRead(p: string): Promise<StreamHandle & { stream: Readable }> {
+    return {
+      stream: this.sftp.createReadStream(p, {
+        chunkSize: SFTP_CHUNK_SIZE,
+        highWaterMark: STREAM_HIGH_WATER_MARK,
+        concurrency: SFTP_READ_CONCURRENCY,
+      }) as unknown as Readable,
+    };
+  }
+
+  /**
+   * SFTP 写流：这是原实现最大的瓶颈所在
+   * - chunkSize 256KB（原 32KB）：减少 SFTP WRITE 请求次数
+   * - highWaterMark 1MB（原 64KB）：增大 Node.js 流缓冲区
+   * - concurrency 32（原 5！）：大幅增加并发写请求，充分利用带宽
+   *   原实现 5 并发 × 32KB = 160KB 在途数据，100ms RTT 下仅 1.6MB/s
+   *   优化后 32 并发 × 256KB = 8MB 在途数据，100ms RTT 下可达 80MB/s
+   */
+  async openWrite(p: string, overwrite: boolean): Promise<StreamHandle & { stream: Writable }> {
+    return {
+      stream: this.sftp.createWriteStream(p, {
+        flags: overwrite ? 'w' : 'wx',
+        chunkSize: SFTP_CHUNK_SIZE,
+        highWaterMark: STREAM_HIGH_WATER_MARK,
+        concurrency: SFTP_WRITE_CONCURRENCY,
+      }) as unknown as Writable,
+    };
+  }
 }
+
+// ── SFTP 辅助 ──
+
+function sftpMkdir(sftp: SFTPWrapper, p: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => sftp.mkdir(p, err => err ? reject(err) : resolve()));
+}
+
+// ── RemoteBashEndpoint ──
 
 function decodeNulListFromBase64(stdout: string): string[] {
   return Buffer.from(stdout.replace(/\s+/g, ''), 'base64').toString('utf8').split('\0').filter(Boolean);

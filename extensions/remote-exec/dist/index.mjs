@@ -7047,13 +7047,13 @@ var DEFAULT_REMOTE_EXEC_YAML = `# remote-exec 配置
 # 是否启用本扩展（false 时所有工具静默走本地）
 enabled: false
 
-# 默认活动环境（启动时使用）：
+# 默认活动服务器（启动时使用）：
 #   local        本机执行（不走 SSH）
 #   <服务器别名> 对应 remote_exec_servers.yaml 中 servers.<别名>
 defaultEnvironment: local
 
-# 是否向 AI 暴露 switch_environment 工具，让 AI 自主切换环境
-# 关闭后只能由配置文件指定
+# 是否向 AI 暴露 switch_server 工具，让 AI 自主切换服务器
+# 关闭后只能由配置文件手动指定 defaultEnvironment
 exposeSwitchTool: true
 
 # 远端工作目录（cwd）：所有翻译后的命令默认在此目录下执行。
@@ -7077,8 +7077,8 @@ var DEFAULT_REMOTE_EXEC_SERVERS_YAML = `# remote-exec 服务器清单
 #   - 插件读取时通过 ctx.readConfigSection('remote_exec_servers')
 #   - 修改后支持配置热重载
 #
-# servers 是一个 map：key 是环境名/别名，value 是 SSH 连接信息。
-# AI 会通过 switch_environment 工具看到这些环境名。
+# servers 是一个 map：key 是服务器名/别名，value 是 SSH 连接信息。
+# AI 会通过 switch_server 工具看到这些服务器名。
 #
 # 字段：
 #   hostName      实际主机名 / IP（必填）
@@ -7088,7 +7088,7 @@ var DEFAULT_REMOTE_EXEC_SERVERS_YAML = `# remote-exec 服务器清单
 #   password      明文密码（与 identityFile 二选一；建议优先用密钥）
 #   workdir       该服务器上的默认工作目录（覆盖 remote_exec.yaml 的 remoteWorkdir）
 #   os            服务器操作系统（AI 可见，用于选择正确命令语法）: linux / windows / macos
-#   description   AI 可见的环境描述（switch_environment 工具会展示）
+#   description   AI 可见的服务器描述（switch_server 工具会展示）
 #   transport     auto（默认）/ sftp / bash
 #                 auto = 文件精确操作优先 SFTP，扫描/搜索/shell 走 bash
 #                 sftp = 文件精确操作强制 SFTP（失败时报错）
@@ -7661,7 +7661,7 @@ class EnvironmentManager {
   async setActive(name) {
     const previous = this.getActive();
     if (name !== LOCAL_ENV && !this.getServers().has(name)) {
-      throw new Error(`未知环境 "${name}"。可用环境：${this.listEnvs().map((e) => e.name).join(", ")}`);
+      throw new Error(`未知服务器 "${name}"。可用服务器：${this.listEnvs().map((e) => e.name).join(", ")}`);
     }
     const sid = this.api.agentManager?.getActiveSessionId?.();
     if (sid) {
@@ -7709,10 +7709,10 @@ function buildSwitchEnvironmentTool(envMgr) {
   const envs = envMgr.listEnvs();
   const envNames = envs.map((e) => e.name);
   const lines = [];
-  lines.push('切换"远程执行环境"。切换后，list_files / read_file / write_file / shell 等工具会自动在该环境上执行（远端 SSH / 本地）。');
-  lines.push('如果用户明确指定了环境名，必须把该环境名放入 name 参数；例如 switch_environment({"name":"server1"})。');
+  lines.push('切换"远程执行服务器"。切换后，list_files / read_file / write_file / shell 等工具会自动在该服务器上执行（远端 SSH / 本地）。');
+  lines.push('如果用户明确指定了服务器名，必须把该服务器名放入 name 参数；例如 switch_server({"name":"server1"})。');
   lines.push("");
-  lines.push("当前可用环境：");
+  lines.push("当前可用服务器：");
   for (const e of envs) {
     const tags = [
       e.isLocal ? "本地" : `${e.user ?? "?"}@${e.hostName ?? "?"}`,
@@ -7723,10 +7723,10 @@ function buildSwitchEnvironmentTool(envMgr) {
     lines.push(`  - ${e.name}: ${tags}`);
   }
   lines.push("");
-  lines.push("注意：当前环境会在调用本工具后切换；工具返回值会告诉你切换后的 current。");
+  lines.push("注意：当前服务器会在调用本工具后切换；工具返回值会告诉你切换后的 current。");
   return {
     declaration: {
-      name: "switch_environment",
+      name: "switch_server",
       description: lines.join(`
 `),
       parameters: {
@@ -7734,7 +7734,7 @@ function buildSwitchEnvironmentTool(envMgr) {
         properties: {
           name: {
             type: "string",
-            description: `要切换到的环境名（local 表示本机）。可选值：${envNames.join(" | ")}`,
+            description: `要切换到的服务器名（local 表示本机）。可选值：${envNames.join(" | ")}`,
             enum: envNames
           }
         },
@@ -7744,7 +7744,7 @@ function buildSwitchEnvironmentTool(envMgr) {
     handler: async (args) => {
       const name = args.name?.trim();
       if (!name)
-        throw new Error("switch_environment: name 不能为空");
+        throw new Error("switch_server: name 不能为空");
       const { previous, current } = await envMgr.setActive(name);
       const after = envMgr.listEnvs().find((e) => e.name === current);
       return {
@@ -7752,7 +7752,7 @@ function buildSwitchEnvironmentTool(envMgr) {
         previous,
         current,
         environment: after,
-        message: previous === current ? `已经在环境 "${current}"，未发生变化。` : `已从 "${previous}" 切换到 "${current}"。后续工具调用将自动在此环境执行。`
+        message: previous === current ? `已经在服务器 "${current}"，未发生变化。` : `已从 "${previous}" 切换到 "${current}"。后续工具调用将自动在此服务器执行。`
       };
     }
   };
@@ -7778,6 +7778,13 @@ function withCwd(command, cwd) {
 
 // src/transfer-tool.ts
 var TRANSFER_FILES_TOOL_NAME = "transfer_files";
+var SFTP_CHUNK_SIZE = 256 * 1024;
+var STREAM_HIGH_WATER_MARK = 1024 * 1024;
+var SFTP_WRITE_CONCURRENCY = 32;
+var SFTP_READ_CONCURRENCY = 64;
+var FILE_CONCURRENCY = 8;
+var SFTP_FAST_OPTIONS = { chunkSize: 64 * 1024, concurrency: 16 };
+var PROGRESS_THROTTLE_MS = 1000;
 function buildTransferFilesTool(envMgr, getTransport) {
   const envs = envMgr.listEnvs();
   const envNames = envs.map((e) => e.name);
@@ -7785,7 +7792,7 @@ function buildTransferFilesTool(envMgr, getTransport) {
     declaration: {
       name: TRANSFER_FILES_TOOL_NAME,
       description: [
-        "在本地与远端环境之间传输文件或目录。支持 local ↔ remote、remote ↔ remote、local ↔ local。",
+        "在本地与远端服务器之间传输文件或目录。支持 local ↔ remote、remote ↔ remote、local ↔ local。",
         "注意：remote ↔ remote 传输会通过当前本地 Iris 实例中转。",
         "路径必须使用全路径/绝对路径：本地如 C:\\path\\file 或 /home/me/file，远端如 /root/file。",
         "路径以 / 或 \\ 结尾表示目录；否则表示文件。type=auto 时也会 stat 源路径自动判断。",
@@ -7853,7 +7860,7 @@ function transferProperties(envNames) {
     fromEnvironment: {
       type: "string",
       enum: envNames,
-      description: `源环境。可选值：${envNames.join(" | ")}`
+      description: `源服务器。可选值：${envNames.join(" | ")}`
     },
     fromPath: {
       type: "string",
@@ -7862,7 +7869,7 @@ function transferProperties(envNames) {
     toEnvironment: {
       type: "string",
       enum: envNames,
-      description: `目标环境。可选值：${envNames.join(" | ")}`
+      description: `目标服务器。可选值：${envNames.join(" | ")}`
     },
     toPath: {
       type: "string",
@@ -7925,10 +7932,10 @@ async function runTransfer(item, verify, envMgr, transport, context, index) {
     targetPath = to.join(targetPath, from.basename(sourcePath));
   }
   if (kind === "file") {
-    const tracker2 = createTransferTracker(context, { files: 1, dirs: 0, bytes: sourceStat.size });
-    reportTransferProgress(tracker2);
-    const copied2 = await copyFile({ from, to, sourcePath, targetPath, overwrite: item.overwrite, createDirs: item.createDirs, verify, tracker: tracker2 });
-    reportTransferProgress(tracker2, true);
+    const tracker2 = createTransferTracker(context, { files: 1, dirs: 0, bytes: sourceStat.size }, true);
+    reportTransferProgress(tracker2, false, true);
+    const copied2 = await copyFile({ from, to, sourcePath, targetPath, overwrite: item.overwrite, createDirs: item.createDirs, verify, tracker: tracker2, knownSize: sourceStat.size });
+    reportTransferProgress(tracker2, true, true);
     return {
       success: true,
       index,
@@ -7941,11 +7948,11 @@ async function runTransfer(item, verify, envMgr, transport, context, index) {
       verify: { mode: verify, ok: copied2.verifyOk }
     };
   }
-  const planned = await collectTransferStats(from, sourcePath, sourceStat);
-  const tracker = createTransferTracker(context, planned);
-  reportTransferProgress(tracker);
-  const copied = await copyDirectory({ from, to, sourceDir: sourcePath, targetDir: targetPath, overwrite: item.overwrite, createDirs: item.createDirs, verify, tracker });
-  reportTransferProgress(tracker, true);
+  const tracker = createTransferTracker(context, { files: 0, dirs: 0, bytes: 0 }, false);
+  const mkdirCache = new Set;
+  reportTransferProgress(tracker, false, true);
+  const copied = await copyDirectory({ from, to, sourceDir: sourcePath, targetDir: targetPath, overwrite: item.overwrite, createDirs: item.createDirs, verify, tracker, mkdirCache });
+  reportTransferProgress(tracker, true, true);
   return {
     success: true,
     index,
@@ -7963,7 +7970,7 @@ async function createEndpoint(environment, envMgr, transport) {
     return new LocalEndpoint;
   const env = envMgr.listEnvs().find((e) => e.name === environment && !e.isLocal);
   if (!env)
-    throw new Error(`未知传输环境: ${environment}`);
+    throw new Error(`未知传输服务器: ${environment}`);
   const mode = transport.getTransportMode(environment);
   if (mode === "bash")
     return new RemoteBashEndpoint(environment, transport);
@@ -7979,131 +7986,212 @@ async function createEndpoint(environment, envMgr, transport) {
     throw err;
   }
 }
-function createTransferTracker(context, stats) {
+function createTransferTracker(context, stats, totalKnown) {
+  const now = Date.now();
   return {
     context,
-    startedAt: Date.now(),
+    startedAt: now,
+    prevReportTs: now,
+    prevReportBytes: 0,
+    lastSpeed: 0,
     totalBytes: stats.bytes,
     totalFiles: stats.files,
+    totalKnown,
     transferredBytes: 0,
-    completedFiles: 0
+    completedFiles: 0,
+    lastReportTs: 0
   };
 }
-async function collectTransferStats(endpoint, p, knownStat) {
-  const st = knownStat ?? await endpoint.stat(p);
-  if (st.type === "file")
-    return { files: 1, dirs: 0, bytes: st.size };
-  let files = 0;
-  let dirs = 1;
-  let bytes = 0;
-  const entries = await endpoint.readdir(p);
-  for (const entry of entries) {
-    const child = endpoint.join(p, entry.name);
-    if (entry.type === "directory") {
-      const nested = await collectTransferStats(endpoint, child);
-      files += nested.files;
-      dirs += nested.dirs;
-      bytes += nested.bytes;
-    } else {
-      const childStat = await endpoint.stat(child);
-      files += 1;
-      bytes += childStat.size;
-    }
+function reportTransferProgress(tracker, final, force) {
+  const now = Date.now();
+  if (!force) {
+    if (now - tracker.lastReportTs < PROGRESS_THROTTLE_MS)
+      return;
+    tracker.lastReportTs = now;
   }
-  return { files, dirs, bytes };
-}
-function reportTransferProgress(tracker, final = false) {
-  const elapsedMs = Math.max(1, Date.now() - tracker.startedAt);
-  const speedBytesPerSec = tracker.transferredBytes / (elapsedMs / 1000);
-  const remainingBytes = Math.max(0, tracker.totalBytes - tracker.transferredBytes);
-  const percent = tracker.totalBytes > 0 ? Math.min(100, Math.round(tracker.transferredBytes / tracker.totalBytes * 100)) : 100;
+  const elapsedMs = Math.max(1, now - tracker.startedAt);
+  const dt = now - tracker.prevReportTs;
+  const db = tracker.transferredBytes - tracker.prevReportBytes;
+  let speedBytesPerSec;
+  if (final) {
+    speedBytesPerSec = tracker.transferredBytes / (elapsedMs / 1000);
+  } else if (dt >= 500 && db > 0) {
+    speedBytesPerSec = db / (dt / 1000);
+    tracker.lastSpeed = speedBytesPerSec;
+    tracker.prevReportTs = now;
+    tracker.prevReportBytes = tracker.transferredBytes;
+  } else if (tracker.lastSpeed > 0) {
+    speedBytesPerSec = tracker.lastSpeed;
+  } else {
+    speedBytesPerSec = 0;
+  }
+  let percent;
+  let etaSec;
+  if (final) {
+    percent = 100;
+  } else if (tracker.totalKnown && tracker.totalBytes > 0) {
+    const remainingBytes = Math.max(0, tracker.totalBytes - tracker.transferredBytes);
+    percent = Math.min(99, Math.round(tracker.transferredBytes / tracker.totalBytes * 100));
+    etaSec = speedBytesPerSec > 0 ? Math.ceil(remainingBytes / speedBytesPerSec) : undefined;
+  } else {
+    percent = -1;
+    etaSec = undefined;
+  }
   tracker.context?.reportProgress?.({
     kind: "transfer_files",
     sourcePath: tracker.currentSourcePath,
     targetPath: tracker.currentTargetPath,
     bytesTransferred: tracker.transferredBytes,
-    totalBytes: tracker.totalBytes,
-    percent: final ? 100 : percent,
+    totalBytes: tracker.totalKnown ? tracker.totalBytes : undefined,
+    percent,
     speedBytesPerSec,
-    etaSec: speedBytesPerSec > 0 ? Math.ceil(remainingBytes / speedBytesPerSec) : undefined,
+    etaSec,
     elapsedMs,
     filesTransferred: tracker.completedFiles,
-    totalFiles: tracker.totalFiles
+    totalFiles: tracker.totalKnown ? tracker.totalFiles : undefined
   });
 }
 async function copyDirectory(input) {
-  const { from, to, sourceDir, targetDir, overwrite, createDirs, verify, tracker } = input;
-  const st = await from.stat(sourceDir);
-  if (st.type !== "directory")
-    throw new Error(`源路径不是目录: ${sourceDir}`);
+  const { from, to, sourceDir, targetDir, overwrite, createDirs, verify, tracker, mkdirCache } = input;
   if (createDirs)
-    await to.mkdirp(targetDir);
+    await mkdirpCached(to, targetDir, mkdirCache);
   let files = 0;
   let dirs = 1;
   let bytes = 0;
   let verifyOk = true;
   const entries = await from.readdir(sourceDir);
-  for (const entry of entries) {
-    const src = from.join(sourceDir, entry.name);
-    const dst = to.join(targetDir, entry.name);
-    if (entry.type === "directory") {
-      const nested = await copyDirectory({ from, to, sourceDir: src, targetDir: dst, overwrite, createDirs, verify, tracker });
-      files += nested.files;
-      dirs += nested.dirs;
-      bytes += nested.bytes;
-      verifyOk = verifyOk && nested.verifyOk;
-    } else {
-      const one = await copyFile({ from, to, sourcePath: src, targetPath: dst, overwrite, createDirs, verify, tracker });
+  const dirEntries = entries.filter((e) => e.type === "directory");
+  const fileEntries = entries.filter((e) => e.type === "file");
+  for (const dir of dirEntries) {
+    const dst = to.join(targetDir, dir.name);
+    if (createDirs)
+      await mkdirpCached(to, dst, mkdirCache);
+  }
+  if (fileEntries.length > 0) {
+    const fileResults = await pMap(fileEntries, FILE_CONCURRENCY, async (entry) => {
+      const src = from.join(sourceDir, entry.name);
+      const dst = to.join(targetDir, entry.name);
+      return copyFile({ from, to, sourcePath: src, targetPath: dst, overwrite, createDirs, verify, tracker, knownSize: entry.size, mkdirCache });
+    });
+    for (const one of fileResults) {
       files += 1;
       bytes += one.bytes;
       verifyOk = verifyOk && one.verifyOk;
     }
   }
+  for (const dir of dirEntries) {
+    const src = from.join(sourceDir, dir.name);
+    const dst = to.join(targetDir, dir.name);
+    const nested = await copyDirectory({ from, to, sourceDir: src, targetDir: dst, overwrite, createDirs, verify, tracker, mkdirCache });
+    files += nested.files;
+    dirs += nested.dirs;
+    bytes += nested.bytes;
+    verifyOk = verifyOk && nested.verifyOk;
+  }
   return { files, dirs, bytes, verifyOk };
 }
 async function copyFile(input) {
-  const { from, to, sourcePath, targetPath, overwrite, createDirs, verify, tracker } = input;
-  const st = await from.stat(sourcePath);
-  if (st.type !== "file")
-    throw new Error(`源路径不是文件: ${sourcePath}`);
+  const { from, to, sourcePath, targetPath, overwrite, createDirs, verify, tracker, knownSize, mkdirCache } = input;
+  let sourceSize;
+  if (knownSize !== undefined && knownSize >= 0) {
+    sourceSize = knownSize;
+  } else {
+    const st = await from.stat(sourcePath);
+    if (st.type !== "file")
+      throw new Error(`源路径不是文件: ${sourcePath}`);
+    sourceSize = st.size;
+  }
   if (!overwrite && await to.exists(targetPath)) {
     throw new Error(`目标已存在: ${targetPath}`);
   }
-  if (createDirs)
-    await to.mkdirp(to.dirname(targetPath));
+  if (createDirs) {
+    const dir = to.dirname(targetPath);
+    if (mkdirCache)
+      await mkdirpCached(to, dir, mkdirCache);
+    else
+      await to.mkdirp(dir);
+  }
   const tempPath = makeTempPath(to, targetPath);
   tracker.currentSourcePath = sourcePath;
   tracker.currentTargetPath = targetPath;
+  const useFastPut = from instanceof LocalEndpoint && to instanceof RemoteSftpEndpoint;
+  const useFastGet = from instanceof RemoteSftpEndpoint && to instanceof LocalEndpoint;
+  try {
+    if (useFastPut) {
+      await sftpFastPut(to.sftp, sourcePath, tempPath, sourceSize, tracker, to.fastOptions);
+    } else if (useFastGet) {
+      await sftpFastGet(from.sftp, sourcePath, tempPath, sourceSize, tracker, from.fastOptions);
+    } else {
+      await copyFileViaStream(from, to, sourcePath, tempPath, tracker);
+    }
+    let verifyOk = true;
+    if (verify === "size") {
+      const tempStat = await to.stat(tempPath);
+      verifyOk = tempStat.type === "file" && tempStat.size === sourceSize;
+      if (!verifyOk)
+        throw new Error(`size 校验失败: source=${sourceSize}, temp=${tempStat.size}`);
+    }
+    await to.rename(tempPath, targetPath, overwrite);
+    tracker.completedFiles += 1;
+    reportTransferProgress(tracker, false, true);
+    return { bytes: sourceSize, verifyOk };
+  } catch (err) {
+    await safeUnlink(to, tempPath);
+    throw err;
+  }
+}
+function sftpFastPut(sftp, localPath, remotePath, totalSize, tracker, options) {
+  const baseBytes = tracker.transferredBytes;
+  const timer = setInterval(() => reportTransferProgress(tracker, false, true), PROGRESS_THROTTLE_MS);
+  return new Promise((resolve, reject) => {
+    sftp.fastPut(localPath, remotePath, {
+      concurrency: options.concurrency,
+      chunkSize: options.chunkSize,
+      step(transferred) {
+        tracker.transferredBytes = baseBytes + transferred;
+      }
+    }, (err) => {
+      clearInterval(timer);
+      err ? reject(err) : resolve();
+    });
+  });
+}
+function sftpFastGet(sftp, remotePath, localPath, totalSize, tracker, options) {
+  const baseBytes = tracker.transferredBytes;
+  const timer = setInterval(() => reportTransferProgress(tracker, false, true), PROGRESS_THROTTLE_MS);
+  return new Promise((resolve, reject) => {
+    sftp.fastGet(remotePath, localPath, {
+      concurrency: options.concurrency,
+      chunkSize: options.chunkSize,
+      step(transferred) {
+        tracker.transferredBytes = baseBytes + transferred;
+      }
+    }, (err) => {
+      clearInterval(timer);
+      err ? reject(err) : resolve();
+    });
+  });
+}
+async function copyFileViaStream(from, to, sourcePath, tempPath, tracker) {
   const progress = new Transform({
+    highWaterMark: STREAM_HIGH_WATER_MARK,
     transform(chunk, _encoding, callback) {
       const n = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
       tracker.transferredBytes += n;
-      reportTransferProgress(tracker);
       callback(null, chunk);
     }
   });
   const reader = await from.openRead(sourcePath);
   const writer = await to.openWrite(tempPath, false);
+  const progressTimer = setInterval(() => reportTransferProgress(tracker, false, true), PROGRESS_THROTTLE_MS);
   try {
     await pipeline(reader.stream, progress, writer.stream);
     if (reader.done)
       await reader.done();
     if (writer.done)
       await writer.done();
-    let verifyOk = true;
-    if (verify === "size") {
-      const tempStat = await to.stat(tempPath);
-      verifyOk = tempStat.type === "file" && tempStat.size === st.size;
-      if (!verifyOk)
-        throw new Error(`size 校验失败: source=${st.size}, temp=${tempStat.size}`);
-    }
-    await to.rename(tempPath, targetPath, overwrite);
-    tracker.completedFiles += 1;
-    reportTransferProgress(tracker);
-    return { bytes: st.size, verifyOk };
-  } catch (err) {
-    await safeUnlink(to, tempPath);
-    throw err;
+  } finally {
+    clearInterval(progressTimer);
   }
 }
 function makeTempPath(endpoint, targetPath) {
@@ -8126,6 +8214,32 @@ function trimTrailingSeparators(p, isRemote) {
   while (out.length > root.length && /[\\/]$/.test(out))
     out = out.slice(0, -1);
   return out;
+}
+async function mkdirpCached(endpoint, p, cache) {
+  const normalized = endpoint.normalize(p);
+  if (cache.has(normalized))
+    return;
+  await endpoint.mkdirp(normalized);
+  let cur = normalized;
+  while (cur && cur !== "/" && cur !== "." && !cache.has(cur)) {
+    cache.add(cur);
+    const parent = endpoint.dirname(cur);
+    if (parent === cur)
+      break;
+    cur = parent;
+  }
+}
+async function pMap(items, concurrency, fn) {
+  const results = new Array(items.length);
+  let index = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 class LocalEndpoint {
@@ -8169,7 +8283,20 @@ class LocalEndpoint {
   }
   async readdir(p) {
     const entries = await fsp.readdir(p, { withFileTypes: true });
-    return entries.filter((e) => e.isFile() || e.isDirectory()).map((e) => ({ name: e.name, type: e.isDirectory() ? "directory" : "file" }));
+    const out = [];
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        out.push({ name: e.name, type: "directory" });
+      } else if (e.isFile()) {
+        try {
+          const st = await fsp.stat(path.join(p, e.name));
+          out.push({ name: e.name, type: "file", size: st.size });
+        } catch {
+          out.push({ name: e.name, type: "file" });
+        }
+      }
+    }
+    return out;
   }
   async unlink(p) {
     await fsp.rm(p, { force: true });
@@ -8185,10 +8312,10 @@ class LocalEndpoint {
     }
   }
   async openRead(p) {
-    return { stream: fs2.createReadStream(p) };
+    return { stream: fs2.createReadStream(p, { highWaterMark: STREAM_HIGH_WATER_MARK }) };
   }
   async openWrite(p, overwrite) {
-    return { stream: fs2.createWriteStream(p, { flags: overwrite ? "w" : "wx" }) };
+    return { stream: fs2.createWriteStream(p, { flags: overwrite ? "w" : "wx", highWaterMark: STREAM_HIGH_WATER_MARK }) };
   }
 }
 
@@ -8196,6 +8323,7 @@ class RemoteSftpEndpoint {
   environment;
   sftp;
   isLocal = false;
+  fastOptions = SFTP_FAST_OPTIONS;
   constructor(environment, sftp) {
     this.environment = environment;
     this.sftp = sftp;
@@ -8236,22 +8364,36 @@ class RemoteSftpEndpoint {
     const normalized = this.normalize(p);
     if (!normalized || normalized === "/")
       return;
+    try {
+      await sftpMkdir(this.sftp, normalized);
+      return;
+    } catch {}
+    try {
+      const st = await this.stat(normalized);
+      if (st.type === "directory")
+        return;
+      throw new Error(`${normalized} 已存在但不是目录`);
+    } catch {}
     const parts = normalized.split("/").filter(Boolean);
     let cur = "/";
     for (const part of parts) {
       cur = cur === "/" ? `/${part}` : path.posix.join(cur, part);
       try {
+        await sftpMkdir(this.sftp, cur);
+      } catch {
         const st = await this.stat(cur);
         if (st.type !== "directory")
           throw new Error(`${cur} 已存在但不是目录`);
-      } catch {
-        await new Promise((resolve, reject) => this.sftp.mkdir(cur, (err) => err ? reject(err) : resolve()));
       }
     }
   }
   async readdir(p) {
     const list = await new Promise((resolve, reject) => this.sftp.readdir(p, (err, entries) => err ? reject(err) : resolve(entries)));
-    return list.filter((e) => e.attrs?.isFile?.() || e.attrs?.isDirectory?.()).map((e) => ({ name: e.filename, type: e.attrs.isDirectory() ? "directory" : "file" }));
+    return list.filter((e) => e.attrs?.isFile?.() || e.attrs?.isDirectory?.()).map((e) => ({
+      name: e.filename,
+      type: e.attrs.isDirectory() ? "directory" : "file",
+      size: e.attrs.isFile?.() ? e.attrs.size : undefined
+    }));
   }
   async unlink(p) {
     await new Promise((resolve, reject) => this.sftp.unlink(p, (err) => err ? reject(err) : resolve()));
@@ -8269,11 +8411,27 @@ class RemoteSftpEndpoint {
     }
   }
   async openRead(p) {
-    return { stream: this.sftp.createReadStream(p) };
+    return {
+      stream: this.sftp.createReadStream(p, {
+        chunkSize: SFTP_CHUNK_SIZE,
+        highWaterMark: STREAM_HIGH_WATER_MARK,
+        concurrency: SFTP_READ_CONCURRENCY
+      })
+    };
   }
   async openWrite(p, overwrite) {
-    return { stream: this.sftp.createWriteStream(p, { flags: overwrite ? "w" : "wx" }) };
+    return {
+      stream: this.sftp.createWriteStream(p, {
+        flags: overwrite ? "w" : "wx",
+        chunkSize: SFTP_CHUNK_SIZE,
+        highWaterMark: STREAM_HIGH_WATER_MARK,
+        concurrency: SFTP_WRITE_CONCURRENCY
+      })
+    };
   }
+}
+function sftpMkdir(sftp, p) {
+  return new Promise((resolve, reject) => sftp.mkdir(p, (err) => err ? reject(err) : resolve()));
 }
 function decodeNulListFromBase64(stdout) {
   return Buffer.from(stdout.replace(/\s+/g, ""), "base64").toString("utf8").split("\x00").filter(Boolean);
@@ -8426,25 +8584,25 @@ function registerEnvironmentSlashCommands(api, envMgr) {
       if (sid) {
         const { previous, current } = await envMgr.setActive(name);
         return {
-          message: previous === current ? `当前已经在环境：${current}` : `已切换环境：${previous} → ${current}`,
+          message: previous === current ? `当前已经在服务器：${current}` : `已切换服务器：${previous} → ${current}`,
           label: "env"
         };
       }
       const store = api.globalStore.agent(api.agentName ?? "__global__").namespace("remote-exec");
       const prev = store.get("activeEnvironment") ?? "local";
       store.set("activeEnvironment", name);
-      const msg = prev === name ? `已将默认环境设为：${name}（新对话生效）` : `已将默认环境从 ${prev} 改为：${name}（新对话生效）`;
+      const msg = prev === name ? `已将默认服务器设为：${name}（新对话生效）` : `已将默认服务器从 ${prev} 改为：${name}（新对话生效）`;
       return { message: msg, label: "env" };
     };
     slashRegistrations.push(service.register({
       name: "/env",
-      description: "查看或快速切换 remote-exec 执行环境",
+      description: "查看或快速切换 remote-exec 执行服务器",
       acceptsArgs: true,
       getArgSuggestions({ arg }) {
         const q = arg.trim().toLowerCase();
         return envMgr.listEnvs().filter((env) => !q || env.name.toLowerCase().includes(q)).map((env) => ({
           value: env.name,
-          description: env.isLocal ? "本地执行环境" : [env.description, env.hostName ? `${env.user ?? "?"}@${env.hostName}` : undefined].filter(Boolean).join(" · ")
+          description: env.isLocal ? "本地执行" : [env.description, env.hostName ? `${env.user ?? "?"}@${env.hostName}` : undefined].filter(Boolean).join(" · ")
         }));
       },
       async handle({ arg }) {
@@ -8453,11 +8611,11 @@ function registerEnvironmentSlashCommands(api, envMgr) {
           return switchTo(name);
         const current = envMgr.getActive();
         const lines = [
-          `当前环境：${current}`,
-          "可用环境：",
+          `当前服务器：${current}`,
+          "可用服务器：",
           ...envMgr.listEnvs().map((env) => `  - ${env.name}${env.isLocal ? " (local)" : env.hostName ? ` (${env.user ?? "?"}@${env.hostName})` : ""}`),
           "",
-          "用法：/env <环境名>"
+          "用法：/env <服务器名>"
         ];
         return { message: lines.join(`
 `), label: "env" };
@@ -10041,7 +10199,7 @@ var transferToolRegistered = false;
 var src_default = definePlugin({
   name: "remote-exec",
   version: "0.1.0",
-  description: '把工具调用透明转发到远端服务器执行（按"环境"切换，AI 无感）',
+  description: '把工具调用透明转发到远端服务器执行（按"服务器"切换，AI 无感）',
   activate(ctx) {
     cachedCtx = ctx;
     if (ctx.ensureConfigFile("remote_exec.yaml", DEFAULT_REMOTE_EXEC_YAML)) {
@@ -10086,7 +10244,7 @@ var src_default = definePlugin({
     transport?.closeAll();
     transport = undefined;
     if (cachedApi && switchToolRegistered) {
-      cachedApi.tools.unregister?.("switch_environment");
+      cachedApi.tools.unregister?.("switch_server");
       switchToolRegistered = false;
     }
     if (cachedApi && transferToolRegistered) {
@@ -10144,7 +10302,7 @@ function reregisterRemoteExecTools(api) {
   if (!envMgr)
     return;
   if (switchToolRegistered) {
-    api.tools.unregister?.("switch_environment");
+    api.tools.unregister?.("switch_server");
     switchToolRegistered = false;
   }
   if (transferToolRegistered) {
