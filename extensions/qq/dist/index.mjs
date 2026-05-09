@@ -32,7 +32,7 @@ var __toESM = (mod, isNodeMode, target) => {
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/ws/lib/constants.js
+// extensions/qq/node_modules/ws/lib/constants.js
 var require_constants = __commonJS((exports, module) => {
   var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
   var hasBlob = typeof Blob !== "undefined";
@@ -52,7 +52,7 @@ var require_constants = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/ws/lib/buffer-util.js
+// extensions/qq/node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS((exports, module) => {
   var { EMPTY_BUFFER } = require_constants();
   var FastBuffer = Buffer[Symbol.species];
@@ -130,7 +130,7 @@ var require_buffer_util = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/limiter.js
+// extensions/qq/node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS((exports, module) => {
   var kDone = Symbol("kDone");
   var kRun = Symbol("kRun");
@@ -162,7 +162,7 @@ var require_limiter = __commonJS((exports, module) => {
   module.exports = Limiter;
 });
 
-// node_modules/ws/lib/permessage-deflate.js
+// extensions/qq/node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS((exports, module) => {
   var zlib = __require("zlib");
   var bufferUtil = require_buffer_util();
@@ -426,7 +426,7 @@ var require_permessage_deflate = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/validation.js
+// extensions/qq/node_modules/ws/lib/validation.js
 var require_validation = __commonJS((exports, module) => {
   var { isUtf8 } = __require("buffer");
   var { hasBlob } = require_constants();
@@ -613,7 +613,7 @@ var require_validation = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/receiver.js
+// extensions/qq/node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS((exports, module) => {
   var { Writable } = __require("stream");
   var PerMessageDeflate = require_permessage_deflate();
@@ -994,7 +994,7 @@ var require_receiver = __commonJS((exports, module) => {
   module.exports = Receiver;
 });
 
-// node_modules/ws/lib/sender.js
+// extensions/qq/node_modules/ws/lib/sender.js
 var require_sender = __commonJS((exports, module) => {
   var { Duplex } = __require("stream");
   var { randomFillSync } = __require("crypto");
@@ -1348,7 +1348,7 @@ var require_sender = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/event-target.js
+// extensions/qq/node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS((exports, module) => {
   var { kForOnEventAttribute, kListener } = require_constants();
   var kCode = Symbol("kCode");
@@ -1499,7 +1499,7 @@ var require_event_target = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/extension.js
+// extensions/qq/node_modules/ws/lib/extension.js
 var require_extension = __commonJS((exports, module) => {
   var { tokenChars } = require_validation();
   function push(dest, name, elem) {
@@ -1664,7 +1664,7 @@ var require_extension = __commonJS((exports, module) => {
   module.exports = { format, parse };
 });
 
-// node_modules/ws/lib/websocket.js
+// extensions/qq/node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS((exports, module) => {
   var EventEmitter = __require("events");
   var https = __require("https");
@@ -2430,7 +2430,7 @@ var require_websocket = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/stream.js
+// extensions/qq/node_modules/ws/lib/stream.js
 var require_stream = __commonJS((exports, module) => {
   var WebSocket = require_websocket();
   var { Duplex } = __require("stream");
@@ -2533,7 +2533,7 @@ var require_stream = __commonJS((exports, module) => {
   module.exports = createWebSocketStream;
 });
 
-// node_modules/ws/lib/subprotocol.js
+// extensions/qq/node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS((exports, module) => {
   var { tokenChars } = require_validation();
   function parse(header) {
@@ -2578,7 +2578,7 @@ var require_subprotocol = __commonJS((exports, module) => {
   module.exports = { parse };
 });
 
-// node_modules/ws/lib/websocket-server.js
+// extensions/qq/node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS((exports, module) => {
   var EventEmitter = __require("events");
   var http = __require("http");
@@ -2884,7 +2884,7 @@ var require_websocket_server = __commonJS((exports, module) => {
   }
 });
 
-// ../../packages/extension-sdk/src/platform.ts
+// packages/extension-sdk/src/platform.ts
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -2992,6 +2992,12 @@ class BackendHandle {
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
   }
+  getMilestones(sessionId) {
+    return this._backend.getMilestones?.(sessionId);
+  }
+  loadMilestones(sessionId) {
+    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
+  }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
   }
@@ -3048,7 +3054,7 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// ../../packages/extension-sdk/src/logger.ts
+// packages/extension-sdk/src/logger.ts
 var _logLevel = 1 /* INFO */;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
@@ -3071,7 +3077,7 @@ function createExtensionLogger(extensionName, tag) {
     }
   };
 }
-// ../../packages/extension-sdk/src/platform-utils.ts
+// packages/extension-sdk/src/platform-utils.ts
 function detectImageMime(buffer) {
   if (buffer.length < 4)
     return null;
@@ -3127,7 +3133,7 @@ function autoApproveHandle(handle) {
     }
   });
 }
-// node_modules/ws/wrapper.mjs
+// extensions/qq/node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
 var import_extension = __toESM(require_extension(), 1);
 var import_permessage_deflate = __toESM(require_permessage_deflate(), 1);
@@ -3138,7 +3144,7 @@ var import_websocket = __toESM(require_websocket(), 1);
 var import_websocket_server = __toESM(require_websocket_server(), 1);
 var wrapper_default = import_websocket.default;
 
-// src/index.ts
+// extensions/qq/src/index.ts
 var logger = createExtensionLogger("QQExtension", "QQ");
 var MESSAGE_MAX_LENGTH = 4500;
 var IMAGE_DOWNLOAD_TIMEOUT_MS = 30000;

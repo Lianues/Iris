@@ -32,7 +32,7 @@ var __toESM = (mod, isNodeMode, target) => {
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/silk-wasm/lib/index.cjs
+// extensions/weixin/node_modules/silk-wasm/lib/index.cjs
 var require_lib = __commonJS((exports, module) => {
   var __filename = "F:\\111\\Iris\\extensions\\weixin\\node_modules\\silk-wasm\\lib\\index.cjs";
   var __defProp2 = Object.defineProperty;
@@ -892,7 +892,7 @@ return ret;
   }
 });
 
-// ../../packages/extension-sdk/src/platform.ts
+// packages/extension-sdk/src/platform.ts
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1000,6 +1000,12 @@ class BackendHandle {
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
   }
+  getMilestones(sessionId) {
+    return this._backend.getMilestones?.(sessionId);
+  }
+  loadMilestones(sessionId) {
+    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
+  }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
   }
@@ -1056,7 +1062,7 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// ../../packages/extension-sdk/src/logger.ts
+// packages/extension-sdk/src/logger.ts
 var _logLevel = 1 /* INFO */;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
@@ -1079,7 +1085,7 @@ function createExtensionLogger(extensionName, tag) {
     }
   };
 }
-// ../../packages/extension-sdk/src/platform-utils.ts
+// packages/extension-sdk/src/platform-utils.ts
 var TOOL_STATUS_ICONS = {
   queued: "⏳",
   executing: "\uD83D\uDD27",
@@ -1120,7 +1126,7 @@ function autoApproveHandle(handle) {
     }
   });
 }
-// src/index.ts
+// extensions/weixin/src/index.ts
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";

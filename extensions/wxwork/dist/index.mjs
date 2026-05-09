@@ -32,7 +32,7 @@ var __toESM = (mod, isNodeMode, target) => {
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/eventemitter3/index.js
+// extensions/wxwork/node_modules/eventemitter3/index.js
 var require_eventemitter3 = __commonJS((exports, module) => {
   var has = Object.prototype.hasOwnProperty;
   var prefix = "~";
@@ -210,7 +210,7 @@ var require_eventemitter3 = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/delayed-stream/lib/delayed_stream.js
+// extensions/wxwork/node_modules/delayed-stream/lib/delayed_stream.js
 var require_delayed_stream = __commonJS((exports, module) => {
   var Stream = __require("stream").Stream;
   var util = __require("util");
@@ -298,7 +298,7 @@ var require_delayed_stream = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/combined-stream/lib/combined_stream.js
+// extensions/wxwork/node_modules/combined-stream/lib/combined_stream.js
 var require_combined_stream = __commonJS((exports, module) => {
   var util = __require("util");
   var Stream = __require("stream").Stream;
@@ -467,7 +467,7 @@ var require_combined_stream = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/mime-db/db.json
+// extensions/wxwork/node_modules/mime-db/db.json
 var require_db = __commonJS((exports, module) => {
   module.exports = {
     "application/1d-interleaved-parityfec": {
@@ -8990,7 +8990,7 @@ var require_db = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/mime-types/index.js
+// extensions/wxwork/node_modules/mime-types/index.js
 var require_mime_types = __commonJS((exports) => {
   /*!
    * mime-types
@@ -9084,7 +9084,7 @@ var require_mime_types = __commonJS((exports) => {
   }
 });
 
-// node_modules/asynckit/lib/defer.js
+// extensions/wxwork/node_modules/asynckit/lib/defer.js
 var require_defer = __commonJS((exports, module) => {
   module.exports = defer;
   function defer(fn) {
@@ -9097,7 +9097,7 @@ var require_defer = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/asynckit/lib/async.js
+// extensions/wxwork/node_modules/asynckit/lib/async.js
 var require_async = __commonJS((exports, module) => {
   var defer = require_defer();
   module.exports = async;
@@ -9118,7 +9118,7 @@ var require_async = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/asynckit/lib/abort.js
+// extensions/wxwork/node_modules/asynckit/lib/abort.js
 var require_abort = __commonJS((exports, module) => {
   module.exports = abort;
   function abort(state) {
@@ -9132,7 +9132,7 @@ var require_abort = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/asynckit/lib/iterate.js
+// extensions/wxwork/node_modules/asynckit/lib/iterate.js
 var require_iterate = __commonJS((exports, module) => {
   var async = require_async();
   var abort = require_abort();
@@ -9163,7 +9163,7 @@ var require_iterate = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/asynckit/lib/state.js
+// extensions/wxwork/node_modules/asynckit/lib/state.js
 var require_state = __commonJS((exports, module) => {
   module.exports = state;
   function state(list, sortMethod) {
@@ -9183,7 +9183,7 @@ var require_state = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/asynckit/lib/terminator.js
+// extensions/wxwork/node_modules/asynckit/lib/terminator.js
 var require_terminator = __commonJS((exports, module) => {
   var abort = require_abort();
   var async = require_async();
@@ -9198,7 +9198,7 @@ var require_terminator = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/asynckit/parallel.js
+// extensions/wxwork/node_modules/asynckit/parallel.js
 var require_parallel = __commonJS((exports, module) => {
   var iterate = require_iterate();
   var initState = require_state();
@@ -9223,7 +9223,7 @@ var require_parallel = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/asynckit/serialOrdered.js
+// extensions/wxwork/node_modules/asynckit/serialOrdered.js
 var require_serialOrdered = __commonJS((exports, module) => {
   var iterate = require_iterate();
   var initState = require_state();
@@ -9255,7 +9255,7 @@ var require_serialOrdered = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/asynckit/serial.js
+// extensions/wxwork/node_modules/asynckit/serial.js
 var require_serial = __commonJS((exports, module) => {
   var serialOrdered = require_serialOrdered();
   module.exports = serial;
@@ -9264,7 +9264,7 @@ var require_serial = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/asynckit/index.js
+// extensions/wxwork/node_modules/asynckit/index.js
 var require_asynckit = __commonJS((exports, module) => {
   module.exports = {
     parallel: require_parallel(),
@@ -9273,84 +9273,84 @@ var require_asynckit = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/es-object-atoms/index.js
+// extensions/wxwork/node_modules/es-object-atoms/index.js
 var require_es_object_atoms = __commonJS((exports, module) => {
   module.exports = Object;
 });
 
-// node_modules/es-errors/index.js
+// extensions/wxwork/node_modules/es-errors/index.js
 var require_es_errors = __commonJS((exports, module) => {
   module.exports = Error;
 });
 
-// node_modules/es-errors/eval.js
+// extensions/wxwork/node_modules/es-errors/eval.js
 var require_eval = __commonJS((exports, module) => {
   module.exports = EvalError;
 });
 
-// node_modules/es-errors/range.js
+// extensions/wxwork/node_modules/es-errors/range.js
 var require_range = __commonJS((exports, module) => {
   module.exports = RangeError;
 });
 
-// node_modules/es-errors/ref.js
+// extensions/wxwork/node_modules/es-errors/ref.js
 var require_ref = __commonJS((exports, module) => {
   module.exports = ReferenceError;
 });
 
-// node_modules/es-errors/syntax.js
+// extensions/wxwork/node_modules/es-errors/syntax.js
 var require_syntax = __commonJS((exports, module) => {
   module.exports = SyntaxError;
 });
 
-// node_modules/es-errors/type.js
+// extensions/wxwork/node_modules/es-errors/type.js
 var require_type = __commonJS((exports, module) => {
   module.exports = TypeError;
 });
 
-// node_modules/es-errors/uri.js
+// extensions/wxwork/node_modules/es-errors/uri.js
 var require_uri = __commonJS((exports, module) => {
   module.exports = URIError;
 });
 
-// node_modules/math-intrinsics/abs.js
+// extensions/wxwork/node_modules/math-intrinsics/abs.js
 var require_abs = __commonJS((exports, module) => {
   module.exports = Math.abs;
 });
 
-// node_modules/math-intrinsics/floor.js
+// extensions/wxwork/node_modules/math-intrinsics/floor.js
 var require_floor = __commonJS((exports, module) => {
   module.exports = Math.floor;
 });
 
-// node_modules/math-intrinsics/max.js
+// extensions/wxwork/node_modules/math-intrinsics/max.js
 var require_max = __commonJS((exports, module) => {
   module.exports = Math.max;
 });
 
-// node_modules/math-intrinsics/min.js
+// extensions/wxwork/node_modules/math-intrinsics/min.js
 var require_min = __commonJS((exports, module) => {
   module.exports = Math.min;
 });
 
-// node_modules/math-intrinsics/pow.js
+// extensions/wxwork/node_modules/math-intrinsics/pow.js
 var require_pow = __commonJS((exports, module) => {
   module.exports = Math.pow;
 });
 
-// node_modules/math-intrinsics/round.js
+// extensions/wxwork/node_modules/math-intrinsics/round.js
 var require_round = __commonJS((exports, module) => {
   module.exports = Math.round;
 });
 
-// node_modules/math-intrinsics/isNaN.js
+// extensions/wxwork/node_modules/math-intrinsics/isNaN.js
 var require_isNaN = __commonJS((exports, module) => {
   module.exports = Number.isNaN || function isNaN2(a) {
     return a !== a;
   };
 });
 
-// node_modules/math-intrinsics/sign.js
+// extensions/wxwork/node_modules/math-intrinsics/sign.js
 var require_sign = __commonJS((exports, module) => {
   var $isNaN = require_isNaN();
   module.exports = function sign(number) {
@@ -9361,12 +9361,12 @@ var require_sign = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/gopd/gOPD.js
+// extensions/wxwork/node_modules/gopd/gOPD.js
 var require_gOPD = __commonJS((exports, module) => {
   module.exports = Object.getOwnPropertyDescriptor;
 });
 
-// node_modules/gopd/index.js
+// extensions/wxwork/node_modules/gopd/index.js
 var require_gopd = __commonJS((exports, module) => {
   var $gOPD = require_gOPD();
   if ($gOPD) {
@@ -9379,7 +9379,7 @@ var require_gopd = __commonJS((exports, module) => {
   module.exports = $gOPD;
 });
 
-// node_modules/es-define-property/index.js
+// extensions/wxwork/node_modules/es-define-property/index.js
 var require_es_define_property = __commonJS((exports, module) => {
   var $defineProperty = Object.defineProperty || false;
   if ($defineProperty) {
@@ -9392,7 +9392,7 @@ var require_es_define_property = __commonJS((exports, module) => {
   module.exports = $defineProperty;
 });
 
-// node_modules/has-symbols/shams.js
+// extensions/wxwork/node_modules/has-symbols/shams.js
 var require_shams = __commonJS((exports, module) => {
   module.exports = function hasSymbols() {
     if (typeof Symbol !== "function" || typeof Object.getOwnPropertySymbols !== "function") {
@@ -9441,7 +9441,7 @@ var require_shams = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/has-symbols/index.js
+// extensions/wxwork/node_modules/has-symbols/index.js
 var require_has_symbols = __commonJS((exports, module) => {
   var origSymbol = typeof Symbol !== "undefined" && Symbol;
   var hasSymbolSham = require_shams();
@@ -9462,18 +9462,18 @@ var require_has_symbols = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/get-proto/Reflect.getPrototypeOf.js
+// extensions/wxwork/node_modules/get-proto/Reflect.getPrototypeOf.js
 var require_Reflect_getPrototypeOf = __commonJS((exports, module) => {
   module.exports = typeof Reflect !== "undefined" && Reflect.getPrototypeOf || null;
 });
 
-// node_modules/get-proto/Object.getPrototypeOf.js
+// extensions/wxwork/node_modules/get-proto/Object.getPrototypeOf.js
 var require_Object_getPrototypeOf = __commonJS((exports, module) => {
   var $Object = require_es_object_atoms();
   module.exports = $Object.getPrototypeOf || null;
 });
 
-// node_modules/function-bind/implementation.js
+// extensions/wxwork/node_modules/function-bind/implementation.js
 var require_implementation = __commonJS((exports, module) => {
   var ERROR_MESSAGE = "Function.prototype.bind called on incompatible ";
   var toStr = Object.prototype.toString;
@@ -9539,28 +9539,28 @@ var require_implementation = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/function-bind/index.js
+// extensions/wxwork/node_modules/function-bind/index.js
 var require_function_bind = __commonJS((exports, module) => {
   var implementation = require_implementation();
   module.exports = Function.prototype.bind || implementation;
 });
 
-// node_modules/call-bind-apply-helpers/functionCall.js
+// extensions/wxwork/node_modules/call-bind-apply-helpers/functionCall.js
 var require_functionCall = __commonJS((exports, module) => {
   module.exports = Function.prototype.call;
 });
 
-// node_modules/call-bind-apply-helpers/functionApply.js
+// extensions/wxwork/node_modules/call-bind-apply-helpers/functionApply.js
 var require_functionApply = __commonJS((exports, module) => {
   module.exports = Function.prototype.apply;
 });
 
-// node_modules/call-bind-apply-helpers/reflectApply.js
+// extensions/wxwork/node_modules/call-bind-apply-helpers/reflectApply.js
 var require_reflectApply = __commonJS((exports, module) => {
   module.exports = typeof Reflect !== "undefined" && Reflect && Reflect.apply;
 });
 
-// node_modules/call-bind-apply-helpers/actualApply.js
+// extensions/wxwork/node_modules/call-bind-apply-helpers/actualApply.js
 var require_actualApply = __commonJS((exports, module) => {
   var bind = require_function_bind();
   var $apply = require_functionApply();
@@ -9569,7 +9569,7 @@ var require_actualApply = __commonJS((exports, module) => {
   module.exports = $reflectApply || bind.call($call, $apply);
 });
 
-// node_modules/call-bind-apply-helpers/index.js
+// extensions/wxwork/node_modules/call-bind-apply-helpers/index.js
 var require_call_bind_apply_helpers = __commonJS((exports, module) => {
   var bind = require_function_bind();
   var $TypeError = require_type();
@@ -9583,7 +9583,7 @@ var require_call_bind_apply_helpers = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/dunder-proto/get.js
+// extensions/wxwork/node_modules/dunder-proto/get.js
 var require_get = __commonJS((exports, module) => {
   var callBind = require_call_bind_apply_helpers();
   var gOPD = require_gopd();
@@ -9603,7 +9603,7 @@ var require_get = __commonJS((exports, module) => {
   } : false;
 });
 
-// node_modules/get-proto/index.js
+// extensions/wxwork/node_modules/get-proto/index.js
 var require_get_proto = __commonJS((exports, module) => {
   var reflectGetProto = require_Reflect_getPrototypeOf();
   var originalGetProto = require_Object_getPrototypeOf();
@@ -9620,7 +9620,7 @@ var require_get_proto = __commonJS((exports, module) => {
   } : null;
 });
 
-// node_modules/hasown/index.js
+// extensions/wxwork/node_modules/hasown/index.js
 var require_hasown = __commonJS((exports, module) => {
   var call = Function.prototype.call;
   var $hasOwn = Object.prototype.hasOwnProperty;
@@ -9628,7 +9628,7 @@ var require_hasown = __commonJS((exports, module) => {
   module.exports = bind.call(call, $hasOwn);
 });
 
-// node_modules/get-intrinsic/index.js
+// extensions/wxwork/node_modules/get-intrinsic/index.js
 var require_get_intrinsic = __commonJS((exports, module) => {
   var undefined2;
   var $Object = require_es_object_atoms();
@@ -9954,7 +9954,7 @@ var require_get_intrinsic = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/has-tostringtag/shams.js
+// extensions/wxwork/node_modules/has-tostringtag/shams.js
 var require_shams2 = __commonJS((exports, module) => {
   var hasSymbols = require_shams();
   module.exports = function hasToStringTagShams() {
@@ -9962,7 +9962,7 @@ var require_shams2 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/es-set-tostringtag/index.js
+// extensions/wxwork/node_modules/es-set-tostringtag/index.js
 var require_es_set_tostringtag = __commonJS((exports, module) => {
   var GetIntrinsic = require_get_intrinsic();
   var $defineProperty = GetIntrinsic("%Object.defineProperty%", true);
@@ -9991,7 +9991,7 @@ var require_es_set_tostringtag = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/form-data/lib/populate.js
+// extensions/wxwork/node_modules/form-data/lib/populate.js
 var require_populate = __commonJS((exports, module) => {
   module.exports = function(dst, src) {
     Object.keys(src).forEach(function(prop) {
@@ -10001,7 +10001,7 @@ var require_populate = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/form-data/lib/form_data.js
+// extensions/wxwork/node_modules/form-data/lib/form_data.js
 var require_form_data = __commonJS((exports, module) => {
   var CombinedStream = require_combined_stream();
   var util = __require("util");
@@ -10316,7 +10316,7 @@ var require_form_data = __commonJS((exports, module) => {
   module.exports = FormData2;
 });
 
-// ../../node_modules/ms/index.js
+// node_modules/ms/index.js
 var require_ms = __commonJS((exports, module) => {
   var s = 1000;
   var m = s * 60;
@@ -10426,7 +10426,7 @@ var require_ms = __commonJS((exports, module) => {
   }
 });
 
-// ../../node_modules/debug/src/common.js
+// node_modules/debug/src/common.js
 var require_common = __commonJS((exports, module) => {
   function setup(env) {
     createDebug.debug = createDebug;
@@ -10601,7 +10601,7 @@ var require_common = __commonJS((exports, module) => {
   module.exports = setup;
 });
 
-// ../../node_modules/debug/src/browser.js
+// node_modules/debug/src/browser.js
 var require_browser = __commonJS((exports, module) => {
   exports.formatArgs = formatArgs;
   exports.save = save;
@@ -10761,7 +10761,7 @@ var require_browser = __commonJS((exports, module) => {
   };
 });
 
-// ../../node_modules/has-flag/index.js
+// node_modules/has-flag/index.js
 var require_has_flag = __commonJS((exports, module) => {
   module.exports = (flag, argv = process.argv) => {
     const prefix = flag.startsWith("-") ? "" : flag.length === 1 ? "-" : "--";
@@ -10771,7 +10771,7 @@ var require_has_flag = __commonJS((exports, module) => {
   };
 });
 
-// ../../node_modules/supports-color/index.js
+// node_modules/supports-color/index.js
 var require_supports_color = __commonJS((exports, module) => {
   var os = __require("os");
   var tty = __require("tty");
@@ -10870,7 +10870,7 @@ var require_supports_color = __commonJS((exports, module) => {
   };
 });
 
-// ../../node_modules/debug/src/node.js
+// node_modules/debug/src/node.js
 var require_node = __commonJS((exports, module) => {
   var tty = __require("tty");
   var util = __require("util");
@@ -11041,7 +11041,7 @@ var require_node = __commonJS((exports, module) => {
   };
 });
 
-// ../../node_modules/debug/src/index.js
+// node_modules/debug/src/index.js
 var require_src = __commonJS((exports, module) => {
   if (typeof process === "undefined" || process.type === "renderer" || false || process.__nwjs) {
     module.exports = require_browser();
@@ -11050,7 +11050,7 @@ var require_src = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/follow-redirects/debug.js
+// extensions/wxwork/node_modules/follow-redirects/debug.js
 var require_debug = __commonJS((exports, module) => {
   var debug;
   module.exports = function() {
@@ -11066,7 +11066,7 @@ var require_debug = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/follow-redirects/index.js
+// extensions/wxwork/node_modules/follow-redirects/index.js
 var require_follow_redirects = __commonJS((exports, module) => {
   var url = __require("url");
   var URL2 = url.URL;
@@ -11533,7 +11533,7 @@ var require_follow_redirects = __commonJS((exports, module) => {
   module.exports.wrap = wrap;
 });
 
-// node_modules/axios/dist/node/axios.cjs
+// extensions/wxwork/node_modules/axios/dist/node/axios.cjs
 var require_axios = __commonJS((exports, module) => {
   /*! Axios v1.14.0 Copyright (c) 2026 Matt Zabriskie and contributors */
   var FormData$1 = require_form_data();
@@ -15015,7 +15015,7 @@ var require_axios = __commonJS((exports, module) => {
   module.exports = axios;
 });
 
-// node_modules/ws/lib/constants.js
+// extensions/wxwork/node_modules/ws/lib/constants.js
 var require_constants = __commonJS((exports, module) => {
   var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
   var hasBlob = typeof Blob !== "undefined";
@@ -15035,7 +15035,7 @@ var require_constants = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/ws/lib/buffer-util.js
+// extensions/wxwork/node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS((exports, module) => {
   var { EMPTY_BUFFER } = require_constants();
   var FastBuffer = Buffer[Symbol.species];
@@ -15113,7 +15113,7 @@ var require_buffer_util = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/limiter.js
+// extensions/wxwork/node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS((exports, module) => {
   var kDone = Symbol("kDone");
   var kRun = Symbol("kRun");
@@ -15145,7 +15145,7 @@ var require_limiter = __commonJS((exports, module) => {
   module.exports = Limiter;
 });
 
-// node_modules/ws/lib/permessage-deflate.js
+// extensions/wxwork/node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS((exports, module) => {
   var zlib = __require("zlib");
   var bufferUtil = require_buffer_util();
@@ -15409,7 +15409,7 @@ var require_permessage_deflate = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/validation.js
+// extensions/wxwork/node_modules/ws/lib/validation.js
 var require_validation = __commonJS((exports, module) => {
   var { isUtf8 } = __require("buffer");
   var { hasBlob } = require_constants();
@@ -15596,7 +15596,7 @@ var require_validation = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/receiver.js
+// extensions/wxwork/node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS((exports, module) => {
   var { Writable } = __require("stream");
   var PerMessageDeflate = require_permessage_deflate();
@@ -15977,7 +15977,7 @@ var require_receiver = __commonJS((exports, module) => {
   module.exports = Receiver;
 });
 
-// node_modules/ws/lib/sender.js
+// extensions/wxwork/node_modules/ws/lib/sender.js
 var require_sender = __commonJS((exports, module) => {
   var { Duplex } = __require("stream");
   var { randomFillSync } = __require("crypto");
@@ -16331,7 +16331,7 @@ var require_sender = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/event-target.js
+// extensions/wxwork/node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS((exports, module) => {
   var { kForOnEventAttribute, kListener } = require_constants();
   var kCode = Symbol("kCode");
@@ -16482,7 +16482,7 @@ var require_event_target = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/extension.js
+// extensions/wxwork/node_modules/ws/lib/extension.js
 var require_extension = __commonJS((exports, module) => {
   var { tokenChars } = require_validation();
   function push(dest, name, elem) {
@@ -16647,7 +16647,7 @@ var require_extension = __commonJS((exports, module) => {
   module.exports = { format, parse };
 });
 
-// node_modules/ws/lib/websocket.js
+// extensions/wxwork/node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS((exports, module) => {
   var EventEmitter = __require("events");
   var https = __require("https");
@@ -17413,7 +17413,7 @@ var require_websocket = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/lib/stream.js
+// extensions/wxwork/node_modules/ws/lib/stream.js
 var require_stream = __commonJS((exports, module) => {
   var WebSocket = require_websocket();
   var { Duplex } = __require("stream");
@@ -17516,7 +17516,7 @@ var require_stream = __commonJS((exports, module) => {
   module.exports = createWebSocketStream;
 });
 
-// node_modules/ws/lib/subprotocol.js
+// extensions/wxwork/node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS((exports, module) => {
   var { tokenChars } = require_validation();
   function parse(header) {
@@ -17561,7 +17561,7 @@ var require_subprotocol = __commonJS((exports, module) => {
   module.exports = { parse };
 });
 
-// node_modules/ws/lib/websocket-server.js
+// extensions/wxwork/node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS((exports, module) => {
   var EventEmitter = __require("events");
   var http = __require("http");
@@ -17867,7 +17867,7 @@ var require_websocket_server = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/ws/index.js
+// extensions/wxwork/node_modules/ws/index.js
 var require_ws = __commonJS((exports, module) => {
   var createWebSocketStream = require_stream();
   var extension = require_extension();
@@ -17889,7 +17889,7 @@ var require_ws = __commonJS((exports, module) => {
   module.exports = WebSocket;
 });
 
-// node_modules/@wecom/aibot-node-sdk/dist/index.cjs.js
+// extensions/wxwork/node_modules/@wecom/aibot-node-sdk/dist/index.cjs.js
 var require_index_cjs = __commonJS((exports) => {
   Object.defineProperty(exports, "__esModule", { value: true });
   var eventemitter3 = require_eventemitter3();
@@ -18767,7 +18767,7 @@ var require_index_cjs = __commonJS((exports) => {
   exports.generateReqId = generateReqId;
 });
 
-// ../../packages/extension-sdk/src/platform.ts
+// packages/extension-sdk/src/platform.ts
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -18875,6 +18875,12 @@ class BackendHandle {
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
   }
+  getMilestones(sessionId) {
+    return this._backend.getMilestones?.(sessionId);
+  }
+  loadMilestones(sessionId) {
+    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
+  }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
   }
@@ -18911,7 +18917,7 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// ../../packages/extension-sdk/src/logger.ts
+// packages/extension-sdk/src/logger.ts
 var _logLevel = 1 /* INFO */;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
@@ -18934,7 +18940,7 @@ function createExtensionLogger(extensionName, tag) {
     }
   };
 }
-// ../../packages/extension-sdk/src/platform-utils.ts
+// packages/extension-sdk/src/platform-utils.ts
 function detectImageMime(buffer) {
   if (buffer.length < 4)
     return null;
@@ -18990,7 +18996,7 @@ function autoApproveHandle(handle) {
     }
   });
 }
-// src/index.ts
+// extensions/wxwork/src/index.ts
 var import_aibot_node_sdk = __toESM(require_index_cjs(), 1);
 var logger = createExtensionLogger("WXWorkExtension", "WXWork");
 var STREAM_THROTTLE_MS = 300;

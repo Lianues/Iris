@@ -9030,6 +9030,12 @@ class BackendHandle {
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
   }
+  getMilestones(sessionId) {
+    return this._backend.getMilestones?.(sessionId);
+  }
+  loadMilestones(sessionId) {
+    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
+  }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
   }

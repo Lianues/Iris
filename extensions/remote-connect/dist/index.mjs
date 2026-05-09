@@ -9978,6 +9978,7 @@ var Methods = {
   API_CONFIG_MANAGER_UPDATE: "api.configManager.updateEditableConfig",
   API_ROUTER_REMOVE_REQUEST_BODY_KEYS: "api.router.removeCurrentModelRequestBodyKeys",
   API_ROUTER_PATCH_REQUEST_BODY: "api.router.patchCurrentModelRequestBody",
+  API_ROUTER_REMOVE_REQUEST_BODY_PATHS: "api.router.removeCurrentModelRequestBodyPaths",
   AGENT_BACKEND_CALL: "agent.backend.call",
   AGENT_API_CALL: "agent.api.call",
   SUBSCRIBE: "client.subscribe",

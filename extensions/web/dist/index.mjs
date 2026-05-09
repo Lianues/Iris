@@ -11212,6 +11212,12 @@ class BackendHandle {
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
   }
+  getMilestones(sessionId) {
+    return this._backend.getMilestones?.(sessionId);
+  }
+  loadMilestones(sessionId) {
+    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
+  }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
   }
@@ -15021,6 +15027,9 @@ class WebPlatform extends PlatformAdapter {
     const onTurnStart = (sid, turnId, mode) => {
       this.writeSSE(sid, { type: "turn_start", turnId, mode });
     };
+    const onMilestonesUpdate = (sid, snapshot) => {
+      this.writeSSE(sid, { type: "milestones_update", snapshot });
+    };
     backend.on("response", onResponse);
     backend.on("stream:start", onStreamStart);
     backend.on("stream:chunk", onStreamChunk);
@@ -15036,6 +15045,7 @@ class WebPlatform extends PlatformAdapter {
     backend.on("user:token", onUserToken);
     backend.on("agent:notification", onAgentNotification);
     backend.on("turn:start", onTurnStart);
+    backend.on("milestones:update", onMilestonesUpdate);
     if (agentName) {
       this.backendListenerCleanups.set(agentName, () => {
         backend.off("response", onResponse);
@@ -15053,6 +15063,7 @@ class WebPlatform extends PlatformAdapter {
         backend.off("user:token", onUserToken);
         backend.off("agent:notification", onAgentNotification);
         backend.off("turn:start", onTurnStart);
+        backend.off("milestones:update", onMilestonesUpdate);
       });
     }
   }
@@ -15438,6 +15449,11 @@ class WebPlatform extends PlatformAdapter {
       } catch (err) {
         sendJSON(res, 500, { error: err instanceof Error ? err.message : "重做失败" });
       }
+    });
+    this.router.get("/api/sessions/:id/milestones", async (req, res, params) => {
+      const { backend } = this.resolveAgent(req);
+      const snapshot = await backend.loadMilestones?.(params.id) ?? backend.getMilestones?.(params.id) ?? null;
+      sendJSON(res, 200, { snapshot });
     });
     this.router.get("/api/sessions/:id/tasks", async (req, res, params) => {
       const { backend } = this.resolveAgent(req);
