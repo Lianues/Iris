@@ -10196,6 +10196,7 @@ var cachedApi;
 var cachedCtx;
 var switchToolRegistered = false;
 var transferToolRegistered = false;
+var lastConfigSignature = "";
 var src_default = definePlugin({
   name: "remote-exec",
   version: "0.1.0",
@@ -10228,6 +10229,10 @@ var src_default = definePlugin({
       async onConfigReload({ rawMergedConfig }) {
         if (!cachedApi || !cachedCtx)
           return;
+        const nextSignature = makeRemoteExecConfigSignature(rawMergedConfig);
+        if (nextSignature === lastConfigSignature)
+          return;
+        lastConfigSignature = nextSignature;
         const raw = rawMergedConfig?.remote_exec;
         cfg = parseRemoteExecConfig(raw ?? {});
         servers = readServersSection(cachedCtx, rawMergedConfig);
@@ -10273,6 +10278,7 @@ async function reloadAll(ctx, api) {
   const rawSection = merged?.remote_exec ?? ctx.readConfigSection("remote_exec");
   cfg = parseRemoteExecConfig(rawSection ?? {});
   servers = readServersSection(ctx, merged);
+  lastConfigSignature = makeRemoteExecConfigSignature(merged ?? {});
   rebuildTransport();
   envMgr = new EnvironmentManager(api, () => servers, () => cfg);
   reregisterRemoteExecTools(api);
@@ -10301,20 +10307,25 @@ function rebuildTransport() {
 function reregisterRemoteExecTools(api) {
   if (!envMgr)
     return;
-  if (switchToolRegistered) {
-    api.tools.unregister?.("switch_server");
-    switchToolRegistered = false;
-  }
-  if (transferToolRegistered) {
-    api.tools.unregister?.(TRANSFER_FILES_TOOL_NAME);
-    transferToolRegistered = false;
-  }
-  if (!cfg.enabled)
+  if (!cfg.enabled) {
+    if (switchToolRegistered) {
+      api.tools.unregister?.("switch_server");
+      switchToolRegistered = false;
+    }
+    if (transferToolRegistered) {
+      api.tools.unregister?.(TRANSFER_FILES_TOOL_NAME);
+      transferToolRegistered = false;
+    }
+    disposeRemoteExecConsoleIntegration();
     return;
+  }
   if (cfg.exposeSwitchTool) {
     const tool = buildSwitchEnvironmentTool(envMgr);
     api.tools.register(tool);
     switchToolRegistered = true;
+  } else if (switchToolRegistered) {
+    api.tools.unregister?.("switch_server");
+    switchToolRegistered = false;
   }
   const transferTool = buildTransferFilesTool(envMgr, () => {
     if (!transport)
@@ -10324,6 +10335,22 @@ function reregisterRemoteExecTools(api) {
   api.tools.register(transferTool);
   transferToolRegistered = true;
   registerRemoteExecConsoleIntegration(api, envMgr);
+}
+function makeRemoteExecConfigSignature(rawMergedConfig) {
+  return stableStringify({
+    remote_exec: rawMergedConfig.remote_exec ?? null,
+    remote_exec_servers: rawMergedConfig.remote_exec_servers ?? null
+  });
+}
+function stableStringify(value) {
+  return JSON.stringify(sortForStableStringify(value));
+}
+function sortForStableStringify(value) {
+  if (Array.isArray(value))
+    return value.map(sortForStableStringify);
+  if (!value || typeof value !== "object")
+    return value;
+  return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, sortForStableStringify(v)]));
 }
 export {
   src_default as default

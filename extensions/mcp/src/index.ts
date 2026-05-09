@@ -21,6 +21,7 @@ const SERVICE_ID = 'mcp.manager';
 // 模块级状态
 let manager: MCPManager | null = null;
 let serviceDisposer: { dispose(): void } | null = null;
+let lastMcpConfigSignature = '';
 
 export default definePlugin({
   name: 'mcp',
@@ -34,6 +35,7 @@ export default definePlugin({
     // 2. 读取配置（已经是 global + agent 分层合并后的结果）
     const raw = ctx.readConfigSection?.('mcp');
     const config = parseMCPConfig(raw);
+    lastMcpConfigSignature = stableStringify(raw ?? null);
 
     if (!config) {
       logger.info('未检测到 MCP 配置（mcp.yaml 不存在或无有效 servers），跳过');
@@ -44,6 +46,10 @@ export default definePlugin({
     ctx.addHook({
       name: 'mcp:config-reload',
       async onConfigReload({ rawMergedConfig }) {
+        const nextSignature = stableStringify(rawMergedConfig.mcp ?? null);
+        if (nextSignature === lastMcpConfigSignature) return;
+        lastMcpConfigSignature = nextSignature;
+
         const newConfig = parseMCPConfig(rawMergedConfig.mcp);
         const reg = ctx.getToolRegistry();
 
@@ -111,4 +117,19 @@ function registerService(ctx: PluginContext): void {
     listServers: () => manager?.listServers() ?? [],
     getServerInfo: () => manager?.getServerInfo() ?? [],
   }, { description: 'MCP 服务器管理', version: '1.0' });
+}
+
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortForStableStringify(value));
+}
+
+function sortForStableStringify(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortForStableStringify);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => [k, sortForStableStringify(v)]),
+  );
 }
