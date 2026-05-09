@@ -226,11 +226,6 @@ shell:
 
 sub_agent:
   autoApprove: false
-
-# 全局变量管理：读写好感度、信任度等跨对话持久变量
-manage_variables:
-  autoApprove: true
-
 # ─────────────────────────────────────────────────────────────
 # Computer Use 工具配置（需在 computer_use.yaml 中启用）
 # ─────────────────────────────────────────────────────────────

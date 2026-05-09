@@ -432,7 +432,7 @@ function createUpdateMilestonesTool(api: IrisAPI): ToolDefinition {
     parallel: false,
     declaration: {
       name: 'update_milestones',
-      description: `更新当前会话的结构化 milestone/task 清单，并驱动 Console/Web 中的 Iris 进度面板。
+      description: `更新当前会话的结构化 milestone/task 清单。
 
 使用规则：
 - 复杂、多步骤、跨文件或用户明确要求跟踪进度时，先创建 3-8 个 milestone。

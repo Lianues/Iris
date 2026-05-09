@@ -30,7 +30,6 @@ const BLOCKED_IN_PLAN = new Set([
   'delete_code',
   'delete_file',
   'create_directory',
-  'manage_variables',
   'invoke_skill',
   'delegate_to_agent',
   'query_delegated_task',

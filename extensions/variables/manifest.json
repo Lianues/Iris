@@ -1,0 +1,14 @@
+{
+  "name": "variables",
+  "version": "0.1.0",
+  "description": "全局/Agent/会话变量管理工具",
+  "plugin": {
+    "entry": "dist/index.mjs"
+  },
+  "distribution": {
+    "files": [
+      "dist/index.mjs",
+      "package.json"
+    ]
+  }
+}

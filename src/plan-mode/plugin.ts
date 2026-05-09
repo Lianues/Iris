@@ -86,7 +86,7 @@ function createEnterPlanModeTool(manager: PlanModeManager): ToolDefinition {
     approvalMode: 'handler',
     declaration: {
       name: 'EnterPlanMode',
-      description: '进入 Iris Agent-local Plan Mode。适用于复杂、多文件或需求不明确的任务；简单明确的小改动不要调用。',
+      description: '进入 Plan Mode。适用于复杂、多文件或需求不明确的任务；简单明确的小改动不要调用。',
       parameters: { type: 'object', properties: {} },
     },
     handler: async () => {
@@ -161,7 +161,7 @@ function createExitPlanModeTool(manager: PlanModeManager): ToolDefinition {
 export const planModePlugin: IrisPlugin = {
   name: 'plan-mode',
   version: '0.1.0',
-  description: 'Agent-local Plan Mode for Iris',
+  description: 'Plan Mode for Iris',
   activate(context) {
     const manager = new PlanModeManager();
 
@@ -173,7 +173,7 @@ export const planModePlugin: IrisPlugin = {
     ]);
 
     const serviceDisposable = context.getServiceRegistry().register(PLAN_MODE_SERVICE_ID, manager, {
-      description: 'Iris Agent-local Plan Mode service',
+      description: 'Iris Plan Mode service',
       version: '0.1.0',
     });
     (context as any).trackDisposable?.(serviceDisposable);
