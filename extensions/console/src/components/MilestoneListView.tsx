@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 import React, { useMemo } from 'react';
-import type { MilestoneSnapshotLike, MilestoneItemLike, MilestoneStatusLike } from 'irises-extension-sdk';
+import type { MilestoneSnapshotLike, MilestoneItemLike, MilestoneStatusLike } from '../milestone-types';
 import { C } from '../theme';
 import { ICONS } from '../terminal-compat';
 

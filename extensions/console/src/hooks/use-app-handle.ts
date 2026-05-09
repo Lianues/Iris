@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { MilestoneSnapshotLike, ToolInvocation, UsageMetadata } from 'irises-extension-sdk';
+import type { ToolInvocation, UsageMetadata } from 'irises-extension-sdk';
 import type { ChatMessage, MessagePart, NotificationPayload } from '../components/MessageItem';
+import type { MilestoneSnapshotLike } from '../milestone-types';
 import type { RetryInfo } from '../components/GeneratingTimer';
 import type { MessageMeta, ToolDetailData, ToolDetailBreadcrumb } from '../app-types';
 import {

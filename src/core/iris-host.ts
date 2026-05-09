@@ -20,7 +20,6 @@
 import { IrisCore } from './iris-core';
 import type { IrisCoreOptions, AgentNetworkProvider } from './iris-core';
 import { CrossAgentTaskBoard } from './cross-agent-task-board';
-import { SessionMilestoneManager } from './session-milestones';
 
 import { IPCServer } from '../ipc/server';
 import { loadAgentDefinitions, resolveAgentPaths, ensureDefaultAgent } from '../agents';
@@ -55,9 +54,6 @@ export class IrisHost {
 
   /** 共享任务板（所有 Core 共用） */
   readonly taskBoard = new CrossAgentTaskBoard();
-
-  /** 共享 milestone 状态板（所有 Agent 共用，按 routeAgent 分发给前台） */
-  readonly milestoneManager = new SessionMilestoneManager();
 
   /** Agent 定义列表（start 时加载） */
   private agentDefs: AgentDefinition[] = [];
@@ -122,7 +118,6 @@ export class IrisHost {
       agentPaths,
       resolvedConfig,
       taskBoard: this.taskBoard,
-      milestoneManager: this.milestoneManager,
     };
 
     // 多 Agent 模式下注入 agentNetwork（通过构造参数，不再事后 patch）

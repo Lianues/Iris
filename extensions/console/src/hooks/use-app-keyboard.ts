@@ -1,7 +1,7 @@
 import { useKeyboard } from '@opentui/react';
 import { usePaste } from './use-paste';
 import type { AgentDefinitionLike } from 'irises-extension-sdk';
-import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, MilestoneSnapshotLike, ToolInvocation } from 'irises-extension-sdk';
+import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolInvocation } from 'irises-extension-sdk';
 import type { TextInputState, TextInputActions } from './use-text-input';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { ApprovalChoice, ConfirmChoice, PendingConfirm, SwitchModelResult, ViewMode } from '../app-types';
@@ -12,6 +12,7 @@ import { appendCommandMessage } from '../message-utils';
 import type { QueuedMessage } from './use-message-queue';
 import { filterMemories, nextFilter, type MemoryItem, type MemoryFilter } from '../components/MemoryListView';
 import { normalizePastedSingleLine, readClipboardText } from '../terminal-compat';
+import type { MilestoneSnapshotLike } from '../milestone-types';
 
 type SetState<T> = Dispatch<SetStateAction<T>>;
 

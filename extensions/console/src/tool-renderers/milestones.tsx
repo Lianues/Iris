@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 import React from 'react';
-import type { MilestoneSnapshotLike } from 'irises-extension-sdk';
+import type { MilestoneSnapshotLike } from '../milestone-types';
 import type { ToolRendererProps } from './default';
 import { C } from '../theme';
 import { ICONS } from '../terminal-compat';

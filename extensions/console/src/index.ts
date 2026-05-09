@@ -31,7 +31,6 @@ import {
   type IrisBackendLike,
   type IrisModelInfoLike,
   type IrisSessionMetaLike,
-  type MilestoneSnapshotLike,
   type IrisAPI,
   type BootstrapExtensionRegistryLike,
   type ConfigManagerLike,
@@ -50,6 +49,7 @@ import { resolveConsoleConfig } from './console-config';
 import { CONSOLE_TOOL_DISPLAY_SERVICE_ID, consoleToolDisplayService } from './tool-display-service';
 import { CONSOLE_SLASH_COMMAND_SERVICE_ID, consoleSlashCommandService } from './slash-command-service';
 import { CONSOLE_STATUS_SEGMENT_SERVICE_ID, consoleStatusSegmentService } from './status-segment-service';
+import type { MilestoneSnapshotLike } from './milestone-types';
 
 /** 从 shell 命令生成前缀通配模式（如 "npm install express" → "npm install *"） */
 function generateCommandPattern(command: string): string {
@@ -73,6 +73,7 @@ const REMOTE_CONNECT_WS_CLIENT_SERVICE = 'remote-connect:WsIPCClient';
 const REMOTE_CONNECT_DISCOVERY_SERVICE = 'remote-connect:discoverLanInstances';
 const PLAN_MODE_SERVICE_ID = 'plan-mode';
 const REMOTE_EXEC_ENVIRONMENT_SERVICE_ID = 'remote-exec:environment';
+const MILESTONE_EXTENSION_SERVICE_ID = 'milestone:service';
 
 interface RemoteExecEnvironmentRestoreResultLike {
   ok: boolean;
@@ -90,6 +91,15 @@ interface MilestoneArchiveLike {
   snapshot: MilestoneSnapshotLike;
   archivedAt: number;
   afterHistoryIndex: number;
+}
+
+interface MilestoneServiceLike {
+  getSnapshot(sessionId: string): MilestoneSnapshotLike;
+  loadLatest(sessionId: string): Promise<MilestoneSnapshotLike | undefined>;
+  loadArchives(sessionId: string): Promise<MilestoneArchiveLike[]>;
+  loadUiState(sessionId: string): Promise<{ expanded: boolean; updatedAt?: number; snapshotUpdatedAt?: number } | undefined>;
+  setUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void>;
+  onDidUpdate?(listener: (sessionId: string, snapshot: MilestoneSnapshotLike) => void): { dispose(): void };
 }
 
 interface RemoteExecEnvironmentServiceLike {
@@ -623,6 +633,10 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     return (this.api?.services as any)?.get?.(REMOTE_EXEC_ENVIRONMENT_SERVICE_ID) as RemoteExecEnvironmentServiceLike | undefined;
   }
 
+  private getMilestoneService(): MilestoneServiceLike | undefined {
+    return (this.api?.services as any)?.get?.(MILESTONE_EXTENSION_SERVICE_ID) as MilestoneServiceLike | undefined;
+  }
+
   private async restoreRemoteExecEnvironmentForSession(sessionId: string, validate: boolean): Promise<RemoteExecEnvironmentRestoreResultLike | undefined> {
     const service = this.getRemoteExecEnvironmentService();
     if (!service) return undefined;
@@ -649,7 +663,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async syncMilestones(): Promise<void> {
     try {
-      const snapshot = await (this.backend as any).loadMilestones?.(this.sessionId) ?? this.backend.getMilestones?.(this.sessionId) as any;
+      const service = this.getMilestoneService();
+      const snapshot = await service?.loadLatest?.(this.sessionId) ?? service?.getSnapshot?.(this.sessionId);
       this.appHandle?.setMilestones(snapshot ?? null);
     } catch {
       this.appHandle?.setMilestones(null);
@@ -805,6 +820,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
           // （例如切换 session 后残留的旧状态）
           this.appHandle?.clearNotificationContext();
         }
+      }
+    });
+
+    this.getMilestoneService()?.onDidUpdate?.((sid: string, snapshot: MilestoneSnapshotLike) => {
+      if (sid === this.sessionId) {
+        this.appHandle?.setMilestones(snapshot);
       }
     });
 
@@ -1788,10 +1809,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async loadMilestoneArchives(sessionId: string): Promise<MilestoneArchiveLike[]> {
     try {
-      const archives = await (this.backend as any).loadMilestoneArchives?.(sessionId);
-      if (Array.isArray(archives)) return archives as MilestoneArchiveLike[];
-      const meta = await (this.backend as any).getMeta?.(sessionId);
-      return Array.isArray(meta?.milestoneArchives) ? meta.milestoneArchives as MilestoneArchiveLike[] : [];
+      return await this.getMilestoneService()?.loadArchives?.(sessionId) ?? [];
     } catch {
       return [];
     }
@@ -1799,12 +1817,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async loadMilestoneUiState(sessionId: string): Promise<{ expanded: boolean; updatedAt?: number; snapshotUpdatedAt?: number } | undefined> {
     try {
-      const state = await (this.backend as any).loadMilestoneUiState?.(sessionId);
-      if (state && typeof state.expanded === 'boolean') return state;
-      const meta = await (this.backend as any).getMeta?.(sessionId);
-      return meta?.milestoneUiState && typeof meta.milestoneUiState.expanded === 'boolean'
-        ? meta.milestoneUiState
-        : undefined;
+      return await this.getMilestoneService()?.loadUiState?.(sessionId);
     } catch {
       return undefined;
     }
@@ -1812,7 +1825,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async saveMilestoneUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void> {
     try {
-      await (this.backend as any).setMilestoneUiState?.(sessionId, state);
+      await this.getMilestoneService()?.setUiState?.(sessionId, state);
     } catch {
       // UI 偏好保存失败不影响对话主流程。
     }

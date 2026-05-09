@@ -159,10 +159,6 @@ bash:
     enabled: true
 sub_agent:
   autoApprove: false
-update_milestones:
-  autoApprove: true
-list_milestones:
-  autoApprove: true
 manage_variables:
   autoApprove: true
 # autoApproveAll: true

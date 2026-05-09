@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SessionMilestoneManager } from '../src/core/session-milestones.js';
+import { SessionMilestoneManager } from '../extensions/milestone/src/session.js';
 import { CrossAgentTaskBoard } from '../src/core/cross-agent-task-board.js';
-import { createMilestoneToolsForApi } from '../extensions/milestone/src/index.js';
+import { createMilestoneToolsForApi, MILESTONE_EXTENSION_SERVICE_ID } from '../extensions/milestone/src/index.js';
 
 function createMilestoneTools(input: {
   manager: SessionMilestoneManager;
@@ -10,7 +10,7 @@ function createMilestoneTools(input: {
   taskBoard?: CrossAgentTaskBoard;
 }) {
   const api = {
-    milestones: input.manager,
+    services: { get: (id: string) => id === MILESTONE_EXTENSION_SERVICE_ID ? input.manager : undefined },
     backend: {
       getActiveSessionId: () => input.sessionId,
       on: () => api.backend,

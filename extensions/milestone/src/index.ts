@@ -2,16 +2,144 @@ import {
   createPluginLogger,
   definePlugin,
   type IrisAPI,
-  type MilestoneServiceLike,
-  type MilestoneSnapshotLike,
-  type MilestoneUpdateInputLike,
   type PluginContext,
   type ToolDefinition,
   type ToolExecutionContext,
   type ToolExecutionHandleLike,
 } from 'irises-extension-sdk';
+import {
+  SessionMilestoneManager,
+  type MilestoneArchiveEntry,
+  type MilestoneSnapshot,
+  type MilestoneUpdateInput,
+  type MilestoneUiState,
+} from './session.js';
 
 const logger = createPluginLogger('milestone');
+const EXTENSION_STATE_KEY = 'milestone';
+export const MILESTONE_EXTENSION_SERVICE_ID = 'milestone:service';
+
+const manager = new SessionMilestoneManager();
+const updateListeners = new Set<(sessionId: string, snapshot: MilestoneSnapshot) => void>();
+
+export interface MilestoneExtensionService {
+  update(sessionId: string, updates: MilestoneUpdateInput[], options?: { sourceAgent?: string; routeAgent?: string; replaceAll?: boolean }): MilestoneSnapshot;
+  getSnapshot(sessionId: string, sourceAgent?: string): MilestoneSnapshot;
+  clear?(sessionId: string, sourceAgent?: string, routeAgent?: string): MilestoneSnapshot;
+  noteActiveToolFailure?(sessionId: string, input: { toolId: string; toolName: string; error: string; sourceAgent?: string; routeAgent?: string }): MilestoneSnapshot | undefined;
+  loadLatest(sessionId: string): Promise<MilestoneSnapshot | undefined>;
+  loadArchives(sessionId: string): Promise<MilestoneArchiveEntry[]>;
+  loadUiState(sessionId: string): Promise<MilestoneUiState | undefined>;
+  setUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void>;
+  onDidUpdate(listener: (sessionId: string, snapshot: MilestoneSnapshot) => void): { dispose(): void };
+}
+
+interface PersistedMilestoneState {
+  latest?: MilestoneSnapshot;
+  archives?: MilestoneArchiveEntry[];
+  ui?: MilestoneUiState;
+}
+
+function emitUpdate(sessionId: string, snapshot: MilestoneSnapshot): void {
+  for (const listener of updateListeners) listener(sessionId, snapshot);
+}
+
+function getExtensionState(meta: { extensionState?: Record<string, unknown> } | null | undefined): PersistedMilestoneState {
+  const raw = meta?.extensionState?.[EXTENSION_STATE_KEY];
+  return raw && typeof raw === 'object' ? raw as PersistedMilestoneState : {};
+}
+
+function setExtensionState(meta: { extensionState?: Record<string, unknown> }, state: PersistedMilestoneState): void {
+  meta.extensionState = { ...(meta.extensionState ?? {}), [EXTENSION_STATE_KEY]: state };
+}
+
+function isArchivable(snapshot: MilestoneSnapshot | undefined): boolean {
+  return !!snapshot && snapshot.items.length > 0 && snapshot.stats.open === 0;
+}
+
+function normalizeArchives(value: unknown, sessionId?: string): MilestoneArchiveEntry[] {
+  if (!Array.isArray(value)) return [];
+  const archives: MilestoneArchiveEntry[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as Partial<MilestoneArchiveEntry>;
+    const snapshot = record.snapshot;
+    if (!snapshot || typeof snapshot !== 'object' || !Array.isArray(snapshot.items)) continue;
+    if (sessionId && snapshot.sessionId !== sessionId) continue;
+    const archivedAt = typeof record.archivedAt === 'number' ? record.archivedAt : (snapshot.updatedAt || Date.now());
+    const afterHistoryIndex = typeof record.afterHistoryIndex === 'number' && Number.isFinite(record.afterHistoryIndex)
+      ? Math.max(0, Math.floor(record.afterHistoryIndex))
+      : 0;
+    archives.push({
+      id: typeof record.id === 'string' && record.id ? record.id : `${snapshot.sessionId}:${snapshot.updatedAt}`,
+      snapshot,
+      archivedAt,
+      afterHistoryIndex,
+    });
+  }
+  return archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
+}
+
+function normalizeUiState(value: unknown): MilestoneUiState | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Partial<MilestoneUiState>;
+  if (typeof record.expanded !== 'boolean') return undefined;
+  return {
+    expanded: record.expanded,
+    updatedAt: typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt) ? record.updatedAt : Date.now(),
+    ...(typeof record.snapshotUpdatedAt === 'number' && Number.isFinite(record.snapshotUpdatedAt) ? { snapshotUpdatedAt: record.snapshotUpdatedAt } : {}),
+  };
+}
+
+function createUiState(expanded: boolean, snapshotUpdatedAt?: number): MilestoneUiState {
+  return {
+    expanded,
+    updatedAt: Date.now(),
+    ...(typeof snapshotUpdatedAt === 'number' && Number.isFinite(snapshotUpdatedAt) ? { snapshotUpdatedAt } : {}),
+  };
+}
+
+async function getHistoryLengthSafe(api: IrisAPI, sessionId: string): Promise<number> {
+  try { return (await api.storage.getHistory(sessionId)).length; }
+  catch { return 0; }
+}
+
+function upsertArchive(state: PersistedMilestoneState, snapshot: MilestoneSnapshot, afterHistoryIndex: number): void {
+  if (!isArchivable(snapshot)) return;
+  const archives = normalizeArchives(state.archives, snapshot.sessionId);
+  const safeIndex = Math.max(0, Math.floor(afterHistoryIndex));
+  const archiveId = `${snapshot.sessionId}:${snapshot.updatedAt}`;
+  const existingIndex = archives.findIndex(entry => entry.id === archiveId || entry.snapshot.updatedAt === snapshot.updatedAt);
+  if (existingIndex >= 0) {
+    const existing = archives[existingIndex];
+    archives[existingIndex] = {
+      ...existing,
+      id: existing.id || archiveId,
+      snapshot,
+      archivedAt: existing.archivedAt || snapshot.updatedAt || Date.now(),
+      afterHistoryIndex: Math.max(existing.afterHistoryIndex ?? 0, safeIndex),
+    };
+  } else {
+    archives.push({ id: archiveId, snapshot, archivedAt: snapshot.updatedAt || Date.now(), afterHistoryIndex: safeIndex });
+  }
+  state.archives = archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
+}
+
+async function persistSnapshot(api: IrisAPI, snapshot: MilestoneSnapshot): Promise<void> {
+  const meta = await api.storage.getMeta?.(snapshot.sessionId);
+  if (!meta) return;
+  const state = getExtensionState(meta);
+  state.latest = snapshot.items.length > 0 ? snapshot : undefined;
+  const existingUi = normalizeUiState(state.ui);
+  if (isArchivable(snapshot)) {
+    upsertArchive(state, snapshot, await getHistoryLengthSafe(api, snapshot.sessionId));
+    state.ui = createUiState(true, snapshot.updatedAt);
+  } else if (snapshot.items.length > 0 && !existingUi) {
+    state.ui = createUiState(true, snapshot.updatedAt);
+  }
+  setExtensionState(meta, state);
+  await api.storage.saveMeta?.(meta);
+}
 
 const MILESTONE_TOOL_SYNC_IGNORED = new Set([
   'update_milestones', 'list_milestones',
@@ -52,9 +180,82 @@ const ITEM_SCHEMA: Record<string, unknown> = {
   },
 };
 
-function getMilestones(api: IrisAPI): MilestoneServiceLike {
-  if (!api.milestones) throw new Error('Milestone 服务不可用');
-  return api.milestones;
+function getMilestones(api: IrisAPI): MilestoneExtensionService {
+  const service = api.services.get<MilestoneExtensionService>(MILESTONE_EXTENSION_SERVICE_ID);
+  if (!service) throw new Error('Milestone 服务不可用');
+  return service;
+}
+
+export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionService {
+  const service: MilestoneExtensionService = {
+    update(sessionId, updates, options) {
+      const snapshot = manager.update(sessionId, updates as any, options as any);
+      void persistSnapshot(api, snapshot).catch((err) => logger.warn('保存进度状态失败:', err));
+      emitUpdate(snapshot.sessionId, snapshot);
+      return snapshot;
+    },
+    getSnapshot(sessionId, sourceAgent) {
+      return manager.getSnapshot(sessionId, sourceAgent);
+    },
+    clear(sessionId, sourceAgent, routeAgent) {
+      const snapshot = manager.clear(sessionId, sourceAgent, routeAgent);
+      void persistSnapshot(api, snapshot).catch((err) => logger.warn('清理进度状态失败:', err));
+      emitUpdate(snapshot.sessionId, snapshot);
+      return snapshot;
+    },
+    noteActiveToolFailure(sessionId, input) {
+      const snapshot = manager.noteActiveToolFailure(sessionId, input as any);
+      if (snapshot) {
+        void persistSnapshot(api, snapshot).catch((err) => logger.warn('保存工具错误进度状态失败:', err));
+        emitUpdate(snapshot.sessionId, snapshot);
+      }
+      return snapshot;
+    },
+    async loadLatest(sessionId) {
+      const meta = await api.storage.getMeta?.(sessionId);
+      const state = getExtensionState(meta);
+      if (state.latest && state.latest.sessionId === sessionId) {
+        const current = manager.getSnapshot(sessionId);
+        const storageUpdatedAt = typeof state.latest.updatedAt === 'number' ? state.latest.updatedAt : 0;
+        if (manager.hasSession(sessionId) && current.items.length > 0 && current.updatedAt >= storageUpdatedAt) {
+          return current;
+        }
+        manager.hydrate(state.latest);
+      }
+      return manager.getSnapshot(sessionId);
+    },
+    async loadArchives(sessionId) {
+      const meta = await api.storage.getMeta?.(sessionId);
+      const state = getExtensionState(meta);
+      const archives = normalizeArchives(state.archives, sessionId);
+      if (isArchivable(state.latest) && !archives.some(entry => entry.snapshot.updatedAt === state.latest!.updatedAt)) {
+        upsertArchive(state, state.latest!, await getHistoryLengthSafe(api, sessionId));
+        if (meta) {
+          setExtensionState(meta, state);
+          await api.storage.saveMeta?.(meta);
+        }
+        return normalizeArchives(state.archives, sessionId);
+      }
+      return archives;
+    },
+    async loadUiState(sessionId) {
+      const meta = await api.storage.getMeta?.(sessionId);
+      return normalizeUiState(getExtensionState(meta).ui);
+    },
+    async setUiState(sessionId, uiState) {
+      const meta = await api.storage.getMeta?.(sessionId);
+      if (!meta) return;
+      const state = getExtensionState(meta);
+      state.ui = createUiState(uiState.expanded, uiState.snapshotUpdatedAt);
+      setExtensionState(meta, state);
+      await api.storage.saveMeta?.(meta);
+    },
+    onDidUpdate(listener) {
+      updateListeners.add(listener);
+      return { dispose: () => updateListeners.delete(listener) };
+    },
+  };
+  return service;
 }
 
 function getSessionId(api: IrisAPI, context?: ToolExecutionContext): string {
@@ -63,13 +264,13 @@ function getSessionId(api: IrisAPI, context?: ToolExecutionContext): string {
   return sessionId;
 }
 
-function normalizeItems(raw: unknown): MilestoneUpdateInputLike[] {
+function normalizeItems(raw: unknown): MilestoneUpdateInput[] {
   if (!Array.isArray(raw)) throw new Error('items 必须是数组');
   return raw.map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new Error(`items[${index}] 必须是对象`);
     }
-    return entry as MilestoneUpdateInputLike;
+    return entry as MilestoneUpdateInput;
   });
 }
 
@@ -103,7 +304,7 @@ function resolveExecutionContext(api: IrisAPI, context?: ToolExecutionContext): 
   return { sessionId: rawSessionId, sourceAgent, routeAgent: baseAgent };
 }
 
-function formatSummary(snapshot: MilestoneSnapshotLike): string {
+function formatSummary(snapshot: MilestoneSnapshot): string {
   const { stats } = snapshot;
   if (stats.total === 0) return '当前没有 milestone。';
   const active = snapshot.items.find((item) => item.status === 'in_progress');
@@ -196,7 +397,7 @@ export function extractPlanMilestoneCandidates(plan: string, maxItems: number = 
   return candidates.slice(0, Math.max(1, maxItems));
 }
 
-export function buildMilestonesFromApprovedPlan(plan: string, options: { owner?: string; planFilePath?: string; maxItems?: number } = {}): MilestoneUpdateInputLike[] {
+export function buildMilestonesFromApprovedPlan(plan: string, options: { owner?: string; planFilePath?: string; maxItems?: number } = {}): MilestoneUpdateInput[] {
   const maxItems = options.maxItems ?? DEFAULT_PLAN_MAX_ITEMS;
   return extractPlanMilestoneCandidates(plan, maxItems).map((candidate, index) => ({
     id: `m${index + 1}`,
@@ -312,7 +513,7 @@ function observeToolFailures(api: IrisAPI, ctx: PluginContext): void {
     const done = (_result?: unknown, error?: string) => {
       const snapshot = handle.getSnapshot();
       if (snapshot.status !== 'error') return;
-      const service = api.milestones;
+      const service = getMilestones(api);
       if (!service?.noteActiveToolFailure) return;
       const ctxInfo = resolveExecutionContextForTool(api, snapshot.sessionId ?? _sessionId);
       service.noteActiveToolFailure(ctxInfo.sessionId, {
@@ -340,9 +541,13 @@ export const milestonePlugin = definePlugin({
 
   activate(ctx: PluginContext) {
     ctx.onReady((api) => {
-      if (!api.milestones) {
-        logger.warn('Milestone 服务不可用，跳过工具注册');
-        return;
+      const existing = api.services.get<MilestoneExtensionService>(MILESTONE_EXTENSION_SERVICE_ID);
+      const service = existing ?? createMilestoneServiceForApi(api);
+      if (!existing) {
+        ctx.trackDisposable(api.services.register(MILESTONE_EXTENSION_SERVICE_ID, service, {
+          description: 'Structured milestone/task progress service',
+          version: '1.0.0',
+        }));
       }
       (api.config as any).tools ??= {};
       ((api.config as any).tools.permissions ??= {}).update_milestones ??= { autoApprove: true };

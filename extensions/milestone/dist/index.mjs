@@ -38,8 +38,401 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
+// src/session.ts
+import { EventEmitter } from "events";
+var TERMINAL_STATUSES = new Set(["completed", "cancelled"]);
+
+class MilestoneConflictError extends Error {
+  milestoneId;
+  reason;
+  details;
+  code = "MILESTONE_CONFLICT";
+  constructor(milestoneId, reason, message, details) {
+    super(message);
+    this.milestoneId = milestoneId;
+    this.reason = reason;
+    this.details = details;
+    this.name = "MilestoneConflictError";
+  }
+}
+function normalizeStatus(value) {
+  switch (value) {
+    case "in_progress":
+    case "completed":
+    case "blocked":
+    case "cancelled":
+    case "pending":
+      return value;
+    case "todo":
+    case "open":
+      return "pending";
+    case "running":
+    case "active":
+      return "in_progress";
+    case "done":
+    case "resolved":
+      return "completed";
+    case "canceled":
+      return "cancelled";
+    default:
+      return "pending";
+  }
+}
+function asOptionalString(value) {
+  if (typeof value !== "string")
+    return;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+function asStringArray(value) {
+  if (!Array.isArray(value))
+    return;
+  const result = value.map((entry) => typeof entry === "string" || typeof entry === "number" ? String(entry).trim() : "").filter(Boolean);
+  return result.length > 0 ? Array.from(new Set(result)) : undefined;
+}
+function asOptionalNumber(value) {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0)
+    return value;
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    return Number.parseInt(value.trim(), 10);
+  }
+  return;
+}
+function asMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return;
+  return { ...value };
+}
+function deriveId(input, index) {
+  const explicit = asOptionalString(input.id);
+  if (explicit)
+    return explicit;
+  const title = asOptionalString(input.title) ?? asOptionalString(input.subject) ?? asOptionalString(input.content);
+  if (title) {
+    const slug = title.toLowerCase().replace(/[`~!@#$%^&*()+=[\]{};:'"\\|,.<>/?\s]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    if (slug)
+      return slug;
+  }
+  return `m${index + 1}`;
+}
+function sortMilestones(a, b) {
+  const aNum = parseInt(a.id.replace(/^m/i, ""), 10);
+  const bNum = parseInt(b.id.replace(/^m/i, ""), 10);
+  if (!Number.isNaN(aNum) && !Number.isNaN(bNum) && aNum !== bNum)
+    return aNum - bNum;
+  return a.createdAt - b.createdAt || a.id.localeCompare(b.id);
+}
+function truncateReason(text, max = 180) {
+  const singleLine = text.replace(/\s+/g, " ").trim();
+  return singleLine.length <= max ? singleLine : `${singleLine.slice(0, max - 1)}…`;
+}
+function ownerMatches(item, owner) {
+  if (!owner)
+    return false;
+  return item.owner === owner || item.owner?.startsWith(`${owner}:`) === true;
+}
+function canForceUpdate(sourceAgent, routeAgent, force) {
+  if (!force || !sourceAgent)
+    return false;
+  return !!routeAgent && sourceAgent === routeAgent;
+}
+function canOwnerUpdate(item, sourceAgent, authoritativeRouteAgent, force) {
+  return !item.owner || !sourceAgent || ownerMatches(item, sourceAgent) || sourceAgent === authoritativeRouteAgent || canForceUpdate(sourceAgent, authoritativeRouteAgent, force);
+}
+function ownerKey(item) {
+  return item.owner ?? "";
+}
+function computeStats(items) {
+  const stats = {
+    total: items.length,
+    pending: 0,
+    inProgress: 0,
+    completed: 0,
+    blocked: 0,
+    cancelled: 0,
+    open: 0
+  };
+  for (const item of items) {
+    if (item.status === "pending")
+      stats.pending++;
+    if (item.status === "in_progress")
+      stats.inProgress++;
+    if (item.status === "completed")
+      stats.completed++;
+    if (item.status === "blocked")
+      stats.blocked++;
+    if (item.status === "cancelled")
+      stats.cancelled++;
+    if (!TERMINAL_STATUSES.has(item.status))
+      stats.open++;
+  }
+  return stats;
+}
+
+class SessionMilestoneManager extends EventEmitter {
+  sessions = new Map;
+  routeAgents = new Map;
+  hasSession(sessionId) {
+    return this.sessions.has(sessionId);
+  }
+  getSnapshot(sessionId, sourceAgent) {
+    const items = [...this.sessions.get(sessionId) ?? []].sort(sortMilestones);
+    const updatedAt = items.reduce((max, item) => Math.max(max, item.updatedAt), 0) || Date.now();
+    const routeAgent = this.routeAgents.get(sessionId);
+    return {
+      sessionId,
+      items,
+      stats: computeStats(items),
+      updatedAt,
+      sourceAgent,
+      routeAgent
+    };
+  }
+  clear(sessionId, sourceAgent, routeAgent) {
+    this.sessions.delete(sessionId);
+    if (routeAgent)
+      this.routeAgents.set(sessionId, routeAgent);
+    const snapshot = this.getSnapshot(sessionId, sourceAgent);
+    this.emit("updated", snapshot);
+    return snapshot;
+  }
+  hydrate(snapshot) {
+    const items = snapshot.items.map((item) => ({
+      ...item,
+      version: Number.isInteger(item.version) && item.version > 0 ? item.version : 1,
+      blockedBy: item.blockedBy ? [...item.blockedBy] : undefined,
+      blocks: item.blocks ? [...item.blocks] : undefined,
+      metadata: item.metadata ? { ...item.metadata } : undefined
+    })).sort(sortMilestones);
+    this.sessions.set(snapshot.sessionId, items);
+    if (snapshot.routeAgent) {
+      this.routeAgents.set(snapshot.sessionId, snapshot.routeAgent);
+    }
+  }
+  findActiveMilestoneForToolSync(sessionId, input) {
+    const current = [...this.sessions.get(sessionId) ?? []].sort(sortMilestones);
+    const sameOwner = current.find((item) => item.status === "in_progress" && ownerMatches(item, input.sourceAgent));
+    const fallback = input.sourceAgent && input.routeAgent && input.sourceAgent === input.routeAgent ? current.find((item) => item.status === "in_progress") : undefined;
+    const target = sameOwner ?? fallback;
+    return target ? { ...target, blockedBy: target.blockedBy ? [...target.blockedBy] : undefined, blocks: target.blocks ? [...target.blocks] : undefined, metadata: target.metadata ? { ...target.metadata } : undefined } : undefined;
+  }
+  noteActiveToolFailure(sessionId, input) {
+    const target = this.findActiveMilestoneForToolSync(sessionId, input);
+    if (!target)
+      return;
+    const toolError = {
+      toolId: input.toolId,
+      toolName: input.toolName,
+      error: truncateReason(input.error),
+      at: Date.now()
+    };
+    const previousErrors = Array.isArray(target.metadata?.toolErrors) ? target.metadata.toolErrors.filter((entry) => entry && typeof entry === "object") : [];
+    return this.update(sessionId, [{
+      id: target.id,
+      title: target.title,
+      status: target.status,
+      metadata: {
+        ...target.metadata ?? {},
+        toolSync: { kind: "tool_error_note", ...toolError },
+        toolErrors: [...previousErrors, toolError].slice(-5)
+      }
+    }], { sourceAgent: input.sourceAgent, routeAgent: input.routeAgent });
+  }
+  markActiveBlockedByToolFailure(sessionId, input) {
+    return this.noteActiveToolFailure(sessionId, input);
+  }
+  update(sessionId, updates, options = {}) {
+    const now = Date.now();
+    const sourceAgent = options.sourceAgent;
+    const existingRouteAgent = this.routeAgents.get(sessionId);
+    const requestedRouteAgent = options.routeAgent;
+    const routeAgent = existingRouteAgent ?? requestedRouteAgent ?? sourceAgent;
+    const isRouteAgent = !sourceAgent || !routeAgent || sourceAgent === routeAgent;
+    const existingItems = this.sessions.get(sessionId) ?? [];
+    const canEstablishRouteAgent = !existingRouteAgent && (existingItems.length === 0 || !sourceAgent || existingItems.every((item) => !item.owner || ownerMatches(item, sourceAgent)));
+    const canReplaceAll = options.replaceAll === true && (!sourceAgent || existingItems.length === 0 && isRouteAgent || !!existingRouteAgent && sourceAgent === existingRouteAgent);
+    const current = canReplaceAll ? [] : [...existingItems];
+    const byId = new Map(current.map((item) => [item.id, item]));
+    for (let index = 0;index < updates.length; index++) {
+      const input = updates[index];
+      const id = deriveId(input, index);
+      const existing = byId.get(id);
+      const expectedVersion = asOptionalNumber(input.expectedVersion);
+      if (!existing && expectedVersion !== undefined) {
+        throw new MilestoneConflictError(id, "version_mismatch", `milestone ${id} 不存在，但更新要求基于版本 ${expectedVersion}`, { currentVersion: undefined, expectedVersion });
+      }
+      if (existing && expectedVersion !== undefined && existing.version !== expectedVersion) {
+        throw new MilestoneConflictError(id, "version_mismatch", `milestone ${id} 版本冲突：当前版本 ${existing.version}，但更新基于版本 ${expectedVersion}`, { currentVersion: existing.version, expectedVersion, currentOwner: existing.owner });
+      }
+      if (existing && !canOwnerUpdate(existing, sourceAgent, existingRouteAgent, input.force === true)) {
+        throw new MilestoneConflictError(id, "owner_mismatch", `milestone ${id} 属于 ${existing.owner ?? "未分配"}，当前执行方 ${sourceAgent ?? "未知"} 无权直接覆盖；请由 owner 更新或由前台 Agent 显式接管`, { currentOwner: existing.owner, sourceAgent, routeAgent });
+      }
+    }
+    const activeOwnerKeepIds = new Map;
+    updates.forEach((input, index) => {
+      const id = deriveId(input, index);
+      if (input.delete === true) {
+        byId.delete(id);
+        return;
+      }
+      const title = asOptionalString(input.title) ?? asOptionalString(input.subject) ?? asOptionalString(input.content);
+      const existing = byId.get(id);
+      if (!existing && !title) {
+        throw new Error(`milestone ${id} 缺少 title/subject/content`);
+      }
+      const status = input.status === undefined && existing ? existing.status : normalizeStatus(input.status);
+      const item = {
+        id,
+        title: title ?? existing.title,
+        description: asOptionalString(input.description) ?? existing?.description,
+        activeForm: asOptionalString(input.activeForm) ?? existing?.activeForm,
+        status,
+        owner: asOptionalString(input.owner) ?? existing?.owner ?? sourceAgent,
+        blockedBy: asStringArray(input.blockedBy) ?? existing?.blockedBy,
+        blocks: asStringArray(input.blocks) ?? existing?.blocks,
+        metadata: asMetadata(input.metadata) ?? existing?.metadata,
+        version: existing ? existing.version + 1 : 1,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        updatedBy: sourceAgent ?? existing?.updatedBy
+      };
+      byId.set(id, item);
+      if (item.status === "in_progress") {
+        activeOwnerKeepIds.set(ownerKey(item), item.id);
+      }
+    });
+    for (const [activeOwner, keepId] of activeOwnerKeepIds) {
+      for (const [id, item] of byId) {
+        if (id === keepId || item.status !== "in_progress" || ownerKey(item) !== activeOwner)
+          continue;
+        byId.set(id, {
+          ...item,
+          status: "pending",
+          version: item.version + 1,
+          updatedAt: now,
+          updatedBy: sourceAgent ?? item.updatedBy
+        });
+      }
+    }
+    const next = Array.from(byId.values()).sort(sortMilestones);
+    this.sessions.set(sessionId, next);
+    if (existingRouteAgent || canEstablishRouteAgent) {
+      if (routeAgent)
+        this.routeAgents.set(sessionId, routeAgent);
+    }
+    const snapshot = this.getSnapshot(sessionId, sourceAgent);
+    this.emit("updated", snapshot);
+    return snapshot;
+  }
+}
+
 // src/index.ts
 var logger = createPluginLogger("milestone");
+var EXTENSION_STATE_KEY = "milestone";
+var MILESTONE_EXTENSION_SERVICE_ID = "milestone:service";
+var manager = new SessionMilestoneManager;
+var updateListeners = new Set;
+function emitUpdate(sessionId, snapshot) {
+  for (const listener of updateListeners)
+    listener(sessionId, snapshot);
+}
+function getExtensionState(meta) {
+  const raw = meta?.extensionState?.[EXTENSION_STATE_KEY];
+  return raw && typeof raw === "object" ? raw : {};
+}
+function setExtensionState(meta, state) {
+  meta.extensionState = { ...meta.extensionState ?? {}, [EXTENSION_STATE_KEY]: state };
+}
+function isArchivable(snapshot) {
+  return !!snapshot && snapshot.items.length > 0 && snapshot.stats.open === 0;
+}
+function normalizeArchives(value, sessionId) {
+  if (!Array.isArray(value))
+    return [];
+  const archives = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object")
+      continue;
+    const record = entry;
+    const snapshot = record.snapshot;
+    if (!snapshot || typeof snapshot !== "object" || !Array.isArray(snapshot.items))
+      continue;
+    if (sessionId && snapshot.sessionId !== sessionId)
+      continue;
+    const archivedAt = typeof record.archivedAt === "number" ? record.archivedAt : snapshot.updatedAt || Date.now();
+    const afterHistoryIndex = typeof record.afterHistoryIndex === "number" && Number.isFinite(record.afterHistoryIndex) ? Math.max(0, Math.floor(record.afterHistoryIndex)) : 0;
+    archives.push({
+      id: typeof record.id === "string" && record.id ? record.id : `${snapshot.sessionId}:${snapshot.updatedAt}`,
+      snapshot,
+      archivedAt,
+      afterHistoryIndex
+    });
+  }
+  return archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
+}
+function normalizeUiState(value) {
+  if (!value || typeof value !== "object")
+    return;
+  const record = value;
+  if (typeof record.expanded !== "boolean")
+    return;
+  return {
+    expanded: record.expanded,
+    updatedAt: typeof record.updatedAt === "number" && Number.isFinite(record.updatedAt) ? record.updatedAt : Date.now(),
+    ...typeof record.snapshotUpdatedAt === "number" && Number.isFinite(record.snapshotUpdatedAt) ? { snapshotUpdatedAt: record.snapshotUpdatedAt } : {}
+  };
+}
+function createUiState(expanded, snapshotUpdatedAt) {
+  return {
+    expanded,
+    updatedAt: Date.now(),
+    ...typeof snapshotUpdatedAt === "number" && Number.isFinite(snapshotUpdatedAt) ? { snapshotUpdatedAt } : {}
+  };
+}
+async function getHistoryLengthSafe(api, sessionId) {
+  try {
+    return (await api.storage.getHistory(sessionId)).length;
+  } catch {
+    return 0;
+  }
+}
+function upsertArchive(state, snapshot, afterHistoryIndex) {
+  if (!isArchivable(snapshot))
+    return;
+  const archives = normalizeArchives(state.archives, snapshot.sessionId);
+  const safeIndex = Math.max(0, Math.floor(afterHistoryIndex));
+  const archiveId = `${snapshot.sessionId}:${snapshot.updatedAt}`;
+  const existingIndex = archives.findIndex((entry) => entry.id === archiveId || entry.snapshot.updatedAt === snapshot.updatedAt);
+  if (existingIndex >= 0) {
+    const existing = archives[existingIndex];
+    archives[existingIndex] = {
+      ...existing,
+      id: existing.id || archiveId,
+      snapshot,
+      archivedAt: existing.archivedAt || snapshot.updatedAt || Date.now(),
+      afterHistoryIndex: Math.max(existing.afterHistoryIndex ?? 0, safeIndex)
+    };
+  } else {
+    archives.push({ id: archiveId, snapshot, archivedAt: snapshot.updatedAt || Date.now(), afterHistoryIndex: safeIndex });
+  }
+  state.archives = archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
+}
+async function persistSnapshot(api, snapshot) {
+  const meta = await api.storage.getMeta?.(snapshot.sessionId);
+  if (!meta)
+    return;
+  const state = getExtensionState(meta);
+  state.latest = snapshot.items.length > 0 ? snapshot : undefined;
+  const existingUi = normalizeUiState(state.ui);
+  if (isArchivable(snapshot)) {
+    upsertArchive(state, snapshot, await getHistoryLengthSafe(api, snapshot.sessionId));
+    state.ui = createUiState(true, snapshot.updatedAt);
+  } else if (snapshot.items.length > 0 && !existingUi) {
+    state.ui = createUiState(true, snapshot.updatedAt);
+  }
+  setExtensionState(meta, state);
+  await api.storage.saveMeta?.(meta);
+}
 var MILESTONE_TOOL_SYNC_IGNORED = new Set([
   "update_milestones",
   "list_milestones",
@@ -75,9 +468,82 @@ var ITEM_SCHEMA = {
   }
 };
 function getMilestones(api) {
-  if (!api.milestones)
+  const service = api.services.get(MILESTONE_EXTENSION_SERVICE_ID);
+  if (!service)
     throw new Error("Milestone 服务不可用");
-  return api.milestones;
+  return service;
+}
+function createMilestoneServiceForApi(api) {
+  const service = {
+    update(sessionId, updates, options) {
+      const snapshot = manager.update(sessionId, updates, options);
+      persistSnapshot(api, snapshot).catch((err) => logger.warn("保存进度状态失败:", err));
+      emitUpdate(snapshot.sessionId, snapshot);
+      return snapshot;
+    },
+    getSnapshot(sessionId, sourceAgent) {
+      return manager.getSnapshot(sessionId, sourceAgent);
+    },
+    clear(sessionId, sourceAgent, routeAgent) {
+      const snapshot = manager.clear(sessionId, sourceAgent, routeAgent);
+      persistSnapshot(api, snapshot).catch((err) => logger.warn("清理进度状态失败:", err));
+      emitUpdate(snapshot.sessionId, snapshot);
+      return snapshot;
+    },
+    noteActiveToolFailure(sessionId, input) {
+      const snapshot = manager.noteActiveToolFailure(sessionId, input);
+      if (snapshot) {
+        persistSnapshot(api, snapshot).catch((err) => logger.warn("保存工具错误进度状态失败:", err));
+        emitUpdate(snapshot.sessionId, snapshot);
+      }
+      return snapshot;
+    },
+    async loadLatest(sessionId) {
+      const meta = await api.storage.getMeta?.(sessionId);
+      const state = getExtensionState(meta);
+      if (state.latest && state.latest.sessionId === sessionId) {
+        const current = manager.getSnapshot(sessionId);
+        const storageUpdatedAt = typeof state.latest.updatedAt === "number" ? state.latest.updatedAt : 0;
+        if (manager.hasSession(sessionId) && current.items.length > 0 && current.updatedAt >= storageUpdatedAt) {
+          return current;
+        }
+        manager.hydrate(state.latest);
+      }
+      return manager.getSnapshot(sessionId);
+    },
+    async loadArchives(sessionId) {
+      const meta = await api.storage.getMeta?.(sessionId);
+      const state = getExtensionState(meta);
+      const archives = normalizeArchives(state.archives, sessionId);
+      if (isArchivable(state.latest) && !archives.some((entry) => entry.snapshot.updatedAt === state.latest.updatedAt)) {
+        upsertArchive(state, state.latest, await getHistoryLengthSafe(api, sessionId));
+        if (meta) {
+          setExtensionState(meta, state);
+          await api.storage.saveMeta?.(meta);
+        }
+        return normalizeArchives(state.archives, sessionId);
+      }
+      return archives;
+    },
+    async loadUiState(sessionId) {
+      const meta = await api.storage.getMeta?.(sessionId);
+      return normalizeUiState(getExtensionState(meta).ui);
+    },
+    async setUiState(sessionId, uiState) {
+      const meta = await api.storage.getMeta?.(sessionId);
+      if (!meta)
+        return;
+      const state = getExtensionState(meta);
+      state.ui = createUiState(uiState.expanded, uiState.snapshotUpdatedAt);
+      setExtensionState(meta, state);
+      await api.storage.saveMeta?.(meta);
+    },
+    onDidUpdate(listener) {
+      updateListeners.add(listener);
+      return { dispose: () => updateListeners.delete(listener) };
+    }
+  };
+  return service;
 }
 function getSessionId(api, context) {
   const sessionId = context?.sessionId ?? api.backend.getActiveSessionId?.();
@@ -330,7 +796,7 @@ function observeToolFailures(api, ctx) {
       const snapshot = handle.getSnapshot();
       if (snapshot.status !== "error")
         return;
-      const service = api.milestones;
+      const service = getMilestones(api);
       if (!service?.noteActiveToolFailure)
         return;
       const ctxInfo = resolveExecutionContextForTool(api, snapshot.sessionId ?? _sessionId);
@@ -356,9 +822,13 @@ var milestonePlugin = definePlugin({
   description: "结构化里程碑 / Iris 进度扩展",
   activate(ctx) {
     ctx.onReady((api) => {
-      if (!api.milestones) {
-        logger.warn("Milestone 服务不可用，跳过工具注册");
-        return;
+      const existing = api.services.get(MILESTONE_EXTENSION_SERVICE_ID);
+      const service = existing ?? createMilestoneServiceForApi(api);
+      if (!existing) {
+        ctx.trackDisposable(api.services.register(MILESTONE_EXTENSION_SERVICE_ID, service, {
+          description: "Structured milestone/task progress service",
+          version: "1.0.0"
+        }));
       }
       api.config.tools ??= {};
       (api.config.tools.permissions ??= {}).update_milestones ??= { autoApprove: true };
@@ -375,5 +845,7 @@ export {
   extractPlanMilestoneCandidates,
   src_default as default,
   createMilestoneToolsForApi,
-  buildMilestonesFromApprovedPlan
+  createMilestoneServiceForApi,
+  buildMilestonesFromApprovedPlan,
+  MILESTONE_EXTENSION_SERVICE_ID
 };

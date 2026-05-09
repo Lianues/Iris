@@ -10,7 +10,6 @@
  */
 
 import { Content } from '../types';
-import type { MilestoneArchiveEntry, MilestoneSnapshot, MilestoneUiState } from '../core/session-milestones';
 
 /** 会话元数据 */
 export interface SessionMeta {
@@ -28,12 +27,8 @@ export interface SessionMeta {
   platforms?: string[];
   /** remote-exec 扩展：该对话的当前执行环境名（local 或服务器别名） */
   remoteExecEnvironment?: string;
-  /** 会话级进度清单快照（运行时可恢复，不发送给 LLM） */
-  milestones?: MilestoneSnapshot;
-  /** 已完成进度清单的历史归档（仅 UI 重建使用，不发送给 LLM） */
-  milestoneArchives?: MilestoneArchiveEntry[];
-  /** 最新 milestone 面板的展开/折叠状态（仅 UI 使用，不发送给 LLM） */
-  milestoneUiState?: MilestoneUiState;
+  /** 扩展自有会话级状态（不发送给 LLM）。key 建议使用 extension 名称或服务 ID。 */
+  extensionState?: Record<string, unknown>;
 }
 
 export abstract class StorageProvider {

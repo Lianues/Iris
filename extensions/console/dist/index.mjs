@@ -13449,6 +13449,7 @@ var REMOTE_CONNECT_WS_CLIENT_SERVICE = "remote-connect:WsIPCClient";
 var REMOTE_CONNECT_DISCOVERY_SERVICE = "remote-connect:discoverLanInstances";
 var PLAN_MODE_SERVICE_ID = "plan-mode";
 var REMOTE_EXEC_ENVIRONMENT_SERVICE_ID = "remote-exec:environment";
+var MILESTONE_EXTENSION_SERVICE_ID = "milestone:service";
 function createToolInvocationFromFunctionCall(part, index, defaultStatus, response, durationMs) {
   let status = defaultStatus;
   let result;
@@ -13832,6 +13833,9 @@ class ConsolePlatform extends PlatformAdapter {
   getRemoteExecEnvironmentService() {
     return this.api?.services?.get?.(REMOTE_EXEC_ENVIRONMENT_SERVICE_ID);
   }
+  getMilestoneService() {
+    return this.api?.services?.get?.(MILESTONE_EXTENSION_SERVICE_ID);
+  }
   async restoreRemoteExecEnvironmentForSession(sessionId, validate) {
     const service = this.getRemoteExecEnvironmentService();
     if (!service)
@@ -13858,7 +13862,8 @@ class ConsolePlatform extends PlatformAdapter {
   }
   async syncMilestones() {
     try {
-      const snapshot = await this.backend.loadMilestones?.(this.sessionId) ?? this.backend.getMilestones?.(this.sessionId);
+      const service = this.getMilestoneService();
+      const snapshot = await service?.loadLatest?.(this.sessionId) ?? service?.getSnapshot?.(this.sessionId);
       this.appHandle?.setMilestones(snapshot ?? null);
     } catch {
       this.appHandle?.setMilestones(null);
@@ -13990,6 +13995,11 @@ class ConsolePlatform extends PlatformAdapter {
         } else {
           this.appHandle?.clearNotificationContext();
         }
+      }
+    });
+    this.getMilestoneService()?.onDidUpdate?.((sid, snapshot) => {
+      if (sid === this.sessionId) {
+        this.appHandle?.setMilestones(snapshot);
       }
     });
     this.onBackend("agent:notification", (sid, _taskId, status, summary, taskType, silent) => {
@@ -14774,29 +14784,21 @@ ${summaryText}`;
   }
   async loadMilestoneArchives(sessionId) {
     try {
-      const archives = await this.backend.loadMilestoneArchives?.(sessionId);
-      if (Array.isArray(archives))
-        return archives;
-      const meta = await this.backend.getMeta?.(sessionId);
-      return Array.isArray(meta?.milestoneArchives) ? meta.milestoneArchives : [];
+      return await this.getMilestoneService()?.loadArchives?.(sessionId) ?? [];
     } catch {
       return [];
     }
   }
   async loadMilestoneUiState(sessionId) {
     try {
-      const state = await this.backend.loadMilestoneUiState?.(sessionId);
-      if (state && typeof state.expanded === "boolean")
-        return state;
-      const meta = await this.backend.getMeta?.(sessionId);
-      return meta?.milestoneUiState && typeof meta.milestoneUiState.expanded === "boolean" ? meta.milestoneUiState : undefined;
+      return await this.getMilestoneService()?.loadUiState?.(sessionId);
     } catch {
       return;
     }
   }
   async saveMilestoneUiState(sessionId, state) {
     try {
-      await this.backend.setMilestoneUiState?.(sessionId, state);
+      await this.getMilestoneService()?.setUiState?.(sessionId, state);
     } catch {}
   }
   async handleLoadSession(id) {

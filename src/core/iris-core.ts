@@ -70,8 +70,8 @@ import { PluginEventBus } from '../extension/event-bus';
 import { patchMethod, patchPrototype } from '../extension/patch';
 import { registerExtensionPlatforms } from '../extension';
 import { ensureDevSourceSdkShims } from '../extension';
-import type { IrisAPI, InlinePluginEntry, WebPanelDefinition, ConsoleSettingsTabDefinition, Disposable, MilestoneServiceLike } from 'irises-extension-sdk';
-import { BackendHandle, DELIVERY_REGISTRY_SERVICE_ID, MILESTONE_SERVICE_ID } from 'irises-extension-sdk';
+import type { IrisAPI, InlinePluginEntry, WebPanelDefinition, ConsoleSettingsTabDefinition, Disposable } from 'irises-extension-sdk';
+import { BackendHandle, DELIVERY_REGISTRY_SERVICE_ID } from 'irises-extension-sdk';
 import { readEditableConfig, updateEditableConfig, LayeredConfigManager } from '../config/manage';
 import { applyRuntimeConfigReload, type RuntimeConfigReloadContext } from '../config/runtime';
 import { DEFAULTS, parseLLMConfig } from '../config/llm';
@@ -93,7 +93,6 @@ import { resolveProjectPath } from '../tools/utils';
 import { supportsVision as checkVision, supportsNativePDF as checkNativePDF, supportsNativeOffice as checkNativeOffice, isDocumentMimeType as checkDocMime } from '../llm/vision';
 import { setExtensionLogLevel } from 'irises-extension-sdk';
 import { planModePlugin } from '../plan-mode/plugin';
-import { SessionMilestoneManager } from './session-milestones';
 
 
 // ── 类型 ──
@@ -130,8 +129,6 @@ export interface IrisCoreOptions {
   inlinePlugins?: InlinePluginEntry[];
   /** 外部注入的全局任务板（多 Agent 模式下由 IrisHost 创建并共享） */
   taskBoard?: CrossAgentTaskBoard;
-  /** 外部注入的共享 milestone 管理器（多 Agent 模式下由 IrisHost 创建并共享） */
-  milestoneManager?: SessionMilestoneManager;
   /** 多 Agent 模式下的 agentNetwork（由 IrisHost 构造时注入） */
   agentNetwork?: AgentNetworkProvider;
 }
@@ -323,7 +320,6 @@ export class IrisCore {
     const toolState = new ToolStateManager();
 
     // ---- 3.8 配置提示词 ----
-    const milestoneManager = options.milestoneManager ?? new SessionMilestoneManager();
     const prompt = new PromptAssembler();
     prompt.setSystemPrompt(config.system.systemPrompt || DEFAULT_SYSTEM_PROMPT);
 
@@ -355,8 +351,6 @@ export class IrisCore {
       globalConfigDir: globalDir,
       rememberPlatformModel: config.llm.rememberPlatformModel,
       asyncSubAgents: asyncSubAgentsEnabled,
-      milestoneManager,
-      milestoneRouteAgent: options.agentName ?? 'master',
     }, modeRegistry);
 
     backend.setTaskBoard(taskBoard);
@@ -461,19 +455,6 @@ export class IrisCore {
     // 将插件钩子注入 Backend
     const eventBus = new PluginEventBus();
     const serviceRegistry = pluginManager.getServiceRegistry();
-    const milestoneService: MilestoneServiceLike = {
-      update: (sessionId, updates, updateOptions) => milestoneManager.update(sessionId, updates as any, updateOptions),
-      getSnapshot: (sessionId, sourceAgent) => milestoneManager.getSnapshot(sessionId, sourceAgent),
-      clear: (sessionId, sourceAgent, routeAgent) => milestoneManager.clear(sessionId, sourceAgent, routeAgent),
-      noteActiveToolFailure: (sessionId, input) => milestoneManager.noteActiveToolFailure(sessionId, input),
-    };
-
-    if (!serviceRegistry.has(MILESTONE_SERVICE_ID)) {
-      serviceRegistry.register(MILESTONE_SERVICE_ID, milestoneService, {
-        description: 'Structured milestone/task progress service',
-        version: '1.0.0',
-      });
-    }
 
     // 路由延迟注册（平台无关）
     const registerRoute = (method: string, path: string, handler: (req: any, res: any, params: Record<string, string>) => Promise<void>): Disposable => {
@@ -738,7 +719,6 @@ export class IrisCore {
       pluginManager,
       eventBus,
       services: serviceRegistry,
-      milestones: milestoneService,
       configContributions: pluginManager.getConfigContributionRegistry(),
       globalStore: pluginManager.getGlobalStore(),
       taskBoard,

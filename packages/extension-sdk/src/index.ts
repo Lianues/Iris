@@ -15,7 +15,6 @@ export type {
 } from './manifest.js';
 
 export {
-  MILESTONE_SERVICE_ID,
   definePlatformFactory,
   getPlatformConfig,
   BackendHandle,
@@ -41,16 +40,7 @@ export type {
   IrisSessionMetaLike,
   IrisSkillInfoLike,
   IrisToolInvocationLike,
-  MilestoneArchiveLike,
-  MilestoneItemLike,
-  MilestoneServiceLike,
-  MilestoneSnapshotLike,
-  MilestoneStatusLike,
-  MilestoneUpdateInputLike,
-  MilestoneUpdateOptionsLike,
-  MilestoneUiStateLike,
   PlatformFactoryHelperOptions,
-  ToolFailureMilestoneInputLike,
   ToolAttachment,
 } from './platform.js';
 

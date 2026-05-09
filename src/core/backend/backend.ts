@@ -51,7 +51,6 @@ import { TurnLock } from '../turn-lock';
 import { StreamingToolExecutor } from '../../tools/streaming-executor';
 import type { CrossAgentTaskBoard, TaskRecord } from '../cross-agent-task-board';
 import { ToolExecutionHandle } from '../../tools/handle';
-import type { SessionMilestoneManager, MilestoneArchiveEntry, MilestoneSnapshot, MilestoneUiState } from '../session-milestones';
 
 import type { BackendConfig, ImageInput, DocumentInput, AudioInput, VideoInput, UndoScope, UndoOperationResult, RedoOperationResult, NotificationPayload } from './types';
 import { buildMinimalParts, estimateMultimodalTokens } from './media';
@@ -59,7 +58,6 @@ import { prepareHistoryForLLM, preparePartsForLLM } from './history';
 import { callLLMStream } from './stream';
 import { UndoRedoManager } from './undo-redo';
 import { buildPluginHookConfig } from './plugins';
-import { BackendMilestoneCoordinator } from './milestones';
 
 import { sessionContext, getSessionCwd, setSessionCwd, getRememberedCwd, getActiveSessionId, clearSessionCwd } from './session-context';
 import type { SessionExecutionContext } from './session-context';
@@ -160,8 +158,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private taskBoard?: CrossAgentTaskBoard;
   /** setTaskBoard 注册的监听器清理函数（防止热重载泄漏） */
   private taskBoardCleanup?: () => void;
-  /** milestone 协调器：封装进度清单持久化、归档、UI 状态和工具失败同步。 */
-  private milestones: BackendMilestoneCoordinator;
   /** per-session meta 写队列，避免各类元数据更新互相覆盖。 */
   private metaUpdateLocks = new Map<string, Promise<void>>();
 
@@ -209,16 +205,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     };
     this.toolLoop = new ToolLoop(tools, prompt, this.toolLoopConfig, toolState);
 
-    this.milestones = new BackendMilestoneCoordinator({
-      storage: this.storage,
-      enqueueMetaUpdate: (sessionId, fn) => this.enqueueMetaUpdate(sessionId, fn),
-      emitUpdate: (sessionId, snapshot) => this.emit('milestones:update', sessionId, snapshot),
-    });
-
-    if (config?.milestoneManager) {
-      this.setMilestoneManager(config.milestoneManager, config.milestoneRouteAgent);
-    }
-
     // 转发工具状态事件
     this.setupToolStateForwarding();
 
@@ -243,36 +229,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.toolLoopConfig.afterToolExec = hookConfig.afterToolExec;
     this.toolLoopConfig.beforeLLMCall = hookConfig.beforeLLMCall;
     this.toolLoopConfig.afterLLMCall = hookConfig.afterLLMCall;
-  }
-
-  /** 注入会话级 milestone 管理器，并将更新事件转发给平台层。 */
-  setMilestoneManager(manager: SessionMilestoneManager, routeAgent?: string): void {
-    this.milestones.setManager(manager, routeAgent);
-  }
-
-  /** 获取当前 session 的 milestone 快照，供平台或测试查询。 */
-  getMilestones(sessionId: string): MilestoneSnapshot | undefined {
-    return this.milestones.getMilestones(sessionId);
-  }
-
-  /** 从存储恢复指定 session 的 milestone 快照，并刷新内存状态。 */
-  async loadMilestones(sessionId: string): Promise<MilestoneSnapshot | undefined> {
-    return this.milestones.loadMilestones(sessionId);
-  }
-
-  /** 从存储恢复指定 session 的已完成 milestone 历史归档。 */
-  async loadMilestoneArchives(sessionId: string): Promise<MilestoneArchiveEntry[]> {
-    return this.milestones.loadArchives(sessionId);
-  }
-
-  /** 读取最新 milestone 面板的展开状态。 */
-  async loadMilestoneUiState(sessionId: string): Promise<MilestoneUiState | undefined> {
-    return this.milestones.loadUiState(sessionId);
-  }
-
-  /** 持久化最新 milestone 面板的展开状态（仅 UI 状态，不更新 session 排序时间）。 */
-  async setMilestoneUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void> {
-    await this.milestones.setUiState(sessionId, state);
   }
 
   private async enqueueMetaUpdate<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
@@ -376,7 +332,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.taskBoardCleanup?.();
     this.taskBoardCleanup = undefined;
     this.taskBoard = undefined;
-    this.milestones.dispose();
   }
 
   /**
@@ -473,8 +428,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.pendingNotifications.delete(sessionId);
     // 清除该会话的 turn 锁记录
     this.turnLock.clear(sessionId);
-    // 清空会话级 milestone 面板状态
-    this.milestones.clear(sessionId);
 
     for (const hook of this.pluginHooks) {
       try {
@@ -1400,7 +1353,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     // 9. 条件后置步骤：更新会话元数据（仅用户消息路径）
     if (options.updateMeta && options.storedUserParts) {
       await this.updateSessionMeta(sessionId, options.storedUserParts, false, options.platformName);
-      await this.milestones.persistCurrentIfArchivable(sessionId);
     }
 
     // 10. 条件后置步骤：插件 onAfterChat 钩子（仅用户消息路径）
@@ -1497,7 +1449,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
           updatedAt: now,
           platforms: platformName ? [platformName] : [],
         };
-        this.milestones.applyCurrentToMeta(meta);
         await this.storage.saveMeta(meta);
       } else {
         const meta = await this.storage.getMeta(sessionId);
@@ -1513,7 +1464,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
             }
             meta.platforms = platforms;
           }
-          this.milestones.applyCurrentToMeta(meta);
           await this.storage.saveMeta(meta);
         }
       }

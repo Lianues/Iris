@@ -5,7 +5,7 @@ import { useTerminalDimensions } from '@opentui/react';
 import { GeneratingTimer, type RetryInfo } from './GeneratingTimer';
 import { MessageItem, type ChatMessage, type MessagePart } from './MessageItem';
 import type { MutableRefObject } from 'react';
-import type { MilestoneSnapshotLike } from 'irises-extension-sdk';
+import type { MilestoneSnapshotLike } from '../milestone-types';
 import { MilestoneListView } from './MilestoneListView';
 
 interface ChatMessageListProps {

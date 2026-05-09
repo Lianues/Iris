@@ -1,4 +1,4 @@
-import type { IrisBackendLike, BackendHandle, MilestoneServiceLike } from '../platform.js';
+import type { IrisBackendLike, BackendHandle } from '../platform.js';
 import { LogLevel } from '../logger.js';
 import type { MediaServiceLike, OCRProviderLike } from '../media.js';
 import type {
@@ -217,8 +217,6 @@ export interface IrisAPI {
   configContributions: ConfigContributionRegistryLike;
   /** 全局键值存储（跨插件共享状态，自动持久化） */
   globalStore: GlobalStoreLike;
-  /** 结构化 milestone/task 清单服务（由内置 milestone extension 消费，也可供第三方扩展读取/更新） */
-  milestones?: MilestoneServiceLike;
   patchMethod: PatchMethod;
   patchPrototype: PatchPrototype;
   registerWebRoute?: (method: string, path: string, handler: (req: any, res: any, params: Record<string, string>) => Promise<void>) => Disposable;

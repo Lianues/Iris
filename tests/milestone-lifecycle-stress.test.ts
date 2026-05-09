@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Backend } from '../src/core/backend/backend.js';
-import { SessionMilestoneManager } from '../src/core/session-milestones.js';
+import { SessionMilestoneManager } from '../extensions/milestone/src/session.js';
 import { StorageProvider, type SessionMeta } from '../src/storage/base.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { ToolStateManager } from '../src/tools/state.js';
-import { createMilestoneToolsForApi } from '../extensions/milestone/src/index.js';
+import { createMilestoneToolsForApi, MILESTONE_EXTENSION_SERVICE_ID } from '../extensions/milestone/src/index.js';
 import { PromptAssembler } from '../src/prompt/assembler.js';
 import type { Content, LLMRequest, Part } from '../src/types/index.js';
 
@@ -201,7 +201,7 @@ describe('Milestone lifecycle stress', () => {
     });
     backend.on('error', () => {});
     const api = {
-      milestones: milestoneManager,
+      services: { get: (id: string) => id === MILESTONE_EXTENSION_SERVICE_ID ? milestoneManager : undefined },
       backend: {
         getActiveSessionId: () => backend.getActiveSessionId(),
         on: () => api.backend,

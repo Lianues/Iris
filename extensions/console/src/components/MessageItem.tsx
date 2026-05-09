@@ -6,7 +6,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useTerminalDimensions } from '@opentui/react';
-import type { MilestoneSnapshotLike, ToolInvocation } from 'irises-extension-sdk';
+import type { ToolInvocation } from 'irises-extension-sdk';
+import type { MilestoneSnapshotLike } from '../milestone-types';
 import { MarkdownText } from './MarkdownText';
 import { GeneratingTimer } from './GeneratingTimer';
 import { ToolCall } from './ToolCall';
