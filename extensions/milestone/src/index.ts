@@ -11,6 +11,7 @@ import {
   SessionMilestoneManager,
   type MilestoneArchiveEntry,
   type MilestoneSnapshot,
+  normalizeMilestoneSnapshot,
   type MilestoneUpdateInput,
   type MilestoneUiState,
 } from './session.js';
@@ -24,10 +25,10 @@ const manager = new SessionMilestoneManager();
 const updateListeners = new Set<(sessionId: string, snapshot: MilestoneSnapshot) => void>();
 
 export interface MilestoneExtensionService {
-  update(sessionId: string, updates: MilestoneUpdateInput[], options?: { sourceAgent?: string; routeAgent?: string; replaceAll?: boolean }): MilestoneSnapshot;
-  getSnapshot(sessionId: string, sourceAgent?: string): MilestoneSnapshot;
-  clear?(sessionId: string, sourceAgent?: string, routeAgent?: string): MilestoneSnapshot;
-  noteActiveToolFailure?(sessionId: string, input: { toolId: string; toolName: string; error: string; sourceAgent?: string; routeAgent?: string }): MilestoneSnapshot | undefined;
+  update(sessionId: string, updates: MilestoneUpdateInput[], options?: { replaceAll?: boolean }): MilestoneSnapshot;
+  getSnapshot(sessionId: string): MilestoneSnapshot;
+  clear?(sessionId: string): MilestoneSnapshot;
+  noteActiveToolFailure?(sessionId: string, input: { toolId: string; toolName: string; error: string }): MilestoneSnapshot | undefined;
   loadLatest(sessionId: string): Promise<MilestoneSnapshot | undefined>;
   loadArchives(sessionId: string): Promise<MilestoneArchiveEntry[]>;
   loadUiState(sessionId: string): Promise<MilestoneUiState | undefined>;
@@ -76,9 +77,8 @@ function normalizeArchives(value: unknown, sessionId?: string): MilestoneArchive
   for (const entry of value) {
     if (!entry || typeof entry !== 'object') continue;
     const record = entry as Partial<MilestoneArchiveEntry>;
-    const snapshot = record.snapshot;
-    if (!snapshot || typeof snapshot !== 'object' || !Array.isArray(snapshot.items)) continue;
-    if (sessionId && snapshot.sessionId !== sessionId) continue;
+    const snapshot = normalizeMilestoneSnapshot(record.snapshot, sessionId);
+    if (!snapshot) continue;
     const archivedAt = typeof record.archivedAt === 'number' ? record.archivedAt : (snapshot.updatedAt || Date.now());
     const afterHistoryIndex = typeof record.afterHistoryIndex === 'number' && Number.isFinite(record.afterHistoryIndex)
       ? Math.max(0, Math.floor(record.afterHistoryIndex))
@@ -174,8 +174,7 @@ export interface PlanMilestoneCandidate {
 const ITEM_SCHEMA: Record<string, unknown> = {
   type: 'object',
   properties: {
-    id: { type: 'string', description: '会话内稳定 ID，例如 m1、tests、phase-2。省略时 Iris 会根据标题生成。' },
-    title: { type: 'string', description: '面向用户展示的短标题，建议使用动宾短语。' },
+    title: { type: 'string', description: '面向用户展示的短标题；增量更新时按 title 匹配已有项。建议使用动宾短语。' },
     description: { type: 'string', description: '更完整的说明、验收条件或上下文。' },
     activeForm: { type: 'string', description: '当前进行中时用于 spinner/状态栏的现在进行时文案，例如「运行测试」。' },
     status: {
@@ -183,13 +182,7 @@ const ITEM_SCHEMA: Record<string, unknown> = {
       enum: ['pending', 'in_progress', 'completed', 'blocked', 'cancelled'],
       description: '状态：pending 待处理/未开始（尚未执行，或暂时回到等待队列），in_progress 正在做，completed 已完成，blocked 被阻塞，cancelled 已取消。',
     },
-    owner: { type: 'string', description: '负责该项的 Agent 名称。未填时默认为当前 Agent。' },
-    blockedBy: { type: 'array', items: { type: 'string' }, description: '该项依赖的 milestone ID 列表。' },
-    blocks: { type: 'array', items: { type: 'string' }, description: '该项完成后会解除阻塞的 milestone ID 列表。' },
-    metadata: { type: 'object', description: '可选结构化扩展字段。' },
-    delete: { type: 'boolean', description: '设为 true 时删除该 ID 对应的 milestone。' },
-    expectedVersion: { type: 'number', description: '可选乐观并发版本号。若提供，必须与当前 milestone.version 一致，否则更新会被拒绝。' },
-    force: { type: 'boolean', description: '是否强制接管/覆盖 owner 保护。仅当前台 Agent 或无 routeAgent 的当前执行方可使用。' },
+    delete: { type: 'boolean', description: '设为 true 时删除同 title 的 milestone。' },
   },
 };
 
@@ -202,22 +195,22 @@ function getMilestones(api: IrisAPI): MilestoneExtensionService {
 export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionService {
   const service: MilestoneExtensionService = {
     update(sessionId, updates, options) {
-      const snapshot = manager.update(sessionId, updates as any, options as any);
+      const snapshot = manager.update(sessionId, updates as any, options);
       void persistSnapshot(api, snapshot).catch((err) => logger.warn('保存进度状态失败:', err));
       emitUpdate(snapshot.sessionId, snapshot);
       return snapshot;
     },
-    getSnapshot(sessionId, sourceAgent) {
-      return manager.getSnapshot(sessionId, sourceAgent);
+    getSnapshot(sessionId) {
+      return manager.getSnapshot(sessionId);
     },
-    clear(sessionId, sourceAgent, routeAgent) {
-      const snapshot = manager.clear(sessionId, sourceAgent, routeAgent);
+    clear(sessionId) {
+      const snapshot = manager.clear(sessionId);
       void persistSnapshot(api, snapshot).catch((err) => logger.warn('清理进度状态失败:', err));
       emitUpdate(snapshot.sessionId, snapshot);
       return snapshot;
     },
     noteActiveToolFailure(sessionId, input) {
-      const snapshot = manager.noteActiveToolFailure(sessionId, input as any);
+      const snapshot = manager.noteActiveToolFailure(sessionId, input);
       if (snapshot) {
         void persistSnapshot(api, snapshot).catch((err) => logger.warn('保存工具错误进度状态失败:', err));
         emitUpdate(snapshot.sessionId, snapshot);
@@ -227,13 +220,14 @@ export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionSe
     async loadLatest(sessionId) {
       const meta = await api.storage.getMeta?.(sessionId);
       const state = getExtensionState(meta);
-      if (state.latest && state.latest.sessionId === sessionId) {
+      const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
+      if (latest) {
         const current = manager.getSnapshot(sessionId);
-        const storageUpdatedAt = typeof state.latest.updatedAt === 'number' ? state.latest.updatedAt : 0;
+        const storageUpdatedAt = typeof latest.updatedAt === 'number' ? latest.updatedAt : 0;
         if (manager.hasSession(sessionId) && current.items.length > 0 && current.updatedAt >= storageUpdatedAt) {
           return current;
         }
-        manager.hydrate(state.latest);
+        manager.hydrate(latest);
       }
       return manager.getSnapshot(sessionId);
     },
@@ -241,8 +235,9 @@ export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionSe
       const meta = await api.storage.getMeta?.(sessionId);
       const state = getExtensionState(meta);
       const archives = normalizeArchives(state.archives, sessionId);
-      if (isArchivable(state.latest) && !archives.some(entry => entry.snapshot.updatedAt === state.latest!.updatedAt)) {
-        upsertArchive(state, state.latest!, await getHistoryLengthSafe(api, sessionId));
+      const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
+      if (isArchivable(latest) && !archives.some(entry => entry.snapshot.updatedAt === latest!.updatedAt)) {
+        upsertArchive(state, latest!, await getHistoryLengthSafe(api, sessionId));
         if (meta) {
           setExtensionState(meta, state);
           await api.storage.saveMeta?.(meta);
@@ -277,21 +272,30 @@ function getSessionId(api: IrisAPI, context?: ToolExecutionContext): string {
   return sessionId;
 }
 
-function normalizeItems(raw: unknown): MilestoneUpdateInput[] {
+function normalizeToolItems(raw: unknown): MilestoneUpdateInput[] {
   if (!Array.isArray(raw)) throw new Error('items 必须是数组');
   return raw.map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new Error(`items[${index}] 必须是对象`);
     }
-    return entry as MilestoneUpdateInput;
+    const record = entry as Record<string, unknown>;
+    return {
+      title: record.title,
+      subject: record.subject,
+      content: record.content,
+      description: record.description,
+      activeForm: record.activeForm,
+      status: record.status,
+      delete: record.delete,
+    };
   });
 }
 
-function resolveSourceAgentName(api: IrisAPI, context?: ToolExecutionContext): string | undefined {
-  const base = api.agentName;
-  const current = context?.sourceAgent;
-  if (current && current !== 'main') return base ? `${base}:${current}` : current;
-  return base;
+function stripMetadataForToolResult(snapshot: MilestoneSnapshot): MilestoneSnapshot {
+  return {
+    ...snapshot,
+    items: snapshot.items.map(({ metadata: _metadata, ...item }) => item),
+  };
 }
 
 function parseCrossAgentTaskId(sessionId: string): string | undefined {
@@ -301,20 +305,18 @@ function parseCrossAgentTaskId(sessionId: string): string | undefined {
   return parts.slice(2).join(':') || undefined;
 }
 
-function resolveExecutionContext(api: IrisAPI, context?: ToolExecutionContext): { sessionId: string; sourceAgent?: string; routeAgent?: string } {
+function resolveExecutionSessionId(api: IrisAPI, context?: ToolExecutionContext): string {
   const rawSessionId = getSessionId(api, context);
-  const baseAgent = api.agentName;
-  const sourceAgent = resolveSourceAgentName(api, context);
   const crossAgentTaskId = parseCrossAgentTaskId(rawSessionId);
 
   if (crossAgentTaskId && api.taskBoard?.get) {
     const task = api.taskBoard.get(crossAgentTaskId);
     if (task?.type === 'delegate') {
-      return { sessionId: task.sourceSessionId, sourceAgent, routeAgent: task.sourceAgent };
+      return task.sourceSessionId;
     }
   }
 
-  return { sessionId: rawSessionId, sourceAgent, routeAgent: baseAgent };
+  return rawSessionId;
 }
 
 function formatSummary(snapshot: MilestoneSnapshot): string {
@@ -410,13 +412,11 @@ export function extractPlanMilestoneCandidates(plan: string, maxItems: number = 
   return candidates.slice(0, Math.max(1, maxItems));
 }
 
-export function buildMilestonesFromApprovedPlan(plan: string, options: { owner?: string; planFilePath?: string; maxItems?: number } = {}): MilestoneUpdateInput[] {
+export function buildMilestonesFromApprovedPlan(plan: string, options: { planFilePath?: string; maxItems?: number } = {}): MilestoneUpdateInput[] {
   const maxItems = options.maxItems ?? DEFAULT_PLAN_MAX_ITEMS;
-  return extractPlanMilestoneCandidates(plan, maxItems).map((candidate, index) => ({
-    id: `m${index + 1}`,
+  return extractPlanMilestoneCandidates(plan, maxItems).map((candidate) => ({
     title: candidate.text,
     status: 'pending',
-    owner: options.owner,
     description: candidate.section && candidate.section !== candidate.text ? `来自计划章节：${candidate.section}` : undefined,
     metadata: {
       origin: 'plan_mode',
@@ -437,27 +437,26 @@ function createUpdateMilestonesTool(api: IrisAPI): ToolDefinition {
 使用规则：
 - 复杂、多步骤、跨文件或用户明确要求跟踪进度时，先创建 3-8 个 milestone。
 - 开始某项工作前，把该项设为 in_progress；完成后立即设为 completed，不要批量拖到最后。
-- 通常同一 Agent 同一时间只应有一个 in_progress；多 Agent 并行时可通过 owner 区分负责人。
-- 当前前台 Agent 初次建立完整清单时可使用 replaceAll=true；子代理或委派 Agent 更新时请用增量 items，避免覆盖其他 Agent 的 owner/状态。
-- list_milestones 会返回每项 version；并发敏感更新可带 expectedVersion，防止别人刚刚写入的状态被覆盖。
+- 同一时间只保留一个 in_progress；启动新项时旧的进行中项会自动回到 pending。
+- 默认按 title 增量合并：title 相同则更新原项，不存在则创建新项。
+- 初次建立完整清单或需要重置清单时可使用 replaceAll=true。
 - 这不是最终回复文本；调用后 UI 会自动显示进度清单。`,
       parameters: {
         type: 'object',
         properties: {
-          items: { type: 'array', items: ITEM_SCHEMA, description: '要创建、更新或删除的 milestone 项。默认按 id 增量合并。' },
-          replaceAll: { type: 'boolean', description: '是否用 items 完整替换当前会话 milestone。仅当前台 Agent 初始化主清单时使用。' },
+          items: { type: 'array', items: ITEM_SCHEMA, description: '要创建、更新或删除的 milestone 项。默认按 title 增量合并。' },
+          replaceAll: { type: 'boolean', description: '是否用 items 完整替换当前会话 milestone。' },
         },
         required: ['items'],
       },
     },
     handler: async (args, context) => {
       const service = getMilestones(api);
-      const ctx = resolveExecutionContext(api, context);
-      const items = normalizeItems(args.items);
-      const mayReplaceAll = !ctx.routeAgent || !ctx.sourceAgent || ctx.sourceAgent === ctx.routeAgent;
-      const replaceAll = args.replaceAll === true && mayReplaceAll;
-      const snapshot = service.update(ctx.sessionId, items, { sourceAgent: ctx.sourceAgent, routeAgent: ctx.routeAgent, replaceAll });
-      return { ok: true, summary: formatSummary(snapshot), snapshot };
+      const sessionId = resolveExecutionSessionId(api, context);
+      const items = normalizeToolItems(args.items);
+      const snapshot = service.update(sessionId, items, { replaceAll: args.replaceAll === true });
+      const toolSnapshot = stripMetadataForToolResult(snapshot);
+      return { ok: true, summary: formatSummary(toolSnapshot), snapshot: toolSnapshot };
     },
   };
 }
@@ -473,9 +472,10 @@ function createListMilestonesTool(api: IrisAPI): ToolDefinition {
     },
     handler: async (_args, context) => {
       const service = getMilestones(api);
-      const ctx = resolveExecutionContext(api, context);
-      const snapshot = service.getSnapshot(ctx.sessionId, ctx.sourceAgent);
-      return { ok: true, summary: formatSummary(snapshot), snapshot };
+      const sessionId = resolveExecutionSessionId(api, context);
+      const snapshot = service.getSnapshot(sessionId);
+      const toolSnapshot = stripMetadataForToolResult(snapshot);
+      return { ok: true, summary: formatSummary(toolSnapshot), snapshot: toolSnapshot };
     },
   };
 }
@@ -492,10 +492,9 @@ function wrapExitPlanMode(api: IrisAPI, ctx: PluginContext): void {
       const planFilePath = typeof record?.planFilePath === 'string' ? record.planFilePath : undefined;
       if (record?.approved === true && approvedPlan) {
         const sessionId = context?.sessionId ?? api.backend.getActiveSessionId?.();
-        const agentName = api.agentName ?? 'master';
         if (sessionId) {
-          const items = buildMilestonesFromApprovedPlan(approvedPlan, { owner: agentName, planFilePath });
-          getMilestones(api).update(sessionId, items, { sourceAgent: agentName, routeAgent: agentName, replaceAll: true });
+          const items = buildMilestonesFromApprovedPlan(approvedPlan, { planFilePath });
+          getMilestones(api).update(sessionId, items, { replaceAll: true });
         }
       }
     } catch (err) {
@@ -507,14 +506,13 @@ function wrapExitPlanMode(api: IrisAPI, ctx: PluginContext): void {
   ctx.trackDisposable({ dispose: () => { if (exitPlanTool.handler === wrapped) exitPlanTool.handler = original; } });
 }
 
-function resolveExecutionContextForTool(api: IrisAPI, rawSessionId: string): { sessionId: string; sourceAgent?: string; routeAgent?: string } {
-  const baseAgent = api.agentName;
+function resolveExecutionSessionIdForTool(api: IrisAPI, rawSessionId: string): string {
   const crossAgentTaskId = parseCrossAgentTaskId(rawSessionId);
   if (crossAgentTaskId && api.taskBoard?.get) {
     const task = api.taskBoard.get(crossAgentTaskId);
-    if (task?.type === 'delegate') return { sessionId: task.sourceSessionId, sourceAgent: baseAgent, routeAgent: task.sourceAgent };
+    if (task?.type === 'delegate') return task.sourceSessionId;
   }
-  return { sessionId: rawSessionId, sourceAgent: baseAgent, routeAgent: baseAgent };
+  return rawSessionId;
 }
 
 function observeToolFailures(api: IrisAPI, ctx: PluginContext): void {
@@ -528,13 +526,11 @@ function observeToolFailures(api: IrisAPI, ctx: PluginContext): void {
       if (snapshot.status !== 'error') return;
       const service = getMilestones(api);
       if (!service?.noteActiveToolFailure) return;
-      const ctxInfo = resolveExecutionContextForTool(api, snapshot.sessionId ?? _sessionId);
-      service.noteActiveToolFailure(ctxInfo.sessionId, {
+      const sessionId = resolveExecutionSessionIdForTool(api, snapshot.sessionId ?? _sessionId);
+      service.noteActiveToolFailure(sessionId, {
         toolId: snapshot.id,
         toolName: snapshot.toolName,
         error: snapshot.error ?? error ?? '未知错误',
-        sourceAgent: ctxInfo.sourceAgent,
-        routeAgent: ctxInfo.routeAgent,
       });
     };
     handle.on('done', done);

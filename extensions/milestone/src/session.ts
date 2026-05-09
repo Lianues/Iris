@@ -5,9 +5,8 @@
  *
  * 设计目标：
  * - 以 Iris 的 session 为隔离边界，而不是绑定某一次工具调用；
- * - 支持多 Agent / sub_agent 共同更新同一个 session 的任务进度；
  * - 用结构化状态驱动 Console/Web UI，避免解析 assistant 文本；
- * - 仅做轻量内存态，后续可扩展为持久化到 session metadata 或项目进度文档。
+ * - 保持工具输入尽量接近普通文字清单：用 title 匹配任务，不暴露额外协作控制字段。
  */
 
 import { EventEmitter } from 'events';
@@ -25,29 +24,17 @@ export const MILESTONE_STATUSES: readonly MilestoneStatus[] = [
 const TERMINAL_STATUSES = new Set<MilestoneStatus>(['completed', 'cancelled']);
 
 export interface MilestoneItem {
-  /** 会话内稳定 ID。建议短小，如 m1 / tests / phase-2。 */
-  id: string;
-  /** 面向用户展示的短标题。 */
+  /** 面向用户展示的短标题；同时作为增量更新时的匹配键。 */
   title: string;
   /** 更完整的说明，供 list 工具返回给 LLM。 */
   description?: string;
   /** 当前进行中时可用于 spinner 的现在进行时文案。 */
   activeForm?: string;
   status: MilestoneStatus;
-  /** 负责或报告该项的 Agent 名称。默认当前 Agent。 */
-  owner?: string;
-  /** 该项依赖的其他 milestone id。 */
-  blockedBy?: string[];
-  /** 该项阻塞的其他 milestone id。 */
-  blocks?: string[];
-  /** 结构化扩展字段。 */
+  /** 内部结构化扩展字段。不会在 update_milestones 的 AI-facing schema 中暴露。 */
   metadata?: Record<string, unknown>;
-  /** 乐观并发版本号。新建为 1，每次成功更新递增。 */
-  version: number;
   createdAt: number;
   updatedAt: number;
-  /** 最近一次成功更新该项的 Agent。 */
-  updatedBy?: string;
 }
 
 export interface MilestoneStats {
@@ -65,10 +52,6 @@ export interface MilestoneSnapshot {
   items: MilestoneItem[];
   stats: MilestoneStats;
   updatedAt: number;
-  /** 最近一次触发更新的 Agent 名称。 */
-  sourceAgent?: string;
-  /** 应该向哪个前台 Agent 路由此快照；为空时表示本地/单 Agent 场景。 */
-  routeAgent?: string;
 }
 
 /**
@@ -94,30 +77,19 @@ export interface MilestoneUiState {
 }
 
 export interface MilestoneUpdateInput {
-  id?: unknown;
   title?: unknown;
   subject?: unknown;
   content?: unknown;
   description?: unknown;
   activeForm?: unknown;
   status?: unknown;
-  owner?: unknown;
-  blockedBy?: unknown;
-  blocks?: unknown;
   metadata?: unknown;
-  /** 如果提供，则必须与当前 milestone.version 一致，否则拒绝更新。 */
-  expectedVersion?: unknown;
-  /** 强制覆盖 owner 保护。只有前台 routeAgent 或无 routeAgent 的当前执行方可使用。 */
-  force?: unknown;
+  /** 删除同 title 的 milestone。 */
   delete?: unknown;
 }
 
 export interface UpdateMilestonesOptions {
-  /** 当前执行工具的 Agent 名称，用于默认 owner 和事件来源。 */
-  sourceAgent?: string;
-  /** 负责把此 session 展示给用户的 Agent。跨 Agent 委派时通常是发起方 Agent。 */
-  routeAgent?: string;
-  /** true 时用输入列表整体替换当前 session 的 milestone；false 时按 id 增量合并。 */
+  /** true 时用输入列表整体替换当前 session 的 milestone；false 时按 title 增量合并。 */
   replaceAll?: boolean;
 }
 
@@ -125,24 +97,6 @@ export interface ToolFailureMilestoneInput {
   toolId: string;
   toolName: string;
   error: string;
-  sourceAgent?: string;
-  routeAgent?: string;
-}
-
-export type MilestoneConflictReason = 'version_mismatch' | 'owner_mismatch';
-
-export class MilestoneConflictError extends Error {
-  readonly code = 'MILESTONE_CONFLICT';
-
-  constructor(
-    readonly milestoneId: string,
-    readonly reason: MilestoneConflictReason,
-    message: string,
-    readonly details?: Record<string, unknown>,
-  ) {
-    super(message);
-    this.name = 'MilestoneConflictError';
-  }
 }
 
 export interface SessionMilestoneManagerEvents {
@@ -180,74 +134,61 @@ function asOptionalString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function asStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const result = value
-    .map((entry) => (typeof entry === 'string' || typeof entry === 'number' ? String(entry).trim() : ''))
-    .filter(Boolean);
-  return result.length > 0 ? Array.from(new Set(result)) : undefined;
-}
-
-function asOptionalNumber(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
-  if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
-    return Number.parseInt(value.trim(), 10);
-  }
-  return undefined;
-}
-
 function asMetadata(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   return { ...(value as Record<string, unknown>) };
 }
 
-function deriveId(input: MilestoneUpdateInput, index: number): string {
-  const explicit = asOptionalString(input.id);
-  if (explicit) return explicit;
-  const title = asOptionalString(input.title) ?? asOptionalString(input.subject) ?? asOptionalString(input.content);
-  if (title) {
-    const slug = title
-      .toLowerCase()
-      .replace(/[`~!@#$%^&*()+=[\]{};:'"\\|,.<>/?\s]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40);
-    if (slug) return slug;
-  }
-  return `m${index + 1}`;
+function asTimestamp(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+function getInputTitle(input: MilestoneUpdateInput): string | undefined {
+  return asOptionalString(input.title) ?? asOptionalString(input.subject) ?? asOptionalString(input.content);
+}
+
+function titleKey(title: string): string {
+  return title.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 }
 
 function sortMilestones(a: MilestoneItem, b: MilestoneItem): number {
-  const aNum = parseInt(a.id.replace(/^m/i, ''), 10);
-  const bNum = parseInt(b.id.replace(/^m/i, ''), 10);
-  if (!Number.isNaN(aNum) && !Number.isNaN(bNum) && aNum !== bNum) return aNum - bNum;
-  return a.createdAt - b.createdAt || a.id.localeCompare(b.id);
+  return a.createdAt - b.createdAt || a.title.localeCompare(b.title);
 }
 
+function cloneItem(item: MilestoneItem): MilestoneItem {
+  return {
+    title: item.title,
+    description: item.description,
+    activeForm: item.activeForm,
+    status: item.status,
+    metadata: item.metadata ? { ...item.metadata } : undefined,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function normalizeMilestoneItem(value: unknown, fallbackNow = Date.now()): MilestoneItem | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const title = asOptionalString(record.title) ?? asOptionalString(record.subject) ?? asOptionalString(record.content);
+  if (!title) return undefined;
+  return {
+    title,
+    description: asOptionalString(record.description),
+    activeForm: asOptionalString(record.activeForm),
+    status: normalizeStatus(record.status),
+    metadata: asMetadata(record.metadata),
+    createdAt: asTimestamp(record.createdAt, fallbackNow),
+    updatedAt: asTimestamp(record.updatedAt, fallbackNow),
+  };
+}
 
 function truncateReason(text: string, max = 180): string {
   const singleLine = text.replace(/\s+/g, ' ').trim();
   return singleLine.length <= max ? singleLine : `${singleLine.slice(0, max - 1)}…`;
 }
 
-function ownerMatches(item: MilestoneItem, owner?: string): boolean {
-  if (!owner) return false;
-  return item.owner === owner || item.owner?.startsWith(`${owner}:`) === true;
-}
-
-function canForceUpdate(sourceAgent?: string, routeAgent?: string, force?: boolean): boolean {
-  if (!force || !sourceAgent) return false;
-  return !!routeAgent && sourceAgent === routeAgent;
-}
-
-function canOwnerUpdate(item: MilestoneItem, sourceAgent?: string, authoritativeRouteAgent?: string, force?: boolean): boolean {
-  return !item.owner || !sourceAgent || ownerMatches(item, sourceAgent) || sourceAgent === authoritativeRouteAgent || canForceUpdate(sourceAgent, authoritativeRouteAgent, force);
-}
-
-function ownerKey(item: Pick<MilestoneItem, 'owner'>): string {
-  return item.owner ?? '';
-}
-
-function computeStats(items: MilestoneItem[]): MilestoneStats {
+export function computeMilestoneStats(items: MilestoneItem[]): MilestoneStats {
   const stats: MilestoneStats = {
     total: items.length,
     pending: 0,
@@ -268,79 +209,74 @@ function computeStats(items: MilestoneItem[]): MilestoneStats {
   return stats;
 }
 
+export function normalizeMilestoneSnapshot(value: unknown, expectedSessionId?: string): MilestoneSnapshot | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const sessionId = asOptionalString(record.sessionId) ?? expectedSessionId;
+  if (!sessionId || (expectedSessionId && sessionId !== expectedSessionId)) return undefined;
+  const rawItems = Array.isArray(record.items) ? record.items : [];
+  const items = rawItems
+    .map((item) => normalizeMilestoneItem(item))
+    .filter((item): item is MilestoneItem => !!item)
+    .sort(sortMilestones);
+  const maxItemUpdatedAt = items.reduce((max, item) => Math.max(max, item.updatedAt), 0);
+  const updatedAt = asTimestamp(record.updatedAt, maxItemUpdatedAt || Date.now());
+  return {
+    sessionId,
+    items,
+    stats: computeMilestoneStats(items),
+    updatedAt,
+  };
+}
+
 export class SessionMilestoneManager extends EventEmitter {
   private sessions = new Map<string, MilestoneItem[]>();
-  private routeAgents = new Map<string, string>();
 
   hasSession(sessionId: string): boolean {
     return this.sessions.has(sessionId);
   }
 
-  getSnapshot(sessionId: string, sourceAgent?: string): MilestoneSnapshot {
-    const items = [...(this.sessions.get(sessionId) ?? [])].sort(sortMilestones);
+  getSnapshot(sessionId: string): MilestoneSnapshot {
+    const items = [...(this.sessions.get(sessionId) ?? [])].map(cloneItem).sort(sortMilestones);
     const updatedAt = items.reduce((max, item) => Math.max(max, item.updatedAt), 0) || Date.now();
-    const routeAgent = this.routeAgents.get(sessionId);
     return {
       sessionId,
       items,
-      stats: computeStats(items),
+      stats: computeMilestoneStats(items),
       updatedAt,
-      sourceAgent,
-      routeAgent,
     };
   }
 
-  clear(sessionId: string, sourceAgent?: string, routeAgent?: string): MilestoneSnapshot {
+  clear(sessionId: string): MilestoneSnapshot {
     this.sessions.delete(sessionId);
-    if (routeAgent) this.routeAgents.set(sessionId, routeAgent);
-    const snapshot = this.getSnapshot(sessionId, sourceAgent);
+    const snapshot = this.getSnapshot(sessionId);
     this.emit('updated', snapshot);
     return snapshot;
   }
 
   /** 从持久化快照恢复某个 session 的 milestone 状态，不触发事件。 */
   hydrate(snapshot: MilestoneSnapshot): void {
-    const items = snapshot.items
-      .map((item) => ({
-        ...item,
-        version: Number.isInteger(item.version) && item.version > 0 ? item.version : 1,
-        blockedBy: item.blockedBy ? [...item.blockedBy] : undefined,
-        blocks: item.blocks ? [...item.blocks] : undefined,
-        metadata: item.metadata ? { ...item.metadata } : undefined,
-      }))
-      .sort(sortMilestones);
-    this.sessions.set(snapshot.sessionId, items);
-    if (snapshot.routeAgent) {
-      this.routeAgents.set(snapshot.sessionId, snapshot.routeAgent);
-    }
+    const normalized = normalizeMilestoneSnapshot(snapshot, snapshot.sessionId);
+    this.sessions.set(snapshot.sessionId, normalized?.items.map(cloneItem).sort(sortMilestones) ?? []);
   }
 
-  /** 查找与当前执行方最相关的 in_progress milestone，供工具联动/提示使用。 */
-  findActiveMilestoneForToolSync(
-    sessionId: string,
-    input: { sourceAgent?: string; routeAgent?: string },
-  ): MilestoneItem | undefined {
+  /** 查找当前 in_progress milestone，供内部工具联动使用。 */
+  findActiveMilestoneForToolSync(sessionId: string, _input?: unknown): MilestoneItem | undefined {
     const current = [...(this.sessions.get(sessionId) ?? [])].sort(sortMilestones);
-    const sameOwner = current.find((item) => item.status === 'in_progress' && ownerMatches(item, input.sourceAgent));
-    const fallback = input.sourceAgent && input.routeAgent && input.sourceAgent === input.routeAgent
-      ? current.find((item) => item.status === 'in_progress')
-      : undefined;
-    const target = sameOwner ?? fallback;
-    return target ? { ...target, blockedBy: target.blockedBy ? [...target.blockedBy] : undefined, blocks: target.blocks ? [...target.blocks] : undefined, metadata: target.metadata ? { ...target.metadata } : undefined } : undefined;
+    const target = current.find((item) => item.status === 'in_progress');
+    return target ? cloneItem(target) : undefined;
   }
 
   /**
    * 工具失败时的轻量联动：只记录最近一次工具错误，不自动把「进行中」标为 blocked。
    *
    * 临时命令失败、搜索路径输错、一次验证未通过等情况通常仍属于“正在处理”。
-   * 自动改成 blocked 会让 Console/Web 进度显示成「受阻」，并打断 lifecycle guard
-   * 对当前 in_progress 项的判断。因此 blocked 只应由 Agent/用户显式设置。
+   * 自动改成 blocked 会让 Console/Web 进度显示成「受阻」，因此 blocked 只应由 Agent/用户显式设置。
    *
-   * 多 Agent 策略：优先匹配同 owner 的 in_progress 项；只有当前执行 Agent
-   * 就是 routeAgent（前台 Agent）时，才回退到任意 in_progress 项。
+   * 这里写入 metadata 是内部状态/持久化用途，不暴露给 update_milestones 的 AI-facing schema。
    */
   noteActiveToolFailure(sessionId: string, input: ToolFailureMilestoneInput): MilestoneSnapshot | undefined {
-    const target = this.findActiveMilestoneForToolSync(sessionId, input);
+    const target = this.findActiveMilestoneForToolSync(sessionId);
     if (!target) return undefined;
 
     const toolError = {
@@ -354,7 +290,6 @@ export class SessionMilestoneManager extends EventEmitter {
       : [];
 
     return this.update(sessionId, [{
-      id: target.id,
       title: target.title,
       status: target.status,
       metadata: {
@@ -362,12 +297,10 @@ export class SessionMilestoneManager extends EventEmitter {
         toolSync: { kind: 'tool_error_note', ...toolError },
         toolErrors: [...previousErrors, toolError].slice(-5),
       },
-    }], { sourceAgent: input.sourceAgent, routeAgent: input.routeAgent });
+    }]);
   }
 
-  /**
-   * @deprecated 旧版会把工具错误自动标记为 blocked；现在仅记录错误，避免 UI 误显示「受阻」。
-   */
+  /** @deprecated 旧版会把工具错误自动标记为 blocked；现在仅记录内部 metadata。 */
   markActiveBlockedByToolFailure(sessionId: string, input: ToolFailureMilestoneInput): MilestoneSnapshot | undefined {
     return this.noteActiveToolFailure(sessionId, input);
   }
@@ -378,112 +311,55 @@ export class SessionMilestoneManager extends EventEmitter {
     options: UpdateMilestonesOptions = {},
   ): MilestoneSnapshot {
     const now = Date.now();
-    const sourceAgent = options.sourceAgent;
-    const existingRouteAgent = this.routeAgents.get(sessionId);
-    const requestedRouteAgent = options.routeAgent;
-    // routeAgent 是会话级前台归属，一旦建立后必须以已有记录为权威。
-    // 不能信任本次调用传入的 routeAgent 作为权限判断依据，否则非 owner
-    // 可通过 sourceAgent === routeAgent 伪造“前台 Agent”身份并覆盖他人条目。
-    const routeAgent = existingRouteAgent ?? requestedRouteAgent ?? sourceAgent;
-    const isRouteAgent = !sourceAgent || !routeAgent || sourceAgent === routeAgent;
-    const existingItems = this.sessions.get(sessionId) ?? [];
-    const canEstablishRouteAgent = !existingRouteAgent && (existingItems.length === 0 || !sourceAgent || existingItems.every(item => !item.owner || ownerMatches(item, sourceAgent)));
+    const current = options.replaceAll === true ? [] : [...(this.sessions.get(sessionId) ?? [])].map(cloneItem);
+    const byTitle = new Map(current.map((item) => [titleKey(item.title), item]));
+    let activeKeepKey: string | undefined;
 
-    const canReplaceAll = options.replaceAll === true && (!sourceAgent || (existingItems.length === 0 && isRouteAgent) || (!!existingRouteAgent && sourceAgent === existingRouteAgent));
-    const current = canReplaceAll ? [] : [...existingItems];
-    const byId = new Map(current.map((item) => [item.id, item]));
-
-    // 先完整校验，再写入 byId，确保版本冲突/owner 冲突时不会部分提交。
-    for (let index = 0; index < updates.length; index++) {
-      const input = updates[index];
-      const id = deriveId(input, index);
-      const existing = byId.get(id);
-      const expectedVersion = asOptionalNumber(input.expectedVersion);
-      if (!existing && expectedVersion !== undefined) {
-        throw new MilestoneConflictError(
-          id,
-          'version_mismatch',
-          `milestone ${id} 不存在，但更新要求基于版本 ${expectedVersion}`,
-          { currentVersion: undefined, expectedVersion },
-        );
-      }
-      if (existing && expectedVersion !== undefined && existing.version !== expectedVersion) {
-        throw new MilestoneConflictError(
-          id,
-          'version_mismatch',
-          `milestone ${id} 版本冲突：当前版本 ${existing.version}，但更新基于版本 ${expectedVersion}`,
-          { currentVersion: existing.version, expectedVersion, currentOwner: existing.owner },
-        );
-      }
-      if (existing && !canOwnerUpdate(existing, sourceAgent, existingRouteAgent, input.force === true)) {
-        throw new MilestoneConflictError(
-          id,
-          'owner_mismatch',
-          `milestone ${id} 属于 ${existing.owner ?? '未分配'}，当前执行方 ${sourceAgent ?? '未知'} 无权直接覆盖；请由 owner 更新或由前台 Agent 显式接管`,
-          { currentOwner: existing.owner, sourceAgent, routeAgent },
-        );
-      }
-    }
-
-    const activeOwnerKeepIds = new Map<string, string>();
     updates.forEach((input, index) => {
-      const id = deriveId(input, index);
+      const itemNow = now + index;
+      const title = getInputTitle(input);
+      if (!title) {
+        throw new Error(`items[${index}] 缺少 title/subject/content`);
+      }
+      const key = titleKey(title);
+
       if (input.delete === true) {
-        byId.delete(id);
+        byTitle.delete(key);
         return;
       }
 
-      const title = asOptionalString(input.title) ?? asOptionalString(input.subject) ?? asOptionalString(input.content);
-      const existing = byId.get(id);
-      if (!existing && !title) {
-        throw new Error(`milestone ${id} 缺少 title/subject/content`);
-      }
-
+      const existing = byTitle.get(key);
       const status = input.status === undefined && existing ? existing.status : normalizeStatus(input.status);
       const item: MilestoneItem = {
-        id,
-        title: title ?? existing!.title,
+        title,
         description: asOptionalString(input.description) ?? existing?.description,
         activeForm: asOptionalString(input.activeForm) ?? existing?.activeForm,
         status,
-        owner: asOptionalString(input.owner) ?? existing?.owner ?? sourceAgent,
-        blockedBy: asStringArray(input.blockedBy) ?? existing?.blockedBy,
-        blocks: asStringArray(input.blocks) ?? existing?.blocks,
         metadata: asMetadata(input.metadata) ?? existing?.metadata,
-        version: existing ? existing.version + 1 : 1,
-        createdAt: existing?.createdAt ?? now,
-        updatedAt: now,
-        updatedBy: sourceAgent ?? existing?.updatedBy,
+        createdAt: existing?.createdAt ?? itemNow,
+        updatedAt: itemNow,
       };
-      byId.set(id, item);
-      if (item.status === 'in_progress') {
-        activeOwnerKeepIds.set(ownerKey(item), item.id);
-      }
+      byTitle.set(key, item);
+      if (item.status === 'in_progress') activeKeepKey = key;
     });
 
-    // Iris 的自动生命周期约束：同一个 owner 同一时间只保留一个进行中项。
-    // 多 Agent / sub_agent 并行时 owner 会不同（例如 master:taskId），因此不会互相影响。
-    // 当当前更新把某项设为 in_progress 时，自动把同 owner 的旧活跃项退回 pending，
+    // Iris 的自动生命周期约束：同一时间只保留一个进行中项。
+    // 当当前更新把某项设为 in_progress 时，自动把旧活跃项退回 pending，
     // 避免模型像普通文本 checklist 一样遗留多个“正在做”。
-    for (const [activeOwner, keepId] of activeOwnerKeepIds) {
-      for (const [id, item] of byId) {
-        if (id === keepId || item.status !== 'in_progress' || ownerKey(item) !== activeOwner) continue;
-        byId.set(id, {
+    if (activeKeepKey) {
+      for (const [key, item] of byTitle) {
+        if (key === activeKeepKey || item.status !== 'in_progress') continue;
+        byTitle.set(key, {
           ...item,
           status: 'pending',
-          version: item.version + 1,
           updatedAt: now,
-          updatedBy: sourceAgent ?? item.updatedBy,
         });
       }
     }
 
-    const next = Array.from(byId.values()).sort(sortMilestones);
+    const next = Array.from(byTitle.values()).sort(sortMilestones);
     this.sessions.set(sessionId, next);
-    if (existingRouteAgent || canEstablishRouteAgent) {
-      if (routeAgent) this.routeAgents.set(sessionId, routeAgent);
-    }
-    const snapshot = this.getSnapshot(sessionId, sourceAgent);
+    const snapshot = this.getSnapshot(sessionId);
     this.emit('updated', snapshot);
     return snapshot;
   }

@@ -4866,12 +4866,8 @@ import { useMemo as useMemo4 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV27, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
 var PROGRESS_PANEL_MAX_ITEMS = 8;
-function compareById(a, b) {
-  const an = parseInt(a.id.replace(/^m/i, ""), 10);
-  const bn = parseInt(b.id.replace(/^m/i, ""), 10);
-  if (!Number.isNaN(an) && !Number.isNaN(bn) && an !== bn)
-    return an - bn;
-  return a.createdAt - b.createdAt || a.id.localeCompare(b.id);
+function compareProgressItems(a, b) {
+  return a.createdAt - b.createdAt || a.title.localeCompare(b.title);
 }
 function getStatusIcon(status) {
   switch (status) {
@@ -4906,59 +4902,6 @@ function truncate3(text, max) {
   if (text.length <= max)
     return text;
   return `${text.slice(0, Math.max(0, max - ICONS.ellipsis.length))}${ICONS.ellipsis}`;
-}
-function ownerLabel(item, fallback) {
-  return (item.owner || fallback || "未分配").trim();
-}
-function displayProgressId(id) {
-  return id.replace(/^m(?=\d+$)/i, "");
-}
-function createOwnerStats() {
-  return { total: 0, completed: 0, inProgress: 0, blocked: 0 };
-}
-function buildOwnerStats(items, preferredOwner) {
-  const map = new Map;
-  for (const item of items) {
-    const owner = ownerLabel(item, preferredOwner);
-    let stats = map.get(owner);
-    if (!stats) {
-      stats = createOwnerStats();
-      map.set(owner, stats);
-    }
-    stats.total++;
-    if (item.status === "completed")
-      stats.completed++;
-    if (item.status === "in_progress")
-      stats.inProgress++;
-    if (item.status === "blocked")
-      stats.blocked++;
-  }
-  return map;
-}
-function buildOwnerGroups(items, preferredOwner, ownerStats = buildOwnerStats(items, preferredOwner)) {
-  const map = new Map;
-  for (const item of items) {
-    const owner = ownerLabel(item, preferredOwner);
-    let group = map.get(owner);
-    if (!group) {
-      group = { owner, items: [], stats: ownerStats.get(owner) ?? createOwnerStats() };
-      map.set(owner, group);
-    }
-    group.items.push(item);
-  }
-  return Array.from(map.values()).sort((a, b) => {
-    if (preferredOwner) {
-      if (a.owner === preferredOwner && b.owner !== preferredOwner)
-        return -1;
-      if (b.owner === preferredOwner && a.owner !== preferredOwner)
-        return 1;
-    }
-    const firstA = a.items[0];
-    const firstB = b.items[0];
-    if (firstA && firstB)
-      return compareById(firstA, firstB);
-    return a.owner.localeCompare(b.owner);
-  });
 }
 function normalizeMaxItems(maxItems) {
   if (!Number.isFinite(maxItems))
@@ -5011,25 +4954,23 @@ function ProgressListView({
   const itemLimit = normalizeMaxItems(maxItems);
   const canCollapse = (stats?.open ?? 0) > 0;
   const effectiveCollapsed = canCollapse && collapsed;
-  const { sorted, groups, hiddenBeforeCount, hiddenAfterCount, effectiveScrollOffset, visibleCount } = useMemo4(() => {
-    const all = [...items].sort(compareById);
+  const { sorted, visibleItems, hiddenBeforeCount, hiddenAfterCount, effectiveScrollOffset, visibleCount } = useMemo4(() => {
+    const all = [...items].sort(compareProgressItems);
     const effectiveOffset = clampScrollOffset(scrollOffset, all.length, itemLimit);
-    const visibleItems = effectiveCollapsed ? [] : all.slice(effectiveOffset, effectiveOffset + itemLimit);
-    const ownerStats = buildOwnerStats(all, snapshot?.routeAgent);
+    const visible = effectiveCollapsed ? [] : all.slice(effectiveOffset, effectiveOffset + itemLimit);
     return {
       sorted: all,
-      groups: buildOwnerGroups(visibleItems, snapshot?.routeAgent, ownerStats),
+      visibleItems: visible,
       hiddenBeforeCount: effectiveCollapsed ? 0 : effectiveOffset,
-      hiddenAfterCount: effectiveCollapsed ? 0 : Math.max(0, all.length - effectiveOffset - visibleItems.length),
+      hiddenAfterCount: effectiveCollapsed ? 0 : Math.max(0, all.length - effectiveOffset - visible.length),
       effectiveScrollOffset: effectiveOffset,
-      visibleCount: visibleItems.length
+      visibleCount: visible.length
     };
-  }, [items, itemLimit, effectiveCollapsed, scrollOffset, snapshot?.routeAgent]);
+  }, [items, itemLimit, effectiveCollapsed, scrollOffset]);
   if (items.length === 0)
     return null;
   const canScroll = sorted.length > itemLimit;
   const currentItem = currentItemForCollapsed(sorted);
-  const showOwnerHeadings = groups.length > 1;
   const hiddenSummary = !effectiveCollapsed && (hiddenBeforeCount > 0 || hiddenAfterCount > 0) ? `显示 ${effectiveScrollOffset + 1}-${effectiveScrollOffset + visibleCount}/${sorted.length}` + (hiddenBeforeCount > 0 ? ` ${ICONS.separator} ${ICONS.upArrow} ${hiddenBeforeCount}` : "") + (hiddenAfterCount > 0 ? ` ${ICONS.separator} ${ICONS.downArrow} ${hiddenAfterCount}` : "") : "";
   const renderHeader = () => {
     if (!standalone || !stats)
@@ -5141,114 +5082,56 @@ function ProgressListView({
     paddingLeft: standalone ? 1 : 0,
     children: [
       renderHeader(),
-      groups.map((group) => /* @__PURE__ */ jsxDEV27("box", {
-        flexDirection: "column",
-        marginTop: standalone && showOwnerHeadings ? 1 : 0,
-        children: [
-          showOwnerHeadings ? /* @__PURE__ */ jsxDEV27("text", {
-            children: [
-              /* @__PURE__ */ jsxDEV27("span", {
-                fg: C.dim,
-                children: [
-                  ICONS.triangleRight,
-                  " "
-                ]
-              }, undefined, true, undefined, this),
-              /* @__PURE__ */ jsxDEV27("span", {
-                fg: C.primaryLight,
-                children: /* @__PURE__ */ jsxDEV27("strong", {
-                  children: group.owner
-                }, undefined, false, undefined, this)
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV27("span", {
-                fg: C.dim,
-                children: [
-                  " · ",
-                  group.stats.completed,
-                  "/",
-                  group.stats.total,
-                  " 已完成"
-                ]
-              }, undefined, true, undefined, this),
-              group.stats.inProgress > 0 ? /* @__PURE__ */ jsxDEV27("span", {
-                fg: C.accent,
-                children: [
-                  " · ",
-                  group.stats.inProgress,
-                  " 进行中"
-                ]
-              }, undefined, true, undefined, this) : null,
-              group.stats.blocked > 0 ? /* @__PURE__ */ jsxDEV27("span", {
-                fg: C.warn,
-                children: [
-                  " · ",
-                  group.stats.blocked,
-                  " 受阻"
-                ]
-              }, undefined, true, undefined, this) : null
-            ]
-          }, undefined, true, undefined, this) : null,
-          group.items.map((item) => {
-            const { icon, color } = getStatusIcon(item.status);
-            const isCompleted = item.status === "completed";
-            const isActive = item.status === "in_progress";
-            const isDim = isCompleted || item.status === "cancelled";
-            const blocker = item.blockedBy && item.blockedBy.length > 0 ? ` ${ICONS.resultArrow} 依赖 ${item.blockedBy.map((id) => `#${displayProgressId(id)}`).join(", ")}` : "";
-            const title = truncate3(item.title, 90);
-            return /* @__PURE__ */ jsxDEV27("box", {
-              flexDirection: "column",
+      visibleItems.map((item, index) => {
+        const { icon, color } = getStatusIcon(item.status);
+        const isCompleted = item.status === "completed";
+        const isActive = item.status === "in_progress";
+        const isDim = isCompleted || item.status === "cancelled";
+        const title = truncate3(item.title, 90);
+        return /* @__PURE__ */ jsxDEV27("box", {
+          flexDirection: "column",
+          children: [
+            /* @__PURE__ */ jsxDEV27("text", {
               children: [
-                /* @__PURE__ */ jsxDEV27("text", {
-                  children: [
-                    /* @__PURE__ */ jsxDEV27("span", {
-                      fg: C.dim,
-                      children: "  "
-                    }, undefined, false, undefined, this),
-                    /* @__PURE__ */ jsxDEV27("span", {
-                      fg: color,
-                      children: icon
-                    }, undefined, false, undefined, this),
-                    /* @__PURE__ */ jsxDEV27("span", {
-                      fg: C.dim,
-                      children: [
-                        " ",
-                        displayProgressId(item.id),
-                        ". "
-                      ]
-                    }, undefined, true, undefined, this),
-                    /* @__PURE__ */ jsxDEV27("span", {
-                      fg: isDim ? C.dim : isActive ? C.text : C.textSec,
-                      children: isActive ? /* @__PURE__ */ jsxDEV27("strong", {
-                        children: title
-                      }, undefined, false, undefined, this) : title
-                    }, undefined, false, undefined, this),
-                    blocker ? /* @__PURE__ */ jsxDEV27("span", {
-                      fg: C.warn,
-                      children: blocker
-                    }, undefined, false, undefined, this) : null,
-                    item.status !== "pending" && item.status !== "completed" ? /* @__PURE__ */ jsxDEV27("span", {
-                      fg: C.dim,
-                      children: [
-                        " [",
-                        statusLabel(item.status),
-                        "]"
-                      ]
-                    }, undefined, true, undefined, this) : null
-                  ]
-                }, undefined, true, undefined, this),
-                isActive && item.activeForm ? /* @__PURE__ */ jsxDEV27("text", {
+                /* @__PURE__ */ jsxDEV27("span", {
+                  fg: C.dim,
+                  children: "  "
+                }, undefined, false, undefined, this),
+                /* @__PURE__ */ jsxDEV27("span", {
+                  fg: color,
+                  children: icon
+                }, undefined, false, undefined, this),
+                /* @__PURE__ */ jsxDEV27("span", {
+                  fg: C.dim,
+                  children: " "
+                }, undefined, false, undefined, this),
+                /* @__PURE__ */ jsxDEV27("span", {
+                  fg: isDim ? C.dim : isActive ? C.text : C.textSec,
+                  children: isActive ? /* @__PURE__ */ jsxDEV27("strong", {
+                    children: title
+                  }, undefined, false, undefined, this) : title
+                }, undefined, false, undefined, this),
+                item.status !== "pending" && item.status !== "completed" ? /* @__PURE__ */ jsxDEV27("span", {
                   fg: C.dim,
                   children: [
-                    "    ",
-                    truncate3(item.activeForm, 100),
-                    ICONS.ellipsis
+                    " [",
+                    statusLabel(item.status),
+                    "]"
                   ]
                 }, undefined, true, undefined, this) : null
               ]
-            }, `${group.owner}:${item.id}`, true, undefined, this);
-          })
-        ]
-      }, group.owner, true, undefined, this)),
+            }, undefined, true, undefined, this),
+            isActive && item.activeForm ? /* @__PURE__ */ jsxDEV27("text", {
+              fg: C.dim,
+              children: [
+                "    ",
+                truncate3(item.activeForm, 100),
+                ICONS.ellipsis
+              ]
+            }, undefined, true, undefined, this) : null
+          ]
+        }, `${effectiveScrollOffset + index}:${item.createdAt}:${item.title}`, true, undefined, this);
+      }),
       hiddenSummary ? /* @__PURE__ */ jsxDEV27("text", {
         fg: C.dim,
         children: [
@@ -14088,11 +13971,6 @@ class ConsolePlatform extends PlatformAdapter {
         text = `${ICONS.clock} ${description} 失败：${result ?? "未知错误"}`;
       }
       this.appHandle?.addMessage("assistant", text);
-    });
-    this.onBackend("progress:update", (sid, snapshot) => {
-      if (sid === this.sessionId) {
-        this.appHandle?.setProgress(snapshot);
-      }
     });
     this.onBackend("auto-compact", (sid, summaryText) => {
       if (sid === this.sessionId) {
