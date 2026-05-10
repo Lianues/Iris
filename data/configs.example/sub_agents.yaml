@@ -10,7 +10,7 @@
 #
 # ── 类型独立设置（各 type 内部） ──
 #   enabled       - 是否启用此类型（默认 true）；全局 enabled 为 false 时此字段无效
-#   stream        - 此类型是否使用流式输出（默认 false）；全局 stream 有值时被覆盖
+#   stream        - 此类型是否使用流式输出（默认 true）；全局 stream 有值时被覆盖
 #   description   - 面向主 LLM 的用途说明（展示在 sub_agent 工具描述中）
 #   systemPrompt  - 子代理的系统提示词
 #   allowedTools  - 工具白名单（与 excludedTools 互斥，优先）

@@ -64,7 +64,7 @@ export function parseSubAgentsConfig(raw: any): SubAgentsConfig | undefined {
         ? cfg.maxToolRounds
         : 200,
       background: cfg.background === true,
-      stream: cfg.stream === true,
+      stream: cfg.stream !== false,
       parallel: cfg.parallel === true,
     });
   }

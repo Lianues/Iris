@@ -408,7 +408,7 @@ export interface SubAgentTypeDef {
   modelName?: string;
   /** 最大工具执行轮次 */
   maxToolRounds: number;
-  /** 此类型是否使用流式输出（默认 false）；全局 stream 有值时被覆盖 */
+  /** 此类型是否使用流式输出（默认 true）；全局 stream 有值时被覆盖 */
   stream: boolean;
   /** 当前类型的 sub_agent 调用是否可按 parallel 工具参与调度，默认 false */
   parallel: boolean;
