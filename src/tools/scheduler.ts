@@ -509,6 +509,7 @@ async function executeSingle(
   const globalSkipDiff = toolsConfig.autoApproveAll === true || toolsConfig.autoApproveDiff === true;
   const autoApproved = globalSkipConfirmation || shouldAutoApprove(call, effectivePolicy, registry);
   const interactiveApproval = canUseInteractiveApproval(toolState, invocationId);
+  const willUseDiffApprovalView = interactiveApproval && !globalSkipDiff && shouldShowDiffPreview(call, effectivePolicy);
 
   // 追踪用户是否通过交互审批明确批准了此次调用（用于 handler-managed 工具）
   let userExplicitlyApproved = false;
@@ -564,7 +565,9 @@ async function executeSingle(
 
   if (interactiveApproval && toolState && invocationId) {
     // ── 一类审批：autoApprove 控制，底部 Y/N ──
-    if (!autoApproved) {
+    // 如果本次会进入 Console diff 审批视图，则 diff 视图本身就是人机审批，
+    // 不再先弹一次通用 Y/N，避免同一个写入类工具需要审批两次。
+    if (!autoApproved && !willUseDiffApprovalView) {
       toolState.transition(invocationId, 'awaiting_approval');
       const approved = await toolState.waitForApproval(invocationId, effectiveSignal);
       if (!approved) {
@@ -584,7 +587,7 @@ async function executeSingle(
     // ── 二类审批：showApprovalView 控制，diff 预览视图（执行前） ──
     // [行为修复] showApprovalView 是 Console TUI 专用交互视图。
     // 对隐藏后台 session / 无 ToolState 的非交互场景，不再把它当作阻塞条件。
-    if (!globalSkipDiff && shouldShowDiffPreview(call, effectivePolicy)) {
+    if (willUseDiffApprovalView) {
       toolState.transition(invocationId, 'awaiting_apply');
       const applied = await toolState.waitForApply(invocationId, effectiveSignal);
       if (!applied) {
@@ -597,7 +600,8 @@ async function executeSingle(
           },
         };
       }
-      // applied → 状态已被 handle.apply() 转为 executing
+      // applied → 用户明确批准，状态已被 handle.apply() 转为 executing
+      userExplicitlyApproved = true;
     } else if (autoApproved) {
       // 两类审批都跳过时才需要手动设置 executing
       toolState.transition(invocationId, 'executing');
