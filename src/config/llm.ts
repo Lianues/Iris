@@ -50,6 +50,7 @@ export function parseSingleLLMConfig(raw: any = {}): LLMConfig {
     requestBody: source.requestBody && typeof source.requestBody === 'object' && !Array.isArray(source.requestBody) ? source.requestBody : undefined,
     promptCaching: source.promptCaching === true ? true : undefined,
     autoCaching: source.autoCaching === true ? true : undefined,
+    thinkingControl: typeof source.thinkingControl === 'boolean' ? source.thinkingControl : undefined,
   };
 }
 

@@ -16,39 +16,30 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// ../../packages/extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/src/logger.ts
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= LogLevel.DEBUG)
+      if (_logLevel <= 0 /* DEBUG */)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= LogLevel.INFO)
+      if (_logLevel <= 1 /* INFO */)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= LogLevel.WARN)
+      if (_logLevel <= 2 /* WARN */)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= LogLevel.ERROR)
+      if (_logLevel <= 3 /* ERROR */)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
-var LogLevel, _logLevel;
-var init_logger = __esm(() => {
-  (function(LogLevel2) {
-    LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
-    LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
-    LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
-    LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
-    LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
-  })(LogLevel || (LogLevel = {}));
-  _logLevel = LogLevel.INFO;
-});
+var _logLevel = 1 /* INFO */;
+var init_logger = () => {};
 
 // src/terminal-compat.ts
 import { execFileSync } from "child_process";
@@ -631,7 +622,7 @@ var init_remote_wizard = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/framing.js
+// node_modules/irises-extension-sdk/src/ipc/framing.ts
 import { Transform } from "node:stream";
 function encodeFrame(data) {
   const payload = Buffer.from(JSON.stringify(data), "utf-8");
@@ -682,7 +673,7 @@ var init_framing = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/protocol.js
+// node_modules/irises-extension-sdk/src/ipc/protocol.ts
 function isRequest(msg) {
   return "id" in msg && "method" in msg;
 }
@@ -806,7 +797,7 @@ var init_protocol = __esm(() => {
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-tool-handle.js
+// node_modules/irises-extension-sdk/src/ipc/remote-tool-handle.ts
 import { EventEmitter } from "node:events";
 var logger, RemoteToolHandle;
 var init_remote_tool_handle = __esm(() => {
@@ -910,7 +901,7 @@ var init_remote_tool_handle = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-backend-handle.js
+// node_modules/irises-extension-sdk/src/ipc/remote-backend-handle.ts
 import { EventEmitter as EventEmitter2 } from "node:events";
 var logger2, RemoteBackendHandle;
 var init_remote_backend_handle = __esm(() => {
@@ -1134,7 +1125,7 @@ var init_remote_backend_handle = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-api-proxy.js
+// node_modules/irises-extension-sdk/src/ipc/remote-api-proxy.ts
 function callApi(client, targetAgentName, method, params) {
   if (!targetAgentName) {
     return client.call(method, params);
@@ -1208,7 +1199,16 @@ var init_remote_api_proxy = __esm(() => {
   logger3 = createExtensionLogger("RemoteApiProxy");
 });
 
-// ../../packages/extension-sdk/dist/ipc/index.js
+// node_modules/irises-extension-sdk/src/ipc/index.ts
+var init_ipc = __esm(() => {
+  init_framing();
+  init_protocol();
+  init_remote_backend_handle();
+  init_remote_tool_handle();
+  init_remote_api_proxy();
+});
+
+// node_modules/irises-extension-sdk/dist/ipc/index.js
 var exports_ipc = {};
 __export(exports_ipc, {
   isResponse: () => isResponse,
@@ -1225,12 +1225,8 @@ __export(exports_ipc, {
   ErrorCodes: () => ErrorCodes,
   BACKEND_EVENT_TO_IPC: () => BACKEND_EVENT_TO_IPC
 });
-var init_ipc = __esm(() => {
-  init_framing();
-  init_protocol();
-  init_remote_backend_handle();
-  init_remote_tool_handle();
-  init_remote_api_proxy();
+var init_ipc2 = __esm(() => {
+  init_ipc();
 });
 
 // src/index.ts
@@ -1238,7 +1234,7 @@ import React13 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// ../../packages/extension-sdk/dist/platform.js
+// node_modules/irises-extension-sdk/src/platform.ts
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1346,12 +1342,6 @@ class BackendHandle {
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
   }
-  getMilestones(sessionId) {
-    return this._backend.getMilestones?.(sessionId);
-  }
-  loadMilestones(sessionId) {
-    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
-  }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
   }
@@ -1370,10 +1360,23 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
+// node_modules/irises-extension-sdk/src/utils/paths.ts
+function normalizeText(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+function normalizeRelativeFilePath(input, label = "文件路径") {
+  const normalized = input.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!normalized) {
+    throw new Error(`${label}不能为空`);
+  }
+  const parts = normalized.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error(`${label}无效: ${input}`);
+  }
+  return parts.join("/");
+}
 
-// ../../packages/extension-sdk/dist/index.js
-init_logger();
-// ../../packages/extension-sdk/dist/utils/dependencies.js
+// node_modules/irises-extension-sdk/src/utils/dependencies.ts
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
@@ -1510,27 +1513,9 @@ async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
     installArgs: args
   };
 }
-// ../../packages/extension-sdk/dist/utils/git.js
+// node_modules/irises-extension-sdk/src/utils/git.ts
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
-
-// ../../packages/extension-sdk/dist/utils/paths.js
-function normalizeText(value) {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-function normalizeRelativeFilePath(input, label = "文件路径") {
-  const normalized = input.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
-  if (!normalized) {
-    throw new Error(`${label}不能为空`);
-  }
-  const parts = normalized.split("/");
-  if (parts.some((part) => !part || part === "." || part === "..")) {
-    throw new Error(`${label}无效: ${input}`);
-  }
-  return parts.join("/");
-}
-
-// ../../packages/extension-sdk/dist/utils/git.js
 var GIT_INSTALL_METADATA_FILE = ".iris-extension-install.json";
 function stripGitPlusProtocol(url) {
   return url.startsWith("git+") ? url.slice("git+".length) : url;
@@ -3016,7 +3001,7 @@ var FILE_TYPE_ICONS = {
 function isPlanModeToggleShortcut(key) {
   return key.shift && key.name === "tab" || key.name === "backtab" || key.name === "shift-tab" || key.sequence === "\x1B[Z";
 }
-function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition }) {
+function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled }) {
   const [inputState, inputActions] = useTextInput("");
   const [selectedIndex, setSelectedIndex] = useState4(0);
   const [queuePromptFrame, setQueuePromptFrame] = useState4(0);
@@ -3186,7 +3171,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       setSelectedIndex(0);
       return;
     }
-    if (key.shift && (key.name === "left" || key.name === "right")) {
+    if (thinkingControlEnabled !== false && key.shift && (key.name === "left" || key.name === "right")) {
       onCycleThinkingEffort(key.name === "right" ? 1 : -1);
       return;
     }
@@ -3586,21 +3571,17 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
 // src/components/ThinkingIndicator.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV10 } from "@opentui/react/jsx-dev-runtime";
-var BLOCK_COUNT = 4;
-var FILL_MAP = {
-  none: 0,
-  low: 1,
-  medium: 2,
-  high: 3,
-  max: 4
-};
 var FILLED_CHAR = ICONS.thinkingFilled;
 var DIM_CHAR = ICONS.thinkingDim;
-function ThinkingIndicator({ level, showHint, isRemote }) {
-  const filled = FILL_MAP[level];
-  const isDisabled = level === "none";
+function ThinkingIndicator({ level, providerLevels, showHint, isRemote, thinkingControlEnabled }) {
+  if (thinkingControlEnabled === false)
+    return null;
+  const blockCount = Math.max(1, providerLevels.length - 1);
+  const idx = providerLevels.indexOf(level);
+  const filled = idx >= 0 ? idx : 0;
+  const isNotSet = level === "not-set";
   const blocks = [];
-  for (let i = 0;i < BLOCK_COUNT; i++) {
+  for (let i = 0;i < blockCount; i++) {
     const isFilled = i < filled;
     blocks.push(/* @__PURE__ */ jsxDEV10("span", {
       fg: isFilled ? C.accent : C.dim,
@@ -3616,10 +3597,10 @@ function ThinkingIndicator({ level, showHint, isRemote }) {
           children: [
             blocks,
             /* @__PURE__ */ jsxDEV10("span", {
-              fg: isDisabled ? C.dim : C.accent,
+              fg: isNotSet ? C.dim : C.accent,
               children: [
                 " ",
-                isDisabled ? "thinking off" : level
+                isNotSet ? "not set" : level
               ]
             }, undefined, true, undefined, this)
           ]
@@ -3673,6 +3654,8 @@ function BottomPanel({
   backgroundTaskSpinnerFrame,
   thinkingEffort,
   onCycleThinkingEffort,
+  thinkingControlEnabled,
+  providerLevels,
   remoteHost,
   isRemote,
   pendingFiles,
@@ -3715,8 +3698,10 @@ function BottomPanel({
         children: [
           /* @__PURE__ */ jsxDEV11(ThinkingIndicator, {
             level: thinkingEffort,
+            providerLevels,
             showHint: !hasMessages,
-            isRemote
+            isRemote,
+            thinkingControlEnabled
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV11(InputBar, {
             disabled: inputDisabled,
@@ -3729,7 +3714,8 @@ function BottomPanel({
             onRemoveFile,
             isRemote,
             dynamicCommands,
-            supportsHeadlessTransition
+            supportsHeadlessTransition,
+            thinkingControlEnabled
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV11(StatusBar, {
             agentName,
@@ -5646,7 +5632,7 @@ import { useMemo as useMemo6 } from "react";
 import * as fs4 from "fs";
 import * as path4 from "path";
 
-// ../../packages/extension-sdk/dist/tool-utils.js
+// node_modules/irises-extension-sdk/src/tool-utils.ts
 import * as fs3 from "node:fs";
 import * as path3 from "node:path";
 function normalizeLineEndings(text) {
@@ -7779,11 +7765,25 @@ function fitLine(text, width) {
   }
   return `${out}${" ".repeat(Math.max(0, targetWidth - used))}`;
 }
-function sessionLine(meta, selected) {
-  const time = new Date(meta.updatedAt ?? 0).toLocaleString("zh-CN");
-  const marker = selected ? `${ICONS.selectorArrow} ` : "  ";
-  return `${marker}${meta.title}  ${meta.cwd}  ${time}`;
+function formatTitle(title) {
+  if (!title || !title.trim())
+    return "(无标题)";
+  return title.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
 }
+function formatTime2(timestamp) {
+  if (!timestamp)
+    return "";
+  return new Date(timestamp).toLocaleString("zh-CN");
+}
+function buildSeparator(totalWidth) {
+  const sepChar = BORDER_CHARS.horizontal;
+  const charW = getTextWidth(sepChar);
+  const indent = 3;
+  const usable = Math.max(1, totalWidth - indent - 3);
+  const count = Math.max(1, Math.floor(usable / charW));
+  return `${" ".repeat(indent)}${sepChar.repeat(count)}`;
+}
+var ROWS_PER_ITEM = 3;
 function SessionListView({ sessions, selectedIndex, pendingDeleteId, statusMessage, statusIsError }) {
   const { height: terminalHeight, width: terminalWidth } = useTerminalDimensions6();
   const rowWidth = Math.max(20, terminalWidth || 80);
@@ -7791,39 +7791,61 @@ function SessionListView({ sessions, selectedIndex, pendingDeleteId, statusMessa
   const reservedRows = 4 + (statusMessage ? 1 : 0);
   const bodyRows = Math.max(4, terminalHeight - reservedRows);
   const pendingDeleteExtraRows = pendingDeleteId ? 1 : 0;
-  const reserveIndicatorRows = sessions.length > Math.max(1, bodyRows - pendingDeleteExtraRows) ? 2 : 0;
-  const visibleItemCount = Math.max(1, bodyRows - pendingDeleteExtraRows - reserveIndicatorRows);
-  const startIndex = sessions.length <= visibleItemCount ? 0 : clamp(safeSelectedIndex - visibleItemCount + 1, 0, sessions.length - visibleItemCount);
+  let availRows = bodyRows - pendingDeleteExtraRows;
+  let maxItems = Math.max(1, Math.floor((availRows + 1) / ROWS_PER_ITEM));
+  if (maxItems < sessions.length) {
+    availRows -= 2;
+    maxItems = Math.max(1, Math.floor((availRows + 1) / ROWS_PER_ITEM));
+  }
+  const visibleItemCount = Math.min(sessions.length, maxItems);
+  const startIndex = sessions.length <= visibleItemCount ? 0 : clamp(safeSelectedIndex - Math.floor(visibleItemCount / 2), 0, sessions.length - visibleItemCount);
   const endIndex = Math.min(sessions.length, startIndex + visibleItemCount);
   const visibleSessions = sessions.slice(startIndex, endIndex);
   const hasAbove = startIndex > 0;
   const hasBelow = endIndex < sessions.length;
+  const sepLine = buildSeparator(rowWidth);
   const rows = [];
   if (sessions.length === 0) {
-    rows.push({ key: "empty", text: "暂无历史对话", color: C.dim });
+    rows.push({ key: "empty", text: "  暂无历史对话", color: C.dim });
   } else {
     if (hasAbove) {
-      rows.push({ key: "above", text: `↑ 还有 ${startIndex} 条更早/更近的历史`, color: C.dim });
+      rows.push({ key: "above", text: `  ${ICONS.arrowUp} 还有 ${startIndex} 条`, color: C.dim });
     }
     visibleSessions.forEach((meta, localIndex) => {
       const index = startIndex + localIndex;
       const isSelected = index === safeSelectedIndex;
+      const title = formatTitle(meta.title);
+      const time = formatTime2(meta.updatedAt);
+      const marker = isSelected ? `${ICONS.selectorArrow} ` : "  ";
       rows.push({
-        key: meta.id,
-        text: sessionLine(meta, isSelected),
+        key: `${meta.id}:title`,
+        text: `${marker}${title}`,
         color: isSelected ? C.text : C.textSec,
         bold: isSelected
+      });
+      const infoLine = meta.cwd ? `   ${meta.cwd}  ${time}` : `   ${time}`;
+      rows.push({
+        key: `${meta.id}:info`,
+        text: infoLine,
+        color: C.dim
       });
       if (meta.id === pendingDeleteId) {
         rows.push({
           key: `${meta.id}:delete`,
-          text: "    再次按 D 将删除该历史对话；Esc 或切换选择取消。",
+          text: "   再次按 D 将删除该历史对话；Esc 或切换选择取消。",
           color: C.error
+        });
+      }
+      if (localIndex < visibleSessions.length - 1) {
+        rows.push({
+          key: `${meta.id}:sep`,
+          text: sepLine,
+          color: C.dim
         });
       }
     });
     if (hasBelow) {
-      rows.push({ key: "below", text: `↓ 还有 ${sessions.length - endIndex} 条历史`, color: C.dim });
+      rows.push({ key: "below", text: `  ${ICONS.arrowDown} 还有 ${sessions.length - endIndex} 条`, color: C.dim });
     }
   }
   while (rows.length < bodyRows) {
@@ -12049,10 +12071,12 @@ function useMessageQueue() {
 
 // src/hooks/use-model-state.ts
 import { useCallback as useCallback10, useState as useState14 } from "react";
-function useModelState({ modelId, modelName, contextWindow }) {
+function useModelState({ modelId, modelName, contextWindow, modelProvider, thinkingControlEnabled }) {
   const [currentModelId, setCurrentModelId] = useState14(modelId);
   const [currentModelName, setCurrentModelName] = useState14(modelName);
   const [currentContextWindow, setCurrentContextWindow] = useState14(contextWindow);
+  const [currentModelProvider, setCurrentModelProvider] = useState14(modelProvider);
+  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState14(thinkingControlEnabled);
   const updateModel = useCallback10((result) => {
     if (result.modelId)
       setCurrentModelId(result.modelId);
@@ -12060,17 +12084,35 @@ function useModelState({ modelId, modelName, contextWindow }) {
       setCurrentModelName(result.modelName);
     if ("contextWindow" in result)
       setCurrentContextWindow(result.contextWindow);
+    if (result.modelProvider)
+      setCurrentModelProvider(result.modelProvider);
+    if ("thinkingControlEnabled" in result)
+      setCurrentThinkingControlEnabled(result.thinkingControlEnabled);
   }, []);
   return {
     currentModelId,
     currentModelName,
     currentContextWindow,
+    currentModelProvider,
+    currentThinkingControlEnabled,
     updateModel
   };
 }
 
 // src/App.tsx
 import { jsxDEV as jsxDEV43 } from "@opentui/react/jsx-dev-runtime";
+var PROVIDER_LEVELS = {
+  claude: ["not-set", "none", "low", "medium", "high", "xhigh", "max"],
+  gemini: ["not-set", "minimal", "low", "medium", "high"],
+  "openai-compatible": ["not-set", "none", "minimal", "low", "medium", "high", "xhigh"],
+  "openai-responses": ["not-set", "none", "minimal", "low", "medium", "high", "xhigh"]
+};
+var DEFAULT_LEVELS = ["not-set", "low", "medium", "high"];
+function getProviderThinkingLevels(provider) {
+  if (!provider)
+    return DEFAULT_LEVELS;
+  return PROVIDER_LEVELS[provider] ?? DEFAULT_LEVELS;
+}
 function App({
   onReady,
   onSubmit,
@@ -12131,6 +12173,8 @@ function App({
   onRemoteConnect,
   onRemoteDisconnect,
   remoteHost,
+  modelProvider,
+  thinkingControlEnabled,
   initWarningsColor,
   initWarningsIcon
 }) {
@@ -12147,7 +12191,9 @@ function App({
   const [copyMode, setCopyMode] = useState15(false);
   const [pendingConfirm, setPendingConfirm] = useState15(null);
   const [confirmChoice, setConfirmChoice] = useState15("confirm");
-  const [thinkingEffort, setThinkingEffort] = useState15("none");
+  const initialLevels = getProviderThinkingLevels(modelProvider);
+  const initialMaxLevel = initialLevels[initialLevels.length - 1];
+  const [thinkingEffort, setThinkingEffort] = useState15(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
   const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState15(0);
   const [modelStatusMessage, setModelStatusMessage] = useState15(null);
   const [modelStatusIsError, setModelStatusIsError] = useState15(false);
@@ -12227,7 +12273,7 @@ function App({
   const appState = useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef });
   const approval = useApproval(appState.pendingApprovals, appState.pendingApplies);
   const exitConfirm = useExitConfirm();
-  const modelState = useModelState({ modelId, modelName, contextWindow });
+  const modelState = useModelState({ modelId, modelName, contextWindow, modelProvider, thinkingControlEnabled });
   const queueAwareSubmit = useCallback11((text) => {
     if (appState.isGenerating) {
       messageQueue.enqueue(text);
@@ -12240,17 +12286,37 @@ function App({
     onAbort();
   }, [messageQueue, onAbort]);
   const cycleThinkingEffort = useCallback11((direction) => {
-    const levels = ["none", "low", "medium", "high", "max"];
+    if (modelState.currentThinkingControlEnabled === false)
+      return;
+    const levels = getProviderThinkingLevels(modelState.currentModelProvider);
     setThinkingEffort((prev) => {
       const idx = levels.indexOf(prev);
-      const next = idx + direction;
+      const safeIdx = idx >= 0 ? idx : 0;
+      const next = safeIdx + direction;
       if (next < 0 || next >= levels.length)
         return prev;
       const newLevel = levels[next];
       onThinkingEffortChange?.(newLevel);
       return newLevel;
     });
-  }, [onThinkingEffortChange]);
+  }, [onThinkingEffortChange, modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
+  useEffect12(() => {
+    if (modelState.currentThinkingControlEnabled === false)
+      return;
+    const levels = getProviderThinkingLevels(modelState.currentModelProvider);
+    setThinkingEffort((prev) => {
+      if (levels.includes(prev))
+        return prev;
+      const maxLevel = levels[levels.length - 1];
+      onThinkingEffortChange?.(maxLevel);
+      return maxLevel;
+    });
+  }, [modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
+  useEffect12(() => {
+    if (thinkingControlEnabled !== false && initialMaxLevel !== "not-set") {
+      onThinkingEffortChange?.(initialMaxLevel);
+    }
+  }, []);
   const handleFileAttach = useCallback11((filePath) => {
     onFileAttach?.(filePath);
   }, [onFileAttach]);
@@ -12635,6 +12701,8 @@ function App({
         backgroundTaskSpinnerFrame: appState.backgroundTaskSpinnerFrame,
         thinkingEffort,
         onCycleThinkingEffort: cycleThinkingEffort,
+        thinkingControlEnabled: modelState.currentThinkingControlEnabled,
+        providerLevels: getProviderThinkingLevels(modelState.currentModelProvider),
         remoteHost,
         isRemote: !!remoteHost,
         pendingFiles,
@@ -13148,6 +13216,61 @@ function printHeadlessTransitionMessage() {
 `);
   } catch {}
 }
+var GEMINI_LEVEL_MAP = {
+  minimal: "THINKING_LEVEL_MINIMAL",
+  low: "THINKING_LEVEL_LOW",
+  medium: "THINKING_LEVEL_MEDIUM",
+  high: "THINKING_LEVEL_HIGH"
+};
+function buildThinkingPatch(provider, level) {
+  switch (provider) {
+    case "claude": {
+      if (level === "none") {
+        return {
+          thinking: { type: "disabled" }
+        };
+      }
+      return {
+        thinking: { type: "adaptive" },
+        output_config: { effort: level }
+      };
+    }
+    case "gemini":
+      return {
+        generationConfig: {
+          thinkingConfig: {
+            includeThoughts: true,
+            thinkingLevel: GEMINI_LEVEL_MAP[level] ?? "THINKING_LEVEL_MEDIUM"
+          }
+        }
+      };
+    case "openai-compatible":
+      return { reasoning_effort: level };
+    case "openai-responses":
+      return {
+        reasoning: { effort: level, summary: "auto" }
+      };
+    default:
+      return null;
+  }
+}
+function getThinkingRemovePaths(provider) {
+  switch (provider) {
+    case "claude":
+      return ["thinking.type", "output_config.effort"];
+    case "gemini":
+      return [
+        "generationConfig.thinkingConfig.includeThoughts",
+        "generationConfig.thinkingConfig.thinkingLevel"
+      ];
+    case "openai-compatible":
+      return ["reasoning_effort"];
+    case "openai-responses":
+      return ["reasoning.effort", "reasoning.summary"];
+    default:
+      return [];
+  }
+}
 
 class ConsolePlatform extends PlatformAdapter {
   sessionId;
@@ -13172,7 +13295,8 @@ class ConsolePlatform extends PlatformAdapter {
   consoleConfig;
   supportsHeadlessTransition;
   currentToolIds = new Set;
-  currentThinkingEffort = "none";
+  currentThinkingEffort = "not-set";
+  modelProvider = "gemini";
   _toolDetailStack = [];
   historyMutationQueue = Promise.resolve();
   originalBackend = null;
@@ -13197,6 +13321,7 @@ class ConsolePlatform extends PlatformAdapter {
     this.modelName = options.modelName;
     this.contextWindow = options.contextWindow;
     this.agentName = options.agentName;
+    this.modelProvider = options.modelProvider ?? "gemini";
     this.initWarnings = options.initWarnings ?? [];
     this.api = options.api;
     this.isCompiledBinary = options.isCompiledBinary ?? false;
@@ -13274,7 +13399,7 @@ class ConsolePlatform extends PlatformAdapter {
     return next;
   }
   async start() {
-    this.api?.setLogLevel?.(LogLevel.SILENT);
+    this.api?.setLogLevel?.(4 /* SILENT */);
     configureBundledOpenTuiTreeSitter(this.isCompiledBinary);
     this.onBackend("assistant:content", (sid, content) => {
       if (sid === this.sessionId) {
@@ -13599,6 +13724,8 @@ ${summaryText}`;
         remoteHost: this._remoteHost || undefined,
         onThinkingEffortChange: (level) => this.applyThinkingEffort(level),
         agentName: this.agentName,
+        modelProvider: this.modelProvider,
+        thinkingControlEnabled: this.getThinkingControlEnabled(),
         modeName: this.modeName,
         modelId: this.modelId,
         modelName: this.modelName,
@@ -13675,6 +13802,8 @@ ${summaryText}`;
         this.modelName = modelInfo.modelName;
         this.modelId = modelInfo.modelId;
         this.contextWindow = modelInfo.contextWindow;
+        if (modelInfo.provider)
+          this.modelProvider = modelInfo.provider;
       }
       this.sessionId = generateSessionId();
       this.currentToolIds.clear();
@@ -13702,7 +13831,7 @@ ${summaryText}`;
       if (!WsIPCClient) {
         throw new Error("remote-connect 扩展服务不可用，请确认 remote-connect 扩展已安装并启用");
       }
-      const { RemoteBackendHandle: RemoteBackendHandle2, createRemoteApiProxy: createRemoteApiProxy2 } = await Promise.resolve().then(() => (init_ipc(), exports_ipc));
+      const { RemoteBackendHandle: RemoteBackendHandle2, createRemoteApiProxy: createRemoteApiProxy2 } = await Promise.resolve().then(() => (init_ipc2(), exports_ipc));
       const wsClient = new WsIPCClient;
       const handshake = await wsClient.connect(url, token);
       let remoteBackend;
@@ -13745,6 +13874,8 @@ ${summaryText}`;
         this.modelName = modelInfo.modelName ?? this.modelName;
         this.modelId = modelInfo.modelId ?? this.modelId;
         this.contextWindow = modelInfo.contextWindow ?? this.contextWindow;
+        if (modelInfo.provider)
+          this.modelProvider = modelInfo.provider;
       }
       this.sessionId = generateSessionId();
       this.currentToolIds.clear();
@@ -13907,6 +14038,8 @@ ${summaryText}`;
       this.modelName = modelInfo.modelName ?? this.modelName;
       this.modelId = modelInfo.modelId ?? this.modelId;
       this.contextWindow = modelInfo.contextWindow ?? this.contextWindow;
+      if (modelInfo.provider)
+        this.modelProvider = modelInfo.provider;
     }
     this.sessionId = generateSessionId();
     this.currentToolIds.clear();
@@ -14071,15 +14204,24 @@ ${summaryText}`;
       this.modelName = info.modelName;
       this.modelId = info.modelId;
       this.contextWindow = info.contextWindow;
-      if (this.currentThinkingEffort !== "none") {
+      const currentInfo = this.backend.getCurrentModelInfo?.();
+      if (this.currentThinkingEffort !== "not-set") {
+        this.removeThinkingRuntimePatch();
+      }
+      if (currentInfo?.provider)
+        this.modelProvider = currentInfo.provider;
+      if (this.currentThinkingEffort !== "not-set") {
         this.applyThinkingEffort(this.currentThinkingEffort);
       }
+      const thinkingControlEnabled = currentInfo?.thinkingControl !== false;
       return {
         ok: true,
         message: `当前模型已切换为：${info.modelName}  ${info.modelId}`,
         modelName: info.modelName,
         modelId: info.modelId,
-        contextWindow: info.contextWindow
+        contextWindow: info.contextWindow,
+        modelProvider: this.modelProvider,
+        thinkingControlEnabled
       };
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
@@ -14091,14 +14233,42 @@ ${summaryText}`;
     const router = this.api?.router;
     if (!router)
       return;
-    if (level === "none") {
-      router.removeCurrentModelRequestBodyKeys?.("thinking", "output_config");
-    } else {
-      router.patchCurrentModelRequestBody?.({
-        thinking: { type: "enabled", budget_tokens: 1e4 },
-        output_config: { effort: level }
-      });
+    const config = router.getModelConfig?.();
+    if (config?.thinkingControl === false)
+      return;
+    const provider = this.modelProvider;
+    this.removeThinkingRuntimePatch();
+    if (level === "not-set") {} else {
+      const patch = buildThinkingPatch(provider, level);
+      if (patch) {
+        router.patchCurrentModelRequestBody?.(patch);
+      }
     }
+  }
+  removeThinkingRuntimePatch() {
+    const router = this.api?.router;
+    if (!router)
+      return;
+    const paths = getThinkingRemovePaths(this.modelProvider);
+    if (paths.length === 0)
+      return;
+    const topLevelKeys = paths.filter((p) => !p.includes("."));
+    const nestedPaths = paths.filter((p) => p.includes("."));
+    if (topLevelKeys.length > 0) {
+      router.removeCurrentModelRequestBodyKeys?.(...topLevelKeys);
+    }
+    if (nestedPaths.length > 0) {
+      router.removeCurrentModelRequestBodyPaths?.(...nestedPaths);
+    }
+  }
+  getThinkingControlEnabled() {
+    try {
+      const router = this.api?.router;
+      const config = router?.getModelConfig?.();
+      if (config?.thinkingControl === false)
+        return false;
+    } catch {}
+    return true;
   }
   async handleLoadSession(id) {
     this.sessionId = id;
@@ -14819,8 +14989,8 @@ ${summaryText}`;
         try {
           const fullPath = path6.join(dirPath, name);
           const stat = fs6.statSync(fullPath);
-          const isDirectory2 = stat.isDirectory();
-          if (isDirectory2) {
+          const isDirectory = stat.isDirectory();
+          if (isDirectory) {
             entries.push({ name, isDirectory: true });
           } else {
             const ext = path6.extname(name).toLowerCase();
@@ -14940,6 +15110,7 @@ async function consoleFactory(rawContext) {
     modeName: context.config?.system?.defaultMode ?? "default",
     modelName: currentModel.modelName ?? "default",
     modelId: currentModel.modelId ?? "",
+    modelProvider: currentModel.provider,
     contextWindow: currentModel.contextWindow,
     configDir: context.configDir ?? "",
     agentName: context.agentName,

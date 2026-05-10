@@ -40,6 +40,18 @@ models:
     # autoSummaryThreshold: "80%"
     # autoSummaryThreshold: 100000
 
+    # 便捷思考强度控制（Shift+←/→ 调节，默认开启）
+    # 根据 provider 自动选择请求体格式和可用强度级别：
+    #   claude:             thinking.type + output_config.effort        (not-set/none/low/medium/high/xhigh/max)
+    #   gemini:             generationConfig.thinkingConfig              (not-set/minimal/low/medium/high)
+    #   openai-compatible:  reasoning_effort                             (not-set/none/minimal/low/medium/high/xhigh)
+    #   openai-responses:   reasoning.effort + reasoning.summary         (not-set/none/minimal/low/medium/high/xhigh)
+    # 注意：
+    #   - 便捷控制使用深合并，仅修改上述叶级字段，不会覆盖同级其他参数
+    #   - 如果你在 requestBody 中显式配置了上述字段，它们会覆盖便捷控制的设置（YAML 优先）
+    #   - 设为 false 可完全关闭此功能，隐藏指示器并禁用快捷键
+    # thinkingControl: true
+
     # 自定义请求头：会覆盖 provider 内置同名 header
     # headers:
     #   x-goog-api-key: your-override-key

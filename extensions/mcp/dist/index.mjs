@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// extensions/mcp/node_modules/irises-extension-sdk/src/logger.ts
+// node_modules/irises-extension-sdk/src/logger.ts
 var _logLevel = 1 /* INFO */;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
@@ -25,7 +25,7 @@ function createExtensionLogger(extensionName, tag) {
   };
 }
 
-// extensions/mcp/node_modules/irises-extension-sdk/src/plugin/context.ts
+// node_modules/irises-extension-sdk/src/plugin/context.ts
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -33,7 +33,7 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
-// extensions/mcp/src/client.ts
+// src/client.ts
 var logger = createPluginLogger("mcp", "client");
 
 class MCPClient {
@@ -195,7 +195,7 @@ class MCPClient {
   }
 }
 
-// extensions/mcp/src/manager.ts
+// src/manager.ts
 import derefModule from "dereference-json-schema";
 var { dereferenceSync } = derefModule;
 var logger2 = createPluginLogger("mcp", "manager");
@@ -288,7 +288,7 @@ function sanitizeName(name) {
   return name.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
-// extensions/mcp/src/config.ts
+// src/config.ts
 var logger3 = createPluginLogger("mcp", "config");
 function normalizeTransport(value) {
   if (value === "http")
@@ -335,7 +335,7 @@ function parseMCPConfig(raw) {
   return { servers };
 }
 
-// extensions/mcp/src/config-template.ts
+// src/config-template.ts
 var DEFAULT_MCP_CONFIG_TEMPLATE = `# MCP 服务器配置
 # 连接外部 MCP 服务器，自动将其工具注入 LLM 工具列表
 # 启动时后台异步连接，不阻塞启动
@@ -379,11 +379,12 @@ var DEFAULT_MCP_CONFIG_TEMPLATE = `# MCP 服务器配置
 #     url: "https://qyapi.weixin.qq.com/mcp/robot-doc?apikey=your-mcp-apikey"
 `;
 
-// extensions/mcp/src/index.ts
+// src/index.ts
 var logger4 = createPluginLogger("mcp");
 var SERVICE_ID = "mcp.manager";
 var manager = null;
 var serviceDisposer = null;
+var lastMcpConfigSignature = "";
 var src_default = definePlugin({
   name: "mcp",
   version: "0.1.0",
@@ -392,6 +393,7 @@ var src_default = definePlugin({
     ctx.ensureConfigFile?.("mcp.yaml", DEFAULT_MCP_CONFIG_TEMPLATE);
     const raw = ctx.readConfigSection?.("mcp");
     const config = parseMCPConfig(raw);
+    lastMcpConfigSignature = stableStringify(raw ?? null);
     if (!config) {
       logger4.info("未检测到 MCP 配置（mcp.yaml 不存在或无有效 servers），跳过");
       return;
@@ -399,6 +401,10 @@ var src_default = definePlugin({
     ctx.addHook({
       name: "mcp:config-reload",
       async onConfigReload({ rawMergedConfig }) {
+        const nextSignature = stableStringify(rawMergedConfig.mcp ?? null);
+        if (nextSignature === lastMcpConfigSignature)
+          return;
+        lastMcpConfigSignature = nextSignature;
         const newConfig = parseMCPConfig(rawMergedConfig.mcp);
         const reg = ctx.getToolRegistry();
         for (const name of reg.listTools()) {
@@ -455,6 +461,16 @@ function registerService(ctx) {
     listServers: () => manager?.listServers() ?? [],
     getServerInfo: () => manager?.getServerInfo() ?? []
   }, { description: "MCP 服务器管理", version: "1.0" });
+}
+function stableStringify(value) {
+  return JSON.stringify(sortForStableStringify(value));
+}
+function sortForStableStringify(value) {
+  if (Array.isArray(value))
+    return value.map(sortForStableStringify);
+  if (!value || typeof value !== "object")
+    return value;
+  return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, sortForStableStringify(v)]));
 }
 export {
   src_default as default

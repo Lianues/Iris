@@ -42,6 +42,7 @@ let cachedCtx: PluginContext | undefined;
 /** 当前已注册的 switch_server 工具名（用于 unregister 后重注册） */
 let switchToolRegistered = false;
 let transferToolRegistered = false;
+let lastConfigSignature = '';
 
 export default definePlugin({
   name: 'remote-exec',
@@ -80,6 +81,10 @@ export default definePlugin({
       name: 'remote-exec:config-reload',
       async onConfigReload({ rawMergedConfig }) {
         if (!cachedApi || !cachedCtx) return;
+        const nextSignature = makeRemoteExecConfigSignature(rawMergedConfig as Record<string, unknown>);
+        if (nextSignature === lastConfigSignature) return;
+        lastConfigSignature = nextSignature;
+
         const raw = (rawMergedConfig as Record<string, unknown>)?.remote_exec;
         cfg = parseRemoteExecConfig(raw ?? {});
         servers = readServersSection(cachedCtx, rawMergedConfig as Record<string, unknown>);
@@ -133,6 +138,7 @@ async function reloadAll(ctx: PluginContext, api: IrisAPI): Promise<void> {
   const rawSection = merged?.remote_exec ?? ctx.readConfigSection('remote_exec');
   cfg = parseRemoteExecConfig(rawSection ?? {});
   servers = readServersSection(ctx, merged);
+  lastConfigSignature = makeRemoteExecConfigSignature(merged ?? {});
 
   rebuildTransport();
 
@@ -170,20 +176,28 @@ function rebuildTransport(): void {
 
 function reregisterRemoteExecTools(api: IrisAPI): void {
   if (!envMgr) return;
-  // 总是先尝试注销旧的（描述里的服务器列表可能已变）
-  if (switchToolRegistered) {
-    api.tools.unregister?.('switch_server');
-    switchToolRegistered = false;
+  // 重要：启用状态下不要先 unregister 再 register。
+  // LLM 调用时工具声明和 registry 之间可能有时间差，热重载窗口内注销会导致
+  // “工具未找到”。ToolRegistry.register 对同名工具是原子覆盖，直接 register 即可。
+  if (!cfg.enabled) {
+    if (switchToolRegistered) {
+      api.tools.unregister?.('switch_server');
+      switchToolRegistered = false;
+    }
+    if (transferToolRegistered) {
+      api.tools.unregister?.(TRANSFER_FILES_TOOL_NAME);
+      transferToolRegistered = false;
+    }
+    disposeRemoteExecConsoleIntegration();
+    return;
   }
-  if (transferToolRegistered) {
-    api.tools.unregister?.(TRANSFER_FILES_TOOL_NAME);
-    transferToolRegistered = false;
-  }
-  if (!cfg.enabled) return;
   if (cfg.exposeSwitchTool) {
     const tool: ToolDefinition = buildSwitchEnvironmentTool(envMgr);
     api.tools.register(tool);
     switchToolRegistered = true;
+  } else if (switchToolRegistered) {
+    api.tools.unregister?.('switch_server');
+    switchToolRegistered = false;
   }
   const transferTool: ToolDefinition = buildTransferFilesTool(envMgr, () => {
     if (!transport) throw new Error('remote-exec: SSH transport 未就绪');
@@ -192,6 +206,27 @@ function reregisterRemoteExecTools(api: IrisAPI): void {
   api.tools.register(transferTool);
   transferToolRegistered = true;
   registerRemoteExecConsoleIntegration(api, envMgr);
+}
+
+function makeRemoteExecConfigSignature(rawMergedConfig: Record<string, unknown>): string {
+  return stableStringify({
+    remote_exec: rawMergedConfig.remote_exec ?? null,
+    remote_exec_servers: rawMergedConfig.remote_exec_servers ?? null,
+  });
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortForStableStringify(value));
+}
+
+function sortForStableStringify(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortForStableStringify);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => [k, sortForStableStringify(v)]),
+  );
 }
 
 

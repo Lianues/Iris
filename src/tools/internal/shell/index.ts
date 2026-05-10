@@ -18,6 +18,12 @@ import { classifyCommand, getDenyReason } from './whitelist';
 import { classifyWithLLM, resolveClassifierDecision } from './classifier';
 import { tryLearnFromInstall } from './learn';
 import type { ShellToolDeps } from './types';
+import {
+  buildNonInteractiveEnv,
+  closeChildStdin,
+  detectInteractiveFailure,
+  formatInteractiveFailureHint,
+} from '../non-interactive-command';
 import { createLogger } from '@/logger';
 
 const logger = createLogger('ShellTool');
@@ -114,6 +120,17 @@ function killProcessTree(pid: number | undefined): void {
 }
 
 /**
+ * 解析 timeout 参数。
+ * - 未指定：使用 tools.limits.shell.defaultTimeout（默认 30s）
+ * - 显式指定正数：按用户/模型指定值执行，不再设置 10 分钟硬上限
+ * - 显式指定 0：交给 Node exec 语义，表示不启用超时
+ */
+function resolveCommandTimeout(value: unknown, defaultTimeout: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return defaultTimeout;
+  return value;
+}
+
+/**
  * 执行 shell 命令并返回结果。
  */
 function executeCommand(
@@ -130,16 +147,19 @@ function executeCommand(
     let abortedByUser = false;
     let settled = false;
     let onAbort: () => void = () => {};
+    const execOptions = {
+      cwd: workDir,
+      timeout,
+      maxBuffer,
+      shell: getShell(),
+      windowsHide: true,
+      detached: process.platform === 'win32',
+      env: buildNonInteractiveEnv({ ...process.env, PYTHONIOENCODING: 'utf-8' }, 'powershell'),
+    } as any;
     const child = exec(
       wrappedCommand,
-      {
-        cwd: workDir,
-        timeout,
-        maxBuffer,
-        shell: getShell(),
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
-      },
-      (error, stdout, stderr) => {
+      execOptions,
+      (error: any, stdout: string, stderr: string) => {
         settled = true;
         signal?.removeEventListener('abort', onAbort);
         // Windows: 确保进程树被完全终止。
@@ -161,6 +181,8 @@ function executeCommand(
       },
     );
 
+    closeChildStdin(child);
+
     onAbort = () => {
       if (settled) return;
       abortedByUser = true;
@@ -180,32 +202,48 @@ function executeCommand(
  * 不修改原始 exitCode，仅在 stderr 末尾追加辅助说明。
  */
 function annotateResult(result: ShellResult): ShellResult {
+  const appendStderrNote = (current: ShellResult, note: string): ShellResult => ({
+    ...current,
+    stderr: current.stderr ? current.stderr + '\n' + note : note,
+  });
+
   if (result.abortedByUser) {
-    const note = '命令已被用户终止。';
-    return { ...result, stderr: result.stderr ? result.stderr + '\n' + note : note };
+    return appendStderrNote(result, '命令已被用户终止。');
   }
+
+  let annotated = result;
 
   // 超时被终止
   if (result.killed) {
-    const note = '(命令执行超时被终止。如需更长时间，请增加 timeout 参数。)';
-    return { ...result, stderr: result.stderr ? result.stderr + '\n' + note : note };
+    annotated = appendStderrNote(annotated, '(命令执行超时被终止。如需更长时间，请增加 timeout 参数。)');
+  }
+
+  const interactiveHint = detectInteractiveFailure({
+    command: result.command,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    killed: result.killed,
+  });
+  if (interactiveHint) {
+    annotated = appendStderrNote(annotated, formatInteractiveFailureHint(interactiveHint));
   }
 
   // exitCode=1 且无 stderr → 可能是搜索/比较命令的正常结果
-  if (result.exitCode === 1 && !result.stderr) {
-    const cmd = result.command.trim();
+  if (annotated.exitCode === 1 && !annotated.stderr) {
+    const cmd = annotated.command.trim();
     // Select-String/findstr/grep/rg 返回 1 = 无匹配
     if (/^(select-string|sls|findstr|grep|rg)\b/i.test(cmd) ||
         /\|\s*(select-string|sls|findstr|grep|rg)\b/i.test(cmd)) {
-      return { ...result, stderr: '(退出码 1 表示无匹配结果，不是错误)' };
+      return { ...annotated, stderr: '(退出码 1 表示无匹配结果，不是错误)' };
     }
     // fc/Compare-Object/diff 返回 1 = 有差异
     if (/^(fc|compare-object|diff)\b/i.test(cmd)) {
-      return { ...result, stderr: '(退出码 1 表示文件有差异，不是错误)' };
+      return { ...annotated, stderr: '(退出码 1 表示文件有差异，不是错误)' };
     }
   }
 
-  return result;
+  return annotated;
 }
 
 /**
@@ -236,8 +274,13 @@ export function createShellTool(deps?: ShellToolDeps): ToolDefinition {
     approvalMode: 'handler',
     declaration: {
       name: 'shell',
-      description: `在项目目录下通过 PowerShell 执行命令。返回 stdout、stderr 和退出码。
+      description: `在项目目录下通过 PowerShell 后台执行非交互命令。返回 stdout、stderr 和退出码。
 内置安全检查：只读命令自动放行，危险命令会被拒绝或由 AI 安全分类器判断。
+
+交互限制：
+- 本工具不提供交互式终端，只适合可自动完成的后台命令。
+- 需要 TTY、密码输入、按键确认、全屏 TUI/编辑器/REPL 的命令可能无法完成。
+- 请优先改用非交互参数、预配置凭据或明确的一次性命令；如果确实需要人工交互，请用户在外部终端执行。
 
 命令规范：
 - 多条命令用分号 ; 分隔，不要用换行。
@@ -271,7 +314,7 @@ force 参数规则：
           },
           timeout: {
             type: 'number',
-            description: '超时时间（毫秒），默认 30000，最大 600000。超时后进程被终止（killed=true）。',
+            description: '超时时间（毫秒），默认 30000。显式设置时不设硬上限；设置为 0 表示不启用超时。超时后进程被终止（killed=true）。',
           },
           force: {
             type: 'boolean',
@@ -286,7 +329,7 @@ force 参数规则：
 
       const command = args.command as string;
       const cwd = args.cwd as string | undefined;
-      const timeout = Math.min((args.timeout as number | undefined) ?? limits.defaultTimeout, 600_000);
+      const timeout = resolveCommandTimeout(args.timeout, limits.defaultTimeout);
       const force = args.force === true;
 
       // 解析工作目录（安全检查：禁止超出项目范围）

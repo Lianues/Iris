@@ -19,6 +19,7 @@ export interface LLMRouterModel {
 export interface LLMModelInfo {
   modelName: LLMModelName;
   provider: LLMConfig['provider'];
+  thinkingControl?: boolean;
   /** 提供商真实模型 ID，对应 LLMConfig.model */
   modelId: string;
   contextWindow?: number;
@@ -131,6 +132,7 @@ export class LLMRouter {
     const config = this.getModelConfig(modelName);
     return {
       modelName,
+      thinkingControl: config.thinkingControl,
       provider: config.provider,
       modelId: config.model,
       contextWindow: config.contextWindow,
@@ -161,6 +163,11 @@ export class LLMRouter {
   /** 运行时移除当前模型 requestBody 覆盖中的指定 key */
   removeCurrentModelRequestBodyKeys(...keys: string[]): void {
     this.resolve().removeRequestBodyOverrideKeys?.(...keys);
+  }
+
+  /** 运行时按点分路径删除当前模型 requestBody 覆盖中的嵌套 key */
+  removeCurrentModelRequestBodyPaths(...paths: string[]): void {
+    this.resolve().removeRequestBodyOverridePaths?.(...paths);
   }
 
   /** 返回当前活动模型名称（用于日志和状态展示） */

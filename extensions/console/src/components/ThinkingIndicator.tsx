@@ -5,33 +5,34 @@ import { C } from '../theme';
 import { ICONS } from '../terminal-compat';
 import type { ThinkingEffortLevel } from '../app-types';
 
-const BLOCK_COUNT = 4;
-
-const FILL_MAP: Record<ThinkingEffortLevel, number> = {
-  none: 0,
-  low: 1,
-  medium: 2,
-  high: 3,
-  max: 4,
-};
-
 const FILLED_CHAR = ICONS.thinkingFilled; // ￭ (Halfwidth) / = (ASCII)
 const DIM_CHAR = ICONS.thinkingDim;       // ￮ (Halfwidth) / - (ASCII)
 
 interface ThinkingIndicatorProps {
   level: ThinkingEffortLevel;
+  /** 当前 provider 的完整级别列表（第一项始终是 'not-set'） */
+  providerLevels: ThinkingEffortLevel[];
   /** 是否显示操作提示（首次进入时显示） */
   showHint?: boolean;
   /** 当前是否处于远程连接状态 */
   isRemote?: boolean;
+  /** 思考控制功能是否启用（false 时不渲染） */
+  thinkingControlEnabled?: boolean;
 }
 
-export function ThinkingIndicator({ level, showHint, isRemote }: ThinkingIndicatorProps) {
-  const filled = FILL_MAP[level];
-  const isDisabled = level === 'none';
+export function ThinkingIndicator({ level, providerLevels, showHint, isRemote, thinkingControlEnabled }: ThinkingIndicatorProps) {
+  // thinkingControl 未设置时视为 true（默认启用）
+  if (thinkingControlEnabled === false) return null;
+
+  // 圆点数量 = 活跃级别数（排除 'not-set'）
+  const blockCount = Math.max(1, providerLevels.length - 1);
+  // 填充数量 = 当前级别在列表中的索引（'not-set' = 0 → 全空）
+  const idx = providerLevels.indexOf(level);
+  const filled = idx >= 0 ? idx : 0;
+  const isNotSet = level === 'not-set';
 
   const blocks: React.ReactNode[] = [];
-  for (let i = 0; i < BLOCK_COUNT; i++) {
+  for (let i = 0; i < blockCount; i++) {
     const isFilled = i < filled;
     blocks.push(
       <span key={i} fg={isFilled ? C.accent : C.dim}>
@@ -45,7 +46,7 @@ export function ThinkingIndicator({ level, showHint, isRemote }: ThinkingIndicat
       <box flexGrow={1}>
         <text>
           {blocks}
-          <span fg={isDisabled ? C.dim : C.accent}> {isDisabled ? 'thinking off' : level}</span>
+          <span fg={isNotSet ? C.dim : C.accent}> {isNotSet ? 'not set' : level}</span>
         </text>
       </box>
       {isRemote ? (

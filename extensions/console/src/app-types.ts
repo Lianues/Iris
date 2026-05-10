@@ -16,6 +16,8 @@ export interface SwitchModelResult {
   modelId?: string;
   modelName?: string;
   contextWindow?: number;
+  modelProvider?: string;
+  thinkingControlEnabled?: boolean;
 }
 
 export type ViewMode = 'chat' | 'session-list' | 'model-list' | 'agent-list' | 'settings' | 'queue-list' | 'tool-detail' | 'tool-list' | 'memory-list' | 'extension-list' | 'file-browser';
@@ -31,7 +33,7 @@ export interface PendingConfirm {
   action: () => void;
 }
 
-export type ThinkingEffortLevel = 'none' | 'low' | 'medium' | 'high' | 'max';
+export type ThinkingEffortLevel = 'not-set' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /** 工具执行细节页面数据 */
 export interface ToolDetailData {

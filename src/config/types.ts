@@ -68,6 +68,20 @@ export interface LLMConfig {
    * 默认值：false
    */
   autoCaching?: boolean;
+  /**
+   * 是否启用 Console TUI 的便捷思考强度控制（Shift+←/→）。
+   * 默认 true。设为 false 时隐藏思考指示器并禁用快捷键。
+   *
+   * 该功能会根据 provider 类型自动选择请求体格式：
+   *   claude:             thinking.type + output_config.effort
+   *   gemini:             generationConfig.thinkingConfig
+   *   openai-compatible:  reasoning_effort
+   *   openai-responses:   reasoning.effort + reasoning.summary
+   *
+   * 如果你在 requestBody 中显式设置了上述字段，它们会覆盖便捷控制的设置。
+   * 设为 false 可完全关闭此功能，隐藏指示器并禁用快捷键。
+   */
+  thinkingControl?: boolean;
   [key: string]: unknown;
 }
 

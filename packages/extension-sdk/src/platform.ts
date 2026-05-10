@@ -29,6 +29,7 @@ export interface IrisModelInfoLike {
   modelName: string;
   modelId: string;
   provider?: string;
+  thinkingControl?: boolean;
   contextWindow?: number;
   supportsVision?: boolean;
 }

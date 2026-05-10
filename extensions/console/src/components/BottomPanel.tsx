@@ -54,6 +54,10 @@ interface BottomPanelProps {
   thinkingEffort: ThinkingEffortLevel;
   /** Shift+Left/Right 切换思考强度 */
   onCycleThinkingEffort: (direction: 1 | -1) => void;
+  /** 思考强度便捷控制是否启用 */
+  thinkingControlEnabled?: boolean;
+  /** 当前 provider 的级别列表 */
+  providerLevels: ThinkingEffortLevel[];
   /** 待发送的文件附件列表 */
   pendingFiles: PendingFile[];
   /** 移除指定索引的待发送文件 */
@@ -90,6 +94,8 @@ export function BottomPanel({
   backgroundTaskSpinnerFrame,
   thinkingEffort,
   onCycleThinkingEffort,
+  thinkingControlEnabled,
+  providerLevels,
   remoteHost,
   isRemote,
   pendingFiles,
@@ -125,7 +131,7 @@ export function BottomPanel({
           paddingTop={0}
           paddingBottom={0}
         >
-          <ThinkingIndicator level={thinkingEffort} showHint={!hasMessages} isRemote={isRemote} />
+          <ThinkingIndicator level={thinkingEffort} providerLevels={providerLevels} showHint={!hasMessages} isRemote={isRemote} thinkingControlEnabled={thinkingControlEnabled} />
           <InputBar
             disabled={inputDisabled}
             isGenerating={isGenerating}
@@ -138,6 +144,7 @@ export function BottomPanel({
             isRemote={isRemote}
             dynamicCommands={dynamicCommands}
             supportsHeadlessTransition={supportsHeadlessTransition}
+            thinkingControlEnabled={thinkingControlEnabled}
           />
           <StatusBar
             agentName={agentName}
