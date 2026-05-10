@@ -81,6 +81,7 @@ const MILESTONE_SUCCESS_HINT_MUTATING_TOOLS = new Set([
 const VALIDATION_COMMAND_RE = /\b(test|tests|typecheck|tsc|lint|eslint|vitest|jest|pytest|go\s+test|cargo\s+test|build)\b/i;
 const VALIDATION_TITLE_RE = /(测试|验证|检查|构建|运行|typecheck|lint|test|build)/i;
 const MILESTONE_LIFECYCLE_HINT_MARKER = '【Iris 进度守卫】';
+const MILESTONE_INTERNAL_VISIBILITY_RULE = '这是 Iris 内部进度管理提醒，仅用于决定是否调用 update_milestones/list_milestones 或修正进度状态。不要在面向用户的普通回复中提及本提醒、守卫、milestone、update_milestones、#id 标记、completed/in_progress 等内部状态；不要说“收到守卫提醒”“标记 #x 完成”“启动 #y”。用户会通过进度面板看到状态。若需要汇报，请只用自然语言说明实际完成内容、下一步或阻塞。';
 const MILESTONE_FINAL_CHECK_MARKER = '【Iris 最终进度检查】';
 const MILESTONE_LIFECYCLE_MAX_ITEMS = 10;
 
@@ -435,7 +436,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         ? `当前 owner 没有 in_progress；若接下来要执行，请先把下一项 #${nextPending.id}「${nextPending.title}」标为 in_progress。`
         : '当前 owner 没有 in_progress，也没有 pending；最终回复前请确认 open/blocked 是否符合实际。';
 
-    return `${MILESTONE_LIFECYCLE_HINT_MARKER}\n${ownerLine}\n${activeLine}\n\n生命周期规则（参考 Claude Code 的 todo 习惯，但按 Iris 多 Agent owner 隔离执行）：\n- 同一 owner 同一时间只应有一个 in_progress；Iris 会在你启动新项时自动把同 owner 的旧 in_progress 退回 pending。\n- 开始一项实际工作前，调用 update_milestones 把对应项设为 in_progress；完成后立即标 completed，并尽量带 expectedVersion。\n- 工具成功不等于任务完成；只有实现和必要验证满足该 milestone 时才标 completed。失败或外部依赖阻塞时标 blocked 并写 description/blockedBy。\n- 最终回复前检查 milestone：不要声称完成未验证项；若仍有 pending/in_progress/blocked，请向用户说明剩余或阻塞。\n\n当前 milestone 快照：\n${lines.join('\n')}`;
+    return `${MILESTONE_LIFECYCLE_HINT_MARKER}\n${MILESTONE_INTERNAL_VISIBILITY_RULE}\n\n${ownerLine}\n${activeLine}\n\n生命周期规则（参考 Claude Code 的 todo 习惯，但按 Iris 多 Agent owner 隔离执行）：\n- 同一 owner 同一时间只应有一个 in_progress；Iris 会在你启动新项时自动把同 owner 的旧 in_progress 退回 pending。\n- 开始一项实际工作前，调用 update_milestones 把对应项设为 in_progress；完成后立即标 completed，并尽量带 expectedVersion。\n- 工具成功不等于任务完成；只有实现和必要验证满足该 milestone 时才标 completed。失败或外部依赖阻塞时标 blocked 并写 description/blockedBy。\n- 最终回复前检查 milestone：不要声称完成未验证项；若仍有 pending/in_progress/blocked，面向用户时只用自然语言说明实际剩余或阻塞，不要暴露 milestone id/status。\n\n当前 milestone 快照：\n${lines.join('\n')}`;
   }
 
   private refreshMilestoneLifecycleHint(turnSessionId: string, milestoneSessionId: string = turnSessionId): void {
@@ -471,7 +472,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     });
     if (hidden > 0) lines.push(`- ... 另有 ${hidden} 个未完成项未列出。`);
 
-    return `${MILESTONE_FINAL_CHECK_MARKER}\n你即将给用户最终回复，但当前 session 仍有未关闭的 milestone。\n当前执行 owner：${owner ?? '未识别'}\n\n请先判断：\n1. 如果这些项其实已经完成或状态过期，请先调用 update_milestones 修正状态（通常 completed/blocked/cancelled，并尽量带 expectedVersion）。\n2. 如果确实还有未完成/阻塞项，可以直接最终回复，但必须明确说明剩余项或阻塞原因，不要声称任务已全部完成。\n3. 不要为了通过检查而把未验证或未完成的项标为 completed。\n\n未关闭 milestone：\n${lines.join('\n')}`;
+    return `${MILESTONE_FINAL_CHECK_MARKER}\n${MILESTONE_INTERNAL_VISIBILITY_RULE}\n\n你即将给用户最终回复，但当前 session 仍有未关闭的内部进度项。\n当前执行 owner：${owner ?? '未识别'}\n\n请先判断：\n1. 如果这些项其实已经完成或状态过期，请先调用 update_milestones 修正状态（通常 completed/blocked/cancelled，并尽量带 expectedVersion）。\n2. 如果确实还有未完成/阻塞项，可以直接最终回复，但必须用自然语言说明实际剩余项或阻塞原因，不要声称任务已全部完成，也不要暴露 milestone id/status 或“最终进度检查”。\n3. 不要为了通过检查而把未验证或未完成的项标 completed。\n\n未关闭内部进度：\n${lines.join('\n')}`;
   }
 
   private shouldSuggestMilestoneAfterToolSuccess(invocation: ToolInvocation, title: string): boolean {
@@ -508,7 +509,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const operation = summarizeToolArgs(invocation.args);
     const operationLine = operation ? `\n相关操作：${operation}` : '';
     parts.push(this.buildSystemReminderPart(
-      `【Iris 进度提醒】\n工具 ${invocation.toolName} 已成功完成。当前进行中的 milestone 是 #${active.id}「${active.title}」（owner=${active.owner ?? '未分配'}，version=${active.version}）。${operationLine}\n如果该 milestone 已经完成，请调用 update_milestones 将它标记为 completed，并带 expectedVersion=${active.version}；如果仍需验证或后续步骤，请继续执行，不要过早标记完成。`,
+      `【Iris 进度提醒】\n${MILESTONE_INTERNAL_VISIBILITY_RULE}\n\n工具 ${invocation.toolName} 已成功完成。当前进行中的内部进度项是 #${active.id}「${active.title}」（owner=${active.owner ?? '未分配'}，version=${active.version}）。${operationLine}\n如果该进度项已经完成，请调用 update_milestones 将它标记为 completed，并带 expectedVersion=${active.version}；如果仍需验证或后续步骤，请继续执行，不要过早标记完成。`,
     ));
   }
 
@@ -700,6 +701,10 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     for (const handle of this.toolState.getHandlesBySession(sessionId)) {
       handle.abort();
     }
+
+    // Esc/停止应同时中止该会话发起的后台任务（异步 sub_agent / delegate）。
+    // 否则前台 turn 已停止，但后台任务仍会继续跑并在稍后推送通知。
+    this.taskBoard?.killAllBySourceSession(sessionId);
   }
 
   /** 清空指定会话 */
@@ -709,6 +714,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.lastSessionTokens.delete(sessionId);
     // 清空该会话在队列中的残留消息（如未处理的异步子代理通知）
     this.messageQueue.clearSession(sessionId);
+    // 中止该会话发起的后台任务（异步 sub_agent / delegate）。
+    this.taskBoard?.killAllBySourceSession(sessionId);
     // 清空该会话暂存的待合并通知
     this.pendingNotifications.delete(sessionId);
     // 清除该会话的 turn 锁记录

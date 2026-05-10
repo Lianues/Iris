@@ -7,6 +7,8 @@ import { ICONS } from '../terminal-compat';
 
 interface HintBarProps {
   isGenerating: boolean;
+  /** 是否有后台任务仍在运行（异步 sub_agent / delegate） */
+  hasRunningBackgroundTasks?: boolean;
   queueSize?: number;
   copyMode: boolean;
   exitConfirmArmed: boolean;
@@ -61,9 +63,10 @@ function hardTruncate(text: string, maxWidth: number): string {
 
 /* ---------- 组件 ---------- */
 
-export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, remoteHost }: HintBarProps) {
+export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost }: HintBarProps) {
   const cwd = process.cwd();
   const hasQueue = (queueSize ?? 0) > 0;
+  const escAction = isGenerating ? 'esc 中断生成' : hasRunningBackgroundTasks ? 'esc 中断任务' : 'ctrl+j 换行';
 
   // 计算右侧提示文本（必须与下方渲染 JSX 完全对应，否则布局错位）
   let hintStr: string;
@@ -71,7 +74,7 @@ export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, r
     hintStr = '再次按 ctrl+c 退出';
   } else {
     const parts: string[] = [];
-    parts.push(isGenerating ? 'esc 中断生成' : 'ctrl+j 换行');
+    parts.push(escAction);
     parts.push('ctrl+t 工具详情');
     if (isGenerating && hasQueue) {
       parts.push('/queue 管理队列');
@@ -103,7 +106,7 @@ export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, r
       ) : (
         <box flexShrink={0}>
           <text fg={C.dim}>
-            {isGenerating ? 'esc 中断生成' : 'ctrl+j 换行'}
+            {escAction}
             {`  ${ICONS.separator}  ctrl+t 工具详情`}
             {isGenerating && hasQueue ? (
               <>

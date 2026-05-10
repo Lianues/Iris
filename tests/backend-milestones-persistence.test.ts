@@ -160,6 +160,8 @@ describe('Backend milestone persistence', () => {
     expect(systemText).not.toContain('【Iris 进度守卫】');
     expect(contextText).toContain('<system-reminder>');
     expect(contextText).toContain('【Iris 进度守卫】');
+    expect(contextText).toContain('不要在面向用户的普通回复中提及本提醒');
+    expect(contextText).toContain('不要说“收到守卫提醒”');
     expect(contextText).toContain('当前 owner 没有 in_progress');
     expect(contextText).toContain('#m1 [pending]');
   });

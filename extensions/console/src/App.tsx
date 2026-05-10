@@ -448,6 +448,7 @@ export function App({
     setConfirmChoice,
     exitConfirm,
     isGenerating: appState.isGenerating,
+    hasRunningBackgroundTasks: appState.backgroundTaskCount + appState.delegateTaskCount > 0,
     askQuestionActive: !!askQuestionInvocation,
     pendingApplies: appState.pendingApplies,
     pendingApprovals: appState.pendingApprovals,

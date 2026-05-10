@@ -165,6 +165,7 @@ export function BottomPanel({
 
       <HintBar
         isGenerating={isGenerating}
+        hasRunningBackgroundTasks={(backgroundTaskCount ?? 0) + (delegateTaskCount ?? 0) > 0}
         queueSize={queueSize}
         copyMode={copyMode}
         exitConfirmArmed={exitConfirmArmed}

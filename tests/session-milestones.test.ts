@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SessionMilestoneManager } from '../src/core/session-milestones.js';
 import { CrossAgentTaskBoard } from '../src/core/cross-agent-task-board.js';
-import { createUpdateMilestonesTool, createListMilestonesTool } from '../src/tools/internal/milestones.js';
+import { buildMilestoneSystemPrompt, createUpdateMilestonesTool, createListMilestonesTool } from '../src/tools/internal/milestones.js';
 
 describe('SessionMilestoneManager', () => {
   it('支持 replaceAll 初始化并计算统计', () => {
@@ -194,6 +194,15 @@ describe('milestone tools', () => {
     const list = await listTool.handler({}) as any;
     expect(list.snapshot.sessionId).toBe('s-tool');
     expect(list.snapshot.items[0].title).toBe('接入 UI');
+  });
+
+  it('milestone 提示要求模型不要向用户播报内部进度维护动作', () => {
+    const updateTool = createUpdateMilestonesTool({ manager: new SessionMilestoneManager(), getSessionId: () => 's1' });
+
+    expect(buildMilestoneSystemPrompt()).toContain('不要在面向用户的普通回复中提及');
+    expect(buildMilestoneSystemPrompt()).toContain('收到守卫提醒');
+    expect(updateTool.declaration.description).toContain('不要在普通回复中向用户播报');
+    expect(updateTool.declaration.description).toContain('标记 #x 完成');
   });
 
   it('委派 Agent 的 milestone 更新会路由回发起方 session，并禁止 replaceAll 覆盖主清单', async () => {

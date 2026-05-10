@@ -138,7 +138,8 @@ export function createUpdateMilestonesTool(deps: MilestoneToolDeps): ToolDefinit
 - 通常同一 Agent 同一时间只应有一个 in_progress；多 Agent 并行时可通过 owner 区分负责人。
 - 当前前台 Agent 初次建立完整清单时可使用 replaceAll=true；子代理或委派 Agent 更新时请用增量 items，避免覆盖其他 Agent 的 owner/状态。
 - list_milestones 会返回每项 version；并发敏感更新可带 expectedVersion，防止覆盖别人刚刚写入的状态。
-- 这不是最终回复文本；调用后 UI 会自动显示进度清单。`,
+- 这不是最终回复文本；调用后 UI 会自动显示进度清单。
+- 不要在普通回复中向用户播报“标记 #x 完成”“启动 #y”“更新 milestone”等内部进度维护动作；除非用户明确询问进度，否则继续执行实际任务或只汇报实际成果/阻塞。`,
       parameters: {
         type: 'object',
         properties: {
@@ -210,5 +211,6 @@ Iris 支持结构化 milestone/task 进度显示：pending 显示为淡色圆点
 2. 初始清单应短而可执行，通常 3-8 项；简单单步任务不要强行创建清单。
 3. 开始执行某项前先把它标为 in_progress；完成后立即把它标为 completed；遇到阻塞则标为 blocked 并说明 blockedBy/description。
 4. 多 Agent / sub_agent 并行时不要覆盖其他 Agent 的条目；用 owner 标记负责人，增量更新自己的条目。
-5. 在最终回复前确认 milestone 状态与实际完成情况一致；不要把未验证或部分完成的项标为 completed。并发敏感场景请先 list_milestones 获取 version，再用 expectedVersion 更新。`;
+5. 在最终回复前确认 milestone 状态与实际完成情况一致；不要把未验证或部分完成的项标为 completed。并发敏感场景请先 list_milestones 获取 version，再用 expectedVersion 更新。
+6. milestone 是内部进度管理能力。不要在面向用户的普通回复中提及“收到守卫提醒”、更新 milestone、标记 #id 完成/启动、completed/in_progress 等内部动作或状态；用户会通过进度面板看到这些变化。除非用户明确询问进度，否则只汇报实际任务成果、下一步或阻塞。`;
 }

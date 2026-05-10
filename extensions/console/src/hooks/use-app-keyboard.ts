@@ -47,6 +47,8 @@ interface UseAppKeyboardOptions {
   setConfirmChoice: SetState<ConfirmChoice>;
   exitConfirm: ExitConfirmController;
   isGenerating: boolean;
+  /** 当前会话是否有后台任务仍在运行（异步 sub_agent / delegate） */
+  hasRunningBackgroundTasks?: boolean;
   /** AskQuestionFirst 交互面板是否正在接管键盘 */
   askQuestionActive?: boolean;
   pendingApplies: ToolInvocation[];
@@ -192,6 +194,7 @@ export function useAppKeyboard({
   approval,
   onExit,
   onAbort,
+  hasRunningBackgroundTasks = false,
   onToolApply,
   onToolApproval,
   onAddCommandPattern,
@@ -798,7 +801,7 @@ export function useAppKeyboard({
       // 全局层不能把 Esc 当作 abort，否则会直接中断整个 turn。
       if (askQuestionActive) return;
 
-      if (isGenerating) {
+      if (isGenerating || hasRunningBackgroundTasks) {
         onAbort();
         return;
       }

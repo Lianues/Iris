@@ -16,30 +16,39 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/irises-extension-sdk/src/logger.ts
+// ../../packages/extension-sdk/dist/logger.js
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= 0 /* DEBUG */)
+      if (_logLevel <= LogLevel.DEBUG)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= 1 /* INFO */)
+      if (_logLevel <= LogLevel.INFO)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= 2 /* WARN */)
+      if (_logLevel <= LogLevel.WARN)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= 3 /* ERROR */)
+      if (_logLevel <= LogLevel.ERROR)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
-var _logLevel = 1 /* INFO */;
-var init_logger = () => {};
+var LogLevel, _logLevel;
+var init_logger = __esm(() => {
+  (function(LogLevel2) {
+    LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
+    LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
+    LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
+    LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
+    LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
+  })(LogLevel || (LogLevel = {}));
+  _logLevel = LogLevel.INFO;
+});
 
 // src/terminal-compat.ts
 import { execFileSync } from "child_process";
@@ -622,7 +631,7 @@ var init_remote_wizard = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/framing.ts
+// ../../packages/extension-sdk/dist/ipc/framing.js
 import { Transform } from "node:stream";
 function encodeFrame(data) {
   const payload = Buffer.from(JSON.stringify(data), "utf-8");
@@ -673,7 +682,7 @@ var init_framing = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/protocol.ts
+// ../../packages/extension-sdk/dist/ipc/protocol.js
 function isRequest(msg) {
   return "id" in msg && "method" in msg;
 }
@@ -797,7 +806,7 @@ var init_protocol = __esm(() => {
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// node_modules/irises-extension-sdk/src/ipc/remote-tool-handle.ts
+// ../../packages/extension-sdk/dist/ipc/remote-tool-handle.js
 import { EventEmitter } from "node:events";
 var logger, RemoteToolHandle;
 var init_remote_tool_handle = __esm(() => {
@@ -901,7 +910,7 @@ var init_remote_tool_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/remote-backend-handle.ts
+// ../../packages/extension-sdk/dist/ipc/remote-backend-handle.js
 import { EventEmitter as EventEmitter2 } from "node:events";
 var logger2, RemoteBackendHandle;
 var init_remote_backend_handle = __esm(() => {
@@ -1125,7 +1134,7 @@ var init_remote_backend_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/remote-api-proxy.ts
+// ../../packages/extension-sdk/dist/ipc/remote-api-proxy.js
 function callApi(client, targetAgentName, method, params) {
   if (!targetAgentName) {
     return client.call(method, params);
@@ -1199,16 +1208,7 @@ var init_remote_api_proxy = __esm(() => {
   logger3 = createExtensionLogger("RemoteApiProxy");
 });
 
-// node_modules/irises-extension-sdk/src/ipc/index.ts
-var init_ipc = __esm(() => {
-  init_framing();
-  init_protocol();
-  init_remote_backend_handle();
-  init_remote_tool_handle();
-  init_remote_api_proxy();
-});
-
-// node_modules/irises-extension-sdk/dist/ipc/index.js
+// ../../packages/extension-sdk/dist/ipc/index.js
 var exports_ipc = {};
 __export(exports_ipc, {
   isResponse: () => isResponse,
@@ -1225,8 +1225,12 @@ __export(exports_ipc, {
   ErrorCodes: () => ErrorCodes,
   BACKEND_EVENT_TO_IPC: () => BACKEND_EVENT_TO_IPC
 });
-var init_ipc2 = __esm(() => {
-  init_ipc();
+var init_ipc = __esm(() => {
+  init_framing();
+  init_protocol();
+  init_remote_backend_handle();
+  init_remote_tool_handle();
+  init_remote_api_proxy();
 });
 
 // src/index.ts
@@ -1234,7 +1238,7 @@ import React13 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// node_modules/irises-extension-sdk/src/platform.ts
+// ../../packages/extension-sdk/dist/platform.js
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1342,6 +1346,12 @@ class BackendHandle {
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
   }
+  getMilestones(sessionId) {
+    return this._backend.getMilestones?.(sessionId);
+  }
+  loadMilestones(sessionId) {
+    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
+  }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
   }
@@ -1360,23 +1370,10 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// node_modules/irises-extension-sdk/src/utils/paths.ts
-function normalizeText(value) {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-function normalizeRelativeFilePath(input, label = "文件路径") {
-  const normalized = input.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
-  if (!normalized) {
-    throw new Error(`${label}不能为空`);
-  }
-  const parts = normalized.split("/");
-  if (parts.some((part) => !part || part === "." || part === "..")) {
-    throw new Error(`${label}无效: ${input}`);
-  }
-  return parts.join("/");
-}
 
-// node_modules/irises-extension-sdk/src/utils/dependencies.ts
+// ../../packages/extension-sdk/dist/index.js
+init_logger();
+// ../../packages/extension-sdk/dist/utils/dependencies.js
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
@@ -1513,9 +1510,27 @@ async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
     installArgs: args
   };
 }
-// node_modules/irises-extension-sdk/src/utils/git.ts
+// ../../packages/extension-sdk/dist/utils/git.js
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
+
+// ../../packages/extension-sdk/dist/utils/paths.js
+function normalizeText(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+function normalizeRelativeFilePath(input, label = "文件路径") {
+  const normalized = input.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!normalized) {
+    throw new Error(`${label}不能为空`);
+  }
+  const parts = normalized.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error(`${label}无效: ${input}`);
+  }
+  return parts.join("/");
+}
+
+// ../../packages/extension-sdk/dist/utils/git.js
 var GIT_INSTALL_METADATA_FILE = ".iris-extension-install.json";
 function stripGitPlusProtocol(url) {
   return url.startsWith("git+") ? url.slice("git+".length) : url;
@@ -2856,15 +2871,16 @@ function hardTruncate(text, maxWidth) {
   }
   return result + ICONS.ellipsis;
 }
-function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, remoteHost }) {
+function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost }) {
   const cwd = process.cwd();
   const hasQueue = (queueSize ?? 0) > 0;
+  const escAction = isGenerating ? "esc 中断生成" : hasRunningBackgroundTasks ? "esc 中断任务" : "ctrl+j 换行";
   let hintStr;
   if (exitConfirmArmed) {
     hintStr = "再次按 ctrl+c 退出";
   } else {
     const parts = [];
-    parts.push(isGenerating ? "esc 中断生成" : "ctrl+j 换行");
+    parts.push(escAction);
     parts.push("ctrl+t 工具详情");
     if (isGenerating && hasQueue) {
       parts.push("/queue 管理队列");
@@ -2911,7 +2927,7 @@ function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, remoteHo
         children: /* @__PURE__ */ jsxDEV7("text", {
           fg: C.dim,
           children: [
-            isGenerating ? "esc 中断生成" : "ctrl+j 换行",
+            escAction,
             `  ${ICONS.separator}  ctrl+t 工具详情`,
             isGenerating && hasQueue ? /* @__PURE__ */ jsxDEV7(Fragment3, {
               children: [
@@ -3735,6 +3751,7 @@ function BottomPanel({
       }, undefined, true, undefined, this),
       /* @__PURE__ */ jsxDEV11(HintBar, {
         isGenerating,
+        hasRunningBackgroundTasks: (backgroundTaskCount ?? 0) + (delegateTaskCount ?? 0) > 0,
         queueSize,
         copyMode,
         exitConfirmArmed,
@@ -5632,7 +5649,7 @@ import { useMemo as useMemo6 } from "react";
 import * as fs4 from "fs";
 import * as path4 from "path";
 
-// node_modules/irises-extension-sdk/src/tool-utils.ts
+// ../../packages/extension-sdk/dist/tool-utils.js
 import * as fs3 from "node:fs";
 import * as path3 from "node:path";
 function normalizeLineEndings(text) {
@@ -10423,6 +10440,7 @@ function useAppKeyboard({
   approval,
   onExit,
   onAbort,
+  hasRunningBackgroundTasks = false,
   onToolApply,
   onToolApproval,
   onAddCommandPattern,
@@ -10981,7 +10999,7 @@ function useAppKeyboard({
       }
       if (askQuestionActive)
         return;
-      if (isGenerating) {
+      if (isGenerating || hasRunningBackgroundTasks) {
         onAbort();
         return;
       }
@@ -12431,6 +12449,7 @@ function App({
     setConfirmChoice,
     exitConfirm,
     isGenerating: appState.isGenerating,
+    hasRunningBackgroundTasks: appState.backgroundTaskCount + appState.delegateTaskCount > 0,
     askQuestionActive: !!askQuestionInvocation,
     pendingApplies: appState.pendingApplies,
     pendingApprovals: appState.pendingApprovals,
@@ -12964,6 +12983,140 @@ function resolveConsoleConfig(raw) {
   };
 }
 
+// src/extension-toggle.ts
+function readConsolePluginEntries(raw) {
+  const section = raw?.plugins;
+  if (Array.isArray(section))
+    return section.filter((item) => item && typeof item.name === "string");
+  if (section && typeof section === "object" && Array.isArray(section.plugins)) {
+    return section.plugins.filter((item) => item && typeof item.name === "string");
+  }
+  return [];
+}
+function buildConsolePluginsConfigUpdate(raw, pluginEntries) {
+  const section = raw?.plugins;
+  if (Array.isArray(section))
+    return { plugins: pluginEntries };
+  const nextSection = section && typeof section === "object" ? { ...section } : {};
+  nextSection.plugins = pluginEntries;
+  return { plugins: nextSection };
+}
+function hasConsolePluginContribution(manifest) {
+  const hasPlatforms = Array.isArray(manifest.platforms) && manifest.platforms.length > 0;
+  return !!manifest.plugin || !!manifest.entry || !hasPlatforms;
+}
+function readWorkspaceExtensionDiscoveryConfig(raw) {
+  const extensions = raw?.system?.extensions;
+  if (!extensions || typeof extensions !== "object")
+    return { enabled: false, allowlist: [] };
+  const allowlist = Array.isArray(extensions.workspaceAllowlist) ? extensions.workspaceAllowlist.filter((item) => typeof item === "string" && item.trim().length > 0) : [];
+  return { enabled: extensions.loadWorkspaceExtensions === true, allowlist };
+}
+function updateWorkspaceExtensionDiscoveryConfig(configManager, name, enabled, packages) {
+  const raw = configManager.readEditableConfig();
+  const system = raw.system && typeof raw.system === "object" ? { ...raw.system } : {};
+  const currentExtensions = system.extensions && typeof system.extensions === "object" ? { ...system.extensions } : {};
+  const workspaceNames = packages.filter((pkg) => pkg.source === "workspace").map((pkg) => pkg.manifest.name);
+  const currentAllowlist = Array.isArray(currentExtensions.workspaceAllowlist) ? currentExtensions.workspaceAllowlist.filter((item) => typeof item === "string" && item.trim().length > 0) : [];
+  const currentlyAllWorkspace = currentExtensions.loadWorkspaceExtensions === true && currentAllowlist.length === 0;
+  let nextAllowlist;
+  let nextEnabled;
+  if (enabled) {
+    nextEnabled = true;
+    nextAllowlist = currentlyAllWorkspace ? [] : Array.from(new Set([...currentAllowlist, name]));
+  } else {
+    nextAllowlist = currentlyAllWorkspace ? workspaceNames.filter((item) => item !== name) : currentAllowlist.filter((item) => item !== name);
+    nextEnabled = nextAllowlist.length > 0;
+    if (!nextEnabled)
+      nextAllowlist = [];
+  }
+  system.extensions = { ...currentExtensions, loadWorkspaceExtensions: nextEnabled, workspaceAllowlist: nextAllowlist };
+  const result = configManager.updateEditableConfig({ system });
+  return { workspace: { enabled: nextEnabled, allowlist: nextAllowlist }, mergedRaw: result.mergedRaw };
+}
+async function handleConsoleToggleExtension(api, name, desiredEnabled) {
+  const ext = api?.extensions;
+  const configManager = api?.configManager;
+  if (!ext || !configManager) {
+    return { ok: false, message: "扩展管理 API 不可用" };
+  }
+  let workspaceRollback;
+  let rollbackWorkspaceOnFailure = false;
+  try {
+    const raw = configManager.readEditableConfig();
+    const pluginEntries = [...readConsolePluginEntries(raw)];
+    const existing = pluginEntries.find((p) => p.name === name);
+    const packages = ext.discoverAll?.() ?? ext.discover?.() ?? [];
+    const pkg = packages.find((item) => item.manifest.name === name);
+    const hasPlugin = pkg ? hasConsolePluginContribution(pkg.manifest) : true;
+    const isWorkspace = pkg?.source === "workspace";
+    const active = api?.pluginManager?.listPlugins?.() ?? [];
+    const isActive = active.some((p) => p.name === name);
+    const shouldEnable = desiredEnabled ?? !isActive;
+    if (!shouldEnable) {
+      if (isActive)
+        await ext.deactivate?.(name);
+      if (isWorkspace) {
+        const workspaceUpdate = updateWorkspaceExtensionDiscoveryConfig(configManager, name, false, packages);
+        ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
+      }
+      if (existing) {
+        existing.enabled = false;
+      } else if (hasPlugin) {
+        pluginEntries.push({ name, enabled: false });
+      }
+      configManager.updateEditableConfig(buildConsolePluginsConfigUpdate(raw, pluginEntries));
+      return { ok: true, message: `已禁用 "${name}"` };
+    }
+    let installedDeps = [];
+    if (pkg?.rootDir) {
+      const depsResult = await ensureExtensionRuntimeDependencies(pkg.rootDir);
+      if (depsResult.installed)
+        installedDeps = depsResult.missingDependencies;
+    }
+    if (isWorkspace) {
+      workspaceRollback = readWorkspaceExtensionDiscoveryConfig(raw);
+      const workspaceUpdate = updateWorkspaceExtensionDiscoveryConfig(configManager, name, true, packages);
+      rollbackWorkspaceOnFailure = true;
+      ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
+    }
+    if (hasPlugin) {
+      const activationEntry = existing ? { ...existing, enabled: true } : { name, type: "local", enabled: true };
+      await ext.activate?.(activationEntry);
+      rollbackWorkspaceOnFailure = false;
+    }
+    if (existing) {
+      existing.enabled = true;
+    } else if (hasPlugin) {
+      pluginEntries.push({ name, enabled: true });
+    }
+    if (hasPlugin)
+      configManager.updateEditableConfig(buildConsolePluginsConfigUpdate(raw, pluginEntries));
+    if (!hasPlugin)
+      return {
+        ok: true,
+        message: installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(", ")} 并启用可选平台扩展 "${name}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。` : `已启用可选平台扩展 "${name}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。`
+      };
+    return { ok: true, message: installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(", ")} 并启用 "${name}"` : `已启用 "${name}"` };
+  } catch (err) {
+    if (rollbackWorkspaceOnFailure && workspaceRollback) {
+      try {
+        const currentRaw = configManager.readEditableConfig();
+        const system = currentRaw.system && typeof currentRaw.system === "object" ? { ...currentRaw.system } : {};
+        const currentExtensions = system.extensions && typeof system.extensions === "object" ? { ...system.extensions } : {};
+        system.extensions = {
+          ...currentExtensions,
+          loadWorkspaceExtensions: workspaceRollback.enabled,
+          workspaceAllowlist: workspaceRollback.allowlist
+        };
+        configManager.updateEditableConfig({ system });
+        ext.setWorkspaceDiscovery?.({ enabled: workspaceRollback.enabled, allowlist: workspaceRollback.allowlist });
+      } catch {}
+    }
+    return { ok: false, message: `操作失败: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 // src/index.ts
 function generateCommandPattern(command) {
   const tokens = command.trim().split(/\s+/);
@@ -13399,7 +13552,7 @@ class ConsolePlatform extends PlatformAdapter {
     return next;
   }
   async start() {
-    this.api?.setLogLevel?.(4 /* SILENT */);
+    this.api?.setLogLevel?.(LogLevel.SILENT);
     configureBundledOpenTuiTreeSitter(this.isCompiledBinary);
     this.onBackend("assistant:content", (sid, content) => {
       if (sid === this.sessionId) {
@@ -13831,7 +13984,7 @@ ${summaryText}`;
       if (!WsIPCClient) {
         throw new Error("remote-connect 扩展服务不可用，请确认 remote-connect 扩展已安装并启用");
       }
-      const { RemoteBackendHandle: RemoteBackendHandle2, createRemoteApiProxy: createRemoteApiProxy2 } = await Promise.resolve().then(() => (init_ipc2(), exports_ipc));
+      const { RemoteBackendHandle: RemoteBackendHandle2, createRemoteApiProxy: createRemoteApiProxy2 } = await Promise.resolve().then(() => (init_ipc(), exports_ipc));
       const wsClient = new WsIPCClient;
       const handshake = await wsClient.connect(url, token);
       let remoteBackend;
@@ -14498,11 +14651,17 @@ ${summaryText}`;
     }
   }
   isWorkspaceExtensionEnabled(raw, name) {
-    const extensions = raw?.system?.extensions;
-    if (!extensions || typeof extensions !== "object" || extensions.loadWorkspaceExtensions !== true)
+    const discovery = this.readWorkspaceExtensionDiscoveryConfig(raw);
+    if (!discovery.enabled)
       return false;
+    return discovery.allowlist.length === 0 || discovery.allowlist.includes(name);
+  }
+  readWorkspaceExtensionDiscoveryConfig(raw) {
+    const extensions = raw?.system?.extensions;
+    if (!extensions || typeof extensions !== "object")
+      return { enabled: false, allowlist: [] };
     const allowlist = Array.isArray(extensions.workspaceAllowlist) ? extensions.workspaceAllowlist.filter((item) => typeof item === "string" && item.trim().length > 0) : [];
-    return allowlist.length === 0 || allowlist.includes(name);
+    return { enabled: extensions.loadWorkspaceExtensions === true, allowlist };
   }
   updateWorkspaceExtensionDiscoveryConfig(name, enabled, packages) {
     const configManager = this.api?.configManager;
@@ -14573,65 +14732,7 @@ ${summaryText}`;
     configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, nextEntries));
   }
   async handleToggleExtension(name, desiredEnabled) {
-    const ext = this.api?.extensions;
-    const configManager = this.api?.configManager;
-    if (!ext || !configManager) {
-      return { ok: false, message: "扩展管理 API 不可用" };
-    }
-    try {
-      const raw = configManager.readEditableConfig();
-      const pluginEntries = [...this.readPluginEntries(raw)];
-      const existing = pluginEntries.find((p) => p.name === name);
-      const packages = ext.discoverAll?.() ?? ext.discover?.() ?? [];
-      const pkg = packages.find((item) => item.manifest.name === name);
-      const hasPlugin = pkg ? this.hasPluginContribution(pkg.manifest) : true;
-      const isWorkspace = pkg?.source === "workspace";
-      const active = this.api?.pluginManager?.listPlugins?.() ?? [];
-      const isActive = active.some((p) => p.name === name);
-      const shouldEnable = desiredEnabled ?? !isActive;
-      if (!shouldEnable) {
-        if (isActive)
-          await ext.deactivate(name);
-        if (isWorkspace) {
-          const workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, false, packages);
-          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
-        }
-        if (existing) {
-          existing.enabled = false;
-        } else if (hasPlugin) {
-          pluginEntries.push({ name, enabled: false });
-        }
-        configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries));
-        return { ok: true, message: `已禁用 "${name}"` };
-      } else {
-        let workspaceUpdate;
-        if (isWorkspace) {
-          workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, true, packages);
-          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
-        }
-        let installedDeps = [];
-        if (hasPlugin) {
-          if (pkg?.rootDir) {
-            const depsResult = await ensureExtensionRuntimeDependencies(pkg.rootDir);
-            if (depsResult.installed)
-              installedDeps = depsResult.missingDependencies;
-          }
-          await ext.activate(name);
-        }
-        if (existing) {
-          existing.enabled = true;
-        } else if (hasPlugin) {
-          pluginEntries.push({ name, enabled: true });
-        }
-        if (hasPlugin)
-          configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries));
-        if (!hasPlugin)
-          return { ok: true, message: `已启用可选平台扩展 "${name}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。` };
-        return { ok: true, message: installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(", ")} 并启用 "${name}"` : `已启用 "${name}"` };
-      }
-    } catch (err) {
-      return { ok: false, message: `操作失败: ${err instanceof Error ? err.message : String(err)}` };
-    }
+    return handleConsoleToggleExtension(this.api, name, desiredEnabled);
   }
   async handleInstallGitExtension(target, scope = "agent") {
     const ext = this.api?.extensions;
@@ -14989,8 +15090,8 @@ ${summaryText}`;
         try {
           const fullPath = path6.join(dirPath, name);
           const stat = fs6.statSync(fullPath);
-          const isDirectory = stat.isDirectory();
-          if (isDirectory) {
+          const isDirectory2 = stat.isDirectory();
+          if (isDirectory2) {
             entries.push({ name, isDirectory: true });
           } else {
             const ext = path6.extname(name).toLowerCase();

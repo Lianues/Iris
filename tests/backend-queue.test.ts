@@ -18,6 +18,7 @@ import { Backend } from '../src/core/backend/backend.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { ToolStateManager } from '../src/tools/state.js';
 import { PromptAssembler } from '../src/prompt/assembler.js';
+import { CrossAgentTaskBoard } from '../src/core/cross-agent-task-board.js';
 import type { Content, Part, LLMRequest } from '../src/types/index.js';
 
 // ============ Mock 辅助 ============
@@ -278,6 +279,28 @@ describe('Backend: 队列化调度', () => {
     await chatPromise;
 
     expect(doneSpy).toHaveBeenCalled();
+  });
+
+  it('abortChat 同时中止该 session 发起的后台任务', () => {
+    const board = new CrossAgentTaskBoard();
+    const backend = new Backend(router, storage as any, tools, toolState, prompt, {
+      stream: false,
+      maxToolRounds: 5,
+    });
+    backend.setTaskBoard(board);
+
+    board.register({
+      taskId: 'task_abort_1',
+      sourceAgent: 'test-agent',
+      sourceSessionId: 's1',
+      targetAgent: 'test-agent',
+      type: 'sub_agent',
+      description: '后台任务',
+    });
+
+    backend.abortChat('s1');
+
+    expect(board.get('task_abort_1')?.status).toBe('killed');
   });
 
   // ---- clearSession ----
