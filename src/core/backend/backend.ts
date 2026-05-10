@@ -189,7 +189,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private milestoneCleanup?: () => void;
   /** 当前 Backend 所属 Agent 名称，用于过滤共享 milestone 事件。 */
   private milestoneRouteAgent?: string;
-  /** 当前 turn 中可注入下一轮 LLM 请求的 milestone 提醒片段。 */
+  /** 当前 turn 中可注入下一轮 LLM 请求尾部的 milestone 用户侧提醒片段。 */
   private milestoneHintPartsBySession = new Map<string, Part[]>();
   /** 当前 turn 中已注入的提醒 key，避免同一 milestone 重复刷屏。 */
   private milestoneHintKeysBySession = new Map<string, Set<string>>();
@@ -386,6 +386,11 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     keys.clear();
   }
 
+  private buildSystemReminderPart(text: string): Part {
+    return { text: `<system-reminder>\n${text}\n</system-reminder>` };
+  }
+
+
   private milestonePriorityForPrompt(status: string): number {
     switch (status) {
       case 'in_progress': return 0;
@@ -443,7 +448,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       }
     }
     const hint = this.buildMilestoneLifecycleHint(milestoneSessionId);
-    if (hint) parts.push({ text: hint });
+    if (hint) parts.push(this.buildSystemReminderPart(hint));
   }
 
   private buildMilestoneFinalCheckHint(sessionId: string): string | undefined {
@@ -502,9 +507,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
 
     const operation = summarizeToolArgs(invocation.args);
     const operationLine = operation ? `\n相关操作：${operation}` : '';
-    parts.push({
-      text: `【Iris 进度提醒】\n工具 ${invocation.toolName} 已成功完成。当前进行中的 milestone 是 #${active.id}「${active.title}」（owner=${active.owner ?? '未分配'}，version=${active.version}）。${operationLine}\n如果该 milestone 已经完成，请调用 update_milestones 将它标记为 completed，并带 expectedVersion=${active.version}；如果仍需验证或后续步骤，请继续执行，不要过早标记完成。`,
-    });
+    parts.push(this.buildSystemReminderPart(
+      `【Iris 进度提醒】\n工具 ${invocation.toolName} 已成功完成。当前进行中的 milestone 是 #${active.id}「${active.title}」（owner=${active.owner ?? '未分配'}，version=${active.version}）。${operationLine}\n如果该 milestone 已经完成，请调用 update_milestones 将它标记为 completed，并带 expectedVersion=${active.version}；如果仍需验证或后续步骤，请继续执行，不要过早标记完成。`,
+    ));
   }
 
   private syncMilestoneOnToolCompletion(invocation: ToolInvocation): void {
@@ -1512,13 +1517,15 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const { sessionId, turnId, history, signal } = options;
     const startTime = Date.now();
 
-    // 1. 构建 per-request 额外上下文（模式系统提示词）
+    // 1. 构建 per-request 额外上下文。
+    // 模式提示仍作为 system part；动态 milestone 提醒放到用户侧尾部，避免破坏 system prompt cache。
     const extraParts: Part[] = [];
+    const milestoneReminderParts: Part[] = [];
     const mode = this.resolveMode();
     if (mode?.systemPrompt) {
       extraParts.unshift({ text: mode.systemPrompt });
     }
-    this.milestoneHintPartsBySession.set(sessionId, extraParts);
+    this.milestoneHintPartsBySession.set(sessionId, milestoneReminderParts);
     this.milestoneHintKeysBySession.set(sessionId, new Set());
     this.refreshMilestoneLifecycleHint(sessionId);
 
@@ -1578,6 +1585,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const result = await loop.run(history, callLLM, {
       sessionId,
       extraParts,
+      extraUserParts: milestoneReminderParts,
       // 流式模式下注入 StreamingToolExecutor。
       // callLLM 每次被调用时会创建新的 executor，这里通过 getter 获取最新的实例。
       get streamingToolExecutor() { return streamingExecutor; },
@@ -1594,7 +1602,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         if (finalMilestoneCheckInjected) return false;
         const hint = this.buildMilestoneFinalCheckHint(sessionId);
         if (!hint) return false;
-        extraParts.push({ text: hint });
+        milestoneReminderParts.push(this.buildSystemReminderPart(hint));
         finalMilestoneCheckInjected = true;
         logger.info(`最终回复前发现未关闭 milestone，已追加进度检查: session=${sessionId}`);
         return true;

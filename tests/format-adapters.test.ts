@@ -657,6 +657,21 @@ describe('ClaudeFormat: encodeRequest', () => {
     expect(toolResultBlock.tool_use_id).toBe('toolu_abc123');
   });
 
+  it('tool_result 同一内部 user content 中的尾部提醒文本不会被丢弃', () => {
+    const toolResult = toolResponseMsg([{ name: 'get_weather', result: { temp: 25 }, callId: 'toolu_abc123' }]);
+    toolResult.parts.push({ text: '<system-reminder>milestone reminder</system-reminder>' });
+    const req = buildRequest([
+      userMsg('weather?'),
+      modelToolCallMsg([{ name: 'get_weather', args: { city: 'Tokyo' }, callId: 'toolu_abc123' }]),
+      toolResult,
+    ]);
+
+    const body = fmt.encodeRequest(req) as any;
+    const userBlocks = body.messages[2].content;
+    expect(userBlocks.find((block: any) => block.type === 'tool_result')).toBeDefined();
+    expect(userBlocks.find((block: any) => block.type === 'text')?.text).toContain('milestone reminder');
+  });
+
   it('无 callId 时生成的 fallback id 也必须配对', () => {
     const req = buildRequest([
       userMsg('weather?'),
@@ -980,6 +995,22 @@ describe('OpenAICompatibleFormat: encodeRequest', () => {
     const assistantMsg = body.messages.find((m: any) => m.role === 'assistant');
     const toolMsg = body.messages.find((m: any) => m.role === 'tool');
     expect(assistantMsg.tool_calls[0].id).toBe(toolMsg.tool_call_id);
+  });
+
+  it('tool response 同一内部 user content 中的尾部提醒文本会转成普通 user message', () => {
+    const toolResult = toolResponseMsg([{ name: 'get_weather', result: 'ok', callId: 'call_oai_1' }]);
+    toolResult.parts.push({ text: '<system-reminder>milestone reminder</system-reminder>' });
+    const req = buildRequest([
+      userMsg('test'),
+      modelToolCallMsg([{ name: 'get_weather', args: { city: 'A' }, callId: 'call_oai_1' }]),
+      toolResult,
+    ]);
+
+    const body = fmt.encodeRequest(req) as any;
+    const toolMsg = body.messages.find((m: any) => m.role === 'tool');
+    const reminderMsg = body.messages.find((m: any) => m.role === 'user' && String(m.content).includes('milestone reminder'));
+    expect(toolMsg.tool_call_id).toBe('call_oai_1');
+    expect(reminderMsg).toBeDefined();
   });
 
   it('tool_call arguments 是 JSON 字符串', () => {
@@ -1400,6 +1431,22 @@ describe('OpenAIResponsesFormat: encodeRequest', () => {
     const funcOutput = body.input.find((i: any) => i.type === 'function_call_output');
     expect(funcCall.call_id).toBe('call_resp_1');
     expect(funcOutput.call_id).toBe('call_resp_1');
+  });
+
+  it('function_call_output 同一内部 user content 中的尾部提醒文本会转成 user input item', () => {
+    const toolResult = toolResponseMsg([{ name: 'get_weather', result: 'ok', callId: 'call_resp_1' }]);
+    toolResult.parts.push({ text: '<system-reminder>milestone reminder</system-reminder>' });
+    const req = buildRequest([
+      userMsg('test'),
+      modelToolCallMsg([{ name: 'get_weather', args: { city: 'A' }, callId: 'call_resp_1' }]),
+      toolResult,
+    ]);
+
+    const body = fmt.encodeRequest(req) as any;
+    const funcOutput = body.input.find((item: any) => item.type === 'function_call_output');
+    const reminderItem = body.input.find((item: any) => item.role === 'user' && item.content?.[0]?.text?.includes('milestone reminder'));
+    expect(funcOutput.call_id).toBe('call_resp_1');
+    expect(reminderItem).toBeDefined();
   });
 
   it('reasoning item 回传 encrypted_content', () => {

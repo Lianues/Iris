@@ -95,6 +95,13 @@ export class OpenAICompatibleFormat implements FormatAdapter {
               content: JSON.stringify(part.functionResponse.response),
             });
           }
+          // 请求尾部动态提醒可能被合并到包含 tool result 的内部 user content。
+          // Chat Completions 需先发送 tool messages，再追加一条普通 user message 承载提醒文本。
+          const text = textParts.map(p => {
+            if (!isTextPart(p)) throw new Error('unreachable');
+            return p.text;
+          }).join('');
+          if (text) messages.push({ role: 'user', content: text });
         } else {
           const contentBlocks: Record<string, unknown>[] = [];
           let hasInlineImage = false;

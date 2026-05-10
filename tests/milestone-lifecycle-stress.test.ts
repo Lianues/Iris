@@ -69,6 +69,12 @@ function systemText(request: LLMRequest): string {
     .join('\n') ?? '';
 }
 
+function requestText(request: LLMRequest): string {
+  return request.contents.flatMap(content => content.parts)
+    .map((part: Part) => 'text' in part && typeof part.text === 'string' ? part.text : '')
+    .join('\n');
+}
+
 describe('Milestone lifecycle stress', () => {
   it('长任务顺序推进时同 owner 只保留一个 in_progress，其他 owner 不受影响', () => {
     const manager = new SessionMilestoneManager();
@@ -118,7 +124,8 @@ describe('Milestone lifecycle stress', () => {
       chat: vi.fn(async (request: LLMRequest) => {
         const callIndex = requests.length;
         requests.push(request);
-        const guard = systemText(request);
+        const guard = requestText(request);
+        expect(systemText(request)).not.toContain('【Iris 进度守卫】');
         expect(guard).toContain('【Iris 进度守卫】');
 
         if (callIndex === 0) {

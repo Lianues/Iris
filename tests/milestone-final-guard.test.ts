@@ -67,6 +67,12 @@ function systemText(request: LLMRequest): string {
     .join('\n') ?? '';
 }
 
+function requestText(request: LLMRequest): string {
+  return request.contents.flatMap(content => content.parts)
+    .map((part: Part) => 'text' in part && typeof part.text === 'string' ? part.text : '')
+    .join('\n');
+}
+
 function createBackend(storage: InMemoryStorage, milestoneManager: SessionMilestoneManager, router: any): { backend: Backend; tools: ToolRegistry } {
   const tools = new ToolRegistry();
   const prompt = new PromptAssembler();
@@ -103,7 +109,9 @@ describe('Milestone final guard', () => {
       chat: vi.fn(async (request: LLMRequest) => {
         const callIndex = requests.length;
         requests.push(request);
-        const guard = systemText(request);
+        const guard = requestText(request);
+        expect(systemText(request)).not.toContain('【Iris 进度守卫】');
+        expect(systemText(request)).not.toContain('【Iris 最终进度检查】');
 
         if (callIndex === 0) {
           expect(guard).toContain('【Iris 进度守卫】');
@@ -177,7 +185,9 @@ describe('Milestone final guard', () => {
       chat: vi.fn(async (request: LLMRequest) => {
         const callIndex = requests.length;
         requests.push(request);
-        const guard = systemText(request);
+        const guard = requestText(request);
+        expect(systemText(request)).not.toContain('【Iris 进度守卫】');
+        expect(systemText(request)).not.toContain('【Iris 最终进度检查】');
         if (callIndex === 0) {
           return {
             content: {

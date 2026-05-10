@@ -153,9 +153,15 @@ describe('Backend milestone persistence', () => {
     await backend.chat('s1', '继续');
 
     const systemText = requests[0].systemInstruction?.parts.map((part: any) => part.text ?? '').join('\n') ?? '';
-    expect(systemText).toContain('【Iris 进度守卫】');
-    expect(systemText).toContain('当前 owner 没有 in_progress');
-    expect(systemText).toContain('#m1 [pending]');
+    const contextText = requests[0].contents
+      .flatMap(content => content.parts)
+      .map((part: any) => part.text ?? '')
+      .join('\n');
+    expect(systemText).not.toContain('【Iris 进度守卫】');
+    expect(contextText).toContain('<system-reminder>');
+    expect(contextText).toContain('【Iris 进度守卫】');
+    expect(contextText).toContain('当前 owner 没有 in_progress');
+    expect(contextText).toContain('#m1 [pending]');
   });
 
 

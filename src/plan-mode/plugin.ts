@@ -194,9 +194,8 @@ export const planModePlugin: IrisPlugin = {
 
         const active = manager.getState(sessionId);
         if (active?.active) {
-          const plan = manager.readPlan(sessionId);
           const parts = ensureSystemParts(request);
-          parts.push({ text: buildPlanModeInstructions(active, !!plan?.trim()) });
+          parts.push({ text: buildPlanModeInstructions() });
 
           if (request.tools) {
             request.tools = request.tools.map((tool) => ({
@@ -210,7 +209,7 @@ export const planModePlugin: IrisPlugin = {
         const reminderState = manager.consumeExitReminder(sessionId);
         if (reminderState) {
           const parts = ensureSystemParts(request);
-          parts.push({ text: buildPlanModeExitReminder(reminderState) });
+          parts.push({ text: buildPlanModeExitReminder() });
           return { request };
         }
 
