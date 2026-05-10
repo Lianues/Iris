@@ -177,6 +177,8 @@ export class WeixinPlatform extends PlatformAdapter {
    * key = userId
    */
   private activeSessions = new Map<string, string>();
+  private backendListenersReady = false;
+
 
   constructor(backend: IrisBackendLike, config: WeixinConfig) {
     super();
@@ -221,6 +223,7 @@ export class WeixinPlatform extends PlatformAdapter {
   }
 
   async start(): Promise<void> {
+    if (this.polling) return;
     if (!this.config.botToken) {
       logger.info('未配置 botToken，准备扫码登录...');
       const { botToken, baseUrl } = await this.performQRLogin();
@@ -669,6 +672,9 @@ export class WeixinPlatform extends PlatformAdapter {
   }
 
   private setupBackendListeners() {
+    if (this.backendListenersReady) return;
+    this.backendListenersReady = true;
+
     this.backend.on('stream:start', (sid: string) => {
       const userId = this.findUserIdBySid(sid);
       if (!userId) return;

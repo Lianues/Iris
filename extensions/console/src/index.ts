@@ -48,6 +48,7 @@ import type { ConsoleConfig } from './console-config';
 import { resolveConsoleConfig } from './console-config';
 import { CONSOLE_TOOL_DISPLAY_SERVICE_ID, consoleToolDisplayService } from './tool-display-service';
 import { CONSOLE_SLASH_COMMAND_SERVICE_ID, consoleSlashCommandService } from './slash-command-service';
+import { handleConsoleToggleExtension } from './extension-toggle';
 
 /** 从 shell 命令生成前缀通配模式（如 "npm install express" → "npm install *"） */
 function generateCommandPattern(command: string): string {
@@ -1851,12 +1852,18 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   }
 
   private isWorkspaceExtensionEnabled(raw: Record<string, any> | undefined, name: string): boolean {
+    const discovery = this.readWorkspaceExtensionDiscoveryConfig(raw);
+    if (!discovery.enabled) return false;
+    return discovery.allowlist.length === 0 || discovery.allowlist.includes(name);
+  }
+
+  private readWorkspaceExtensionDiscoveryConfig(raw: Record<string, any> | undefined): { enabled: boolean; allowlist: string[] } {
     const extensions = raw?.system?.extensions;
-    if (!extensions || typeof extensions !== 'object' || extensions.loadWorkspaceExtensions !== true) return false;
+    if (!extensions || typeof extensions !== 'object') return { enabled: false, allowlist: [] };
     const allowlist = Array.isArray(extensions.workspaceAllowlist)
       ? extensions.workspaceAllowlist.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
       : [];
-    return allowlist.length === 0 || allowlist.includes(name);
+    return { enabled: extensions.loadWorkspaceExtensions === true, allowlist };
   }
 
   private updateWorkspaceExtensionDiscoveryConfig(
@@ -1939,70 +1946,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   }
 
   private async handleToggleExtension(name: string, desiredEnabled?: boolean): Promise<{ ok: boolean; message: string }> {
-    const ext = (this.api as any)?.extensions;
-    const configManager = this.api?.configManager;
-    if (!ext || !configManager) {
-      return { ok: false, message: '扩展管理 API 不可用' };
-    }
-
-    try {
-      // 读取当前 plugins.yaml
-      const raw = configManager.readEditableConfig() as Record<string, any>;
-      const pluginEntries: Array<{ name: string; enabled?: boolean; [k: string]: any }> = [...this.readPluginEntries(raw)];
-      const existing = pluginEntries.find(p => p.name === name);
-      const packages: Array<{ manifest: { name: string; entry?: string; plugin?: any; platforms?: any[] }; source?: string; rootDir?: string }> = ext.discoverAll?.() ?? ext.discover?.() ?? [];
-      const pkg = packages.find((item) => item.manifest.name === name);
-      const hasPlugin = pkg ? this.hasPluginContribution(pkg.manifest) : true;
-      const isWorkspace = pkg?.source === 'workspace';
-
-      // 判断运行时状态
-      const active = (this.api as any)?.pluginManager?.listPlugins?.() ?? [];
-      const isActive = active.some((p: any) => p.name === name);
-      const shouldEnable = desiredEnabled ?? !isActive;
-
-      if (!shouldEnable) {
-        // 禁用：停用插件 + 更新 yaml
-        if (isActive) await ext.deactivate(name);
-        if (isWorkspace) {
-          const workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, false, packages);
-          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
-        }
-        if (existing) {
-          existing.enabled = false;
-        } else if (hasPlugin) {
-          pluginEntries.push({ name, enabled: false });
-        }
-        configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries) as any);
-        return { ok: true, message: `已禁用 "${name}"` };
-      } else {
-        let workspaceUpdate: { workspace: { enabled: boolean; allowlist: string[] }; mergedRaw?: Record<string, unknown> } | undefined;
-        if (isWorkspace) {
-          workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, true, packages);
-          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
-        }
-
-        // 启用：插件扩展先激活，成功后再更新 yaml（防止 activate 失败导致状态不一致）。
-        // 纯平台 workspace 扩展只更新发现配置；配置 platform.yaml / 重启后生效。
-        let installedDeps: string[] = [];
-        if (hasPlugin) {
-          if (pkg?.rootDir) {
-            const depsResult = await ensureExtensionRuntimeDependencies(pkg.rootDir);
-            if (depsResult.installed) installedDeps = depsResult.missingDependencies;
-          }
-          await ext.activate(name);
-        }
-        if (existing) {
-          existing.enabled = true;
-        } else if (hasPlugin) {
-          pluginEntries.push({ name, enabled: true });
-        }
-        if (hasPlugin) configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries) as any);
-        if (!hasPlugin) return { ok: true, message: `已启用可选平台扩展 "${name}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。` };
-        return { ok: true, message: installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(', ')} 并启用 "${name}"` : `已启用 "${name}"` };
-      }
-    } catch (err) {
-      return { ok: false, message: `操作失败: ${err instanceof Error ? err.message : String(err)}` };
-    }
+    return handleConsoleToggleExtension(this.api as any, name, desiredEnabled);
   }
 
 

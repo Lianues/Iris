@@ -215,6 +215,9 @@ export class WXWorkPlatform extends PlatformAdapter {
    * 用于实现：busy 锁、消息缓冲、/stop 中止、/flush 立即推送。
    */
   private chatStates = new Map<string, ChatState>();
+  private backendListenersReady = false;
+  private wsListenersReady = false;
+  private started = false;
 
   constructor(backend: IrisBackendLike, config: WXWorkConfig) {
     super();
@@ -230,6 +233,8 @@ export class WXWorkPlatform extends PlatformAdapter {
   }
 
   async start(): Promise<void> {
+    if (this.started) return;
+    this.started = true;
     this.setupBackendListeners();
     this.setupWsListeners();
     this.wsClient.connect();
@@ -237,6 +242,7 @@ export class WXWorkPlatform extends PlatformAdapter {
   }
 
   async stop(): Promise<void> {
+    this.started = false;
     this.wsClient.disconnect();
     // 清理所有节流定时器
     for (const cs of this.chatStates.values()) {
@@ -281,6 +287,9 @@ export class WXWorkPlatform extends PlatformAdapter {
   }
 
   private setupBackendListeners(): void {
+    if (this.backendListenersReady) return;
+    this.backendListenersReady = true;
+
     // ──────────────────────────────────────────────────────────
     // ⚠️ TODO: 实现企业微信工具调用审批功能
     //
@@ -440,6 +449,9 @@ export class WXWorkPlatform extends PlatformAdapter {
   // ============ 企微 WebSocket 事件监听 ============
 
   private setupWsListeners(): void {
+    if (this.wsListenersReady) return;
+    this.wsListenersReady = true;
+
     this.wsClient.on('authenticated', () => {
       logger.info('✅ 企业微信机器人已连接并认证成功');
     });

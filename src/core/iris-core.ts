@@ -72,7 +72,7 @@ import { PluginEventBus } from '../extension/event-bus';
 import { patchMethod, patchPrototype } from '../extension/patch';
 import { registerExtensionPlatforms } from '../extension';
 import { ensureDevSourceSdkShims } from '../extension';
-import type { IrisAPI, InlinePluginEntry, WebPanelDefinition, ConsoleSettingsTabDefinition, Disposable } from 'irises-extension-sdk';
+import type { IrisAPI, InlinePluginEntry, PluginEntry, WebPanelDefinition, ConsoleSettingsTabDefinition, Disposable } from 'irises-extension-sdk';
 import { BackendHandle, DELIVERY_REGISTRY_SERVICE_ID } from 'irises-extension-sdk';
 import { readEditableConfig, updateEditableConfig, LayeredConfigManager } from '../config/manage';
 import { applyRuntimeConfigReload, type RuntimeConfigReloadContext } from '../config/runtime';
@@ -852,7 +852,8 @@ export class IrisCore {
           };
           pluginManager.setExtensionDiscoveryOptions(extDiscoveryOptions);
         },
-        activate: (name: string) => pluginManager.activatePlugin(name),
+        activate: (nameOrEntry: string | PluginEntry) => typeof nameOrEntry === 'string'
+          ? pluginManager.activatePlugin(nameOrEntry) : pluginManager.activatePlugin(nameOrEntry.name, nameOrEntry),
         deactivate: (name: string) => pluginManager.deactivatePlugin(name),
         installGit: (target: string, options?: { ref?: string; subdir?: string; scope?: InstallScope }) =>
           installGitExtension(target, { ...options, installedExtensionsDir: resolveDir(options?.scope) }),
