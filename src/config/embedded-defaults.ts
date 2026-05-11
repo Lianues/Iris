@@ -39,6 +39,13 @@ models:
   #   model: gpt-4o-mini
   #   baseUrl: https://api.openai.com/v1
 
+  # deepseek_flash:
+  #   provider: deepseek
+  #   apiKey: your-api-key-here
+  #   model: deepseek-v4-flash
+  #   # 或 model: deepseek-v4-pro
+  #   contextWindow: 1000000
+
   # claude_sonnet:
   #   provider: claude
   #   apiKey: your-api-key-here

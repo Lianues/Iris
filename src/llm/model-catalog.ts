@@ -19,8 +19,15 @@ export interface ModelCatalogResult {
   models: ModelCatalogEntry[];
 }
 
+const DEEPSEEK_MODELS: ModelCatalogEntry[] = [
+  { id: 'deepseek-v4-flash', label: 'deepseek-v4-flash · Flash' },
+  { id: 'deepseek-v4-pro', label: 'deepseek-v4-pro · Pro' },
+];
+
 function normalizeBaseUrl(provider: LLMConfig['provider'], input?: string): string {
   const fallback = DEFAULTS[provider]?.baseUrl || '';
+  if (provider === 'deepseek') return fallback;
+
   let baseUrl = (input || fallback).trim().replace(/\/+$/, '');
 
   switch (provider) {
@@ -32,6 +39,7 @@ function normalizeBaseUrl(provider: LLMConfig['provider'], input?: string): stri
       break;
     case 'openai-compatible':
     case 'openai-responses':
+    case 'deepseek':
       baseUrl = baseUrl
         .replace(/\/chat\/completions$/i, '')
         .replace(/\/responses$/i, '')
@@ -155,6 +163,14 @@ export async function listAvailableModels(config: Pick<LLMConfig, 'provider' | '
   const provider = config.provider;
   const apiKey = config.apiKey.trim();
   const baseUrl = normalizeBaseUrl(provider, config.baseUrl);
+
+  if (provider === 'deepseek') {
+    return {
+      provider,
+      baseUrl,
+      models: DEEPSEEK_MODELS,
+    };
+  }
 
   if (!apiKey) {
     throw new Error('缺少 API Key');

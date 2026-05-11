@@ -6,7 +6,20 @@ import { LLMConfig, LLMModelDef, LLMRegistryConfig } from './types';
 
 export const DEFAULT_MODEL_NAME = 'default';
 
+const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash';
+const DEEPSEEK_ALLOWED_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro']);
+
+function normalizeDeepSeekModel(model: unknown): string {
+  const value = typeof model === 'string' ? model.trim() : '';
+  return DEEPSEEK_ALLOWED_MODELS.has(value) ? value : DEEPSEEK_DEFAULT_MODEL;
+}
+
 export const DEFAULTS: Record<string, Partial<LLMConfig> & { contextWindow?: number }> = {
+  'deepseek': {
+    model: 'deepseek-v4-flash',
+    baseUrl: 'https://api.deepseek.com/v1',
+    contextWindow: 1000000,
+  },
   'gemini': {
     model: 'gemini-2.0-flash',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -34,13 +47,15 @@ export function parseSingleLLMConfig(raw: any = {}): LLMConfig {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const provider = String(source.provider ?? 'gemini');
   const defaults = DEFAULTS[provider] ?? {};
+  const baseUrl = provider === 'deepseek' ? defaults.baseUrl : (source.baseUrl || defaults.baseUrl || '');
+  const model = provider === 'deepseek' ? normalizeDeepSeekModel(source.model) : (source.model || defaults.model || '');
 
   return {
     ...source,
     provider,
     apiKey: source.apiKey ?? '',
-    model: source.model || defaults.model || '',
-    baseUrl: source.baseUrl || defaults.baseUrl || '',
+    model,
+    baseUrl,
     contextWindow: typeof source.contextWindow === 'number' ? source.contextWindow : defaults.contextWindow,
     supportsVision: typeof source.supportsVision === 'boolean' ? source.supportsVision : undefined,
     autoSummaryThreshold: (typeof source.autoSummaryThreshold === 'number' || typeof source.autoSummaryThreshold === 'string')

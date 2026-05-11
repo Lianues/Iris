@@ -7,6 +7,7 @@ import { MessageItem, type ChatMessage, type MessagePart } from './MessageItem';
 import type { MutableRefObject } from 'react';
 import type { MilestoneSnapshotLike } from 'irises-extension-sdk';
 import { MilestoneListView } from './MilestoneListView';
+import type { QueuedMessage } from '../hooks/use-message-queue';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -24,6 +25,8 @@ interface ChatMessageListProps {
   thoughtsToggleSignal?: number;
   /** 传入 ref 以供外部（如 F6 复制模式）程序化滚动 */
   scrollBoxRef?: MutableRefObject<any>;
+  /** 已提交但正在等待当前回复完成后发送的本地队列消息，用 user 样式即时预览 */
+  queuedMessages?: QueuedMessage[];
   /** 当前会话 milestone/task 清单快照 */
   milestoneSnapshot?: MilestoneSnapshotLike | null;
 }
@@ -40,6 +43,7 @@ export function ChatMessageList({
   thoughtsToggleSignal,
   hasActiveTools,
   scrollBoxRef,
+  queuedMessages,
   milestoneSnapshot,
 }: ChatMessageListProps) {
   const { height: termHeight } = useTerminalDimensions();
@@ -70,6 +74,13 @@ export function ChatMessageList({
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === 'assistant') { lastAssistantIndex = i; break; }
   }
+
+  const queuedPreviewMessages = useMemo<ChatMessage[]>(() => (queuedMessages ?? []).map((msg) => ({
+    id: `queued-preview-${msg.id}`,
+    role: 'user',
+    parts: [{ type: 'text', text: msg.text }],
+    createdAt: msg.createdAt,
+  })), [queuedMessages]);
 
   return (
     <scrollbox ref={scrollBoxRef} flexGrow={1} stickyScroll stickyStart="bottom" paddingRight={1} scrollAcceleration={scrollAccel}>
@@ -113,6 +124,15 @@ export function ChatMessageList({
           <GeneratingTimer isGenerating={isGenerating} retryInfo={retryInfo} label={generatingLabel} paused={timerPaused} />
         </box>
       ) : null}
+
+      {queuedPreviewMessages.map((message) => (
+        <box key={message.id} flexDirection="column" paddingBottom={1}>
+          <MessageItem
+            msg={message}
+            modelName={modelName}
+          />
+        </box>
+      ))}
     </scrollbox>
   );
 }

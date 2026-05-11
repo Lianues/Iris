@@ -10,6 +10,7 @@ interface ApiKeyInputProps {
 
 export function ApiKeyInput({ provider, onSubmit, onSkip, onBack }: ApiKeyInputProps) {
   const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.gemini
+  const isDeepSeek = provider === "deepseek"
 
   const fields: ScrollableInputFieldDefinition[] = [
     {
@@ -20,15 +21,18 @@ export function ApiKeyInput({ provider, onSubmit, onSkip, onBack }: ApiKeyInputP
       required: true,
       masked: true,
     },
-    {
+  ]
+
+  if (!isDeepSeek) {
+    fields.push({
       key: "baseUrl",
       label: "Base URL",
       description: "提供商 API 基础地址。",
       placeholder: defaults.baseUrl,
       defaultValue: defaults.baseUrl,
       required: true,
-    },
-  ]
+    })
+  }
 
   return (
     <ScrollableInputPage
@@ -36,7 +40,7 @@ export function ApiKeyInput({ provider, onSubmit, onSkip, onBack }: ApiKeyInputP
       description={`提供商: ${PROVIDER_LABELS[provider] || provider}`}
       fields={fields}
       onSubmit={(values) => {
-        onSubmit(values.apiKey.trim(), values.baseUrl.trim())
+        onSubmit(values.apiKey.trim(), isDeepSeek ? defaults.baseUrl : values.baseUrl.trim())
       }}
       onSkip={onSkip}
       onBack={onBack}

@@ -77,6 +77,7 @@ export interface LLMConfig {
    *   gemini:             generationConfig.thinkingConfig
    *   openai-compatible:  reasoning_effort
    *   openai-responses:   reasoning.effort + reasoning.summary
+   *   deepseek:           thinking.type + reasoning_effort
    *
    * 如果你在 requestBody 中显式设置了上述字段，它们会覆盖便捷控制的设置。
    * 设为 false 可完全关闭此功能，隐藏指示器并禁用快捷键。

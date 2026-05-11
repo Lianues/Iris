@@ -13,11 +13,14 @@ import { readBody, sendJSON } from '../router';
 import type { ConfigManagerLike, IrisAPI } from 'irises-extension-sdk';
 
 const SUPPORTED_PROVIDERS = new Set([
+  'deepseek',
   'gemini',
   'openai-compatible',
   'openai-responses',
   'claude',
 ]);
+
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 
 function isMasked(value: string): boolean {
   return typeof value === 'string' && value.startsWith('****');
@@ -66,9 +69,11 @@ function resolveModelLookupInput(cm: ConfigManagerLike, body: any): {
     throw new Error(`不支持的提供商: ${providerValue || '(空)'}`);
   }
 
-  const baseUrl = typeof body?.baseUrl === 'string' && body.baseUrl.trim()
-    ? body.baseUrl.trim()
-    : String(storedModel?.baseUrl ?? '').trim();
+  const baseUrl = providerValue === 'deepseek'
+    ? DEEPSEEK_BASE_URL
+    : (typeof body?.baseUrl === 'string' && body.baseUrl.trim()
+      ? body.baseUrl.trim()
+      : String(storedModel?.baseUrl ?? '').trim());
 
   const requestApiKey = typeof body?.apiKey === 'string' ? body.apiKey.trim() : '';
   const usedStoredApiKey = !requestApiKey || isMasked(requestApiKey);

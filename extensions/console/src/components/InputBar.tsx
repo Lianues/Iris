@@ -44,7 +44,7 @@ interface InputBarProps {
   isGenerating: boolean;
   queueSize: number;
   onSubmit: (text: string) => void;
-  /** 强制优先发送：中断当前生成，在队列最前面插入并立即发送 */
+  /** 优先发送：生成中插入队首，当前回复完成后优先处理，不中断当前生成 */
   onPrioritySubmit: (text: string) => void;
   /** Shift+Left/Right 切换思考强度 */
   onCycleThinkingEffort: (direction: 1 | -1) => void;
@@ -222,7 +222,7 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
       }
     }
 
-    // Ctrl+S → 强制优先发送（中断当前生成，跳过队列立即发送）
+    // Ctrl+S → 优先发送（插入队首，不中断当前生成）
     if (key.ctrl && key.name === 's') {
       if (!isQueueMode) return;
       const text = value.trim();

@@ -68,7 +68,7 @@ export interface WebPlatformConfig {
   authToken?: string;
   managementToken?: string;
   configPath: string;
-  /** 当前活动模型的提供商名称（如 gemini / openai-compatible / claude） */
+  /** 当前活动模型的提供商名称（如 deepseek / gemini / openai-compatible / claude） */
   provider: string;
   modelId: string;
   streamEnabled: boolean;

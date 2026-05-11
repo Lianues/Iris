@@ -95,19 +95,23 @@ export function Summary({ config, skippedSteps, installDir, onConfirm, onBack }:
         emptyText: "已跳过，沿用默认值",
       }),
     },
-    {
+  ]
+
+  if (config.provider !== "deepseek") {
+    baseRows.push({
       label: "Base URL",
       ...buildValueState(config.baseUrl, {
         skipped: skippedSteps.apiKey,
         emptyText: "已跳过，沿用默认值",
       }),
-    },
-    {
-      label: "平台",
-      value: platformLabel,
-      ...buildSkipSuffix(skippedSteps.platform, "已跳过，沿用默认值或暂存输入"),
-    },
-  ]
+    })
+  }
+
+  baseRows.push({
+    label: "平台",
+    value: platformLabel,
+    ...buildSkipSuffix(skippedSteps.platform, "已跳过，沿用默认值或暂存输入"),
+  })
 
   const platformRows = buildPlatformSummaryRows(platformOption, config.platformValues, skippedSteps.platform)
 

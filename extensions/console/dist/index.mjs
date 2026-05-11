@@ -750,6 +750,7 @@ var init_protocol = __esm(() => {
     API_CONFIG_MANAGER_UPDATE: "api.configManager.updateEditableConfig",
     API_ROUTER_REMOVE_REQUEST_BODY_KEYS: "api.router.removeCurrentModelRequestBodyKeys",
     API_ROUTER_PATCH_REQUEST_BODY: "api.router.patchCurrentModelRequestBody",
+    API_ROUTER_REMOVE_REQUEST_BODY_PATHS: "api.router.removeCurrentModelRequestBodyPaths",
     AGENT_BACKEND_CALL: "agent.backend.call",
     AGENT_API_CALL: "agent.api.call",
     SUBSCRIBE: "client.subscribe",
@@ -1185,6 +1186,9 @@ function createRemoteApiProxy(client, agentName = "__remote__", options) {
       },
       patchCurrentModelRequestBody(...args) {
         callApi(client, targetAgentName, Methods.API_ROUTER_PATCH_REQUEST_BODY, args).catch((err) => logger3.warn(`patchCurrentModelRequestBody 失败: ${err.message}`));
+      },
+      removeCurrentModelRequestBodyPaths(...args) {
+        callApi(client, targetAgentName, Methods.API_ROUTER_REMOVE_REQUEST_BODY_PATHS, args).catch((err) => logger3.warn(`removeCurrentModelRequestBodyPaths 失败: ${err.message}`));
       }
     },
     async initCaches() {
@@ -2885,7 +2889,7 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
     if (isGenerating && hasQueue) {
       parts.push("/queue 管理队列");
     }
-    parts.push(isGenerating ? "ctrl+s 立即发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式");
+    parts.push(isGenerating ? "ctrl+s 优先发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式");
     hintStr = parts.join(`  ${ICONS.separator}  `);
   }
   const hintWidth = getTextWidth(hintStr);
@@ -2939,7 +2943,7 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
               ]
             }, undefined, true, undefined, this) : null,
             `  ${ICONS.separator}  `,
-            isGenerating ? "ctrl+s 立即发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式"
+            isGenerating ? "ctrl+s 优先发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式"
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this)
@@ -5561,6 +5565,7 @@ function ChatMessageList({
   thoughtsToggleSignal,
   hasActiveTools,
   scrollBoxRef,
+  queuedMessages,
   milestoneSnapshot
 }) {
   const { height: termHeight } = useTerminalDimensions5();
@@ -5578,6 +5583,12 @@ function ChatMessageList({
       break;
     }
   }
+  const queuedPreviewMessages = useMemo5(() => (queuedMessages ?? []).map((msg) => ({
+    id: `queued-preview-${msg.id}`,
+    role: "user",
+    parts: [{ type: "text", text: msg.text }],
+    createdAt: msg.createdAt
+  })), [queuedMessages]);
   return /* @__PURE__ */ jsxDEV30("scrollbox", {
     ref: scrollBoxRef,
     flexGrow: 1,
@@ -5639,7 +5650,15 @@ function ChatMessageList({
           label: generatingLabel,
           paused: timerPaused
         }, undefined, false, undefined, this)
-      }, undefined, false, undefined, this) : null
+      }, undefined, false, undefined, this) : null,
+      queuedPreviewMessages.map((message) => /* @__PURE__ */ jsxDEV30("box", {
+        flexDirection: "column",
+        paddingBottom: 1,
+        children: /* @__PURE__ */ jsxDEV30(MessageItem, {
+          msg: message,
+          modelName
+        }, undefined, false, undefined, this)
+      }, message.id, false, undefined, this))
     ]
   }, undefined, true, undefined, this);
 }
@@ -8405,16 +8424,50 @@ function getConsoleDiffApprovalViewDescription(toolName) {
 
 // src/settings.ts
 var CONSOLE_LLM_PROVIDER_OPTIONS = [
+  "deepseek",
   "gemini",
   "openai-compatible",
   "openai-responses",
   "claude"
 ];
+var DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
+var DEEPSEEK_MODEL_IDS = ["deepseek-v4-flash", "deepseek-v4-pro"];
+function normalizeDeepSeekModelId(modelId) {
+  const value = typeof modelId === "string" ? modelId.trim() : "";
+  return DEEPSEEK_MODEL_IDS.includes(value) ? value : DEEPSEEK_MODEL_IDS[0];
+}
 var CONSOLE_MCP_TRANSPORT_OPTIONS = [
   "stdio",
   "sse",
   "streamable-http"
 ];
+var CONSOLE_LLM_PROVIDER_DEFAULTS = {
+  deepseek: {
+    model: "deepseek-v4-flash",
+    baseUrl: DEEPSEEK_BASE_URL,
+    contextWindow: 1e6
+  },
+  gemini: {
+    model: "gemini-2.0-flash",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    contextWindow: 1048576
+  },
+  "openai-compatible": {
+    model: "gpt-4o",
+    baseUrl: "https://api.openai.com/v1",
+    contextWindow: 128000
+  },
+  "openai-responses": {
+    model: "gpt-4o",
+    baseUrl: "https://api.openai.com/v1",
+    contextWindow: 128000
+  },
+  claude: {
+    model: "claude-sonnet-4-6",
+    baseUrl: "https://api.anthropic.com/v1",
+    contextWindow: 200000
+  }
+};
 function normalizeTransport(value) {
   if (value === "sse" || value === "streamable-http")
     return value;
@@ -8425,26 +8478,28 @@ function normalizeTransport(value) {
 function sanitizeServerName(name) {
   return name.replace(/[^a-zA-Z0-9_]/g, "_");
 }
-function createEmptyModel(provider = "gemini", modelName = "", defaults = {}) {
-  const providerDefaults = defaults[provider] ?? defaults.gemini ?? {};
+function createEmptyModel(provider = CONSOLE_LLM_PROVIDER_OPTIONS[0], modelName = "", defaults = {}) {
+  const providerDefaults = defaults[provider] ?? CONSOLE_LLM_PROVIDER_DEFAULTS[provider] ?? defaults.gemini ?? CONSOLE_LLM_PROVIDER_DEFAULTS.gemini ?? {};
   return {
     modelName,
     provider,
     apiKey: "",
-    modelId: providerDefaults.model ?? "",
+    modelId: provider === "deepseek" ? normalizeDeepSeekModelId(providerDefaults.model) : providerDefaults.model ?? "",
     contextWindow: typeof providerDefaults.contextWindow === "number" ? providerDefaults.contextWindow : undefined,
     baseUrl: providerDefaults.baseUrl ?? ""
   };
 }
 function applyModelProviderChange(model, nextProvider, defaults = {}) {
-  const oldDefaults = defaults[model.provider] ?? {};
-  const newDefaults = defaults[nextProvider] ?? {};
+  const oldDefaults = defaults[model.provider] ?? CONSOLE_LLM_PROVIDER_DEFAULTS[model.provider] ?? {};
+  const newDefaults = defaults[nextProvider] ?? CONSOLE_LLM_PROVIDER_DEFAULTS[nextProvider] ?? {};
+  const baseUrl = nextProvider === "deepseek" ? DEEPSEEK_BASE_URL : !model.baseUrl || model.baseUrl === oldDefaults.baseUrl ? newDefaults.baseUrl ?? model.baseUrl : model.baseUrl;
+  const modelId = nextProvider === "deepseek" ? normalizeDeepSeekModelId(newDefaults.model) : !model.modelId || model.modelId === oldDefaults.model ? newDefaults.model ?? model.modelId : model.modelId;
   return {
     ...model,
     provider: nextProvider,
     apiKey: model.apiKey,
-    modelId: !model.modelId || model.modelId === oldDefaults.model ? newDefaults.model ?? model.modelId : model.modelId,
-    baseUrl: !model.baseUrl || model.baseUrl === oldDefaults.baseUrl ? newDefaults.baseUrl ?? model.baseUrl : model.baseUrl
+    modelId,
+    baseUrl
   };
 }
 function createDefaultMCPServerEntry() {
@@ -8466,8 +8521,8 @@ function cloneConsoleSettingsSnapshot(snapshot) {
 function buildModelPayload(model) {
   const payload = {
     provider: model.provider,
-    model: model.modelId,
-    baseUrl: model.baseUrl,
+    model: model.provider === "deepseek" ? normalizeDeepSeekModelId(model.modelId) : model.modelId,
+    baseUrl: model.provider === "deepseek" ? DEEPSEEK_BASE_URL : model.baseUrl,
     contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : null
   };
   payload.apiKey = model.apiKey || null;
@@ -8624,9 +8679,9 @@ class ConsoleSettingsController {
         originalModelName: model.modelName,
         provider: model.provider,
         apiKey: model.apiKey,
-        modelId: model.model,
+        modelId: model.provider === "deepseek" ? normalizeDeepSeekModelId(model.model) : model.model,
         contextWindow: model.contextWindow,
-        baseUrl: model.baseUrl
+        baseUrl: model.provider === "deepseek" ? DEEPSEEK_BASE_URL : model.baseUrl
       })),
       modelOriginalNames: (llm.models ?? []).map((model) => model.modelName),
       defaultModelName: llm.defaultModelName ?? "",
@@ -8769,8 +8824,9 @@ function formatToolPolicyMode(mode) {
     return "手动确认";
   return "不允许";
 }
+var DEEPSEEK_MODEL_IDS2 = ["deepseek-v4-flash", "deepseek-v4-pro"];
 function isInlineCycleTarget(target) {
-  return target.kind === "modelProvider" || target.kind === "toolPolicy" || target.kind === "mcpField" && target.field === "transport";
+  return target.kind === "modelProvider" || target.kind === "deepseekModel" || target.kind === "toolPolicy" || target.kind === "mcpField" && target.field === "transport";
 }
 function getStatusColor(kind) {
   switch (kind) {
@@ -8877,9 +8933,15 @@ function buildRows(snapshot, termWidth) {
     pushField(`model.${index}.default`, "general", "设为默认", boolText(snapshot.defaultModelName === model.modelName && !!model.modelName), { kind: "modelDefault", modelIndex: index }, "Space 或 Enter 设为默认模型。", 6);
     pushField(`model.${index}.provider`, "general", "Provider", model.provider, { kind: "modelProvider", modelIndex: index }, "左右方向键切换 Provider。", 6);
     pushField(`model.${index}.modelName`, "general", "名称", model.modelName || "(空)", { kind: "modelField", modelIndex: index, field: "modelName" }, "回车编辑。", 6);
-    pushField(`model.${index}.modelId`, "general", "模型 ID", model.modelId || "(空)", { kind: "modelField", modelIndex: index, field: "modelId" }, "回车编辑。", 6);
+    if (model.provider === "deepseek") {
+      pushField(`model.${index}.modelId`, "general", "模型 ID", model.modelId || "(空)", { kind: "deepseekModel", modelIndex: index }, "Enter 或 → 在 Flash / Pro 间切换。", 6);
+    } else {
+      pushField(`model.${index}.modelId`, "general", "模型 ID", model.modelId || "(空)", { kind: "modelField", modelIndex: index, field: "modelId" }, "回车编辑。", 6);
+    }
     pushField(`model.${index}.apiKey`, "general", "API Key", model.apiKey || "未配置", { kind: "modelField", modelIndex: index, field: "apiKey" }, undefined, 6);
-    pushField(`model.${index}.baseUrl`, "general", "Base URL", model.baseUrl || "(空)", { kind: "modelField", modelIndex: index, field: "baseUrl" }, "回车编辑。", 6);
+    if (model.provider !== "deepseek") {
+      pushField(`model.${index}.baseUrl`, "general", "Base URL", model.baseUrl || "(空)", { kind: "modelField", modelIndex: index, field: "baseUrl" }, "回车编辑。", 6);
+    }
   });
   pushField("system.systemPrompt", "general", "System / Prompt", previewText(snapshot.system.systemPrompt, maxPreview), { kind: "systemField", field: "systemPrompt" }, "回车编辑；\\n 表示换行。");
   pushField("system.maxToolRounds", "general", "System / Max Tool Rounds", String(snapshot.system.maxToolRounds), { kind: "systemField", field: "maxToolRounds" });
@@ -9129,14 +9191,21 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
     }
   }, [onLoad, setStatus]);
   const handleAddModel = useCallback4(() => {
-    let nextIndex = 0;
+    const nextIndex = draft?.models.length ?? 0;
     updateDraft((snapshot) => {
-      nextIndex = snapshot.models.length;
       snapshot.models.push(createEmptyModel());
     });
+    const target = {
+      kind: "modelField",
+      modelIndex: nextIndex,
+      field: "modelName"
+    };
     setSelectedRowId(`model.${nextIndex}.modelName`);
-    setStatus("已新增模型草稿，请先填写名称后保存", "info");
-  }, [setStatus, updateDraft]);
+    setNavFocused(false);
+    setEditor({ target, label: `model_${nextIndex + 1}.modelName`, value: "", hint: "请输入模型别名，例如 deepseek_flash。" });
+    setEditorValue("");
+    setStatus("已新增模型草稿，请填写名称后按 Enter 保存", "info");
+  }, [draft?.models.length, setStatus, updateDraft]);
   const handleAddMcpServer = useCallback4(() => {
     let nextIndex = 0;
     updateDraft((snapshot) => {
@@ -9181,6 +9250,13 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
           return;
         const next = cycleValue(CONSOLE_LLM_PROVIDER_OPTIONS, model.provider, direction);
         snapshot.models[target.modelIndex] = applyModelProviderChange(model, next);
+        return;
+      }
+      if (target.kind === "deepseekModel") {
+        const model = snapshot.models[target.modelIndex];
+        if (!model)
+          return;
+        model.modelId = cycleValue(DEEPSEEK_MODEL_IDS2, model.modelId, direction);
         return;
       }
       if (target.kind === "mcpField" && target.field === "transport") {
@@ -12120,6 +12196,7 @@ function useModelState({ modelId, modelName, contextWindow, modelProvider, think
 // src/App.tsx
 import { jsxDEV as jsxDEV43 } from "@opentui/react/jsx-dev-runtime";
 var PROVIDER_LEVELS = {
+  deepseek: ["not-set", "none", "high", "max"],
   claude: ["not-set", "none", "low", "medium", "high", "xhigh", "max"],
   gemini: ["not-set", "minimal", "low", "medium", "high"],
   "openai-compatible": ["not-set", "none", "minimal", "low", "medium", "high", "xhigh"],
@@ -12301,8 +12378,7 @@ function App({
   }, [appState.isGenerating, messageQueue, onSubmit]);
   const handlePrioritySubmit = useCallback11((text) => {
     messageQueue.prepend(text);
-    onAbort();
-  }, [messageQueue, onAbort]);
+  }, [messageQueue]);
   const cycleThinkingEffort = useCallback11((direction) => {
     if (modelState.currentThinkingControlEnabled === false)
       return;
@@ -12690,6 +12766,7 @@ function App({
         thoughtsToggleSignal,
         hasActiveTools: appState.toolInvocations.some((t) => t.status === "executing" || t.status === "queued"),
         scrollBoxRef: chatScrollBoxRef,
+        queuedMessages: messageQueue.queue,
         milestoneSnapshot: appState.milestoneSnapshot
       }, undefined, false, undefined, this) : null,
       /* @__PURE__ */ jsxDEV43(BottomPanel, {
@@ -13403,6 +13480,18 @@ function buildThinkingPatch(provider, level) {
       return {
         reasoning: { effort: level, summary: "auto" }
       };
+    case "deepseek": {
+      if (level === "none") {
+        return {
+          thinking: { type: "disabled" }
+        };
+      }
+      const effort = level === "max" ? "max" : "high";
+      return {
+        thinking: { type: "enabled" },
+        reasoning_effort: effort
+      };
+    }
     default:
       return null;
   }
@@ -13420,6 +13509,8 @@ function getThinkingRemovePaths(provider) {
       return ["reasoning_effort"];
     case "openai-responses":
       return ["reasoning.effort", "reasoning.summary"];
+    case "deepseek":
+      return ["thinking.type", "reasoning_effort", "output_config.effort"];
     default:
       return [];
   }

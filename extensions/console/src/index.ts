@@ -443,6 +443,21 @@ function buildThinkingPatch(provider: string, level: string): Record<string, unk
       return {
         reasoning: { effort: level, summary: 'auto' },
       };
+    case 'deepseek': {
+      // DeepSeek 官方 Chat Completions 兼容接口使用 thinking.type 控制开关；
+      // 强度目前只暴露 high / max。reasoning_effort 是官方 Node.js 示例中的主字段，
+      // output_config.effort 可由用户通过 YAML requestBody 手动覆盖/补充。
+      if (level === 'none') {
+        return {
+          thinking: { type: 'disabled' },
+        };
+      }
+      const effort = level === 'max' ? 'max' : 'high';
+      return {
+        thinking: { type: 'enabled' },
+        reasoning_effort: effort,
+      };
+    }
     default:
       // 未知 provider：不做任何修改
       return null;
@@ -467,6 +482,8 @@ function getThinkingRemovePaths(provider: string): string[] {
       return ['reasoning_effort'];
     case 'openai-responses':
       return ['reasoning.effort', 'reasoning.summary'];
+    case 'deepseek':
+      return ['thinking.type', 'reasoning_effort', 'output_config.effort'];
     default:
       return [];
   }

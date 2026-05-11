@@ -42,6 +42,8 @@ export interface SuggestableInputFieldDefinition {
   validate?: (value: string, values: Record<string, string>) => string | undefined
   normalizePastedText?: (text: string) => string
   suggestions?: SuggestionSource
+  /** 仅允许从 suggestions 中选择，不接受自由文本输入。 */
+  selectionOnly?: boolean
   suggestionEmptyText?: SuggestableFieldText
 }
 
@@ -151,8 +153,13 @@ export function SuggestableInputPage({
   const activeFieldValue = activeField ? values[activeField.key] ?? "" : ""
 
   useEffect(() => {
+    if (activeField?.selectionOnly) {
+      const selectedIndex = activeSuggestions.findIndex((suggestion) => suggestion.value === activeFieldValue)
+      setSelectedSuggestionIndex(selectedIndex >= 0 ? selectedIndex : 0)
+      return
+    }
     setSelectedSuggestionIndex(0)
-  }, [activeFieldKey, activeFieldValue])
+  }, [activeField, activeFieldKey, activeFieldValue, activeSuggestions])
 
   let fieldScrollStart = 0
   if (fields.length > maxVisibleFields) {
@@ -236,7 +243,7 @@ export function SuggestableInputPage({
 
     if (!activeField) return
 
-    if (isTextInputKeyHandled(key)) {
+    if (!activeField.selectionOnly && isTextInputKeyHandled(key)) {
       setFieldStates((current) => ({
         ...current,
         [activeField.key]: applyTextInputKey(current[activeField.key], key),
@@ -245,7 +252,7 @@ export function SuggestableInputPage({
   })
 
   usePaste((text) => {
-    if (!activeField) return
+    if (!activeField || activeField.selectionOnly) return
 
     const cleaned = text.replace(/[\r\n]/g, "").trim()
     if (!cleaned) return

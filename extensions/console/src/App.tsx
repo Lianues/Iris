@@ -41,6 +41,7 @@ import { getSlashCommands, onSlashCommandsChanged } from './slash-command-servic
 
 // ── Provider 级别映射 ──────────────────────────────────────
 const PROVIDER_LEVELS: Record<string, ThinkingEffortLevel[]> = {
+  'deepseek':           ['not-set', 'none', 'high', 'max'],
   'claude':             ['not-set', 'none', 'low', 'medium', 'high', 'xhigh', 'max'],
   'gemini':             ['not-set', 'minimal', 'low', 'medium', 'high'],
   'openai-compatible':  ['not-set', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
@@ -277,11 +278,10 @@ export function App({
     }
   }, [appState.isGenerating, messageQueue, onSubmit]);
 
-  // ── 强制优先发送：中断当前生成，将消息插到队列最前面立即发送 ──
+  // ── 优先发送：生成中将消息插到队列最前面；不打断当前生成，等待本轮完成后发送 ──
   const handlePrioritySubmit = useCallback((text: string) => {
     messageQueue.prepend(text);
-    onAbort();
-  }, [messageQueue, onAbort]);
+  }, [messageQueue]);
 
   const cycleThinkingEffort = useCallback((direction: 1 | -1) => {
     if (modelState.currentThinkingControlEnabled === false) return;
@@ -707,6 +707,7 @@ export function App({
           thoughtsToggleSignal={thoughtsToggleSignal}
           hasActiveTools={appState.toolInvocations.some(t => t.status === 'executing' || t.status === 'queued')}
           scrollBoxRef={chatScrollBoxRef}
+          queuedMessages={messageQueue.queue}
           milestoneSnapshot={appState.milestoneSnapshot}
         />
       ) : null}

@@ -150,8 +150,17 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
 
   let nextModelEntryUid = 1
 
+  const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1'
+  const DEEPSEEK_MODEL_IDS = ['deepseek-v4-flash', 'deepseek-v4-pro'] as const
+
+  function normalizeDeepSeekModelId(modelId: unknown): string {
+    const value = typeof modelId === 'string' ? modelId.trim() : ''
+    return DEEPSEEK_MODEL_IDS.includes(value as typeof DEEPSEEK_MODEL_IDS[number]) ? value : DEEPSEEK_MODEL_IDS[0]
+  }
+
   /** Provider 默认值，与 src/config/llm.ts DEFAULTS 保持一致 */
   const PROVIDER_DEFAULTS: Record<string, { model: string; baseUrl: string; contextWindow: number }> = {
+    deepseek: { model: 'deepseek-v4-flash', baseUrl: 'https://api.deepseek.com/v1', contextWindow: 1000000 },
     gemini: { model: 'gemini-2.0-flash', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', contextWindow: 1048576 },
     'openai-compatible': { model: 'gpt-4o', baseUrl: 'https://api.openai.com/v1', contextWindow: 128000 },
     'openai-responses': { model: 'gpt-4o', baseUrl: 'https://api.openai.com/v1', contextWindow: 128000 },
@@ -168,8 +177,9 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     }
   }
 
-  function createModelEntry(provider = 'gemini', data: Partial<ModelEntry> = {}): ModelEntry {
+  function createModelEntry(provider = 'deepseek', data: Partial<ModelEntry> = {}): ModelEntry {
     const defaults = PROVIDER_DEFAULTS[provider] ?? { model: '', baseUrl: '', contextWindow: 0 }
+    const modelId = provider === 'deepseek' ? normalizeDeepSeekModelId(data.modelId ?? defaults.model) : (data.modelId ?? defaults.model)
     return {
       uid: nextModelEntryUid++,
       open: data.open ?? true,
@@ -177,8 +187,8 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
       provider,
       apiKey: data.apiKey ?? '',
       modelName: data.modelName ?? '',
-      modelId: data.modelId ?? defaults.model,
-      baseUrl: data.baseUrl ?? defaults.baseUrl,
+      modelId,
+      baseUrl: provider === 'deepseek' ? DEEPSEEK_BASE_URL : (data.baseUrl ?? defaults.baseUrl),
       contextWindow: data.contextWindow ?? '',
       supportsVision: data.supportsVision ?? 'auto',
       headers: data.headers ?? '',
@@ -223,6 +233,7 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
 
   function providerLabel(provider: string): string {
     const map: Record<string, string> = {
+      deepseek: 'DeepSeek',
       gemini: 'Gemini',
       'openai-compatible': 'OpenAI 兼容',
       'openai-responses': 'OpenAI Responses',
@@ -297,8 +308,10 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
   function handleModelProviderChange(entry: ModelEntry) {
     const oldDefaults = PROVIDER_DEFAULTS[entry.lastProvider] ?? { model: '', baseUrl: '', contextWindow: 0 }
     const newDefaults = PROVIDER_DEFAULTS[entry.provider] ?? { model: '', baseUrl: '', contextWindow: 0 }
-    if (!entry.modelId || entry.modelId === oldDefaults.model) entry.modelId = newDefaults.model
-    if (!entry.baseUrl || entry.baseUrl === oldDefaults.baseUrl) entry.baseUrl = newDefaults.baseUrl
+    if (entry.provider === 'deepseek') entry.modelId = normalizeDeepSeekModelId(entry.modelId)
+    else if (!entry.modelId || entry.modelId === oldDefaults.model) entry.modelId = newDefaults.model
+    if (entry.provider === 'deepseek') entry.baseUrl = DEEPSEEK_BASE_URL
+    else if (!entry.baseUrl || entry.baseUrl === oldDefaults.baseUrl) entry.baseUrl = newDefaults.baseUrl
     entry.lastProvider = entry.provider
     resetModelCatalog(entry)
   }
@@ -314,6 +327,9 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     if (state.error) return state.error
     if (state.options.length > 0) {
       return `已从 ${state.baseUrl} 拉取 ${state.options.length} 个模型${state.usedStoredApiKey ? '（使用已保存 API Key）' : ''}。也可继续手动输入。`
+    }
+    if (entry.provider === 'deepseek') {
+      return 'DeepSeek 模型 ID 固定为 Flash / Pro 二选一。'
     }
     return '填写 API 地址与 Key 后，可拉取模型列表，也可继续手动输入模型 ID。'
   }
@@ -342,7 +358,7 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
       const result = await fetchConfigModels({
         modelName: entry.modelName.trim() || undefined,
         provider: entry.provider,
-        baseUrl: entry.baseUrl,
+        baseUrl: entry.provider === 'deepseek' ? DEEPSEEK_BASE_URL : entry.baseUrl,
         apiKey: normalizeApiKeyForLookup(entry.apiKey),
       })
 
@@ -1340,10 +1356,12 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
 
 
   function buildModelEntryPayload(entry: ModelEntry): Record<string, unknown> {
+    const baseUrl = entry.provider === 'deepseek' ? DEEPSEEK_BASE_URL : entry.baseUrl
+    const model = entry.provider === 'deepseek' ? normalizeDeepSeekModelId(entry.modelId) : entry.modelId
     const payload: Record<string, unknown> = {
       provider: entry.provider,
-      model: entry.modelId,
-      baseUrl: entry.baseUrl,
+      model,
+      baseUrl,
     }
     payload.apiKey = entry.apiKey || null
     // contextWindow
@@ -1382,6 +1400,9 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
       if (!modelName) return '模型名称不能为空'
       if (names.has(modelName)) return `模型名称重复：${modelName}`
       if (!entry.modelId.trim()) return `模型「${modelName}」缺少模型 ID`
+      if (entry.provider === 'deepseek' && !DEEPSEEK_MODEL_IDS.includes(entry.modelId as typeof DEEPSEEK_MODEL_IDS[number])) {
+        return `DeepSeek 模型「${modelName}」只能选择 deepseek-v4-flash 或 deepseek-v4-pro`
+      }
       if (entry.headers.trim()) {
         try { JSON.parse(entry.headers.trim()) } catch { return `模型「${modelName}」的自定义请求头不是合法 JSON` }
       }

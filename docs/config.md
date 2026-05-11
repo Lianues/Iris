@@ -172,7 +172,7 @@ models:
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `provider` | `gemini \| openai-compatible \| openai-responses \| claude` | 否 | 默认 `gemini` |
+| `provider` | `deepseek \| gemini \| openai-compatible \| openai-responses \| claude` | 否 | 默认 `gemini` |
 | `apiKey` | `string` | 建议填 | 对应 provider 的 API Key |
 | `model` | `string` | 否 | 未填时使用 provider 默认模型 |
 | `baseUrl` | `string` | 否 | 未填时使用 provider 默认地址 |
@@ -186,6 +186,8 @@ models:
 - `defaultModel` 必须指向 `models` 中已定义的模型名称
 - `/model` 切换的是运行时当前活动模型，不会自动改写 `llm.yaml`
 - 子代理类型可以通过 `modelName` 固定使用某个模型；不写时跟随当前活动模型
+- `provider: deepseek` 固定使用官方 API 地址，配置界面不会提供 `baseUrl` 输入；即使手动写入也会被忽略
+- `provider: deepseek` 的 `model` 只能是 `deepseek-v4-flash` 或 `deepseek-v4-pro`，配置界面会以二选一方式呈现
 
 ### `supportsVision` 的作用
 
@@ -203,8 +205,9 @@ models:
 ### `baseUrl` 规则
 
 - Gemini：以 `/v1beta` 结尾，例如 `https://generativelanguage.googleapis.com/v1beta`
-- OpenAI 兼容 / OpenAI Responses / Claude：以 `/v1` 结尾
-- 程序会在此基础上继续补全具体接口路径
+- OpenAI 兼容 / OpenAI Responses / Claude：通常以 `/v1` 结尾
+- DeepSeek：固定使用官方地址 `https://api.deepseek.com/v1`，不提供自定义 `baseUrl`；Iris 会请求 `https://api.deepseek.com/v1/chat/completions`
+- 其他 provider 会在 `baseUrl` 基础上继续补全具体接口路径
 
 ### 自定义请求体示例
 
@@ -223,6 +226,26 @@ models:
 ```
 
 `requestBody` 会深合并到 provider 编码后的最终请求体，适合透传渠道特有参数。
+
+DeepSeek 思考模式示例：
+
+```yaml
+models:
+  deep_flash:
+    provider: deepseek
+    apiKey: your-api-key
+    model: deepseek-v4-flash
+    # 也可选择 deepseek-v4-pro
+    contextWindow: 1000000
+    requestBody:
+      thinking:
+        type: enabled
+      reasoning_effort: high
+      # 如果你的 DeepSeek 兼容端要求 output_config，也可以显式配置：
+      # output_config:
+      #   effort: high
+```
+
 
 ---
 

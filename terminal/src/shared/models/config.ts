@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { join } from "node:path"
 import { parse, stringify } from "yaml"
 import { resolveRuntimeConfigDir } from "../runtime-paths.js"
-import { PROVIDER_DEFAULTS } from "./provider-config.js"
+import { normalizeDeepSeekModelId, PROVIDER_DEFAULTS } from "./provider-config.js"
 import { normalizeText as normalizeTextShared } from "irises-extension-sdk/utils"
 
 export interface EditableModelConfig {
@@ -52,14 +52,20 @@ function toEditableModelEntry(
 ): EditableModelEntry {
   const provider = normalizeText(rawValue.provider) ?? "gemini"
   const providerDefaults = PROVIDER_DEFAULTS[provider] ?? PROVIDER_DEFAULTS.gemini
+  const baseUrl = provider === "deepseek"
+    ? providerDefaults.baseUrl
+    : normalizeText(rawValue.baseUrl) ?? providerDefaults.baseUrl
+  const model = provider === "deepseek"
+    ? normalizeDeepSeekModelId(rawValue.model)
+    : normalizeText(rawValue.model) ?? providerDefaults.model
 
   return {
     originalModelName: modelName,
     modelName,
     provider,
     apiKey: normalizeText(rawValue.apiKey) ?? "",
-    baseUrl: normalizeText(rawValue.baseUrl) ?? providerDefaults.baseUrl,
-    model: normalizeText(rawValue.model) ?? providerDefaults.model,
+    baseUrl,
+    model,
     isDefault: defaultModelName === modelName,
   }
 }
@@ -159,12 +165,14 @@ export function writeEditableModelConfig(
     delete rawModels[originalModelName]
   }
 
+  const providerDefaults = PROVIDER_DEFAULTS[config.provider] ?? PROVIDER_DEFAULTS.gemini
+  const model = config.provider === "deepseek" ? normalizeDeepSeekModelId(config.model) : config.model
   rawModels[config.modelName] = {
     ...existingEntry,
     provider: config.provider,
     apiKey: config.apiKey,
-    model: config.model,
-    baseUrl: config.baseUrl,
+    model,
+    baseUrl: config.provider === "deepseek" ? providerDefaults.baseUrl : config.baseUrl,
   }
 
   const currentDefaultModel = normalizeText(existing.defaultModel)

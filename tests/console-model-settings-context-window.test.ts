@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ConsoleSettingsController, type ConsoleSettingsSnapshot } from '../extensions/console/src/settings';
+import { ConsoleSettingsController, createEmptyModel, type ConsoleSettingsSnapshot } from '../extensions/console/src/settings';
 
 function createSnapshot(contextWindow?: number): ConsoleSettingsSnapshot {
   return {
@@ -36,6 +36,15 @@ function createSnapshot(contextWindow?: number): ConsoleSettingsSnapshot {
 }
 
 describe('ConsoleSettingsController 模型上下文窗口持久化', () => {
+  it('新增模型默认使用 DeepSeek 官方配置', () => {
+    expect(createEmptyModel()).toMatchObject({
+      provider: 'deepseek',
+      modelId: 'deepseek-v4-flash',
+      baseUrl: 'https://api.deepseek.com/v1',
+      contextWindow: 1000000,
+    });
+  });
+
   it('保存快照时应将 contextWindow 写入 llm payload', async () => {
     let capturedUpdates: Record<string, any> | undefined;
     const controller = new ConsoleSettingsController({
