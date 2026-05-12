@@ -152,6 +152,11 @@ export function shouldSkip(
   const currentDate = now ?? new Date();
   const currentTimestamp = currentDate.getTime();
 
+  // 全局调度器开关：运行中热重载禁用后，已经排队的任务即使触发也不执行。
+  if (!config.enabled) {
+    return { skip: true, reason: '定时任务调度器已禁用' };
+  }
+
   // 第一层：任务自身属性
   if (!job.enabled) {
     return { skip: true, reason: `任务 "${job.name}" 已禁用` };

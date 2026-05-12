@@ -883,7 +883,7 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
   }
 
   function sanitizeMcpName(server: MCPServerEntry) {
-    server.name = server.name.replace(/[^a-zA-Z0-9_]/g, '_')
+    server.name = server.name.replace(/[^a-zA-Z0-9_-]/g, '_')
   }
 
   function findDuplicateMcpNames(): string[] {

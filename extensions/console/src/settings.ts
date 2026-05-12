@@ -186,7 +186,7 @@ function normalizeTransport(value: unknown): ConsoleMCPTransport {
 }
 
 function sanitizeServerName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_]/g, '_');
+  return name.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 export function createEmptyModel(
@@ -326,7 +326,7 @@ function validateSnapshot(snapshot: ConsoleSettingsSnapshot): string | null {
     }
 
     if (safeName !== trimmedName) {
-      return `MCP 服务器名称 "${trimmedName}" 仅支持字母、数字和下划线`;
+      return `MCP 服务器名称 "${trimmedName}" 仅支持字母、数字、下划线和连字符`;
     }
 
     if (names.has(trimmedName)) {
