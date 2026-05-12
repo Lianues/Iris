@@ -5,7 +5,14 @@ REM ==========================================
 
 call "%~dp0env.bat"
 
-set "CONFIG_DIR=%PROJECT_ROOT%\data\configs"
+REM 与 Iris 主程序保持一致：运行时配置写入 IRIS_DATA_DIR\configs，
+REM 未设置 IRIS_DATA_DIR 时使用当前用户的 %USERPROFILE%\.iris\configs。
+if defined IRIS_DATA_DIR (
+    set "DATA_DIR=%IRIS_DATA_DIR%"
+) else (
+    set "DATA_DIR=%USERPROFILE%\.iris"
+)
+set "CONFIG_DIR=%DATA_DIR%\configs"
 set "CONFIG_EXAMPLE_DIR=%PROJECT_ROOT%\data\configs.example"
 set "CONFIG_CREATED=0"
 
@@ -21,7 +28,7 @@ if not exist "%CONFIG_EXAMPLE_DIR%" (
 
 REM 首次运行：从模板复制整个目录（不依赖 PowerShell）
 if not exist "%CONFIG_DIR%" (
-    echo [config] First run, initializing from data\configs.example...
+    echo [config] First run, initializing runtime configs from data\configs.example...
     mkdir "%CONFIG_DIR%" >nul 2>&1
     xcopy "%CONFIG_EXAMPLE_DIR%\*" "%CONFIG_DIR%\" /E /I /Y >nul
     if errorlevel 4 (
@@ -31,7 +38,7 @@ if not exist "%CONFIG_DIR%" (
     )
     set "CONFIG_CREATED=1"
 ) else (
-    echo [config] Found data\configs, checking for missing files...
+    echo [config] Found runtime config directory, checking for missing files...
 )
 
 REM 补齐缺失的配置文件
@@ -62,7 +69,7 @@ if "%PLATFORM_TYPE_OK%"=="0" if "%PLATFORM_WEB_BLOCK_OK%"=="0" (
     echo [config] Web GUI mode ready.
 ) else (
     echo [config] WARNING: platform.yaml was not auto-rewritten.
-    echo [config] Please make sure data\configs\platform.yaml contains:
+    echo [config] Please make sure %CONFIG_DIR%\platform.yaml contains:
     echo [config]   type: web
     echo [config]   web:
     echo [config]     port: 8192

@@ -20,6 +20,7 @@
  */
 
 import { createExtensionLogger, definePlatformFactory, splitText, autoApproveHandle, formatToolStatusLine, PlatformAdapter, type ImageInput, type IrisBackendLike, type IrisPlatformFactoryContextLike } from 'irises-extension-sdk';
+import { resolveRuntimeConfigDir } from 'irises-extension-sdk/utils';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -185,7 +186,7 @@ export class WeixinPlatform extends PlatformAdapter {
     this.backend = backend;
     this.config = config;
     this.baseUrl = (config.baseUrl || 'https://ilinkai.weixin.qq.com').replace(/\/$/, '');
-    this.configDir = path.resolve(config.configDir || path.join(process.cwd(), 'data', 'configs'));
+    this.configDir = path.resolve(config.configDir || resolveRuntimeConfigDir());
 
     if (!this.config.botToken) {
       this.loadTokenFromCache();

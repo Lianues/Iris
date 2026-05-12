@@ -1,6 +1,9 @@
+# 模板/运行时路径说明：仓库/安装包中的 data/agents.yaml.example 只作为首次初始化模板。
+# 默认会复制到 ~/.iris/agents.yaml；除非用户设置了 IRIS_DATA_DIR，此时会复制到 IRIS_DATA_DIR/agents.yaml。
+# 之后 Iris 实际读取和写入的是用户运行时目录中的 agents.yaml；请在用户目录中修改 Agent 清单。
 # Agent 配置
 #
-# 首次运行时此文件会自动拷贝到 ~/.iris/agents.yaml。
+# 首次运行时此文件会自动拷贝到用户运行时数据目录中的 agents.yaml。
 #
 # 多 Agent 配置分层重构：
 #   - 移除 enabled 开关，agents.yaml 存在即生效。
