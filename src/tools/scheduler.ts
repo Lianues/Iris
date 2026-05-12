@@ -110,21 +110,39 @@ function isHandlerManagedApprovalTool(call: FunctionCallPart, registry: ToolRegi
 }
 
 /**
- * 从 shell 命令生成前缀通配模式。
+ * 从 shell 命令生成可记忆的命令模式。
  *
- * 取前两个 token + `*`（第二个以 `-` 开头时只取第一个）。
+ * 取前两个 token 作为基础模式（第二个以 `-` 开头时只取第一个），
+ * 同时生成“完整命令精确匹配”和“前缀通配”两条规则。
+ *
+ * 为什么需要两条：旧的单一 "cmd *" 规则只匹配带额外参数的命令，
+ * 例如 "npm test *" 无法匹配 "npm test" 本身，导致 TUI 中对无参数命令
+ * 选择“始终允许”后，下次相同命令仍然弹确认。
+ * 精确匹配使用完整命令而不是基础模式，避免 "git push origin main" 额外允许
+ * 裸 "git push" 这类更宽泛的命令。
+ *
  * 示例：
- *   "npm install express" → "npm install *"
- *   "git push origin main" → "git push *"
- *   "python -m pytest" → "python *"
- *   "ls" → "ls *"
+ *   "npm install express" → ["npm install express", "npm install *"]
+ *   "git push origin main" → ["git push origin main", "git push *"]
+ *   "python -m pytest" → ["python -m pytest", "python *"]
+ *   "ls" → ["ls", "ls *"]
  */
+export function generateCommandPatterns(command: string): string[] {
+  const normalized = command.trim().replace(/\s+/g, ' ');
+  if (!normalized) return ['*'];
+
+  const tokens = normalized.split(' ');
+  const prefixBase = tokens.length <= 1 || tokens[1].startsWith('-')
+    ? tokens[0]
+    : `${tokens[0]} ${tokens[1]}`;
+
+  return Array.from(new Set([normalized, `${prefixBase} *`]));
+}
+
+/** @deprecated 使用 generateCommandPatterns，同时写入精确模式和前缀通配模式。 */
 export function generateCommandPattern(command: string): string {
-  const tokens = command.trim().split(/\s+/);
-  if (tokens.length === 0 || !tokens[0]) return '*';
-  if (tokens.length <= 1) return tokens[0] + ' *';
-  if (tokens[1].startsWith('-')) return tokens[0] + ' *';
-  return tokens[0] + ' ' + tokens[1] + ' *';
+  const patterns = generateCommandPatterns(command);
+  return patterns[patterns.length - 1] ?? '*';
 }
 
 /**

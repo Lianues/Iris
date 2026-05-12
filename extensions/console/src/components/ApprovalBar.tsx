@@ -40,11 +40,11 @@ export function ApprovalBar({ toolName, choice, remainingCount, isCommandTool, a
         {showPolicyPage ? (
           <>
             <span fg={choice === 'approve' ? C.command : C.textSec}>
-              {choice === 'approve' ? '[(A)始终允许]' : ' (A)始终允许 '}
+              {choice === 'approve' ? '[(A)允许此类命令]' : ' (A)允许此类命令 '}
             </span>
             <span fg={C.dim}> </span>
             <span fg={choice === 'reject' ? '#e17055' : C.textSec}>
-              {choice === 'reject' ? '[(S)始终询问]' : ' (S)始终询问 '}
+              {choice === 'reject' ? '[(S)询问此类命令]' : ' (S)询问此类命令 '}
             </span>
           </>
         ) : (
