@@ -16,6 +16,15 @@ export class PromptAssembler {
     this.systemParts = [{ text }];
   }
 
+  /**
+   * 仅替换基础系统提示词文本，保留后续通过 addSystemPart 注入的运行时片段。
+   * 用于配置热重载，避免覆盖 milestone / 插件等附加 system part。
+   */
+  replaceSystemPromptText(text: string): void {
+    if (this.systemParts.length === 0) this.systemParts = [{ text }];
+    else this.systemParts[0] = { text };
+  }
+
   /** 追加系统提示词片段 */
   addSystemPart(part: Part): void {
     this.systemParts.push(part);

@@ -6,6 +6,7 @@ import type { LLMConfig, ToolsConfig, SkillDefinition, SummaryConfig } from '../
 import type { Part, Content, UsageMetadata, ToolInvocation, ToolAttachment } from '../../types';
 import type { ToolExecutionHandle } from '../../tools/handle';
 import type { LLMModelInfo } from '../../llm/router';
+import type { CallmeAttributionConfig } from '../../git/callme';
 import type { MilestoneSnapshot } from '../session-milestones';
 
 // ============ 常量 ============
@@ -119,6 +120,8 @@ export interface BackendConfig {
   milestoneManager?: import('../session-milestones').SessionMilestoneManager;
   /** 当前 Backend 所属 Agent 名称，用于过滤共享 milestone 事件 */
   milestoneRouteAgent?: string;
+  /** /callme git commit co-author 署名配置。 */
+  callme?: CallmeAttributionConfig;
 }
 
 /** 异步子代理通知的结构化数据（由 Backend 解析 <task-notification> XML 后生成） */

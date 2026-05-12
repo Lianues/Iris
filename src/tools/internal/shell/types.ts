@@ -5,6 +5,7 @@
 import type { LLMRouter } from '@/llm/router';
 import type { ToolRegistry } from '../../registry';
 import type { ToolPolicyConfig } from '@/config';
+import type { CallmeAttributionConfig } from '@/git/callme';
 
 // ============ 白名单类型 ============
 
@@ -69,4 +70,6 @@ export interface ShellToolDeps {
   /** 获取工具策略（学习 sub-agent 的 ToolLoop 需要） */
   getToolPolicies?: () => Record<string, ToolPolicyConfig>;
   retryOnError?: boolean;
+  /** /callme git co-author 署名配置（默认关闭，按 Agent 隔离）。 */
+  getCallmeConfig?: () => CallmeAttributionConfig | undefined;
 }

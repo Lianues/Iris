@@ -59,6 +59,8 @@ export interface AppProps {
   onSummarize: () => Promise<{ ok: boolean; message: string }>;
   /** Plan Mode 命令处理（/plan）。返回需要显示在聊天区的提示文本。 */
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
+  /** /callme：显式开启/关闭 git commit co-author 署名。 */
+  onCallmeCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   /** 获取可切换的 Agent 列表（/agent 命令触发） */
   onListAgents?: () => AgentDefinitionLike[];
   /** 用户在 agent-list 视图中确认选择后，执行实际的 Agent 切换 */

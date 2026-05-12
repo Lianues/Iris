@@ -13,6 +13,7 @@ import type { BootstrapExtensionRegistry } from '../bootstrap/extensions';
 import type { PluginManager } from '../extension/manager';
 import type { DeliveryRegistry } from '../extension/delivery-registry';
 import { parseDeliveryConfig } from './delivery';
+import type { CallmeAttributionConfig } from '../git/callme';
 
 export interface RuntimeConfigReloadContext {
   backend: Backend;
@@ -21,6 +22,8 @@ export interface RuntimeConfigReloadContext {
   dataDir?: string;
   extensions?: Pick<BootstrapExtensionRegistry, 'llmProviders'>;
   deliveryRegistry?: DeliveryRegistry;
+  /** 配置热重载后同步 /callme 运行时状态（按 Agent 的 shell/bash 工具实例隔离）。 */
+  onCallmeConfigReload?: (config: CallmeAttributionConfig | undefined) => void;
 }
 
 export interface RuntimeConfigSummary {
@@ -47,6 +50,7 @@ export async function applyRuntimeConfigReload(
   // 避免多 Agent 热重载时错误地扫描全局 skills 目录。
   const effectiveDataDir = context.dataDir ?? dataDir;
   const systemConfig = parseSystemConfig(mergedConfig.system, effectiveDataDir);
+  context.onCallmeConfigReload?.(systemConfig.callme);
   context.backend.reloadConfig({
     stream: mergedConfig.system?.stream,
     maxToolRounds: mergedConfig.system?.maxToolRounds,
@@ -55,6 +59,7 @@ export async function applyRuntimeConfigReload(
     toolsConfig,
     systemPrompt: mergedConfig.system?.systemPrompt || DEFAULT_SYSTEM_PROMPT,
     currentLLMConfig: newRouter.getCurrentConfig(),
+    callme: systemConfig.callme,
     // 热重载 Skill 定义
     skills: systemConfig.skills,
   });

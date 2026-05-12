@@ -47,6 +47,14 @@ export const COMMANDS: Command[] = [
   { name: '/file',     description: '附加文件（图片/文档/音频/视频）  clear 清空' },
   { name: '/headless', description: '关闭 TUI 并保留 Core / IPC 后台运行', requiresHeadlessSupport: true },
   { name: '/detach',   description: '同 /headless，分离当前 TUI', requiresHeadlessSupport: true },
+  {
+    name: '/callme',
+    description: '切换 Iris git commit 链接署名（默认关闭，可 status）',
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: 'status', description: '查看当前状态' },
+    ],
+  },
   { name: '/exit',     description: '退出应用' },
 ];
 

@@ -2,6 +2,8 @@
  * 配置类型定义
  */
 
+import type { CallmeAttributionConfig } from '../git/callme';
+
 
 /**
  * 对码（Pairing）配置。
@@ -316,6 +318,12 @@ export interface SystemConfig {
     /** 当 loadWorkspaceExtensions=true 时，仅这些名字会被纳入；为空表示不收窄（全部纳入）。 */
     workspaceAllowlist?: string[];
   };
+
+  /**
+   * /callme：用户显式开启后，Iris 代执行 git commit 时自动追加固定链接署名。
+   * 默认关闭；通过 Console TUI 输入 /callme 写入 system.yaml。
+   */
+  callme?: CallmeAttributionConfig;
 }
 
 /** 上下文压缩（/compact）配置 */

@@ -25,6 +25,7 @@ import {
   formatInteractiveFailureHint,
 } from '../non-interactive-command';
 import { createLogger } from '@/logger';
+import { maybeAddCallmeTrailerToGitCommit } from '@/git/callme';
 
 const logger = createLogger('BashTool');
 
@@ -280,6 +281,7 @@ export function createBashTool(deps?: BashToolDeps): ToolDefinition {
 Git 安全规范：
 - 不要执行 git push、git commit 除非用户明确要求。
 - 修改仓库状态前先用 git status / git diff 确认。
+- 如果用户通过 /callme 开启署名，Iris 会在 git commit 命令中自动追加固定链接署名（默认关闭）。
 
 force 参数规则：
 - 默认不要设置 force。只有命令被分类器拒绝且用户明确确认后才设置 force: true。
@@ -311,10 +313,16 @@ force 参数规则：
     handler: async (args, context) => {
       const limits = getToolLimits().shell;
 
-      const command = args.command as string;
+      let command = args.command as string;
       const cwd = args.cwd as string | undefined;
       const timeout = resolveCommandTimeout(args.timeout, limits.defaultTimeout);
       const force = args.force === true;
+
+      const commandWithCallme = maybeAddCallmeTrailerToGitCommit(command, 'bash', deps?.getCallmeConfig?.());
+      if (commandWithCallme !== command) {
+        logger.info(`已按 /callme 配置为 git commit 注入链接署名: ${command.slice(0, 100)}`);
+        command = commandWithCallme;
+      }
 
       const projectRoot = getProjectRoot();
       const workDir = cwd ? resolveProjectPath(cwd) : projectRoot;

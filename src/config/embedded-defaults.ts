@@ -107,6 +107,13 @@ maxRetries: 3
 # logRequests: true
 # asyncSubAgents: true
 
+# /callme git 提交署名（默认关闭）
+# 在 Console TUI 输入 /callme 后会自动写入：
+# callme: true
+# 开启后，Iris 代你执行 git commit 时会自动追加：
+# Co-authored with Iris: https://github.com/Lianues/Iris
+# 该功能只提供开关，不支持自定义署名内容；关闭时为 callme: false。
+
 # 扩展发现范围（仅控制 workspace 源；embedded 与 installed 不受影响）：
 #   - embedded：发行包/源码仓库自带（在 extensions/embedded.json 中声明），始终参与发现，
 #               要关闭某个 embedded 扩展请到 plugins.yaml 写 enabled: false。

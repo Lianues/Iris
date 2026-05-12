@@ -220,6 +220,7 @@ export class IrisCore {
     // LayeredConfigManager 退化为单目录模式，零回归风险。
     const globalDir = findConfigFile();
     const config = options.resolvedConfig ?? loadConfig(agentPaths?.configDir, agentPaths);
+    const callmeAttributionRef = { current: config.system.callme };
     const extensions = createBootstrapExtensionRegistry();
 
     // 构造扩展发现选项：决定 workspace 源是否被纳入 + 白名单收窄。
@@ -298,6 +299,7 @@ export class IrisCore {
       tools,
       getToolPolicies: () => config.tools.permissions,
       retryOnError: config.system.retryOnError,
+      getCallmeConfig: () => callmeAttributionRef.current,
     };
     const commandTool = isWindows
       ? createShellTool(commandToolDeps)
@@ -388,6 +390,7 @@ export class IrisCore {
       configDir,
       globalConfigDir: globalDir,
       rememberPlatformModel: config.llm.rememberPlatformModel,
+      callme: callmeAttributionRef.current,
       asyncSubAgents: asyncSubAgentsEnabled,
       milestoneManager,
       milestoneRouteAgent: options.agentName ?? 'master',
@@ -623,6 +626,7 @@ export class IrisCore {
           const merged = updateEditableConfig(configDir, { net: netUpdate });
           const ctx: RuntimeConfigReloadContext = {
             backend, pluginManager,  extensions, deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
+            onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
           };
           await applyRuntimeConfigReload(ctx, merged.mergedRaw);
           return { success: true };
@@ -672,6 +676,7 @@ export class IrisCore {
               backend, pluginManager,  extensions,
               dataDir: effectiveDataDir,
               deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
+              onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
             };
             await applyRuntimeConfigReload(ctx, merged);
             console.log('[ConfigWatcher] 配置文件变更，已自动热重载');
@@ -729,6 +734,7 @@ export class IrisCore {
             try {
               const ctx: RuntimeConfigReloadContext = {
                 backend, pluginManager,  extensions, deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
+                onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
               };
               await applyRuntimeConfigReload(ctx, mergedConfig);
               return { success: true };

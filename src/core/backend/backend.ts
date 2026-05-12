@@ -55,6 +55,7 @@ import type { SessionMilestoneManager, MilestoneSnapshot } from '../session-mile
 
 import type { BackendConfig, ImageInput, DocumentInput, AudioInput, VideoInput, UndoScope, UndoOperationResult, RedoOperationResult, NotificationPayload } from './types';
 import { buildMinimalParts, estimateMultimodalTokens } from './media';
+import { maybeAddCallmeTrailerToGitCommit, type CallmeAttributionConfig } from '../../git/callme';
 import { prepareHistoryForLLM, preparePartsForLLM } from './history';
 import { callLLMStream } from './stream';
 import { UndoRedoManager } from './undo-redo';
@@ -133,6 +134,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private toolLoop: ToolLoop;
   private toolLoopConfig: ToolLoopConfig;
   private toolState: ToolStateManager;
+  private callmeConfig?: CallmeAttributionConfig;
 
   /** 每个 sessionId 的 AbortController，用于中止正在进行的 chat */
   private activeAbortControllers = new Map<string, AbortController>();
@@ -229,6 +231,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.configDir = config?.configDir;
     this.globalConfigDir = config?.globalConfigDir;
     this.rememberPlatformModel = config?.rememberPlatformModel ?? true;
+    this.callmeConfig = config?.callme;
     if (config?.skills) {
       this.skills = config.skills;
     }
@@ -890,7 +893,15 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       return { output: `已切换到: ${cwd}`, cwd };
     }
 
-    const result = spawnSync(trimmed, {
+    const shellKind = process.platform === 'win32' ? 'cmd' : 'bash';
+    let command = maybeAddCallmeTrailerToGitCommit(trimmed, shellKind, this.callmeConfig);
+    if (command !== trimmed) {
+      logger.info(`已按 /callme 配置为 /sh git commit 注入链接署名: ${trimmed.slice(0, 100)}`);
+    } else {
+      command = trimmed;
+    }
+
+    const result = spawnSync(command, {
       cwd: getSessionCwd(),
       encoding: 'utf-8',
       timeout: 30000,
@@ -1140,6 +1151,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     toolsConfig?: ToolsConfig;
     systemPrompt?: string;
     currentLLMConfig?: LLMConfig;
+    callme?: CallmeAttributionConfig;
     skills?: SkillDefinition[];
   }): void {
     if (opts.stream !== undefined) this.stream = opts.stream;
@@ -1147,7 +1159,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     if (opts.toolsConfig !== undefined) this.toolLoopConfig.toolsConfig = opts.toolsConfig;
     if (opts.retryOnError !== undefined) this.toolLoopConfig.retryOnError = opts.retryOnError;
     if (opts.maxRetries !== undefined) this.toolLoopConfig.maxRetries = opts.maxRetries;
-    if (opts.systemPrompt !== undefined) this.prompt.setSystemPrompt(opts.systemPrompt);
+    if (opts.systemPrompt !== undefined) this.prompt.replaceSystemPromptText(opts.systemPrompt);
+    if ('callme' in opts) this.callmeConfig = opts.callme;
     if ('currentLLMConfig' in opts) this.currentLLMConfig = opts.currentLLMConfig;
     if ('skills' in opts) {
       this.skills = opts.skills ?? [];

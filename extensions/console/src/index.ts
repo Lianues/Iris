@@ -1028,6 +1028,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         supportsHeadlessTransition: this.supportsHeadlessTransition,
         onSummarize: () => this.handleSummarize(),
         onPlanCommand: (arg: string) => this.handlePlanCommand(arg),
+        onCallmeCommand: (arg: string) => this.handleCallmeCommand(arg),
         onListAgents: () => this.handleListAgents(),
         onSelectAgent: (name: string) => this.handleSelectAgent(name),
         onDream: () => this.handleDream(),
@@ -2259,6 +2260,73 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     if (pkg.source === 'installed') return { kind: 'global' };
     if (pkg.source === 'agent-installed') return ext?.defaultScope ?? undefined;
     return undefined;
+  }
+
+  private readCallmeConfigFromEditable(): { enabled: boolean; trailer: string } {
+    const manager = this.api?.configManager;
+    const rawConfig = manager?.readEditableConfig?.() ?? (this.api?.config as Record<string, unknown> | undefined) ?? {};
+    const rawSystem = rawConfig.system && typeof rawConfig.system === 'object'
+      ? rawConfig.system as Record<string, unknown>
+      : {};
+    const trailer = 'Co-authored with Iris: https://github.com/Lianues/Iris';
+
+    try {
+      const parsedSystem = manager?.parseSystemConfig?.(rawSystem) as Record<string, any> | undefined;
+      const callme = parsedSystem?.callme;
+      if (callme && typeof callme === 'object') {
+        return { enabled: callme.enabled === true, trailer };
+      }
+    } catch { /* fallback below */ }
+
+    const rawCallme = rawSystem.callme;
+    if (typeof rawCallme === 'boolean') {
+      return { enabled: rawCallme, trailer };
+    }
+    if (rawCallme && typeof rawCallme === 'object' && !Array.isArray(rawCallme)) {
+      const record = rawCallme as Record<string, unknown>;
+      return { enabled: record.enabled === true, trailer };
+    }
+    return { enabled: false, trailer };
+  }
+
+  private formatCallmeStatus(enabled: boolean, trailer: string): string {
+    if (enabled) {
+      return `感谢开启 /callme 模式。以后我帮你执行 git commit 时，会在提交信息末尾带上：\n\n${trailer}\n\n再次输入 /callme 可关闭。`;
+    }
+    return `/callme 目前关闭。输入 /callme 后开启；开启后 Iris 代你执行 git commit 时会追加：\n\n${trailer}`;
+  }
+
+  private async handleCallmeCommand(arg: string): Promise<{ ok: boolean; message: string }> {
+    const normalized = arg.trim().toLowerCase();
+    const statusOnly = normalized === 'status' || normalized === '状态';
+    const toggle = !normalized;
+    const explicitEnable = ['on', 'enable', 'enabled', 'true', '1', '开启', '打开'].includes(normalized);
+    const explicitDisable = ['off', 'disable', 'disabled', 'false', '0', '关闭', '关'].includes(normalized);
+
+    const current = this.readCallmeConfigFromEditable();
+    if (statusOnly) {
+      return { ok: true, message: this.formatCallmeStatus(current.enabled, current.trailer) };
+    }
+    if (!toggle && !explicitEnable && !explicitDisable) {
+      return {
+        ok: false,
+        message: '用法：/callme 切换开关；/callme status 查看状态。',
+      };
+    }
+
+    const manager = this.api?.configManager;
+    if (!manager) {
+      return { ok: false, message: '当前运行环境不支持写入 /callme 设置。' };
+    }
+
+    const nextEnabled = toggle ? !current.enabled : explicitEnable;
+    const merged = manager.updateEditableConfig({ system: { callme: nextEnabled } });
+    const reload = await manager.applyRuntimeConfigReload(merged.mergedRaw);
+    if (!reload.success) {
+      return { ok: false, message: `已写入 /callme 设置，但热重载失败：${reload.error ?? '未知错误'}。重启后生效。` };
+    }
+
+    return { ok: true, message: nextEnabled ? this.formatCallmeStatus(true, current.trailer) : '已关闭 /callme 模式。之后 Iris 不会再自动给 git commit 添加链接署名；再次输入 /callme 可重新开启。' };
   }
 
   private async handlePlanCommand(arg: string): Promise<PlanCommandResult> {

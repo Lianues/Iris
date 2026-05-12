@@ -48,6 +48,7 @@ interface UseCommandDispatchOptions {
   /** 获取可切换的 Agent 列表，返回后由 /agent 命令切换到 agent-list 视图 */
   onListAgents?: () => AgentDefinitionLike[];
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
+  onCallmeCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   setAgentList: SetAgentList;
   onDream?: () => Promise<{ ok: boolean; message: string }>;
   onListMemories?: () => Promise<MemoryItem[]>;
@@ -102,6 +103,7 @@ export function useCommandDispatch({
   onEnterHeadless,
   onListAgents,
   onPlanCommand,
+  onCallmeCommand,
   setAgentList,
 
   onDream,
@@ -390,6 +392,28 @@ export function useCommandDispatch({
       return;
     }
 
+    if (text === '/callme' || text.startsWith('/callme ')) {
+      const arg = text.slice('/callme'.length).trim();
+      if (!onCallmeCommand) {
+        appendCommandMessage(setMessages, '/callme 服务不可用。', { isError: true, label: 'callme' });
+        return;
+      }
+      void onCallmeCommand(arg).then((result) => {
+        appendCommandMessage(
+          setMessages,
+          result.message,
+          result.ok ? { label: 'callme' } : { isError: true, label: 'callme' },
+        );
+      }).catch((err) => {
+        appendCommandMessage(
+          setMessages,
+          `/callme 操作失败: ${err instanceof Error ? err.message : String(err)}`,
+          { isError: true, label: 'callme' },
+        );
+      });
+      return;
+    }
+
     if (text === '/plan' || text.startsWith('/plan ')) {
       const arg = text.slice('/plan'.length).trim();
       const planMessageOptions = { label: 'plan' as const };
@@ -487,6 +511,7 @@ export function useCommandDispatch({
     onSwitchModel,
     onSummarize,
     onPlanCommand,
+    onCallmeCommand,
     onUndo,
     queueClear,
     queueSize,
