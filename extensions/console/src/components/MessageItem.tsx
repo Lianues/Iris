@@ -97,6 +97,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   isSummary?: boolean;
   createdAt?: number;
+  /** 本地队列中的即时预览消息：尚未真正发送到后端 */
+  isQueuedPreview?: boolean;
   isError?: boolean;
   isCommand?: boolean;
   /** 命令/系统反馈消息的显示标签，默认 shell */
@@ -282,7 +284,7 @@ export const MessageItem = React.memo(function MessageItem(
   }
 
   const commandLabel = msg.commandLabel ?? 'shell';
-  const labelName = isSummary ? 'context' : isUser ? 'you' : (msg.isCommand ? commandLabel : (msg.modelName || modelName || 'iris').toLowerCase());
+  const labelName = isSummary ? 'context' : isUser ? (msg.isQueuedPreview ? 'you queued' : 'you') : (msg.isCommand ? commandLabel : (msg.modelName || modelName || 'iris').toLowerCase());
   const commandColor = commandLabel === 'plan' ? C.warn : C.command;
   const labelColor = isSummary ? C.warn : isUser ? C.roleUser : (msg.isError ? C.error : (msg.isCommand ? commandColor : C.roleAssistant));
   const headerText = `${ICONS.separator} ${labelName} `;

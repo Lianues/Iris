@@ -59,20 +59,27 @@ export function ChatMessageList({
     return { tick: () => step, reset: () => {} };
   }, [termHeight]);
 
-  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-  // 仅当最后一条 assistant 消息正处于「活跃生成」状态时才视为 active：
+  // 仅当最后一条普通 assistant 消息正处于「活跃生成」状态时才视为 active：
   // - isStreaming：流式数据正在到来（包括 notification turn）
   // - isGenerating && parts.length === 0：刚创建的占位消息，等待 stream:start
   // 已有内容的 assistant 消息（如 compact 期间的上一轮回复）不应被视为 active，
   // 否则独立的 GeneratingTimer 无法渲染。
-  const lastIsActiveAssistant = lastMessage?.role === 'assistant' && (
-    isStreaming || (isGenerating && lastMessage.parts.length === 0)
-  );
+  // 命令/错误/通知汇总消息可能在流式输出期间插入，不能成为 liveParts 挂载目标。
+  const activeAssistantIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message.role !== 'assistant' || message.isCommand || message.isError || message.isNotificationSummary) continue;
+      return (isStreaming || (isGenerating && message.parts.length === 0)) ? i : -1;
+    }
+    return -1;
+  })();
+  const hasActiveAssistant = activeAssistantIndex >= 0;
 
   // 找到最后一条 assistant 消息的 index（用于 Ctrl+O 定向切换）
   let lastAssistantIndex = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'assistant') { lastAssistantIndex = i; break; }
+    const message = messages[i];
+    if (message.role === 'assistant' && !message.isCommand && !message.isError && !message.isNotificationSummary) { lastAssistantIndex = i; break; }
   }
 
   const queuedPreviewMessages = useMemo<ChatMessage[]>(() => (queuedMessages ?? []).map((msg) => ({
@@ -80,12 +87,13 @@ export function ChatMessageList({
     role: 'user',
     parts: [{ type: 'text', text: msg.text }],
     createdAt: msg.createdAt,
+    isQueuedPreview: true,
   })), [queuedMessages]);
 
   return (
     <scrollbox ref={scrollBoxRef} flexGrow={1} stickyScroll stickyStart="bottom" paddingRight={1} scrollAcceleration={scrollAccel}>
       {messages.map((message, index) => {
-        const isLastActive = lastIsActiveAssistant && index === messages.length - 1;
+        const isLastActive = index === activeAssistantIndex;
         const liveParts = isLastActive && streamingParts.length > 0 ? streamingParts : undefined;
         const hasVisibleContent = message.parts.length > 0 || !!liveParts;
 
@@ -119,7 +127,7 @@ export function ChatMessageList({
         </box>
       ) : null}
 
-      {isGenerating && !lastIsActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? (
+      {isGenerating && !hasActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? (
         <box flexDirection="column" paddingBottom={1}>
           <GeneratingTimer isGenerating={isGenerating} retryInfo={retryInfo} label={generatingLabel} paused={timerPaused} />
         </box>

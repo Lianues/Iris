@@ -3021,6 +3021,9 @@ var FILE_TYPE_ICONS = {
 function isPlanModeToggleShortcut(key) {
   return key.shift && key.name === "tab" || key.name === "backtab" || key.name === "shift-tab" || key.sequence === "\x1B[Z";
 }
+function isPrioritySubmitShortcut(key) {
+  return key.ctrl && key.name === "s" || key.sequence === "\x13" || key.raw === "\x13";
+}
 function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled }) {
   const [inputState, inputActions] = useTextInput("");
   const [selectedIndex, setSelectedIndex] = useState4(0);
@@ -3157,7 +3160,9 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         return;
       }
     }
-    if (key.ctrl && key.name === "s") {
+    if (isPrioritySubmitShortcut(key)) {
+      key.preventDefault?.();
+      key.stopPropagation?.();
       if (!isQueueMode)
         return;
       const text = value.trim();
@@ -5328,7 +5333,7 @@ var MessageItem = React7.memo(function MessageItem2({ msg, liveTools, liveParts,
     }, undefined, true, undefined, this);
   }
   const commandLabel = msg.commandLabel ?? "shell";
-  const labelName = isSummary ? "context" : isUser ? "you" : msg.isCommand ? commandLabel : (msg.modelName || modelName || "iris").toLowerCase();
+  const labelName = isSummary ? "context" : isUser ? msg.isQueuedPreview ? "you queued" : "you" : msg.isCommand ? commandLabel : (msg.modelName || modelName || "iris").toLowerCase();
   const commandColor = commandLabel === "plan" ? C.warn : C.command;
   const labelColor = isSummary ? C.warn : isUser ? C.roleUser : msg.isError ? C.error : msg.isCommand ? commandColor : C.roleAssistant;
   const headerText = `${ICONS.separator} ${labelName} `;
@@ -5574,11 +5579,20 @@ function ChatMessageList({
     const step = Math.max(1, Math.round(chatViewportHeight / 5));
     return { tick: () => step, reset: () => {} };
   }, [termHeight]);
-  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-  const lastIsActiveAssistant = lastMessage?.role === "assistant" && (isStreaming || isGenerating && lastMessage.parts.length === 0);
+  const activeAssistantIndex = (() => {
+    for (let i = messages.length - 1;i >= 0; i--) {
+      const message = messages[i];
+      if (message.role !== "assistant" || message.isCommand || message.isError || message.isNotificationSummary)
+        continue;
+      return isStreaming || isGenerating && message.parts.length === 0 ? i : -1;
+    }
+    return -1;
+  })();
+  const hasActiveAssistant = activeAssistantIndex >= 0;
   let lastAssistantIndex = -1;
   for (let i = messages.length - 1;i >= 0; i--) {
-    if (messages[i].role === "assistant") {
+    const message = messages[i];
+    if (message.role === "assistant" && !message.isCommand && !message.isError && !message.isNotificationSummary) {
       lastAssistantIndex = i;
       break;
     }
@@ -5587,7 +5601,8 @@ function ChatMessageList({
     id: `queued-preview-${msg.id}`,
     role: "user",
     parts: [{ type: "text", text: msg.text }],
-    createdAt: msg.createdAt
+    createdAt: msg.createdAt,
+    isQueuedPreview: true
   })), [queuedMessages]);
   return /* @__PURE__ */ jsxDEV30("scrollbox", {
     ref: scrollBoxRef,
@@ -5598,7 +5613,7 @@ function ChatMessageList({
     scrollAcceleration: scrollAccel,
     children: [
       messages.map((message, index) => {
-        const isLastActive = lastIsActiveAssistant && index === messages.length - 1;
+        const isLastActive = index === activeAssistantIndex;
         const liveParts = isLastActive && streamingParts.length > 0 ? streamingParts : undefined;
         const hasVisibleContent = message.parts.length > 0 || !!liveParts;
         if (isLastActive && !hasVisibleContent) {
@@ -5641,7 +5656,7 @@ function ChatMessageList({
           standalone: true
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this) : null,
-      isGenerating && !lastIsActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? /* @__PURE__ */ jsxDEV30("box", {
+      isGenerating && !hasActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? /* @__PURE__ */ jsxDEV30("box", {
         flexDirection: "column",
         paddingBottom: 1,
         children: /* @__PURE__ */ jsxDEV30(GeneratingTimer, {
@@ -10017,17 +10032,27 @@ function appendAssistantParts(prev, partsToAppend, meta) {
   return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta }];
 }
 function appendCommandMessage(setMessages, text, options) {
-  setMessages((prev) => [
-    ...prev.filter((message) => !message.isCommand),
-    {
+  setMessages((prev) => {
+    const commandMessage = {
       id: nextMsgId(),
       role: "assistant",
       parts: [{ type: "text", text }],
       isCommand: true,
       commandLabel: options?.label,
       isError: options?.isError
+    };
+    const withoutOldCommands = prev.filter((message) => !message.isCommand);
+    const lastIndex = withoutOldCommands.length - 1;
+    const last = withoutOldCommands[lastIndex];
+    if (options?.beforeActiveAssistant && last?.role === "assistant" && !last.isError && !last.isCommand) {
+      return [
+        ...withoutOldCommands.slice(0, lastIndex),
+        commandMessage,
+        last
+      ];
     }
-  ]);
+    return [...withoutOldCommands, commandMessage];
+  });
 }
 
 // src/undo-redo.ts
@@ -10186,8 +10211,15 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         const notifDesc = notificationContextRef.current.description;
         setMessages((prev) => {
           const last = prev[prev.length - 1];
-          if (last?.role === "assistant" && !isNotif && !last.isError)
+          if (last?.role === "assistant" && !isNotif && !last.isError && !last.isCommand)
             return prev;
+          if (last?.isCommand && !isNotif) {
+            for (let i = prev.length - 2;i >= 0; i--) {
+              const message = prev[i];
+              if (message.role === "assistant" && !message.isError && !message.isCommand)
+                return prev;
+            }
+          }
           return [...prev, {
             id: nextMsgId(),
             role: "assistant",
@@ -10226,31 +10258,45 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         setMessages((prev) => {
           if (normalizedParts.length === 0 && !meta)
             return prev;
-          const last = prev[prev.length - 1];
+          const resolveMergeTargetIndex = () => {
+            const tail = prev[prev.length - 1];
+            if (tail?.role === "assistant" && !tail.isCommand)
+              return prev.length - 1;
+            if (tail?.isCommand) {
+              for (let i = prev.length - 2;i >= 0; i--) {
+                const message = prev[i];
+                if (message.role === "assistant" && !message.isCommand && !message.isError)
+                  return i;
+              }
+            }
+            return -1;
+          };
+          const targetIndex = resolveMergeTargetIndex();
+          const target = targetIndex >= 0 ? prev[targetIndex] : undefined;
           if (normalizedParts.length === 0) {
-            if (!last || last.role !== "assistant")
+            if (!target || target.role !== "assistant")
               return prev;
             const copy2 = [...prev];
-            copy2[copy2.length - 1] = { ...last, ...meta, ...notifMeta };
+            copy2[targetIndex] = { ...target, ...meta, ...notifMeta };
             return copy2;
           }
           if (prev.length === 0)
             return [{ id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
-          if (last.role !== "assistant")
+          if (!target || target.role !== "assistant")
             return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
-          if (isNotif && !last.isNotification) {
+          if (isNotif && !target.isNotification) {
             return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
           }
-          if (last.isError) {
+          if (target.isError) {
             return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
           }
           const copy = [...prev];
-          let finalParts = mergeMessageParts([...last.parts, ...normalizedParts]);
+          let finalParts = mergeMessageParts([...target.parts, ...normalizedParts]);
           const pending = toolInvocationsRef.current;
-          if (pending.length > 0 && finalParts.some((p) => p.type === "tool_use")) {
+          if (pending.length > 0 && finalParts.some((part) => part.type === "tool_use")) {
             finalParts = mergeMessageParts(applyToolInvocationsToParts(finalParts, pending));
           }
-          copy[copy.length - 1] = { ...last, parts: finalParts, ...meta, ...notifMeta };
+          copy[targetIndex] = { ...target, parts: finalParts, ...meta, ...notifMeta };
           return copy;
         });
       },
@@ -10263,14 +10309,28 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         setMessages((prev) => {
           if (prev.length === 0)
             return prev;
-          const last = prev[prev.length - 1];
-          if (last.role !== "assistant")
+          const resolveToolTargetIndex = () => {
+            const tail = prev[prev.length - 1];
+            if (tail?.role === "assistant" && !tail.isCommand)
+              return prev.length - 1;
+            if (tail?.isCommand) {
+              for (let i = prev.length - 2;i >= 0; i--) {
+                const message = prev[i];
+                if (message.role === "assistant" && !message.isCommand && !message.isError)
+                  return i;
+              }
+            }
+            return -1;
+          };
+          const targetIndex = resolveToolTargetIndex();
+          const target = targetIndex >= 0 ? prev[targetIndex] : undefined;
+          if (!target || target.role !== "assistant")
             return prev;
-          if (last.parts.length === 0)
+          if (target.parts.length === 0)
             return prev;
-          const nextParts = applyToolInvocationsToParts(last.parts, copy, false);
+          const nextParts = applyToolInvocationsToParts(target.parts, copy, false);
           const copyMessages = [...prev];
-          copyMessages[copyMessages.length - 1] = { ...last, parts: mergeMessageParts(nextParts) };
+          copyMessages[targetIndex] = { ...target, parts: mergeMessageParts(nextParts) };
           return copyMessages;
         });
       },
@@ -10665,11 +10725,11 @@ function useAppKeyboard({
       onToggleThoughts();
       return;
     }
-    if (isPlanModeToggleShortcut2(key) && viewMode === "chat" && !isGenerating && pendingApprovals.length === 0 && pendingApplies.length === 0 && !pendingConfirm) {
+    if (isPlanModeToggleShortcut2(key) && (viewMode === "chat" || viewMode === "tool-list" || viewMode === "tool-detail") && pendingApprovals.length === 0 && pendingApplies.length === 0 && !pendingConfirm) {
       key.preventDefault?.();
       onPlanCommand?.("").then((result) => {
-        appendCommandMessage(setMessages, result.message, result.ok ? { label: "plan" } : { label: "plan", isError: true });
-      }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "plan", isError: true }));
+        appendCommandMessage(setMessages, result.message, result.ok ? { label: "plan", beforeActiveAssistant: isGenerating } : { label: "plan", isError: true, beforeActiveAssistant: isGenerating });
+      }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "plan", isError: true, beforeActiveAssistant: isGenerating }));
       return;
     }
     if (key.name === "t" && key.ctrl) {

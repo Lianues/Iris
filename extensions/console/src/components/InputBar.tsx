@@ -60,6 +60,12 @@ interface InputBarProps {
   supportsHeadlessTransition?: boolean;
 }
 
+function isPrioritySubmitShortcut(key: any): boolean {
+  return (key.ctrl && key.name === 's')
+    || key.sequence === '\x13'
+    || key.raw === '\x13';
+}
+
 export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -223,7 +229,9 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     }
 
     // Ctrl+S → 优先发送（插入队首，不中断当前生成）
-    if (key.ctrl && key.name === 's') {
+    if (isPrioritySubmitShortcut(key)) {
+      key.preventDefault?.();
+      key.stopPropagation?.();
       if (!isQueueMode) return;
       const text = value.trim();
       if (!text) return;

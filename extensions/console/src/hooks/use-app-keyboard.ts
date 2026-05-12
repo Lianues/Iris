@@ -357,19 +357,19 @@ export function useAppKeyboard({
     }
 
     // Shift+Tab：切换当前 Agent/session 的 Plan Mode。
-    // 仅在聊天主视图空闲时触发，避免和审批页 Tab/Shift+Tab 选择冲突。
+    // 生成/流式输出期间也允许切换；只避开审批、确认与工具应用等需要接管键盘的状态。
+    // 工具执行列表/详情页也允许切换，避免工具调用中无法进出 Plan Mode。
     if (
       isPlanModeToggleShortcut(key)
-      && viewMode === 'chat'
-      && !isGenerating
+      && (viewMode === 'chat' || viewMode === 'tool-list' || viewMode === 'tool-detail')
       && pendingApprovals.length === 0
       && pendingApplies.length === 0
       && !pendingConfirm
     ) {
       key.preventDefault?.();
       void onPlanCommand?.('').then((result) => {
-        appendCommandMessage(setMessages, result.message, result.ok ? { label: 'plan' } : { label: 'plan', isError: true });
-      }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: 'plan', isError: true }));
+        appendCommandMessage(setMessages, result.message, result.ok ? { label: 'plan', beforeActiveAssistant: isGenerating } : { label: 'plan', isError: true, beforeActiveAssistant: isGenerating });
+      }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: 'plan', isError: true, beforeActiveAssistant: isGenerating }));
       return;
     }
 
