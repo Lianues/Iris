@@ -60,6 +60,8 @@ import { prepareHistoryForLLM, preparePartsForLLM } from './history';
 import { callLLMStream } from './stream';
 import { UndoRedoManager } from './undo-redo';
 import { buildPluginHookConfig } from './plugins';
+import { AutoEditManager, buildAutoEditInstructions } from '../../auto-edit';
+import type { AutoEditSessionState } from '../../auto-edit';
 
 import { sessionContext, getSessionCwd, setSessionCwd, getRememberedCwd, getActiveSessionId, clearSessionCwd } from './session-context';
 import type { SessionExecutionContext } from './session-context';
@@ -135,6 +137,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private toolLoopConfig: ToolLoopConfig;
   private toolState: ToolStateManager;
   private callmeConfig?: CallmeAttributionConfig;
+  private autoEdit = new AutoEditManager();
+  private isPlanModeActive?: (sessionId: string | undefined) => boolean;
 
   /** 每个 sessionId 的 AbortController，用于中止正在进行的 chat */
   private activeAbortControllers = new Map<string, AbortController>();
@@ -232,6 +236,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.globalConfigDir = config?.globalConfigDir;
     this.rememberPlatformModel = config?.rememberPlatformModel ?? true;
     this.callmeConfig = config?.callme;
+    this.isPlanModeActive = config?.isPlanModeActive;
     if (config?.skills) {
       this.skills = config.skills;
     }
@@ -725,6 +730,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.turnLock.clear(sessionId);
     // 清空会话级 milestone 面板状态
     this.milestoneManager?.clear(sessionId, undefined, this.milestoneRouteAgent);
+    // 清空会话级 Auto Edit 状态
+    this.autoEdit.clear(sessionId);
+    this.emit('auto-edit:update', sessionId, false);
 
     for (const hook of this.pluginHooks) {
       try {
@@ -1096,6 +1104,32 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   /** 获取指定会话的所有工具 Handle */
   getToolHandles(sessionId: string): ToolExecutionHandle[] {
     return this.toolState.getHandlesBySession(sessionId);
+  }
+
+  enableAutoEdit(sessionId: string): AutoEditSessionState {
+    const state = this.autoEdit.enable(sessionId);
+    this.emit('auto-edit:update', sessionId, state.active);
+    return state;
+  }
+
+  disableAutoEdit(sessionId: string): AutoEditSessionState {
+    const state = this.autoEdit.disable(sessionId);
+    this.emit('auto-edit:update', sessionId, state.active);
+    return state;
+  }
+
+  toggleAutoEdit(sessionId: string): AutoEditSessionState {
+    const state = this.autoEdit.toggle(sessionId);
+    this.emit('auto-edit:update', sessionId, state.active);
+    return state;
+  }
+
+  getAutoEditState(sessionId: string | undefined): AutoEditSessionState | null {
+    return this.autoEdit.getState(sessionId);
+  }
+
+  isAutoEditActive(sessionId: string | undefined): boolean {
+    return this.autoEdit.isActive(sessionId);
   }
 
   getToolsConfig(): ToolsConfig {
@@ -1538,14 +1572,28 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const startTime = Date.now();
 
     // 1. 构建 per-request 额外上下文。
-    // 模式提示仍作为 system part；动态 milestone 提醒放到用户侧尾部，避免破坏 system prompt cache。
+    // 模式提示仍作为 system part；动态运行时提醒（milestone / Auto Edit 等）
+    // 参考 Claude Code 的 <system-reminder> 做法，放到用户侧尾部，避免破坏 system prompt cache。
     const extraParts: Part[] = [];
-    const milestoneReminderParts: Part[] = [];
+    const runtimeReminderParts: Part[] = [];
     const mode = this.resolveMode();
     if (mode?.systemPrompt) {
       extraParts.unshift({ text: mode.systemPrompt });
     }
-    this.milestoneHintPartsBySession.set(sessionId, milestoneReminderParts);
+    const planModeActive = this.isPlanModeActive?.(sessionId) === true;
+    const autoEditActive = this.autoEdit.isActive(sessionId);
+    if (autoEditActive) {
+      runtimeReminderParts.push(this.buildSystemReminderPart(buildAutoEditInstructions(planModeActive)));
+    }
+    const runtimeApprovalContext = {
+      sessionId,
+      cwd: getSessionCwd(),
+      autoEditActive,
+      planModeActive,
+      isAutoEditActive: (sid: string | undefined) => this.autoEdit.isActive(sid),
+      isPlanModeActive: (sid: string | undefined) => this.isPlanModeActive?.(sid) === true,
+    };
+    this.milestoneHintPartsBySession.set(sessionId, runtimeReminderParts);
     this.milestoneHintKeysBySession.set(sessionId, new Set());
     this.refreshMilestoneLifecycleHint(sessionId);
 
@@ -1566,6 +1614,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
           requestTools, this.toolState, this.toolLoopConfig.toolsConfig,
           callSignal, this.toolLoopConfig.beforeToolExec, this.toolLoopConfig.afterToolExec,
           (attachments) => { this.emit('attachments', sessionId, attachments); },
+          runtimeApprovalContext,
           sessionId,
         );
 
@@ -1605,7 +1654,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const result = await loop.run(history, callLLM, {
       sessionId,
       extraParts,
-      extraUserParts: milestoneReminderParts,
+      extraUserParts: runtimeReminderParts,
       // 流式模式下注入 StreamingToolExecutor。
       // callLLM 每次被调用时会创建新的 executor，这里通过 getter 获取最新的实例。
       get streamingToolExecutor() { return streamingExecutor; },
@@ -1615,6 +1664,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         this.emit('attachments', sessionId, attachments);
       },
       signal,
+      runtimeApprovalContext,
       onRetry: (attempt, maxRetries, error) => {
         this.emit('retry', sessionId, attempt, maxRetries, error);
       },
@@ -1622,7 +1672,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         if (finalMilestoneCheckInjected) return false;
         const hint = this.buildMilestoneFinalCheckHint(sessionId);
         if (!hint) return false;
-        milestoneReminderParts.push(this.buildSystemReminderPart(hint));
+        runtimeReminderParts.push(this.buildSystemReminderPart(hint));
         finalMilestoneCheckInjected = true;
         logger.info(`最终回复前发现未关闭 milestone，已追加进度检查: session=${sessionId}`);
         return true;

@@ -95,6 +95,7 @@ import { resolveProjectPath } from '../tools/utils';
 import { supportsVision as checkVision, supportsNativePDF as checkNativePDF, supportsNativeOffice as checkNativeOffice, isDocumentMimeType as checkDocMime } from '../llm/vision';
 import { setExtensionLogLevel } from 'irises-extension-sdk';
 import { planModePlugin } from '../plan-mode/plugin';
+import { PLAN_MODE_SERVICE_ID, type PlanModeService } from '../plan-mode/types';
 import { SessionMilestoneManager } from './session-milestones';
 import { getActiveSessionId } from './backend/session-context';
 
@@ -394,6 +395,10 @@ export class IrisCore {
       asyncSubAgents: asyncSubAgentsEnabled,
       milestoneManager,
       milestoneRouteAgent: options.agentName ?? 'master',
+      isPlanModeActive: (sessionId) => (
+        pluginManager.getServiceRegistry().get<PlanModeService>(PLAN_MODE_SERVICE_ID)
+          ?.isActive(sessionId) === true
+      ),
     }, modeRegistry);
 
     backend.setTaskBoard(taskBoard);

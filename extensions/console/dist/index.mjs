@@ -733,6 +733,11 @@ var init_protocol = __esm(() => {
     GET_TOOL_POLICIES: "backend.getToolPolicies",
     GET_CWD: "backend.getCwd",
     SET_CWD: "backend.setCwd",
+    ENABLE_AUTO_EDIT: "backend.enableAutoEdit",
+    DISABLE_AUTO_EDIT: "backend.disableAutoEdit",
+    TOGGLE_AUTO_EDIT: "backend.toggleAutoEdit",
+    GET_AUTO_EDIT_STATE: "backend.getAutoEditState",
+    IS_AUTO_EDIT_ACTIVE: "backend.isAutoEditActive",
     GET_CONFIG: "server.getConfig",
     GET_CONFIG_DIR: "server.getConfigDir",
     SERVER_SHUTDOWN: "server.shutdown",
@@ -778,6 +783,7 @@ var init_protocol = __esm(() => {
     TASK_RESULT: "event:task:result",
     NOTIFICATION_PAYLOADS: "event:notification:payloads",
     MODELS_CHANGED: "event:models:changed",
+    AUTO_EDIT_UPDATE: "event:auto-edit:update",
     HANDLE_STATE: "event:handle:state",
     HANDLE_OUTPUT: "event:handle:output",
     HANDLE_PROGRESS: "event:handle:progress",
@@ -802,7 +808,8 @@ var init_protocol = __esm(() => {
     "agent:notification": Events.AGENT_NOTIFICATION,
     "task:result": Events.TASK_RESULT,
     "notification:payloads": Events.NOTIFICATION_PAYLOADS,
-    "models:changed": Events.MODELS_CHANGED
+    "models:changed": Events.MODELS_CHANGED,
+    "auto-edit:update": Events.AUTO_EDIT_UPDATE
   };
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
@@ -1035,6 +1042,44 @@ var init_remote_backend_handle = __esm(() => {
         this._cachedCwd = dirPath;
       }).catch((err) => logger2.warn(`setCwd 失败: ${err.message}`));
     }
+    async enableAutoEdit(sessionId) {
+      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.ENABLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
+      this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    async disableAutoEdit(sessionId) {
+      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.DISABLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
+      this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    async toggleAutoEdit(sessionId) {
+      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.TOGGLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
+      this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    async getAutoEditState(sessionId) {
+      const state = sessionId ? this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.GET_AUTO_EDIT_STATE, [sessionId])) : null;
+      if (sessionId)
+        this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    isAutoEditActive(sessionId) {
+      return !!sessionId && this._autoEditStates.get(sessionId) === true;
+    }
+    normalizeAutoEditState(sessionId, state) {
+      if (!state || typeof state !== "object") {
+        return null;
+      }
+      const record = state;
+      return {
+        ...record,
+        sessionId: typeof record.sessionId === "string" ? record.sessionId : sessionId,
+        active: record.active === true
+      };
+    }
+    updateAutoEditCache(sessionId, state) {
+      this._autoEditStates.set(sessionId, state?.active === true);
+    }
     _streamEnabled = true;
     _cachedModels = [];
     _cachedSkills = [];
@@ -1043,6 +1088,7 @@ var init_remote_backend_handle = __esm(() => {
     _cachedCurrentModelInfo = undefined;
     _cachedDisabledTools = undefined;
     _cachedCwd = process.cwd();
+    _autoEditStates = new Map;
     async initCaches() {
       const [models, skills, modes, toolNames, modelInfo, disabledTools, cwd, streamEnabled] = await Promise.all([
         this.callRemote(Methods.LIST_MODELS).catch(() => []),
@@ -1110,6 +1156,10 @@ var init_remote_backend_handle = __esm(() => {
           }
           this.emit("models:changed", ...params);
           return;
+        }
+        if (method === Events.AUTO_EDIT_UPDATE) {
+          const [sessionId, active] = params;
+          this._autoEditStates.set(sessionId, active === true);
         }
         const backendEvent = IPC_TO_BACKEND_EVENT[method];
         if (!backendEvent)
@@ -1367,6 +1417,21 @@ class BackendHandle {
   }
   getActiveSessionId() {
     return this._backend.getActiveSessionId?.();
+  }
+  enableAutoEdit(sessionId) {
+    return this._backend.enableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  disableAutoEdit(sessionId) {
+    return this._backend.disableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  toggleAutoEdit(sessionId) {
+    return this._backend.toggleAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  getAutoEditState(sessionId) {
+    return this._backend.getAutoEditState?.(sessionId) ?? null;
+  }
+  isAutoEditActive(sessionId) {
+    return this._backend.isAutoEditActive?.(sessionId) === true;
   }
 }
 class PlatformAdapter {
@@ -1668,6 +1733,7 @@ var C = {
   primaryLight: "#a29bfe",
   accent: "#00b894",
   warn: "#fdcb6e",
+  autoEdit: "#74b9ff",
   error: "#d63031",
   text: "#dfe6e9",
   textSec: "#b2bec3",
@@ -1732,7 +1798,7 @@ function ApprovalBar({ toolName, choice, remainingCount, isCommandTool, approval
           children: [
             /* @__PURE__ */ jsxDEV("span", {
               fg: choice === "approve" ? C.command : C.textSec,
-              children: choice === "approve" ? "[(A)始终允许]" : " (A)始终允许 "
+              children: choice === "approve" ? "[(A)允许此类命令]" : " (A)允许此类命令 "
             }, undefined, false, undefined, this),
             /* @__PURE__ */ jsxDEV("span", {
               fg: C.dim,
@@ -1740,7 +1806,7 @@ function ApprovalBar({ toolName, choice, remainingCount, isCommandTool, approval
             }, undefined, false, undefined, this),
             /* @__PURE__ */ jsxDEV("span", {
               fg: choice === "reject" ? "#e17055" : C.textSec,
-              children: choice === "reject" ? "[(S)始终询问]" : " (S)始终询问 "
+              children: choice === "reject" ? "[(S)询问此类命令]" : " (S)询问此类命令 "
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV(Fragment, {
@@ -2875,7 +2941,7 @@ function hardTruncate(text, maxWidth) {
   }
   return result + ICONS.ellipsis;
 }
-function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost }) {
+function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, autoEditActive }) {
   const cwd = process.cwd();
   const hasQueue = (queueSize ?? 0) > 0;
   const escAction = isGenerating ? "esc 中断生成" : hasRunningBackgroundTasks ? "esc 中断任务" : "ctrl+j 换行";
@@ -2884,6 +2950,7 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
     hintStr = "再次按 ctrl+c 退出";
   } else {
     const parts = [];
+    parts.push("ctrl+e 自动编辑");
     parts.push(escAction);
     parts.push("ctrl+t 工具详情");
     if (isGenerating && hasQueue) {
@@ -2931,6 +2998,11 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
         children: /* @__PURE__ */ jsxDEV7("text", {
           fg: C.dim,
           children: [
+            /* @__PURE__ */ jsxDEV7("span", {
+              fg: autoEditActive ? C.autoEdit : C.dim,
+              children: "ctrl+e 自动编辑"
+            }, undefined, false, undefined, this),
+            `  ${ICONS.separator}  `,
             escAction,
             `  ${ICONS.separator}  ctrl+t 工具详情`,
             isGenerating && hasQueue ? /* @__PURE__ */ jsxDEV7(Fragment3, {
@@ -2968,6 +3040,16 @@ var COMMANDS = [
   { name: "/reset-config", description: "重置配置为默认值" },
   { name: "/compact", description: "压缩上下文（总结历史消息）" },
   { name: "/plan", description: "进入或查看当前 Agent 会话的 Plan Mode" },
+  {
+    name: "/auto-edit",
+    description: "切换当前会话自动编辑（安全编辑自动应用）",
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: "on", description: "开启当前会话自动编辑" },
+      { value: "off", description: "关闭当前会话自动编辑" },
+      { value: "status", description: "查看当前状态" }
+    ]
+  },
   { name: "/net", description: "配置多端互联（Net）" },
   { name: "/remote", description: "连接远程 Iris 实例" },
   { name: "/disconnect", description: "断开远程连接", remoteOnly: true, color: "#fdcb6e" },
@@ -2979,6 +3061,14 @@ var COMMANDS = [
   { name: "/file", description: "附加文件（图片/文档/音频/视频）  clear 清空" },
   { name: "/headless", description: "关闭 TUI 并保留 Core / IPC 后台运行", requiresHeadlessSupport: true },
   { name: "/detach", description: "同 /headless，分离当前 TUI", requiresHeadlessSupport: true },
+  {
+    name: "/callme",
+    description: "切换 Iris git commit 链接署名（默认关闭，可 status）",
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: "status", description: "查看当前状态" }
+    ]
+  },
   { name: "/exit", description: "退出应用" }
 ];
 function getCommandInput(cmd) {
@@ -3020,6 +3110,9 @@ var FILE_TYPE_ICONS = {
 };
 function isPlanModeToggleShortcut(key) {
   return key.shift && key.name === "tab" || key.name === "backtab" || key.name === "shift-tab" || key.sequence === "\x1B[Z";
+}
+function isAutoEditToggleShortcut(key) {
+  return key.ctrl && key.name === "e";
 }
 function isPrioritySubmitShortcut(key) {
   return key.ctrl && key.name === "s" || key.sequence === "\x13" || key.raw === "\x13";
@@ -3125,6 +3218,10 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       rapidKeyCountRef.current = 0;
     }
     if (isPlanModeToggleShortcut(key)) {
+      key.preventDefault?.();
+      return;
+    }
+    if (isAutoEditToggleShortcut(key)) {
       key.preventDefault?.();
       return;
     }
@@ -3674,6 +3771,7 @@ function BottomPanel({
   exitConfirmArmed,
   backgroundTaskCount,
   planModeActive,
+  autoEditActive,
   delegateTaskCount,
   backgroundTaskTokens,
   backgroundTaskSpinnerFrame,
@@ -3764,7 +3862,8 @@ function BottomPanel({
         queueSize,
         copyMode,
         exitConfirmArmed,
-        remoteHost
+        remoteHost,
+        autoEditActive
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -8491,7 +8590,7 @@ function normalizeTransport(value) {
   return "stdio";
 }
 function sanitizeServerName(name) {
-  return name.replace(/[^a-zA-Z0-9_]/g, "_");
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 function createEmptyModel(provider = CONSOLE_LLM_PROVIDER_OPTIONS[0], modelName = "", defaults = {}) {
   const providerDefaults = defaults[provider] ?? CONSOLE_LLM_PROVIDER_DEFAULTS[provider] ?? defaults.gemini ?? CONSOLE_LLM_PROVIDER_DEFAULTS.gemini ?? {};
@@ -8587,7 +8686,7 @@ function validateSnapshot(snapshot) {
       return "MCP 服务器名称不能为空";
     }
     if (safeName !== trimmedName) {
-      return `MCP 服务器名称 "${trimmedName}" 仅支持字母、数字和下划线`;
+      return `MCP 服务器名称 "${trimmedName}" 仅支持字母、数字、下划线和连字符`;
     }
     if (names.has(trimmedName)) {
       return `MCP 服务器名称 "${trimmedName}" 重复`;
@@ -10094,6 +10193,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
   const [pendingApprovals, setPendingApprovals] = useState10([]);
   const [pendingApplies, setPendingApplies] = useState10([]);
   const [planModeActive, setPlanModeActive] = useState10(false);
+  const [autoEditActive, setAutoEditActive] = useState10(false);
   const [milestoneSnapshot, setMilestoneSnapshot] = useState10(null);
   const milestoneSnapshotRef = useRef6(null);
   const archivedMilestoneUpdatedAtRef = useRef6(null);
@@ -10373,6 +10473,9 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
       setPlanModeActive(active) {
         setPlanModeActive(active);
       },
+      setAutoEditActive(active) {
+        setAutoEditActive(active);
+      },
       setMilestones(snapshot) {
         const next = snapshot && snapshot.items.length > 0 ? snapshot : null;
         if (next && next.stats.open > 0) {
@@ -10533,6 +10636,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
     pendingApprovals,
     pendingApplies,
     planModeActive,
+    autoEditActive,
     milestoneSnapshot,
     toolInvocations,
     backgroundTaskCount,
@@ -10556,6 +10660,9 @@ function closeConfirm(setPendingConfirm, setConfirmChoice) {
 }
 function isPlanModeToggleShortcut2(key) {
   return key.shift && key.name === "tab" || key.name === "backtab" || key.name === "shift-tab" || key.sequence === "\x1B[Z";
+}
+function isAutoEditToggleShortcut2(key) {
+  return key.ctrl && key.name === "e";
 }
 function useAppKeyboard({
   viewMode,
@@ -10581,6 +10688,7 @@ function useAppKeyboard({
   onToolApproval,
   onAddCommandPattern,
   onPlanCommand,
+  onAutoEditCommand,
   sessionList,
   modelList,
   defaultModelName,
@@ -10730,6 +10838,13 @@ function useAppKeyboard({
       onPlanCommand?.("").then((result) => {
         appendCommandMessage(setMessages, result.message, result.ok ? { label: "plan", beforeActiveAssistant: isGenerating } : { label: "plan", isError: true, beforeActiveAssistant: isGenerating });
       }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "plan", isError: true, beforeActiveAssistant: isGenerating }));
+      return;
+    }
+    if (isAutoEditToggleShortcut2(key) && (viewMode === "chat" || viewMode === "tool-list" || viewMode === "tool-detail") && pendingApprovals.length === 0 && pendingApplies.length === 0 && !pendingConfirm && !askQuestionActive) {
+      key.preventDefault?.();
+      onAutoEditCommand?.("").then((result) => {
+        appendCommandMessage(setMessages, result.message, result.ok ? { label: "自动编辑", beforeActiveAssistant: isGenerating } : { label: "自动编辑", isError: true, beforeActiveAssistant: isGenerating });
+      }).catch((err) => appendCommandMessage(setMessages, `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "自动编辑", isError: true, beforeActiveAssistant: isGenerating }));
       return;
     }
     if (key.name === "t" && key.ctrl) {
@@ -11728,6 +11843,8 @@ function useCommandDispatch({
   onEnterHeadless,
   onListAgents,
   onPlanCommand,
+  onAutoEditCommand,
+  onCallmeCommand,
   setAgentList,
   onDream,
   onListMemories,
@@ -11992,6 +12109,33 @@ function useCommandDispatch({
       });
       return;
     }
+    if (text === "/callme" || text.startsWith("/callme ")) {
+      const arg = text.slice("/callme".length).trim();
+      if (!onCallmeCommand) {
+        appendCommandMessage(setMessages, "/callme 服务不可用。", { isError: true, label: "callme" });
+        return;
+      }
+      onCallmeCommand(arg).then((result) => {
+        appendCommandMessage(setMessages, result.message, result.ok ? { label: "callme" } : { isError: true, label: "callme" });
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `/callme 操作失败: ${err instanceof Error ? err.message : String(err)}`, { isError: true, label: "callme" });
+      });
+      return;
+    }
+    if (text === "/auto-edit" || text.startsWith("/auto-edit ")) {
+      const arg = text.slice("/auto-edit".length).trim();
+      const messageOptions = { label: "自动编辑" };
+      if (!onAutoEditCommand) {
+        appendCommandMessage(setMessages, "自动编辑服务不可用。", { ...messageOptions, isError: true });
+        return;
+      }
+      onAutoEditCommand(arg).then((result) => {
+        appendCommandMessage(setMessages, result.message, result.ok ? messageOptions : { ...messageOptions, isError: true });
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`, { ...messageOptions, isError: true });
+      });
+      return;
+    }
     if (text === "/plan" || text.startsWith("/plan ")) {
       const arg = text.slice("/plan".length).trim();
       const planMessageOptions = { label: "plan" };
@@ -12075,6 +12219,8 @@ function useCommandDispatch({
     onSwitchModel,
     onSummarize,
     onPlanCommand,
+    onAutoEditCommand,
+    onCallmeCommand,
     onUndo,
     queueClear,
     queueSize,
@@ -12305,6 +12451,8 @@ function App({
   supportsHeadlessTransition,
   onSummarize,
   onPlanCommand,
+  onAutoEditCommand,
+  onCallmeCommand,
   onListAgents,
   onSelectAgent,
   onThinkingEffortChange,
@@ -12512,6 +12660,8 @@ function App({
     remoteHost,
     onSummarize,
     onPlanCommand,
+    onAutoEditCommand,
+    onCallmeCommand,
     undoRedoRef,
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
@@ -12597,6 +12747,7 @@ function App({
     onToolApproval,
     onAddCommandPattern,
     onPlanCommand,
+    onAutoEditCommand,
     sessionList,
     modelList,
     setModelList,
@@ -12852,6 +13003,7 @@ function App({
         exitConfirmArmed: exitConfirm.exitConfirmArmed,
         backgroundTaskCount: appState.backgroundTaskCount,
         planModeActive: appState.planModeActive,
+        autoEditActive: appState.autoEditActive,
         delegateTaskCount: appState.delegateTaskCount,
         backgroundTaskTokens: appState.backgroundTaskTokens,
         backgroundTaskSpinnerFrame: appState.backgroundTaskSpinnerFrame,
@@ -13255,15 +13407,13 @@ async function handleConsoleToggleExtension(api, name, desiredEnabled) {
 }
 
 // src/index.ts
-function generateCommandPattern(command) {
-  const tokens = command.trim().split(/\s+/);
-  if (tokens.length === 0 || !tokens[0])
-    return "*";
-  if (tokens.length <= 1)
-    return tokens[0] + " *";
-  if (tokens[1].startsWith("-"))
-    return tokens[0] + " *";
-  return tokens[0] + " " + tokens[1] + " *";
+function generateCommandPatterns(command) {
+  const normalized = command.trim().replace(/\s+/g, " ");
+  if (!normalized)
+    return ["*"];
+  const tokens = normalized.split(" ");
+  const prefixBase = tokens.length <= 1 || tokens[1].startsWith("-") ? tokens[0] : `${tokens[0]} ${tokens[1]}`;
+  return Array.from(new Set([normalized, `${prefixBase} *`]));
 }
 var REMOTE_CONNECT_WS_CLIENT_SERVICE = "remote-connect:WsIPCClient";
 var REMOTE_CONNECT_DISCOVERY_SERVICE = "remote-connect:discoverLanInstances";
@@ -13662,6 +13812,30 @@ class ConsolePlatform extends PlatformAdapter {
       this.appHandle?.setPlanModeActive(false);
     }
   }
+  syncAutoEditStatus() {
+    try {
+      const sessionId = this.sessionId;
+      const backend = this.backend;
+      const cachedActive = backend.isAutoEditActive?.(sessionId);
+      if (typeof cachedActive === "boolean") {
+        this.appHandle?.setAutoEditActive(cachedActive);
+      }
+      const stateOrPromise = backend.getAutoEditState?.(sessionId);
+      if (stateOrPromise !== undefined) {
+        Promise.resolve(stateOrPromise).then((state) => {
+          if (this.appHandle && this.sessionId === sessionId) {
+            this.appHandle.setAutoEditActive(state?.active === true);
+          }
+        }).catch(() => {
+          this.appHandle?.setAutoEditActive(false);
+        });
+      } else if (typeof cachedActive !== "boolean") {
+        this.appHandle?.setAutoEditActive(false);
+      }
+    } catch {
+      this.appHandle?.setAutoEditActive(false);
+    }
+  }
   async syncMilestones() {
     try {
       const snapshot = await this.backend.loadMilestones?.(this.sessionId) ?? this.backend.getMilestones?.(this.sessionId);
@@ -13867,6 +14041,11 @@ class ConsolePlatform extends PlatformAdapter {
         this.appHandle?.setMilestones(snapshot);
       }
     });
+    this.onBackend("auto-edit:update", (sid, active) => {
+      if (sid === this.sessionId) {
+        this.appHandle?.setAutoEditActive(active);
+      }
+    });
     this.onBackend("auto-compact", (sid, summaryText) => {
       if (sid === this.sessionId) {
         const fullText = `[Context Summary]
@@ -13919,6 +14098,7 @@ ${summaryText}`;
         onReady: (handle) => {
           this.appHandle = handle;
           this.syncPlanModeStatus();
+          this.syncAutoEditStatus();
           this.syncMilestones();
           resolve5();
         },
@@ -14011,6 +14191,8 @@ ${summaryText}`;
         supportsHeadlessTransition: this.supportsHeadlessTransition,
         onSummarize: () => this.handleSummarize(),
         onPlanCommand: (arg) => this.handlePlanCommand(arg),
+        onAutoEditCommand: (arg) => this.handleAutoEditCommand(arg),
+        onCallmeCommand: (arg) => this.handleCallmeCommand(arg),
         onListAgents: () => this.handleListAgents(),
         onSelectAgent: (name) => this.handleSelectAgent(name),
         onDream: () => this.handleDream(),
@@ -14375,6 +14557,7 @@ ${summaryText}`;
     this.currentToolIds.clear();
     this._activeHandles.clear();
     this.appHandle?.setPlanModeActive(false);
+    this.appHandle?.setAutoEditActive(false);
     this.appHandle?.setMilestones(null);
   }
   openToolDetail(toolId) {
@@ -14416,7 +14599,7 @@ ${summaryText}`;
     }
   }
   addCommandPattern(toolName, command, type) {
-    const pattern = generateCommandPattern(command);
+    const patterns = generateCommandPatterns(command);
     const key = type === "allow" ? "allowPatterns" : "denyPatterns";
     const policies = this.backend.getToolPolicies?.();
     if (!policies) {
@@ -14429,17 +14612,17 @@ ${summaryText}`;
     }
     const arr = policy[key];
     if (arr) {
-      if (!arr.includes(pattern))
-        arr.push(pattern);
+      for (const pattern of patterns) {
+        if (!arr.includes(pattern))
+          arr.push(pattern);
+      }
     } else {
-      policy[key] = [pattern];
+      policy[key] = [...patterns];
     }
     const oppositeKey = type === "allow" ? "denyPatterns" : "allowPatterns";
     const oppositeArr = policy[oppositeKey];
     if (oppositeArr) {
-      const idx = oppositeArr.indexOf(pattern);
-      if (idx !== -1)
-        oppositeArr.splice(idx, 1);
+      policy[oppositeKey] = oppositeArr.filter((item) => !patterns.includes(item));
     }
     const configManager = this.api?.configManager;
     if (configManager) {
@@ -14447,18 +14630,19 @@ ${summaryText}`;
         const raw = configManager.readEditableConfig();
         const tools = raw.tools ?? {};
         const toolSection = tools[toolName] ?? {};
-        const existing = Array.isArray(toolSection[key]) ? toolSection[key] : [];
-        if (!existing.includes(pattern)) {
-          existing.push(pattern);
+        const existing = Array.isArray(toolSection[key]) ? [...toolSection[key]] : [];
+        for (const pattern of patterns) {
+          if (!existing.includes(pattern)) {
+            existing.push(pattern);
+          }
         }
         const oppositeKey2 = type === "allow" ? "denyPatterns" : "allowPatterns";
-        const opposite = Array.isArray(toolSection[oppositeKey2]) ? toolSection[oppositeKey2] : [];
-        const oidx = opposite.indexOf(pattern);
-        if (oidx !== -1)
-          opposite.splice(oidx, 1);
         const updates = { [key]: existing };
-        if (oidx !== -1)
-          updates[oppositeKey2] = opposite;
+        if (Array.isArray(toolSection[oppositeKey2])) {
+          const opposite = toolSection[oppositeKey2].filter((item) => typeof item === "string" && !patterns.includes(item));
+          if (opposite.length !== toolSection[oppositeKey2].length)
+            updates[oppositeKey2] = opposite;
+        }
         configManager.updateEditableConfig({ tools: { [toolName]: updates } });
       } catch {}
     }
@@ -14579,6 +14763,7 @@ ${summaryText}`;
     this.currentToolIds.clear();
     this._activeHandles.clear();
     this.syncPlanModeStatus();
+    this.syncAutoEditStatus();
     await this.syncMilestones();
     const history = await this.backend.getHistory?.(id) ?? [];
     const responseMap = new Map;
@@ -14986,6 +15171,114 @@ ${summaryText}`;
     if (pkg.source === "agent-installed")
       return ext?.defaultScope ?? undefined;
     return;
+  }
+  readCallmeConfigFromEditable() {
+    const manager = this.api?.configManager;
+    const rawConfig = manager?.readEditableConfig?.() ?? this.api?.config ?? {};
+    const rawSystem = rawConfig.system && typeof rawConfig.system === "object" ? rawConfig.system : {};
+    const trailer = "Co-authored with Iris: https://github.com/Lianues/Iris";
+    try {
+      const parsedSystem = manager?.parseSystemConfig?.(rawSystem);
+      const callme = parsedSystem?.callme;
+      if (callme && typeof callme === "object") {
+        return { enabled: callme.enabled === true, trailer };
+      }
+    } catch {}
+    const rawCallme = rawSystem.callme;
+    if (typeof rawCallme === "boolean") {
+      return { enabled: rawCallme, trailer };
+    }
+    if (rawCallme && typeof rawCallme === "object" && !Array.isArray(rawCallme)) {
+      const record = rawCallme;
+      return { enabled: record.enabled === true, trailer };
+    }
+    return { enabled: false, trailer };
+  }
+  formatCallmeStatus(enabled, trailer) {
+    if (enabled) {
+      return `感谢开启 /callme 模式。以后我帮你执行 git commit 时，会在提交信息末尾带上：
+
+${trailer}
+
+再次输入 /callme 可关闭。`;
+    }
+    return `/callme 目前关闭。输入 /callme 后开启；开启后 Iris 代你执行 git commit 时会追加：
+
+${trailer}`;
+  }
+  async handleCallmeCommand(arg) {
+    const normalized = arg.trim().toLowerCase();
+    const statusOnly = normalized === "status" || normalized === "状态";
+    const toggle = !normalized;
+    const explicitEnable = ["on", "enable", "enabled", "true", "1", "开启", "打开"].includes(normalized);
+    const explicitDisable = ["off", "disable", "disabled", "false", "0", "关闭", "关"].includes(normalized);
+    const current = this.readCallmeConfigFromEditable();
+    if (statusOnly) {
+      return { ok: true, message: this.formatCallmeStatus(current.enabled, current.trailer) };
+    }
+    if (!toggle && !explicitEnable && !explicitDisable) {
+      return {
+        ok: false,
+        message: "用法：/callme 切换开关；/callme status 查看状态。"
+      };
+    }
+    const manager = this.api?.configManager;
+    if (!manager) {
+      return { ok: false, message: "当前运行环境不支持写入 /callme 设置。" };
+    }
+    const nextEnabled = toggle ? !current.enabled : explicitEnable;
+    const merged = manager.updateEditableConfig({ system: { callme: nextEnabled } });
+    const reload = await manager.applyRuntimeConfigReload(merged.mergedRaw);
+    if (!reload.success) {
+      return { ok: false, message: `已写入 /callme 设置，但热重载失败：${reload.error ?? "未知错误"}。重启后生效。` };
+    }
+    return { ok: true, message: nextEnabled ? this.formatCallmeStatus(true, current.trailer) : "已关闭 /callme 模式。之后 Iris 不会再自动给 git commit 添加链接署名；再次输入 /callme 可重新开启。" };
+  }
+  async handleAutoEditCommand(arg) {
+    const normalized = arg.trim().toLowerCase();
+    const backend = this.backend;
+    if (!backend.getAutoEditState || !backend.enableAutoEdit || !backend.disableAutoEdit || !backend.toggleAutoEdit) {
+      return { ok: false, message: "当前 Backend 不支持自动编辑。" };
+    }
+    const formatStatus = (active) => active ? "自动编辑已开启：安全的项目内结构化文件编辑将自动应用；敏感路径、项目外路径、delete_file、search_in_files.replace、shell/bash 写操作仍会走普通审批或被安全策略拦截。" : "自动编辑已关闭：文件编辑将恢复普通审批流程。";
+    const isActiveState = (state2) => state2?.active === true;
+    if (normalized === "status") {
+      const state2 = await backend.getAutoEditState(this.sessionId);
+      const active = isActiveState(state2) || backend.isAutoEditActive?.(this.sessionId) === true;
+      this.appHandle?.setAutoEditActive(active);
+      const planActive2 = this.getPlanModeService()?.isActive(this.sessionId) === true;
+      return {
+        ok: true,
+        message: `${formatStatus(active)}${active && planActive2 ? `
+当前处于 Plan Mode，自动编辑会暂停生效。` : ""}`
+      };
+    }
+    if (normalized === "on" || normalized === "enable") {
+      const state2 = await backend.enableAutoEdit(this.sessionId);
+      this.appHandle?.setAutoEditActive(isActiveState(state2));
+      const planActive2 = this.getPlanModeService()?.isActive(this.sessionId) === true;
+      return {
+        ok: true,
+        message: `${formatStatus(true)}${planActive2 ? `
+提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。` : ""}`
+      };
+    }
+    if (normalized === "off" || normalized === "disable") {
+      const state2 = await backend.disableAutoEdit(this.sessionId);
+      this.appHandle?.setAutoEditActive(isActiveState(state2));
+      return { ok: true, message: formatStatus(false) };
+    }
+    if (normalized && normalized !== "toggle") {
+      return { ok: false, message: "用法：/auto-edit 切换；/auto-edit on 开启；/auto-edit off 关闭；/auto-edit status 查看状态。" };
+    }
+    const state = await backend.toggleAutoEdit(this.sessionId);
+    this.appHandle?.setAutoEditActive(isActiveState(state));
+    const planActive = this.getPlanModeService()?.isActive(this.sessionId) === true;
+    return {
+      ok: true,
+      message: `${formatStatus(isActiveState(state))}${isActiveState(state) && planActive ? `
+提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。` : ""}`
+    };
   }
   async handlePlanCommand(arg) {
     const service = this.api?.services?.get?.(PLAN_MODE_SERVICE_ID);

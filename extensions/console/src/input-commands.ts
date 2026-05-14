@@ -36,6 +36,16 @@ export const COMMANDS: Command[] = [
   { name: '/reset-config', description: '重置配置为默认值' },
   { name: '/compact',  description: '压缩上下文（总结历史消息）' },
   { name: '/plan',     description: '进入或查看当前 Agent 会话的 Plan Mode' },
+  {
+    name: '/auto-edit',
+    description: '切换当前会话自动编辑（安全编辑自动应用）',
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: 'on', description: '开启当前会话自动编辑' },
+      { value: 'off', description: '关闭当前会话自动编辑' },
+      { value: 'status', description: '查看当前状态' },
+    ],
+  },
   { name: '/net',         description: '配置多端互联（Net）' },
   { name: '/remote',      description: '连接远程 Iris 实例' },
   { name: '/disconnect', description: '断开远程连接', remoteOnly: true, color: '#fdcb6e' },

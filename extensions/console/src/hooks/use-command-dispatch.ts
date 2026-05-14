@@ -48,6 +48,7 @@ interface UseCommandDispatchOptions {
   /** 获取可切换的 Agent 列表，返回后由 /agent 命令切换到 agent-list 视图 */
   onListAgents?: () => AgentDefinitionLike[];
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
+  onAutoEditCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   onCallmeCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   setAgentList: SetAgentList;
   onDream?: () => Promise<{ ok: boolean; message: string }>;
@@ -103,6 +104,7 @@ export function useCommandDispatch({
   onEnterHeadless,
   onListAgents,
   onPlanCommand,
+  onAutoEditCommand,
   onCallmeCommand,
   setAgentList,
 
@@ -414,6 +416,25 @@ export function useCommandDispatch({
       return;
     }
 
+    if (text === '/auto-edit' || text.startsWith('/auto-edit ')) {
+      const arg = text.slice('/auto-edit'.length).trim();
+      const messageOptions = { label: '自动编辑' as const };
+      if (!onAutoEditCommand) {
+        appendCommandMessage(setMessages, '自动编辑服务不可用。', { ...messageOptions, isError: true });
+        return;
+      }
+      void onAutoEditCommand(arg).then((result) => {
+        appendCommandMessage(setMessages, result.message, result.ok ? messageOptions : { ...messageOptions, isError: true });
+      }).catch((err) => {
+        appendCommandMessage(
+          setMessages,
+          `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`,
+          { ...messageOptions, isError: true },
+        );
+      });
+      return;
+    }
+
     if (text === '/plan' || text.startsWith('/plan ')) {
       const arg = text.slice('/plan'.length).trim();
       const planMessageOptions = { label: 'plan' as const };
@@ -511,6 +532,7 @@ export function useCommandDispatch({
     onSwitchModel,
     onSummarize,
     onPlanCommand,
+    onAutoEditCommand,
     onCallmeCommand,
     onUndo,
     queueClear,

@@ -40,6 +40,8 @@ interface BottomPanelProps {
   backgroundTaskCount?: number;
   /** 当前会话是否处于 Plan Mode */
   planModeActive?: boolean;
+  /** 当前会话是否开启自动编辑 */
+  autoEditActive?: boolean;
   /** 当前后台运行中的委派任务数量（delegate_to_agent） */
   delegateTaskCount?: number;
   /** 所有后台任务的累计 token 数 */
@@ -89,6 +91,7 @@ export function BottomPanel({
   exitConfirmArmed,
   backgroundTaskCount,
   planModeActive,
+  autoEditActive,
   delegateTaskCount,
   backgroundTaskTokens,
   backgroundTaskSpinnerFrame,
@@ -170,6 +173,7 @@ export function BottomPanel({
         copyMode={copyMode}
         exitConfirmArmed={exitConfirmArmed}
         remoteHost={remoteHost}
+        autoEditActive={autoEditActive}
       />
     </box>
   );

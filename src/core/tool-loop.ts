@@ -36,6 +36,7 @@ import {
 } from '../types';
 import type { Content, Part, LLMRequest, FunctionCallPart, FunctionResponsePart, ToolAttachment } from '../types';
 import { cleanupTrailingHistory } from './history-sanitizer';
+import type { RuntimeApprovalContext } from '../auto-edit/types';
 
 const logger = createLogger('ToolLoop');
 
@@ -115,6 +116,8 @@ export interface ToolLoopRunOptions {
    * 使用 executor.waitForAll() 获取结果，跳过自己的 executeTools。
    */
   streamingToolExecutor?: StreamingToolExecutor;
+  /** 当前 turn 的运行时审批上下文（例如 Auto Edit 是否开启）。 */
+  runtimeApprovalContext?: RuntimeApprovalContext;
 }
 
 export class ToolLoop {
@@ -283,7 +286,13 @@ export class ToolLoop {
         responseParts = await executor.waitForAll();
       } else {
         // 传统模式：LLM 返回完整响应后才开始执行工具（非流式，或子代理场景）
-        responseParts = await this.executeTools(functionCalls, signal, options?.onAttachments, options?.sessionId);
+        responseParts = await this.executeTools(
+          functionCalls,
+          signal,
+          options?.onAttachments,
+          options?.sessionId,
+          options?.runtimeApprovalContext,
+        );
       }
 
       // 工具执行后再次检查 abort
@@ -431,6 +440,7 @@ export class ToolLoop {
     signal?: AbortSignal,
     onAttachments?: (attachments: ToolAttachment[]) => void,
     sessionId?: string,
+    runtimeApprovalContext?: RuntimeApprovalContext,
   ): Promise<FunctionResponsePart[]> {
     const plan = buildExecutionPlan(calls, this.tools);
 
@@ -455,6 +465,7 @@ export class ToolLoop {
         this.config.beforeToolExec,
         this.config.afterToolExec,
         onAttachments,
+        runtimeApprovalContext,
       );
     }
 
@@ -470,6 +481,7 @@ export class ToolLoop {
       this.config.beforeToolExec,
       this.config.afterToolExec,
       onAttachments,
+      runtimeApprovalContext,
     );
   }
 }

@@ -28,6 +28,8 @@ export interface AppHandle {
   clearMessages(): void;
   /** 更新当前会话 Plan Mode 指示状态 */
   setPlanModeActive(active: boolean): void;
+  /** 更新当前会话自动编辑指示状态 */
+  setAutoEditActive(active: boolean): void;
   /** 更新当前会话 milestone/task 清单快照 */
   setMilestones(snapshot: MilestoneSnapshotLike | null): void;
   setUserTokens(tokenCount: number): void;
@@ -111,6 +113,8 @@ export interface UseAppHandleReturn {
   toolInvocations: ToolInvocation[];
   /** 当前会话是否处于 Plan Mode */
   planModeActive: boolean;
+  /** 当前会话是否启用自动编辑 */
+  autoEditActive: boolean;
   /** 当前会话 milestone/task 清单快照 */
   milestoneSnapshot: MilestoneSnapshotLike | null;
   /** 当前后台运行中的异步子代理数量 */
@@ -139,6 +143,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
   const [pendingApprovals, setPendingApprovals] = useState<ToolInvocation[]>([]);
   const [pendingApplies, setPendingApplies] = useState<ToolInvocation[]>([]);
   const [planModeActive, setPlanModeActive] = useState(false);
+  const [autoEditActive, setAutoEditActive] = useState(false);
   const [milestoneSnapshot, setMilestoneSnapshot] = useState<MilestoneSnapshotLike | null>(null);
   const milestoneSnapshotRef = useRef<MilestoneSnapshotLike | null>(null);
   const archivedMilestoneUpdatedAtRef = useRef<number | null>(null);
@@ -440,6 +445,9 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
       setPlanModeActive(active: boolean) {
         setPlanModeActive(active);
       },
+      setAutoEditActive(active: boolean) {
+        setAutoEditActive(active);
+      },
       setMilestones(snapshot: MilestoneSnapshotLike | null) {
         const next = snapshot && snapshot.items.length > 0 ? snapshot : null;
         if (next && next.stats.open > 0) {
@@ -605,6 +613,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
     pendingApprovals,
     pendingApplies,
     planModeActive,
+    autoEditActive,
     milestoneSnapshot,
     toolInvocations,
     backgroundTaskCount,

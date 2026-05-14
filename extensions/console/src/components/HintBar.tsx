@@ -14,6 +14,8 @@ interface HintBarProps {
   exitConfirmArmed: boolean;
   /** 远程连接的主机地址（非空时替换 cwd 显示远程提示） */
   remoteHost?: string;
+  /** 当前会话是否开启自动编辑；开启时高亮 Ctrl+E 提示 */
+  autoEditActive?: boolean;
 }
 
 /* ---------- 路径截断工具 ---------- */
@@ -63,7 +65,7 @@ function hardTruncate(text: string, maxWidth: number): string {
 
 /* ---------- 组件 ---------- */
 
-export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost }: HintBarProps) {
+export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, autoEditActive }: HintBarProps) {
   const cwd = process.cwd();
   const hasQueue = (queueSize ?? 0) > 0;
   const escAction = isGenerating ? 'esc 中断生成' : hasRunningBackgroundTasks ? 'esc 中断任务' : 'ctrl+j 换行';
@@ -74,6 +76,7 @@ export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queue
     hintStr = '再次按 ctrl+c 退出';
   } else {
     const parts: string[] = [];
+    parts.push('ctrl+e 自动编辑');
     parts.push(escAction);
     parts.push('ctrl+t 工具详情');
     if (isGenerating && hasQueue) {
@@ -106,6 +109,10 @@ export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queue
       ) : (
         <box flexShrink={0}>
           <text fg={C.dim}>
+            <span fg={autoEditActive ? C.autoEdit : C.dim}>
+              ctrl+e 自动编辑
+            </span>
+            {`  ${ICONS.separator}  `}
             {escAction}
             {`  ${ICONS.separator}  ctrl+t 工具详情`}
             {isGenerating && hasQueue ? (

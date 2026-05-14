@@ -122,6 +122,8 @@ export interface BackendConfig {
   milestoneRouteAgent?: string;
   /** /callme git commit co-author 署名配置。 */
   callme?: CallmeAttributionConfig;
+  /** 查询当前 session 是否处于 Plan Mode；用于 Auto Edit 在规划模式下暂停生效。 */
+  isPlanModeActive?: (sessionId: string | undefined) => boolean;
 }
 
 /** 异步子代理通知的结构化数据（由 Backend 解析 <task-notification> XML 后生成） */
@@ -217,4 +219,6 @@ export interface BackendEvents {
   'models:changed': (sessionId: string, models: LLMModelInfo[], currentModel: LLMModelInfo) => void;
   /** 异步子代理通知的结构化内容（在 turn:start 之前 emit，供前端展示折叠通知区块） */
   'notification:payloads': (sessionId: string, payloads: NotificationPayload[]) => void;
+  /** 当前会话 Auto Edit 状态变化。 */
+  'auto-edit:update': (sessionId: string, active: boolean) => void;
 }

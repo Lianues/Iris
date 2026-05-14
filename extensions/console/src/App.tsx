@@ -95,6 +95,7 @@ export function App({
   supportsHeadlessTransition,
   onSummarize,
   onPlanCommand,
+  onAutoEditCommand,
   onCallmeCommand,
   onListAgents,
   onSelectAgent,
@@ -364,6 +365,7 @@ export function App({
     remoteHost,
     onSummarize,
     onPlanCommand,
+    onAutoEditCommand,
     onCallmeCommand,
     undoRedoRef,
     setMessages: appState.setMessages,
@@ -462,6 +464,7 @@ export function App({
     onToolApproval,
     onAddCommandPattern,
     onPlanCommand,
+    onAutoEditCommand,
     sessionList,
     modelList,
     setModelList,
@@ -737,6 +740,7 @@ export function App({
         exitConfirmArmed={exitConfirm.exitConfirmArmed}
         backgroundTaskCount={appState.backgroundTaskCount}
         planModeActive={appState.planModeActive}
+        autoEditActive={appState.autoEditActive}
         delegateTaskCount={appState.delegateTaskCount}
         backgroundTaskTokens={appState.backgroundTaskTokens}
         backgroundTaskSpinnerFrame={appState.backgroundTaskSpinnerFrame}

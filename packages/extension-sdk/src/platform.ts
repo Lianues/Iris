@@ -132,6 +132,15 @@ export interface BackendEventMap {
   'task:result':        (sessionId: string, taskId: string, status: string, description: string, taskType?: string, silent?: boolean, result?: string) => void;
   'notification:payloads': (sessionId: string, payloads: unknown[]) => void;
   'milestones:update':  (sessionId: string, snapshot: MilestoneSnapshotLike) => void;
+  'auto-edit:update':   (sessionId: string, active: boolean) => void;
+}
+
+export interface AutoEditSessionStateLike {
+  sessionId: string;
+  active: boolean;
+  enabledBy?: string;
+  enabledAt?: number;
+  updatedAt?: number;
 }
 
 export interface IrisBackendLike {
@@ -194,6 +203,11 @@ export interface IrisBackendLike {
   getDisabledTools?(): string[] | undefined;
   /** 获取当前活跃会话 ID */
   getActiveSessionId?(): string | undefined;
+  enableAutoEdit?(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike>;
+  disableAutoEdit?(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike>;
+  toggleAutoEdit?(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike>;
+  getAutoEditState?(sessionId: string | undefined): AutoEditSessionStateLike | null | Promise<AutoEditSessionStateLike | null>;
+  isAutoEditActive?(sessionId: string | undefined): boolean;
 }
 
 // ── BackendHandle：稳定代理层 ──
@@ -353,6 +367,26 @@ export class BackendHandle implements IrisBackendLike {
 
   getActiveSessionId(): string | undefined {
     return this._backend.getActiveSessionId?.();
+  }
+
+  enableAutoEdit(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike> {
+    return this._backend.enableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+
+  disableAutoEdit(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike> {
+    return this._backend.disableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+
+  toggleAutoEdit(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike> {
+    return this._backend.toggleAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+
+  getAutoEditState(sessionId: string | undefined): AutoEditSessionStateLike | null | Promise<AutoEditSessionStateLike | null> {
+    return this._backend.getAutoEditState?.(sessionId) ?? null;
+  }
+
+  isAutoEditActive(sessionId: string | undefined): boolean {
+    return this._backend.isAutoEditActive?.(sessionId) === true;
   }
 }
 

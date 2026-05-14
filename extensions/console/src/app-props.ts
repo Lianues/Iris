@@ -59,6 +59,8 @@ export interface AppProps {
   onSummarize: () => Promise<{ ok: boolean; message: string }>;
   /** Plan Mode 命令处理（/plan）。返回需要显示在聊天区的提示文本。 */
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
+  /** 自动编辑命令处理（/auto-edit）。 */
+  onAutoEditCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   /** /callme：显式开启/关闭 git commit co-author 署名。 */
   onCallmeCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   /** 获取可切换的 Agent 列表（/agent 命令触发） */

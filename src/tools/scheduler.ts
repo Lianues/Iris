@@ -24,6 +24,8 @@ import { createLogger } from '../logger';
 import type { ToolAttachment, ToolExecutionContext } from '../types';
 import { ToolPolicyConfig, ToolsConfig } from '../config';
 import type { BeforeToolExecInterceptor, AfterToolExecInterceptor } from '../extension';
+import { evaluateAutoEditApproval } from '../auto-edit/evaluate';
+import type { RuntimeApprovalContext } from '../auto-edit/types';
 import type { ToolExecutionHandle } from './handle';
 
 const logger = createLogger('ToolScheduler');
@@ -501,6 +503,7 @@ async function executeSingle(
   beforeToolExec?: BeforeToolExecInterceptor,
   afterToolExec?: AfterToolExecInterceptor,
   onAttachments?: (attachments: ToolAttachment[]) => void,
+  runtimeApprovalContext?: RuntimeApprovalContext,
 ): Promise<FunctionResponsePart> {
   const toolName = call.functionCall.name;
   const handle = toolState && invocationId ? toolState.getHandle(invocationId) : undefined;
@@ -525,9 +528,21 @@ async function executeSingle(
   // 全局开关（最高优先级）
   const globalSkipConfirmation = toolsConfig.autoApproveAll === true || toolsConfig.autoApproveConfirmation === true;
   const globalSkipDiff = toolsConfig.autoApproveAll === true || toolsConfig.autoApproveDiff === true;
-  const autoApproved = globalSkipConfirmation || shouldAutoApprove(call, effectivePolicy, registry);
+
+  const rawArgs = (call.functionCall.args && typeof call.functionCall.args === 'object' && !Array.isArray(call.functionCall.args))
+    ? call.functionCall.args as Record<string, unknown>
+    : {};
+  const autoEditDecision = evaluateAutoEditApproval(toolName, rawArgs, runtimeApprovalContext);
+  const autoEditAccepted = autoEditDecision.allowed === true;
+
+  const policyAutoApproved = globalSkipConfirmation || shouldAutoApprove(call, effectivePolicy, registry);
+  const autoApproved = autoEditAccepted || policyAutoApproved;
   const interactiveApproval = canUseInteractiveApproval(toolState, invocationId);
-  const willUseDiffApprovalView = interactiveApproval && !globalSkipDiff && shouldShowDiffPreview(call, effectivePolicy);
+  const willUseDiffApprovalView = interactiveApproval && !globalSkipDiff && !autoEditAccepted && shouldShowDiffPreview(call, effectivePolicy);
+
+  if (autoEditAccepted) {
+    logger.info(`Auto Edit 自动批准工具: ${toolName} (${autoEditDecision.targets?.map(t => t.path).join(', ') ?? 'no-target'})`);
+  }
 
   // 追踪用户是否通过交互审批明确批准了此次调用（用于 handler-managed 工具）
   let userExplicitlyApproved = false;
@@ -541,16 +556,16 @@ async function executeSingle(
   const isCommandTool = isCommandToolName(toolName);
   const handlerManagedApproval = toolDef?.approvalMode === 'handler';
   if (!handlerManagedApproval) {
-    if (autoApproved) {
+    if (policyAutoApproved) {
       userExplicitlyApproved = true;
     }
-  } else if (isCommandTool && (globalSkipConfirmation || (autoApproved && effectivePolicy.autoApprove))) {
-    // autoApproved 条件确保 denyPatterns 匹配时（autoApproved=false）autoApprove 不生效，
+  } else if (isCommandTool && (globalSkipConfirmation || (policyAutoApproved && effectivePolicy.autoApprove))) {
+    // policyAutoApproved 条件确保 denyPatterns 匹配时（policyAutoApproved=false）autoApprove 不生效，
     // 维持 denyPatterns > autoApprove 的优先级。
-    // globalSkipConfirmation 是最高优先级，不受 denyPatterns 约束（因为它已在 autoApproved 计算中生效）。
+    // globalSkipConfirmation 是最高优先级，不受 denyPatterns 约束（因为它已在 policyAutoApproved 计算中生效）。
     userExplicitlyApproved = true;
-  } else if (isCommandTool && autoApproved && effectivePolicy.allowPatterns?.length) {
-    // 仅在 denyPatterns 未匹配时（autoApproved = true）才检查 allowPatterns，
+  } else if (isCommandTool && policyAutoApproved && effectivePolicy.allowPatterns?.length) {
+    // 仅在 denyPatterns 未匹配时（policyAutoApproved = true）才检查 allowPatterns，
     // 确保 denyPatterns 优先级高于 allowPatterns。
     const command = extractShellCommand(call);
     if (matchesAnyPattern(command, effectivePolicy.allowPatterns)) {
@@ -940,6 +955,7 @@ export async function executePlan(
   beforeToolExec?: BeforeToolExecInterceptor,
   afterToolExec?: AfterToolExecInterceptor,
   onAttachments?: (attachments: ToolAttachment[]) => void,
+  runtimeApprovalContext?: RuntimeApprovalContext,
 ): Promise<FunctionResponsePart[]> {
   const responseParts: FunctionResponsePart[] = new Array(calls.length);
 
@@ -961,7 +977,7 @@ export async function executePlan(
 
       const results = await Promise.all(
         batch.indices.map(i =>
-          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments)
+          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments, runtimeApprovalContext)
         ),
       );
       for (let j = 0; j < batch.indices.length; j++) {
@@ -969,7 +985,7 @@ export async function executePlan(
       }
     } else {
       for (const i of batch.indices) {
-        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments);
+        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments, runtimeApprovalContext);
       }
     }
   }

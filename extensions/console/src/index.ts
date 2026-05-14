@@ -103,6 +103,24 @@ interface PlanCommandResult {
   followupPrompt?: string;
 }
 
+interface AutoEditCommandResult {
+  ok: boolean;
+  message: string;
+}
+
+interface AutoEditStateLike {
+  sessionId?: string;
+  active?: boolean;
+}
+
+type AutoEditBackendLike = IrisBackendLike & {
+  enableAutoEdit?: (sessionId: string) => AutoEditStateLike | Promise<AutoEditStateLike>;
+  disableAutoEdit?: (sessionId: string) => AutoEditStateLike | Promise<AutoEditStateLike>;
+  toggleAutoEdit?: (sessionId: string) => AutoEditStateLike | Promise<AutoEditStateLike>;
+  getAutoEditState?: (sessionId: string | undefined) => AutoEditStateLike | null | Promise<AutoEditStateLike | null>;
+  isAutoEditActive?: (sessionId: string | undefined) => boolean;
+};
+
 function createToolInvocationFromFunctionCall(
   part: any,
   index: number,
@@ -623,6 +641,31 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     }
   }
 
+  private syncAutoEditStatus(): void {
+    try {
+      const sessionId = this.sessionId;
+      const backend = this.backend as AutoEditBackendLike;
+      const cachedActive = backend.isAutoEditActive?.(sessionId);
+      if (typeof cachedActive === 'boolean') {
+        this.appHandle?.setAutoEditActive(cachedActive);
+      }
+      const stateOrPromise = backend.getAutoEditState?.(sessionId);
+      if (stateOrPromise !== undefined) {
+        void Promise.resolve(stateOrPromise).then((state) => {
+          if (this.appHandle && this.sessionId === sessionId) {
+            this.appHandle.setAutoEditActive(state?.active === true);
+          }
+        }).catch(() => {
+          this.appHandle?.setAutoEditActive(false);
+        });
+      } else if (typeof cachedActive !== 'boolean') {
+        this.appHandle?.setAutoEditActive(false);
+      }
+    } catch {
+      this.appHandle?.setAutoEditActive(false);
+    }
+  }
+
   private async syncMilestones(): Promise<void> {
     try {
       const snapshot = await (this.backend as any).loadMilestones?.(this.sessionId) ?? this.backend.getMilestones?.(this.sessionId) as any;
@@ -876,6 +919,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       }
     });
 
+    this.onBackend('auto-edit:update', (sid: string, active: boolean) => {
+      if (sid === this.sessionId) {
+        this.appHandle?.setAutoEditActive(active);
+      }
+    });
+
     this.onBackend('auto-compact', (sid: string, summaryText: string) => {
       if (sid === this.sessionId) {
         const fullText = `[Context Summary]\n\n${summaryText}`;
@@ -936,6 +985,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onReady: (handle: AppHandle) => {
           this.appHandle = handle;
           this.syncPlanModeStatus();
+          this.syncAutoEditStatus();
           void this.syncMilestones();
           resolve();
         },
@@ -1028,6 +1078,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         supportsHeadlessTransition: this.supportsHeadlessTransition,
         onSummarize: () => this.handleSummarize(),
         onPlanCommand: (arg: string) => this.handlePlanCommand(arg),
+        onAutoEditCommand: (arg: string) => this.handleAutoEditCommand(arg),
         onCallmeCommand: (arg: string) => this.handleCallmeCommand(arg),
         onListAgents: () => this.handleListAgents(),
         onSelectAgent: (name: string) => this.handleSelectAgent(name),
@@ -1512,6 +1563,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.currentToolIds.clear();
     this._activeHandles.clear();
     this.appHandle?.setPlanModeActive(false);
+    this.appHandle?.setAutoEditActive(false);
     this.appHandle?.setMilestones(null);
   }
 
@@ -1769,6 +1821,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.currentToolIds.clear();
     this._activeHandles.clear();
     this.syncPlanModeStatus();
+    this.syncAutoEditStatus();
     await this.syncMilestones();
 
     const history = await this.backend.getHistory?.(id) ?? [];
@@ -2327,6 +2380,59 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     }
 
     return { ok: true, message: nextEnabled ? this.formatCallmeStatus(true, current.trailer) : '已关闭 /callme 模式。之后 Iris 不会再自动给 git commit 添加链接署名；再次输入 /callme 可重新开启。' };
+  }
+
+  private async handleAutoEditCommand(arg: string): Promise<AutoEditCommandResult> {
+    const normalized = arg.trim().toLowerCase();
+    const backend = this.backend as AutoEditBackendLike;
+    if (!backend.getAutoEditState || !backend.enableAutoEdit || !backend.disableAutoEdit || !backend.toggleAutoEdit) {
+      return { ok: false, message: '当前 Backend 不支持自动编辑。' };
+    }
+
+    const formatStatus = (active: boolean) => active
+      ? '自动编辑已开启：安全的项目内结构化文件编辑将自动应用；敏感路径、项目外路径、delete_file、search_in_files.replace、shell/bash 写操作仍会走普通审批或被安全策略拦截。'
+      : '自动编辑已关闭：文件编辑将恢复普通审批流程。';
+
+    const isActiveState = (state: any) => state?.active === true;
+
+    if (normalized === 'status') {
+      const state = await backend.getAutoEditState(this.sessionId);
+      const active = isActiveState(state) || backend.isAutoEditActive?.(this.sessionId) === true;
+      this.appHandle?.setAutoEditActive(active);
+      const planActive = this.getPlanModeService()?.isActive(this.sessionId) === true;
+      return {
+        ok: true,
+        message: `${formatStatus(active)}${active && planActive ? '\n当前处于 Plan Mode，自动编辑会暂停生效。' : ''}`,
+      };
+    }
+
+    if (normalized === 'on' || normalized === 'enable') {
+      const state = await backend.enableAutoEdit(this.sessionId);
+      this.appHandle?.setAutoEditActive(isActiveState(state));
+      const planActive = this.getPlanModeService()?.isActive(this.sessionId) === true;
+      return {
+        ok: true,
+        message: `${formatStatus(true)}${planActive ? '\n提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。' : ''}`,
+      };
+    }
+
+    if (normalized === 'off' || normalized === 'disable') {
+      const state = await backend.disableAutoEdit(this.sessionId);
+      this.appHandle?.setAutoEditActive(isActiveState(state));
+      return { ok: true, message: formatStatus(false) };
+    }
+
+    if (normalized && normalized !== 'toggle') {
+      return { ok: false, message: '用法：/auto-edit 切换；/auto-edit on 开启；/auto-edit off 关闭；/auto-edit status 查看状态。' };
+    }
+
+    const state = await backend.toggleAutoEdit(this.sessionId);
+    this.appHandle?.setAutoEditActive(isActiveState(state));
+    const planActive = this.getPlanModeService()?.isActive(this.sessionId) === true;
+    return {
+      ok: true,
+      message: `${formatStatus(isActiveState(state))}${isActiveState(state) && planActive ? '\n提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。' : ''}`,
+    };
   }
 
   private async handlePlanCommand(arg: string): Promise<PlanCommandResult> {
