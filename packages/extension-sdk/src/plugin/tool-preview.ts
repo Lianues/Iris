@@ -33,3 +33,22 @@ export interface ToolPreviewUtilsLike {
   isLikelyBinary(buf: Buffer): boolean;
   toPosix(p: string): string;
 }
+
+export interface ToolDiffPreviewItemLike {
+  id?: string;
+  filePath: string;
+  label: string;
+  diff?: string;
+  filetype?: string;
+  added: number;
+  removed: number;
+  message?: string;
+}
+
+export interface ToolDiffPreviewResponseLike {
+  toolName: string;
+  title: string;
+  toolLabel?: string;
+  summary: string[];
+  items: ToolDiffPreviewItemLike[];
+}

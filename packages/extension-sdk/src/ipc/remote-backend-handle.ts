@@ -20,6 +20,7 @@ import type { IPCClientLike } from './client-like.js';
 import { RemoteToolHandle } from './remote-tool-handle.js';
 import type { AutoEditSessionStateLike } from '../platform.js';
 import { createExtensionLogger } from '../logger.js';
+import type { ToolDiffPreviewResponseLike } from '../plugin/tool-preview.js';
 import {
   Methods, Events, IPC_TO_BACKEND_EVENT,
   type SerializedToolHandle,
@@ -119,6 +120,10 @@ export class RemoteBackendHandle extends EventEmitter {
     return Array.from(this.toolHandles.values()).filter(
       (h) => h.sessionId === sessionId
     );
+  }
+
+  async getToolDiffPreview(toolId: string): Promise<ToolDiffPreviewResponseLike> {
+    return (await this.callRemote(Methods.GET_TOOL_DIFF_PREVIEW, [toolId])) as ToolDiffPreviewResponseLike;
   }
 
   // ============ IrisBackendLike 可选方法 ============

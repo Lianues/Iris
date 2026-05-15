@@ -89,6 +89,7 @@ export const Methods = {
   GET_ACTIVE_SESSION_ID: 'backend.getActiveSessionId',
   GET_TOOL_HANDLE: 'backend.getToolHandle',
   GET_TOOL_HANDLES: 'backend.getToolHandles',
+  GET_TOOL_DIFF_PREVIEW: 'backend.getToolDiffPreview',
   RUN_COMMAND: 'backend.runCommand',
   RESET_CONFIG: 'backend.resetConfigToDefaults',
   GET_AGENT_TASKS: 'backend.getAgentTasks',

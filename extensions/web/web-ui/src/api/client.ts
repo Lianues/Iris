@@ -429,6 +429,7 @@ export interface DiffPreviewItem {
   filePath: string
   label: string
   diff?: string
+  filetype?: string
   added: number
   removed: number
   message?: string
@@ -437,6 +438,7 @@ export interface DiffPreviewItem {
 export interface DiffPreviewResponse {
   toolName: string
   title: string
+  toolLabel?: string
   summary: string[]
   items: DiffPreviewItem[]
 }

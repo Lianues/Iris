@@ -75,6 +75,7 @@ export function App({
   onToolApproval,
   onToolApply,
   onToolMessage,
+  onGetToolDiffPreview,
   onAddCommandPattern,
   onAbort,
   onToolAbort,
@@ -671,6 +672,7 @@ export function App({
         showLineNumbers={approval.showLineNumbers}
         wrapMode={approval.wrapMode}
         previewIndex={approval.previewIndex}
+        getPreview={onGetToolDiffPreview}
       />
     );
   }

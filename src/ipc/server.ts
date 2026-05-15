@@ -108,6 +108,7 @@ interface IPCBackendLike {
   getActiveSessionId?(): string | undefined;
   getToolHandle?(toolId: string): unknown;
   getToolHandles?(sessionId: string): unknown[];
+  getToolDiffPreview?(toolId: string): unknown | Promise<unknown>;
   runCommand?(cmd: string): unknown;
   resetConfigToDefaults?(): unknown;
   getAgentTasks?(sessionId: string): unknown[];
@@ -412,6 +413,9 @@ export class IPCServer extends EventEmitter {
           result = handles.map((h: any) => this.serializeHandle(h));
           break;
         }
+        case Methods.GET_TOOL_DIFF_PREVIEW:
+          result = await this.backend.getToolDiffPreview?.(params[0] as string);
+          break;
 
         // ---- Handle 操作 ----
         case Methods.HANDLE_APPROVE: {

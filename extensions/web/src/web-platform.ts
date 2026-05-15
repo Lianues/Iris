@@ -963,9 +963,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     // Diff 预览 API
     this.router.get('/api/tools/:id/diff', async (req, res, params) => {
       const { backend } = this.resolveAgent(req);
-      const utils = this.deps.api?.toolPreviewUtils;
-      if (!utils) { sendJSON(res, 503, { error: 'toolPreviewUtils 不可用' }); return; }
-      return createDiffPreviewHandler(backend, utils)(req, res, params);
+      return createDiffPreviewHandler(backend)(req, res, params);
     });
 
     // 工具审批 API

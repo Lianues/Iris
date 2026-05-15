@@ -52,6 +52,7 @@ import { StreamingToolExecutor } from '../../tools/streaming-executor';
 import type { CrossAgentTaskBoard, TaskRecord } from '../cross-agent-task-board';
 import { ToolExecutionHandle } from '../../tools/handle';
 import type { SessionMilestoneManager, MilestoneSnapshot } from '../session-milestones';
+import { buildToolDiffPreview } from '../../tools/diff-preview';
 
 import type { BackendConfig, ImageInput, DocumentInput, AudioInput, VideoInput, UndoScope, UndoOperationResult, RedoOperationResult, NotificationPayload } from './types';
 import { buildMinimalParts, estimateMultimodalTokens } from './media';
@@ -1099,6 +1100,17 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   /** 获取指定工具的双向通道 Handle */
   getToolHandle(toolId: string): ToolExecutionHandle | undefined {
     return this.toolState.getHandle(toolId);
+  }
+
+  /** 生成指定工具调用的 diff 审批预览。 */
+  getToolDiffPreview(toolId: string): ReturnType<typeof buildToolDiffPreview> {
+    const handle = this.toolState.getHandle(toolId);
+    if (!handle) {
+      throw new Error(`未找到工具调用: ${toolId}`);
+    }
+    const invocation = handle.getSnapshot();
+    const cwd = invocation.sessionId ? getRememberedCwd(invocation.sessionId) : getSessionCwd();
+    return buildToolDiffPreview(invocation, { cwd });
   }
 
   /** 获取指定会话的所有工具 Handle */

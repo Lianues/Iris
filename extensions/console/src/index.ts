@@ -1035,6 +1035,13 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onToolMessage: (toolId: string, type: string, data?: unknown) => {
           (this.backend as any).getToolHandle?.(toolId)?.send(type, data);
         },
+        onGetToolDiffPreview: async (toolId: string) => {
+          const getPreview = (this.backend as any).getToolDiffPreview;
+          if (typeof getPreview !== 'function') {
+            throw new Error('当前 Backend 不支持 diff 预览');
+          }
+          return await getPreview.call(this.backend, toolId);
+        },
         onAddCommandPattern: (toolName: string, command: string, type: 'allow' | 'deny') => {
           this.addCommandPattern(toolName, command, type);
         },

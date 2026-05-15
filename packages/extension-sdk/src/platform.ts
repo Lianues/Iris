@@ -1,6 +1,7 @@
 import type { Content } from './message.js';
 import type { ToolExecutionHandleLike } from './tool.js';
 import type { Disposable } from './plugin/service.js';
+import type { ToolDiffPreviewResponseLike } from './plugin/tool-preview.js';
 
 export type ImageInput = {
   mimeType: string;
@@ -180,6 +181,8 @@ export interface IrisBackendLike {
   getToolNames?(): string[];
   /** 获取指定工具的双向通道 Handle */
   getToolHandle(toolId: string): ToolExecutionHandleLike | undefined;
+  /** 生成指定工具调用的统一 diff 预览（用于 diff 审批 UI） */
+  getToolDiffPreview?(toolId: string): ToolDiffPreviewResponseLike | Promise<ToolDiffPreviewResponseLike>;
   /** 获取指定会话的所有工具 Handle */
   getToolHandles(sessionId: string): ToolExecutionHandleLike[];
   /** 查询指定 session 的所有异步子代理任务（只读） */
@@ -297,6 +300,10 @@ export class BackendHandle implements IrisBackendLike {
 
   getToolHandle(toolId: string): ToolExecutionHandleLike | undefined {
     return this._backend.getToolHandle(toolId);
+  }
+
+  getToolDiffPreview(toolId: string): ToolDiffPreviewResponseLike | Promise<ToolDiffPreviewResponseLike> {
+    return this._backend.getToolDiffPreview?.(toolId) ?? Promise.reject(new Error('getToolDiffPreview is not supported by this backend'));
   }
 
   getToolHandles(sessionId: string): ToolExecutionHandleLike[] {
