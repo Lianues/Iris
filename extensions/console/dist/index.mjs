@@ -11828,6 +11828,7 @@ function resetRedo(undoRedoRef, onClearRedoStack) {
 }
 function useCommandDispatch({
   onSubmit,
+  isGenerating,
   onFileAttach,
   onOpenFileBrowser,
   onUndo,
@@ -12124,7 +12125,7 @@ function useCommandDispatch({
     }
     if (text === "/auto-edit" || text.startsWith("/auto-edit ")) {
       const arg = text.slice("/auto-edit".length).trim();
-      const messageOptions = { label: "自动编辑" };
+      const messageOptions = { label: "自动编辑", beforeActiveAssistant: isGenerating };
       if (!onAutoEditCommand) {
         appendCommandMessage(setMessages, "自动编辑服务不可用。", { ...messageOptions, isError: true });
         return;
@@ -12138,7 +12139,7 @@ function useCommandDispatch({
     }
     if (text === "/plan" || text.startsWith("/plan ")) {
       const arg = text.slice("/plan".length).trim();
-      const planMessageOptions = { label: "plan" };
+      const planMessageOptions = { label: "plan", beforeActiveAssistant: isGenerating };
       if (!onPlanCommand) {
         appendCommandMessage(setMessages, "Plan Mode 服务不可用。", { ...planMessageOptions, isError: true });
         return;
@@ -12211,6 +12212,7 @@ function useCommandDispatch({
     isRemote,
     remoteHost,
     onResetConfig,
+    isGenerating,
     onRunCommand,
     onSubmit,
     onListAgents,
@@ -12630,6 +12632,7 @@ function App({
   }, [onFileAttach]);
   const handleSubmit = useCommandDispatch({
     onSubmit: queueAwareSubmit,
+    isGenerating: appState.isGenerating,
     onFileAttach: handleFileAttach,
     onOpenFileBrowser: handleOpenFileBrowser,
     onUndo,

@@ -29,6 +29,8 @@ type SetSettingsInitialSection = Dispatch<SetStateAction<SettingsInitialSection>
 
 interface UseCommandDispatchOptions {
   onSubmit: (text: string) => void;
+  /** 当前是否正在生成；用于把命令反馈插到活跃 assistant 回复之前，避免破坏流式挂载目标 */
+  isGenerating?: boolean;
   /** 附加文件（图片/文档/音频/视频）到下一条消息 */
   onFileAttach: (filePath: string) => void;
   /** 打开文件浏览器视图 */
@@ -89,6 +91,7 @@ function resetRedo(undoRedoRef: MutableRefObject<UndoRedoStack>, onClearRedoStac
 
 export function useCommandDispatch({
   onSubmit,
+  isGenerating,
   onFileAttach,
   onOpenFileBrowser,
   onUndo,
@@ -418,7 +421,7 @@ export function useCommandDispatch({
 
     if (text === '/auto-edit' || text.startsWith('/auto-edit ')) {
       const arg = text.slice('/auto-edit'.length).trim();
-      const messageOptions = { label: '自动编辑' as const };
+      const messageOptions = { label: '自动编辑' as const, beforeActiveAssistant: isGenerating };
       if (!onAutoEditCommand) {
         appendCommandMessage(setMessages, '自动编辑服务不可用。', { ...messageOptions, isError: true });
         return;
@@ -437,7 +440,7 @@ export function useCommandDispatch({
 
     if (text === '/plan' || text.startsWith('/plan ')) {
       const arg = text.slice('/plan'.length).trim();
-      const planMessageOptions = { label: 'plan' as const };
+      const planMessageOptions = { label: 'plan' as const, beforeActiveAssistant: isGenerating };
       if (!onPlanCommand) {
         appendCommandMessage(setMessages, 'Plan Mode 服务不可用。', { ...planMessageOptions, isError: true });
         return;
@@ -524,6 +527,7 @@ export function useCommandDispatch({
     isRemote,
     remoteHost,
     onResetConfig,
+    isGenerating,
     onRunCommand,
     onSubmit,
     onListAgents,

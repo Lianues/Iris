@@ -335,6 +335,7 @@ export function App({
 
   const handleSubmit = useCommandDispatch({
     onSubmit: queueAwareSubmit,
+    isGenerating: appState.isGenerating,
     onFileAttach: handleFileAttach,
     onOpenFileBrowser: handleOpenFileBrowser,
     onUndo,
