@@ -17,6 +17,7 @@ import type { ToolStateManager } from './state';
 import type { ToolsConfig } from '../config';
 import type { BeforeToolExecInterceptor, AfterToolExecInterceptor } from '../extension';
 import { executeSingleTool } from './scheduler';
+import type { RuntimeApprovalContext } from '../auto-edit/types';
 import { createLogger } from '../logger';
 
 const logger = createLogger('StreamingToolExecutor');
@@ -46,6 +47,7 @@ export class StreamingToolExecutor {
     private readonly beforeToolExec: BeforeToolExecInterceptor | undefined,
     private readonly afterToolExec: AfterToolExecInterceptor | undefined,
     private readonly onAttachments: ((attachments: ToolAttachment[]) => void) | undefined,
+    private readonly runtimeApprovalContext: RuntimeApprovalContext | undefined,
     private readonly sessionId: string | undefined,
   ) {}
 
@@ -197,6 +199,7 @@ export class StreamingToolExecutor {
       this.beforeToolExec,
       this.afterToolExec,
       this.onAttachments,
+      this.runtimeApprovalContext,
     ).then(result => {
       tool.result = result;
       // 工具完成后尝试启动下一个（non-parallel 工具完成后可能解锁后续工具）

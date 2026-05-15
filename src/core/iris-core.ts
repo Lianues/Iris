@@ -69,7 +69,7 @@ import { PluginEventBus } from '../extension/event-bus';
 import { patchMethod, patchPrototype } from '../extension/patch';
 import { registerExtensionPlatforms } from '../extension';
 import { ensureDevSourceSdkShims } from '../extension';
-import type { IrisAPI, InlinePluginEntry, WebPanelDefinition, ConsoleSettingsTabDefinition, Disposable } from 'irises-extension-sdk';
+import type { IrisAPI, InlinePluginEntry, PluginEntry, WebPanelDefinition, ConsoleSettingsTabDefinition, Disposable } from 'irises-extension-sdk';
 import { BackendHandle, DELIVERY_REGISTRY_SERVICE_ID } from 'irises-extension-sdk';
 import { readEditableConfig, updateEditableConfig, LayeredConfigManager } from '../config/manage';
 import { applyRuntimeConfigReload, type RuntimeConfigReloadContext } from '../config/runtime';
@@ -92,6 +92,7 @@ import { resolveProjectPath } from '../tools/utils';
 import { supportsVision as checkVision, supportsNativePDF as checkNativePDF, supportsNativeOffice as checkNativeOffice, isDocumentMimeType as checkDocMime } from '../llm/vision';
 import { setExtensionLogLevel } from 'irises-extension-sdk';
 import { planModePlugin } from '../plan-mode/plugin';
+import { PLAN_MODE_SERVICE_ID, type PlanModeService } from '../plan-mode/types';
 
 
 // ── 类型 ──
@@ -213,6 +214,7 @@ export class IrisCore {
     // LayeredConfigManager 退化为单目录模式，零回归风险。
     const globalDir = findConfigFile();
     const config = options.resolvedConfig ?? loadConfig(agentPaths?.configDir, agentPaths);
+    const callmeAttributionRef = { current: config.system.callme };
     const extensions = createBootstrapExtensionRegistry();
 
     // 构造扩展发现选项：决定 workspace 源是否被纳入 + 白名单收窄。
@@ -287,6 +289,7 @@ export class IrisCore {
       tools,
       getToolPolicies: () => config.tools.permissions,
       retryOnError: config.system.retryOnError,
+      getCallmeConfig: () => callmeAttributionRef.current,
     };
     const commandTool = isWindows
       ? createShellTool(commandToolDeps)
@@ -349,7 +352,12 @@ export class IrisCore {
       configDir,
       globalConfigDir: globalDir,
       rememberPlatformModel: config.llm.rememberPlatformModel,
+      callme: callmeAttributionRef.current,
       asyncSubAgents: asyncSubAgentsEnabled,
+      isPlanModeActive: (sessionId) => (
+        pluginManager.getServiceRegistry().get<PlanModeService>(PLAN_MODE_SERVICE_ID)
+          ?.isActive(sessionId) === true
+      ),
     }, modeRegistry);
 
     backend.setTaskBoard(taskBoard);
@@ -564,6 +572,7 @@ export class IrisCore {
           const merged = updateEditableConfig(configDir, { net: netUpdate });
           const ctx: RuntimeConfigReloadContext = {
             backend, pluginManager,  extensions, deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
+            onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
           };
           await applyRuntimeConfigReload(ctx, merged.mergedRaw);
           return { success: true };
@@ -613,6 +622,7 @@ export class IrisCore {
               backend, pluginManager,  extensions,
               dataDir: effectiveDataDir,
               deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
+              onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
             };
             await applyRuntimeConfigReload(ctx, merged);
             console.log('[ConfigWatcher] 配置文件变更，已自动热重载');
@@ -670,6 +680,7 @@ export class IrisCore {
             try {
               const ctx: RuntimeConfigReloadContext = {
                 backend, pluginManager,  extensions, deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
+                onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
               };
               await applyRuntimeConfigReload(ctx, mergedConfig);
               return { success: true };
@@ -793,7 +804,8 @@ export class IrisCore {
           };
           pluginManager.setExtensionDiscoveryOptions(extDiscoveryOptions);
         },
-        activate: (name: string) => pluginManager.activatePlugin(name),
+        activate: (nameOrEntry: string | PluginEntry) => typeof nameOrEntry === 'string'
+          ? pluginManager.activatePlugin(nameOrEntry) : pluginManager.activatePlugin(nameOrEntry.name, nameOrEntry),
         deactivate: (name: string) => pluginManager.deactivatePlugin(name),
         installGit: (target: string, options?: { ref?: string; subdir?: string; scope?: InstallScope }) =>
           installGitExtension(target, { ...options, installedExtensionsDir: resolveDir(options?.scope) }),

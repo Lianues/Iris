@@ -20,7 +20,7 @@ export function App({ installDir }: AppProps) {
   const availablePlatforms = useMemo(() => loadAvailableOnboardPlatforms(installDir), [installDir])
   const [step, setStep] = useState<Step>("welcome")
   const [config, setConfig] = useState<OnboardConfig>({
-    provider: "gemini",
+    provider: "deepseek",
     apiKey: "",
     model: "",
     baseUrl: "",

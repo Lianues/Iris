@@ -26,6 +26,7 @@ src/llm/
 │   ├── gemini.ts
 │   ├── openai-compatible.ts
 │   ├── openai-responses.ts
+│   ├── deepseek.ts             # DeepSeek Chat Completions 兼容接口
 │   └── claude.ts
 ├── factory.ts                  # 按配置创建 provider / router
 ├── router.ts                   # 模型池路由与当前活动模型管理
@@ -194,6 +195,9 @@ models.<modelName>.model -> 提供商真实模型 id
 | `Content{role:"user", parts:[{text},{inlineData}]}` | `{ role:"user", content:[{type:"text"...},{type:"image_url"...}] }` |
 | `Content{role:"model", parts:[{functionCall}]}` | `{ role:"assistant", tool_calls:[...] }` |
 | `Content{role:"user", parts:[{functionResponse}]}` | `{ role:"tool", tool_call_id:"...", content:"..." }` |
+
+DeepSeek Provider 复用这一套 Chat Completions 兼容格式，但固定使用官方 `https://api.deepseek.com/v1/chat/completions`，不读取用户配置的 `baseUrl`。
+
 
 ### Claude
 

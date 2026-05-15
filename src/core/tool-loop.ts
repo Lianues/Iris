@@ -36,6 +36,7 @@ import {
 } from '../types';
 import type { Content, Part, LLMRequest, FunctionCallPart, FunctionResponsePart, ToolAttachment } from '../types';
 import { cleanupTrailingHistory } from './history-sanitizer';
+import type { RuntimeApprovalContext } from '../auto-edit/types';
 
 const logger = createLogger('ToolLoop');
 
@@ -77,6 +78,8 @@ export interface ToolLoopResult {
 export interface ToolLoopRunOptions {
   /** 额外系统提示词片段（per-request） */
   extraParts?: Part[];
+  /** 额外用户侧尾部提示片段（per-request，不写入历史） */
+  extraUserParts?: Part[];
   /** 新消息追加到历史时的回调（用于实时持久化） */
   onMessageAppend?: (content: Content) => Promise<void>;
   /** 一轮模型输出完成后的回调（在插件 afterLLMCall 之后、写入历史之前） */
@@ -113,6 +116,8 @@ export interface ToolLoopRunOptions {
    * 使用 executor.waitForAll() 获取结果，跳过自己的 executeTools。
    */
   streamingToolExecutor?: StreamingToolExecutor;
+  /** 当前 turn 的运行时审批上下文（例如 Auto Edit 是否开启）。 */
+  runtimeApprovalContext?: RuntimeApprovalContext;
 }
 
 export class ToolLoop {
@@ -204,7 +209,7 @@ export class ToolLoop {
       // 所有已注册工具的声明均传给 LLM，未配置 policy 的工具执行时默认需审批。
       const declarations = this.tools.getDeclarations();
       let request = this.prompt.assemble(
-        history, declarations, undefined, options?.extraParts,
+        history, declarations, undefined, options?.extraParts, options?.extraUserParts,
       );
 
       // 插件钩子：LLM 请求前拦截
@@ -281,7 +286,13 @@ export class ToolLoop {
         responseParts = await executor.waitForAll();
       } else {
         // 传统模式：LLM 返回完整响应后才开始执行工具（非流式，或子代理场景）
-        responseParts = await this.executeTools(functionCalls, signal, options?.onAttachments, options?.sessionId);
+        responseParts = await this.executeTools(
+          functionCalls,
+          signal,
+          options?.onAttachments,
+          options?.sessionId,
+          options?.runtimeApprovalContext,
+        );
       }
 
       // 工具执行后再次检查 abort
@@ -429,6 +440,7 @@ export class ToolLoop {
     signal?: AbortSignal,
     onAttachments?: (attachments: ToolAttachment[]) => void,
     sessionId?: string,
+    runtimeApprovalContext?: RuntimeApprovalContext,
   ): Promise<FunctionResponsePart[]> {
     const plan = buildExecutionPlan(calls, this.tools);
 
@@ -453,6 +465,7 @@ export class ToolLoop {
         this.config.beforeToolExec,
         this.config.afterToolExec,
         onAttachments,
+        runtimeApprovalContext,
       );
     }
 
@@ -468,6 +481,7 @@ export class ToolLoop {
       this.config.beforeToolExec,
       this.config.afterToolExec,
       onAttachments,
+      runtimeApprovalContext,
     );
   }
 }

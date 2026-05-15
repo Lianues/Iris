@@ -8,6 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { createPluginLogger, resolveDefaultDataDir } from 'irises-extension-sdk';
 // [croner 迁移] 用 croner 替换自实现 cron 解析器，避免继续维护手写解析/逐分钟扫描逻辑。
 import { Cron } from 'croner';
@@ -28,6 +29,95 @@ import { shouldSkip } from './delivery-gate.js';
 const logger = createPluginLogger('cron');
 
 // ============ UUID 生成 ============
+
+// ============ 持久化文件锁/原子写入 ============
+
+interface LockPayload { pid: number; createdAt: number; targetPath: string }
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    return err?.code === 'EPERM';
+  }
+}
+
+function readLockPayload(lockPath: string): LockPayload | undefined {
+  try {
+    const raw = JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as Partial<LockPayload>;
+    if (typeof raw.pid !== 'number' || typeof raw.createdAt !== 'number') return undefined;
+    return {
+      pid: raw.pid,
+      createdAt: raw.createdAt,
+      targetPath: typeof raw.targetPath === 'string' ? raw.targetPath : '',
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function tryRemoveStaleLock(lockPath: string): void {
+  if (!fs.existsSync(lockPath)) return;
+  const payload = readLockPayload(lockPath);
+  const shouldRemove = payload
+    ? !isProcessAlive(payload.pid)
+    : (() => {
+        try { return Date.now() - fs.statSync(lockPath).mtimeMs > 30_000; }
+        catch { return true; }
+      })();
+  if (!shouldRemove) return;
+  try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+}
+
+function withFileLockSync<T>(targetPath: string, fn: () => T): T {
+  const lockPath = `${targetPath}.lock`;
+  const deadline = Date.now() + 10_000;
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+
+  let fd: number | undefined;
+  while (fd === undefined) {
+    try {
+      fd = fs.openSync(lockPath, 'wx');
+      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: Date.now(), targetPath }), 'utf-8');
+    } catch (err: any) {
+      if (err?.code !== 'EEXIST') throw err;
+      tryRemoveStaleLock(lockPath);
+      if (Date.now() >= deadline) throw new Error(`等待 cron 持久化文件锁超时: ${lockPath}`);
+      sleepSync(50);
+    }
+  }
+
+  try {
+    return fn();
+  } finally {
+    try { fs.closeSync(fd); } catch { /* ignore */ }
+    try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+  }
+}
+
+function atomicWriteTextFileSync(filePath: string, content: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(tmpPath, 'w');
+    fs.writeFileSync(fd, content, 'utf-8');
+    try { fs.fsyncSync(fd); } catch { /* best-effort */ }
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch { /* ignore */ }
+    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    throw err;
+  }
+}
 
 /** 生成 UUID v4 格式的唯一标识符 */
 function generateId(): string {
@@ -479,6 +569,18 @@ export class CronScheduler {
       };
     }
     logger.info('调度器配置已热更新');
+  }
+
+  /**
+   * 热更新后台执行配置（超时、并发、工具过滤、系统提示词等）。
+   * 已经在执行中的任务不受影响，后续触发的任务使用新配置。
+   */
+  updateBackgroundConfig(newConfig: Partial<CronBackgroundConfig>): void {
+    this.backgroundConfig = {
+      ...this.backgroundConfig,
+      ...newConfig,
+    };
+    logger.info('后台执行配置已热更新');
   }
 
   /**
@@ -1037,34 +1139,36 @@ export class CronScheduler {
    */
   private persistSync(): void {
     try {
-      // 确保目录存在
-      const dir = path.dirname(this.filePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
+      withFileLockSync(this.filePath, () => {
+        // 确保目录存在
+        const dir = path.dirname(this.filePath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
 
-      // 写入前检测外部修改：如果文件的 mtime 比我们上次记录的更新，
-      // 说明有外部编辑（用户手动修改、其他进程写入等）。
-      // 必须先同步外部变更到内存，否则盲写会覆盖外部修改。
-      if (fs.existsSync(this.filePath)) {
+        // 写入前检测外部修改：如果文件的 mtime 比我们上次记录的更新，
+        // 说明有外部编辑（用户手动修改、其他进程写入等）。
+        // 必须先同步外部变更到内存，否则盲写会覆盖外部修改。
+        if (fs.existsSync(this.filePath)) {
+          try {
+            const stat = fs.statSync(this.filePath);
+            if (stat.mtimeMs > this.lastFileModTime) {
+              this.onFileChanged();
+            }
+          } catch { /* stat 失败跳过检测，继续写入 */ }
+        }
+
+        const data = JSON.stringify(Array.from(this.jobs.values()), null, 2);
+        atomicWriteTextFileSync(this.filePath, data);
+
+        // 记录写入后的修改时间，避免 fs.watchFile 自触发
         try {
           const stat = fs.statSync(this.filePath);
-          if (stat.mtimeMs > this.lastFileModTime) {
-            this.onFileChanged();
-          }
-        } catch { /* stat 失败时跳过检测，继续写入 */ }
-      }
-
-      const data = JSON.stringify(Array.from(this.jobs.values()), null, 2);
-      fs.writeFileSync(this.filePath, data, 'utf-8');
-
-      // 记录写入后的修改时间，避免 fs.watchFile 自触发
-      try {
-        const stat = fs.statSync(this.filePath);
-        this.lastFileModTime = stat.mtimeMs;
-      } catch {
-        // 忽略 stat 失败
-      }
+          this.lastFileModTime = stat.mtimeMs;
+        } catch {
+          // 忽略 stat 失败
+        }
+      });
     } catch (err) {
       logger.error(`持久化写入失败: ${err}`);
     }

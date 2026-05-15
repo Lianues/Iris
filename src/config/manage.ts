@@ -4,7 +4,7 @@
  * 提供脱敏、深合并，以及基于 ~/.iris/configs 目录的可编辑配置读写能力。
  */
 
-import { loadRawConfigDir, writeRawConfigDir } from './raw';
+import { loadRawConfigDir, withRawConfigDirLockSync, writeRawConfigDirUnlocked } from './raw';
 
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -157,13 +157,15 @@ export function readEditableConfig(configDir: string): any {
 }
 
 export function updateEditableConfig(configDir: string, updates: any): { mergedRaw: any; sanitized: any } {
-  const current = loadRawConfigDir(configDir);
-  const mergedRaw = normalizeMergedConfig(deepMerge(current, updates));
-  writeRawConfigDir(configDir, mergedRaw);
-  return {
-    mergedRaw,
-    sanitized: sanitizeConfig(mergedRaw),
-  };
+  return withRawConfigDirLockSync(configDir, () => {
+    const current = loadRawConfigDir(configDir);
+    const mergedRaw = normalizeMergedConfig(deepMerge(current, updates));
+    writeRawConfigDirUnlocked(configDir, mergedRaw);
+    return {
+      mergedRaw,
+      sanitized: sanitizeConfig(mergedRaw),
+    };
+  });
 }
 
 
@@ -235,25 +237,27 @@ export class LayeredConfigManager {
   updateEditableConfig(
     updates: Record<string, unknown>,
   ): { mergedRaw: Record<string, unknown>; sanitized: Record<string, unknown> } {
-    // 1. 读取 agent 当前覆盖 → deepMerge → normalize → 写回 agent 目录
-    const agentCurrent = loadRawConfigDir(this.agentDir);
-    const agentNext = normalizeMergedConfig(deepMerge(agentCurrent, updates));
-    writeRawConfigDir(this.agentDir, agentNext);
+    return withRawConfigDirLockSync(this.agentDir, () => {
+      // 1. 读取 agent 当前覆盖 → deepMerge → normalize → 写回 agent 目录
+      const agentCurrent = loadRawConfigDir(this.agentDir);
+      const agentNext = normalizeMergedConfig(deepMerge(agentCurrent, updates));
+      writeRawConfigDirUnlocked(this.agentDir, agentNext);
 
-    // 2. 合并 global + agent → 生成完整的 mergedRaw
-    let mergedRaw: any;
-    if (this.globalDir === this.agentDir) {
-      // 单目录模式：agentNext 即为完整配置
-      mergedRaw = agentNext;
-    } else {
-      const global = loadRawConfigDir(this.globalDir) ?? {};
-      mergedRaw = normalizeMergedConfig(deepMerge(global, agentNext));
-    }
+      // 2. 合并 global + agent → 生成完整的 mergedRaw
+      let mergedRaw: any;
+      if (this.globalDir === this.agentDir) {
+        // 单目录模式：agentNext 即为完整配置
+        mergedRaw = agentNext;
+      } else {
+        const global = loadRawConfigDir(this.globalDir) ?? {};
+        mergedRaw = normalizeMergedConfig(deepMerge(global, agentNext));
+      }
 
-    return {
-      mergedRaw,
-      sanitized: sanitizeConfig(mergedRaw),
-    };
+      return {
+        mergedRaw,
+        sanitized: sanitizeConfig(mergedRaw),
+      };
+    });
   }
 
   /** 返回 agent 配置目录路径（兼容 ConfigManagerLike.getConfigDir） */

@@ -140,11 +140,14 @@ export function App({ installDir }: ModelsAppProps) {
       label: "模型 ID",
       value: config.model,
     },
-    {
+  ]
+
+  if (config.provider !== "deepseek") {
+    rows.push({
       label: "Base URL",
       value: config.baseUrl,
-    },
-  ]
+    })
+  }
 
   const sections: InfoConfirmSection[] = [
     {

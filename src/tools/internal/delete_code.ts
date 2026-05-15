@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import { ToolDefinition } from '../../types';
 import { resolveProjectPath } from '../utils';
+import { applyDeleteCodeTransform } from '../edit-transforms';
 
 export { normalizeDeleteCodeArgs } from 'irises-extension-sdk/tool-utils';
 export type { DeleteCodeEntry } from 'irises-extension-sdk/tool-utils';
@@ -36,19 +37,10 @@ export const deleteCode: ToolDefinition = {
 
     const resolved = resolveProjectPath(filePath);
     const content = fs.readFileSync(resolved, 'utf-8');
-    const lines = content.split('\n');
-    const totalLines = lines.length;
+    const transformed = applyDeleteCodeTransform(content, startLine, endLine);
 
-    if (startLine < 1 || startLine > totalLines) {
-      throw new Error(`start_line ${startLine} 超出范围（1~${totalLines}）`);
-    }
-    if (endLine < startLine || endLine > totalLines) {
-      throw new Error(`end_line ${endLine} 超出范围（${startLine}~${totalLines}）`);
-    }
+    fs.writeFileSync(resolved, transformed.newContent, 'utf-8');
 
-    const newLines = [...lines.slice(0, startLine - 1), ...lines.slice(endLine)];
-    fs.writeFileSync(resolved, newLines.join('\n'), 'utf-8');
-
-    return { path: filePath, success: true, start_line: startLine, end_line: endLine, deletedLines: endLine - startLine + 1 };
+    return { path: filePath, success: true, start_line: startLine, end_line: endLine, deletedLines: transformed.deletedLines };
   },
 };

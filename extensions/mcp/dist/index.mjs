@@ -1,31 +1,38 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
-
-// extensions/mcp/node_modules/irises-extension-sdk/src/logger.ts
-var _logLevel = 1 /* INFO */;
+// ../../packages/extension-sdk/dist/logger.js
+var LogLevel;
+(function(LogLevel2) {
+  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
+  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
+  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
+  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
+  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
+})(LogLevel || (LogLevel = {}));
+var _logLevel = LogLevel.INFO;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= 0 /* DEBUG */)
+      if (_logLevel <= LogLevel.DEBUG)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= 1 /* INFO */)
+      if (_logLevel <= LogLevel.INFO)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= 2 /* WARN */)
+      if (_logLevel <= LogLevel.WARN)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= 3 /* ERROR */)
+      if (_logLevel <= LogLevel.ERROR)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
 
-// extensions/mcp/node_modules/irises-extension-sdk/src/plugin/context.ts
+// ../../packages/extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -33,7 +40,7 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
-// extensions/mcp/src/client.ts
+// src/client.ts
 var logger = createPluginLogger("mcp", "client");
 
 class MCPClient {
@@ -195,7 +202,7 @@ class MCPClient {
   }
 }
 
-// extensions/mcp/src/manager.ts
+// src/manager.ts
 import derefModule from "dereference-json-schema";
 var { dereferenceSync } = derefModule;
 var logger2 = createPluginLogger("mcp", "manager");
@@ -288,7 +295,7 @@ function sanitizeName(name) {
   return name.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
-// extensions/mcp/src/config.ts
+// src/config.ts
 var logger3 = createPluginLogger("mcp", "config");
 function normalizeTransport(value) {
   if (value === "http")
@@ -335,7 +342,7 @@ function parseMCPConfig(raw) {
   return { servers };
 }
 
-// extensions/mcp/src/config-template.ts
+// src/config-template.ts
 var DEFAULT_MCP_CONFIG_TEMPLATE = `# MCP 服务器配置
 # 连接外部 MCP 服务器，自动将其工具注入 LLM 工具列表
 # 启动时后台异步连接，不阻塞启动
@@ -379,68 +386,46 @@ var DEFAULT_MCP_CONFIG_TEMPLATE = `# MCP 服务器配置
 #     url: "https://qyapi.weixin.qq.com/mcp/robot-doc?apikey=your-mcp-apikey"
 `;
 
-// extensions/mcp/src/index.ts
+// src/index.ts
 var logger4 = createPluginLogger("mcp");
 var SERVICE_ID = "mcp.manager";
-var manager = null;
-var serviceDisposer = null;
-var lastMcpConfigSignature = "";
+var runtimes = new Map;
 var src_default = definePlugin({
   name: "mcp",
   version: "0.1.0",
   description: "MCP 服务器连接管理 — 将外部 MCP 工具注入到核心工具流水线",
   activate(ctx) {
+    const state = {
+      manager: null,
+      serviceDisposer: null,
+      lastMcpConfigSignature: ""
+    };
+    runtimes.set(ctx, state);
     ctx.ensureConfigFile?.("mcp.yaml", DEFAULT_MCP_CONFIG_TEMPLATE);
-    const raw = ctx.readConfigSection?.("mcp");
-    const config = parseMCPConfig(raw);
-    lastMcpConfigSignature = stableStringify(raw ?? null);
-    if (!config) {
-      logger4.info("未检测到 MCP 配置（mcp.yaml 不存在或无有效 servers），跳过");
-      return;
-    }
     ctx.addHook({
       name: "mcp:config-reload",
       async onConfigReload({ rawMergedConfig }) {
-        const nextSignature = stableStringify(rawMergedConfig.mcp ?? null);
-        if (nextSignature === lastMcpConfigSignature)
+        const nextRaw = rawMergedConfig.mcp;
+        const nextSignature = stableStringify(nextRaw ?? null);
+        if (nextSignature === state.lastMcpConfigSignature)
           return;
-        lastMcpConfigSignature = nextSignature;
-        const newConfig = parseMCPConfig(rawMergedConfig.mcp);
-        const reg = ctx.getToolRegistry();
-        for (const name of reg.listTools()) {
-          if (name.startsWith("mcp__"))
-            reg.unregister(name);
-        }
-        if (manager && newConfig) {
-          await manager.reload(newConfig);
-          ctx.registerTools(manager.getTools());
-          logger4.info("MCP 热重载完成");
-        } else if (manager && !newConfig) {
-          await manager.disconnectAll();
-          manager = null;
-          serviceDisposer?.dispose();
-          serviceDisposer = null;
-          logger4.info("MCP 配置已移除，所有连接已断开");
-        } else if (!manager && newConfig) {
-          manager = new MCPManager(newConfig);
-          await manager.connectAll();
-          ctx.registerTools(manager.getTools());
-          registerService(ctx);
-          logger4.info("MCP 新配置已加载并连接");
-        }
+        state.lastMcpConfigSignature = nextSignature;
+        await reloadMcpManager(ctx, state, parseMCPConfig(nextRaw));
       }
     });
-    ctx.onReady(async () => {
-      manager = new MCPManager(config);
-      await manager.connectAll();
-      ctx.registerTools(manager.getTools());
-      registerService(ctx);
-      logger4.info("MCP 扩展初始化完成");
+    ctx.onReady(async (api) => {
+      const raw = readInitialMcpRaw(ctx, api);
+      const config = parseMCPConfig(raw);
+      state.lastMcpConfigSignature = stableStringify(raw ?? null);
+      if (!config) {
+        logger4.info("未检测到 MCP 配置（mcp.yaml 不存在或无有效 servers），跳过");
+        return;
+      }
+      await startMcpManager(ctx, state, config, "MCP 扩展初始化完成");
     });
   },
   async deactivate(ctx) {
-    serviceDisposer?.dispose();
-    serviceDisposer = null;
+    const states = ctx ? [runtimes.get(ctx)].filter((state) => !!state) : [...runtimes.values()];
     if (ctx) {
       const reg = ctx.getToolRegistry();
       for (const name of reg.listTools?.() ?? []) {
@@ -448,19 +433,72 @@ var src_default = definePlugin({
           reg.unregister?.(name);
       }
     }
-    if (manager) {
-      await manager.disconnectAll();
-      manager = null;
+    for (const state of states) {
+      await disposeRuntimeState(state);
     }
+    if (ctx)
+      runtimes.delete(ctx);
+    else
+      runtimes.clear();
     logger4.info("MCP 扩展已卸载");
   }
 });
-function registerService(ctx) {
-  serviceDisposer?.dispose();
-  serviceDisposer = ctx.getServiceRegistry().register(SERVICE_ID, {
-    listServers: () => manager?.listServers() ?? [],
-    getServerInfo: () => manager?.getServerInfo() ?? []
+function readInitialMcpRaw(ctx, api) {
+  try {
+    const merged = api.configManager?.readEditableConfig?.();
+    if (isRecord(merged)) {
+      return merged.mcp;
+    }
+  } catch (err) {
+    logger4.warn("读取合并后的 MCP 配置失败，回退到当前配置目录:", err);
+  }
+  return ctx.readConfigSection?.("mcp");
+}
+async function reloadMcpManager(ctx, state, newConfig) {
+  const reg = ctx.getToolRegistry();
+  for (const name of reg.listTools?.() ?? []) {
+    if (name.startsWith("mcp__"))
+      reg.unregister?.(name);
+  }
+  if (state.manager && newConfig) {
+    await state.manager.reload(newConfig);
+    ctx.registerTools(state.manager.getTools());
+    logger4.info("MCP 热重载完成");
+    return;
+  }
+  if (state.manager && !newConfig) {
+    await disposeRuntimeState(state);
+    logger4.info("MCP 配置已移除，所有连接已断开");
+    return;
+  }
+  if (!state.manager && newConfig) {
+    await startMcpManager(ctx, state, newConfig, "MCP 新配置已加载并连接");
+  }
+}
+async function startMcpManager(ctx, state, config, message) {
+  state.manager = new MCPManager(config);
+  await state.manager.connectAll();
+  ctx.registerTools(state.manager.getTools());
+  registerService(ctx, state);
+  logger4.info(message);
+}
+async function disposeRuntimeState(state) {
+  state.serviceDisposer?.dispose();
+  state.serviceDisposer = null;
+  if (state.manager) {
+    await state.manager.disconnectAll();
+    state.manager = null;
+  }
+}
+function registerService(ctx, state) {
+  state.serviceDisposer?.dispose();
+  state.serviceDisposer = ctx.getServiceRegistry().register(SERVICE_ID, {
+    listServers: () => state.manager?.listServers() ?? [],
+    getServerInfo: () => state.manager?.getServerInfo() ?? []
   }, { description: "MCP 服务器管理", version: "1.0" });
+}
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 function stableStringify(value) {
   return JSON.stringify(sortForStableStringify(value));

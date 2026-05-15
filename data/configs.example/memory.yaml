@@ -1,3 +1,6 @@
+# 模板/运行时路径说明：仓库/安装包中的 data/configs.example/ 只作为首次初始化模板。
+# 默认会复制到 ~/.iris/configs/；除非用户设置了 IRIS_DATA_DIR，此时会复制到 IRIS_DATA_DIR/configs/。
+# 之后 Iris 实际读取和写入的是用户运行时目录中的同名文件；请在用户目录中修改配置。
 # 记忆插件配置
 #
 # 启用后，LLM 可通过 memory_search / memory_add / memory_update / memory_delete 工具
@@ -11,7 +14,7 @@ enabled: false
 
 # 指定记忆系统内部调用使用的模型（如提取、归纳、检索）。
 # 不填则默认使用当前活动模型。
-model: KIMI 2.6
+# model: gpt-4o-mini
 
 # 数据库路径（相对于数据目录，或绝对路径）
 # dbPath: ./memory.db

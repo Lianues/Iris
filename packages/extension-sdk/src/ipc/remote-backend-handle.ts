@@ -18,7 +18,9 @@
 import { EventEmitter } from 'node:events';
 import type { IPCClientLike } from './client-like.js';
 import { RemoteToolHandle } from './remote-tool-handle.js';
+import type { AutoEditSessionStateLike } from '../platform.js';
 import { createExtensionLogger } from '../logger.js';
+import type { ToolDiffPreviewResponseLike } from '../plugin/tool-preview.js';
 import {
   Methods, Events, IPC_TO_BACKEND_EVENT,
   type SerializedToolHandle,
@@ -120,6 +122,10 @@ export class RemoteBackendHandle extends EventEmitter {
     );
   }
 
+  async getToolDiffPreview(toolId: string): Promise<ToolDiffPreviewResponseLike> {
+    return (await this.callRemote(Methods.GET_TOOL_DIFF_PREVIEW, [toolId])) as ToolDiffPreviewResponseLike;
+  }
+
   // ============ IrisBackendLike 可选方法 ============
 
   async undo(sessionId: string, scope?: string): Promise<{ assistantText?: string } | null> {
@@ -212,6 +218,55 @@ export class RemoteBackendHandle extends EventEmitter {
       .catch((err) => logger.warn(`setCwd 失败: ${err.message}`));
   }
 
+  async enableAutoEdit(sessionId: string): Promise<AutoEditSessionStateLike> {
+    const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.ENABLE_AUTO_EDIT, [sessionId]))
+      ?? { sessionId, active: false };
+    this.updateAutoEditCache(sessionId, state);
+    return state;
+  }
+
+  async disableAutoEdit(sessionId: string): Promise<AutoEditSessionStateLike> {
+    const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.DISABLE_AUTO_EDIT, [sessionId]))
+      ?? { sessionId, active: false };
+    this.updateAutoEditCache(sessionId, state);
+    return state;
+  }
+
+  async toggleAutoEdit(sessionId: string): Promise<AutoEditSessionStateLike> {
+    const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.TOGGLE_AUTO_EDIT, [sessionId]))
+      ?? { sessionId, active: false };
+    this.updateAutoEditCache(sessionId, state);
+    return state;
+  }
+
+  async getAutoEditState(sessionId: string | undefined): Promise<AutoEditSessionStateLike | null> {
+    const state = sessionId
+      ? this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.GET_AUTO_EDIT_STATE, [sessionId]))
+      : null;
+    if (sessionId) this.updateAutoEditCache(sessionId, state);
+    return state;
+  }
+
+  isAutoEditActive(sessionId: string | undefined): boolean {
+    return !!sessionId && this._autoEditStates.get(sessionId) === true;
+  }
+
+  private normalizeAutoEditState(sessionId: string, state: unknown): AutoEditSessionStateLike | null {
+    if (!state || typeof state !== 'object') {
+      return null;
+    }
+    const record = state as Record<string, unknown>;
+    return {
+      ...record,
+      sessionId: typeof record.sessionId === 'string' ? record.sessionId : sessionId,
+      active: record.active === true,
+    } as AutoEditSessionStateLike;
+  }
+
+  private updateAutoEditCache(sessionId: string, state: AutoEditSessionStateLike | null): void {
+    this._autoEditStates.set(sessionId, state?.active === true);
+  }
+
   // ============ 缓存管理 ============
 
   /** handshake 时获取的 streamEnabled */
@@ -224,6 +279,7 @@ export class RemoteBackendHandle extends EventEmitter {
   private _cachedCurrentModelInfo: unknown = undefined;
   private _cachedDisabledTools: string[] | undefined = undefined;
   private _cachedCwd: string = process.cwd();
+  private _autoEditStates = new Map<string, boolean>();
 
   /**
    * 初始化同步缓存。
@@ -308,6 +364,11 @@ export class RemoteBackendHandle extends EventEmitter {
         }
         this.emit('models:changed', ...params);
         return;
+      }
+
+      if (method === Events.AUTO_EDIT_UPDATE) {
+        const [sessionId, active] = params as [string, boolean];
+        this._autoEditStates.set(sessionId, active === true);
       }
 
       // Backend 事件 → 转换为本地 EventEmitter 事件

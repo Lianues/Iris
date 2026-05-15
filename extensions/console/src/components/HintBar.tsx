@@ -7,11 +7,15 @@ import { ICONS } from '../terminal-compat';
 
 interface HintBarProps {
   isGenerating: boolean;
+  /** 是否有后台任务仍在运行（异步 sub_agent / delegate） */
+  hasRunningBackgroundTasks?: boolean;
   queueSize?: number;
   copyMode: boolean;
   exitConfirmArmed: boolean;
   /** 远程连接的主机地址（非空时替换 cwd 显示远程提示） */
   remoteHost?: string;
+  /** 当前会话是否开启自动编辑；开启时高亮 Ctrl+E 提示 */
+  autoEditActive?: boolean;
 }
 
 /* ---------- 路径截断工具 ---------- */
@@ -61,9 +65,10 @@ function hardTruncate(text: string, maxWidth: number): string {
 
 /* ---------- 组件 ---------- */
 
-export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, remoteHost }: HintBarProps) {
+export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, autoEditActive }: HintBarProps) {
   const cwd = process.cwd();
   const hasQueue = (queueSize ?? 0) > 0;
+  const escAction = isGenerating ? 'esc 中断生成' : hasRunningBackgroundTasks ? 'esc 中断任务' : 'ctrl+j 换行';
 
   // 计算右侧提示文本（必须与下方渲染 JSX 完全对应，否则布局错位）
   let hintStr: string;
@@ -71,12 +76,13 @@ export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, r
     hintStr = '再次按 ctrl+c 退出';
   } else {
     const parts: string[] = [];
-    parts.push(isGenerating ? 'esc 中断生成' : 'ctrl+j 换行');
+    parts.push('ctrl+e 自动编辑');
+    parts.push(escAction);
     parts.push('ctrl+t 工具详情');
     if (isGenerating && hasQueue) {
       parts.push('/queue 管理队列');
     }
-    parts.push(isGenerating ? 'ctrl+s 立即发送' : (copyMode ? 'f6 返回滚动模式' : 'f6 复制模式'));
+    parts.push(isGenerating ? 'ctrl+s 优先发送' : (copyMode ? 'f6 返回滚动模式' : 'f6 复制模式'));
     hintStr = parts.join(`  ${ICONS.separator}  `);
   }
   const hintWidth = getTextWidth(hintStr);
@@ -103,7 +109,11 @@ export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, r
       ) : (
         <box flexShrink={0}>
           <text fg={C.dim}>
-            {isGenerating ? 'esc 中断生成' : 'ctrl+j 换行'}
+            <span fg={autoEditActive ? C.autoEdit : C.dim}>
+              ctrl+e 自动编辑
+            </span>
+            {`  ${ICONS.separator}  `}
+            {escAction}
             {`  ${ICONS.separator}  ctrl+t 工具详情`}
             {isGenerating && hasQueue ? (
               <>
@@ -112,7 +122,7 @@ export function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, r
               </>
             ) : null}
             {`  ${ICONS.separator}  `}
-            {isGenerating ? 'ctrl+s 立即发送' : (copyMode ? 'f6 返回滚动模式' : 'f6 复制模式')}
+            {isGenerating ? 'ctrl+s 优先发送' : (copyMode ? 'f6 返回滚动模式' : 'f6 复制模式')}
           </text>
         </box>
       )}

@@ -89,6 +89,7 @@ export const Methods = {
   GET_ACTIVE_SESSION_ID: 'backend.getActiveSessionId',
   GET_TOOL_HANDLE: 'backend.getToolHandle',
   GET_TOOL_HANDLES: 'backend.getToolHandles',
+  GET_TOOL_DIFF_PREVIEW: 'backend.getToolDiffPreview',
   RUN_COMMAND: 'backend.runCommand',
   RESET_CONFIG: 'backend.resetConfigToDefaults',
   GET_AGENT_TASKS: 'backend.getAgentTasks',
@@ -97,6 +98,11 @@ export const Methods = {
   GET_TOOL_POLICIES: 'backend.getToolPolicies',
   GET_CWD: 'backend.getCwd',
   SET_CWD: 'backend.setCwd',
+  ENABLE_AUTO_EDIT: 'backend.enableAutoEdit',
+  DISABLE_AUTO_EDIT: 'backend.disableAutoEdit',
+  TOGGLE_AUTO_EDIT: 'backend.toggleAutoEdit',
+  GET_AUTO_EDIT_STATE: 'backend.getAutoEditState',
+  IS_AUTO_EDIT_ACTIVE: 'backend.isAutoEditActive',
 
   // ---- 服务端全局信息（attach 模式使用）----
   GET_CONFIG: 'server.getConfig',
@@ -168,6 +174,7 @@ export const Events = {
   TASK_RESULT: 'event:task:result',
   NOTIFICATION_PAYLOADS: 'event:notification:payloads',
   MODELS_CHANGED: 'event:models:changed',
+  AUTO_EDIT_UPDATE: 'event:auto-edit:update',
   // ---- 工具 Handle 事件 ----
   HANDLE_STATE: 'event:handle:state',
   HANDLE_OUTPUT: 'event:handle:output',
@@ -196,6 +203,7 @@ export const BACKEND_EVENT_TO_IPC: Record<string, string> = {
   'task:result': Events.TASK_RESULT,
   'notification:payloads': Events.NOTIFICATION_PAYLOADS,
   'models:changed': Events.MODELS_CHANGED,
+  'auto-edit:update': Events.AUTO_EDIT_UPDATE,
 };
 
 /** IPC 事件通知名 → Backend 事件名 映射 */

@@ -108,6 +108,7 @@ interface IPCBackendLike {
   getActiveSessionId?(): string | undefined;
   getToolHandle?(toolId: string): unknown;
   getToolHandles?(sessionId: string): unknown[];
+  getToolDiffPreview?(toolId: string): unknown | Promise<unknown>;
   runCommand?(cmd: string): unknown;
   resetConfigToDefaults?(): unknown;
   getAgentTasks?(sessionId: string): unknown[];
@@ -116,6 +117,11 @@ interface IPCBackendLike {
   getToolPolicies?(): Record<string, unknown> | undefined;
   getCwd?(): string;
   setCwd?(dirPath: string): void;
+  enableAutoEdit?(sessionId: string): unknown;
+  disableAutoEdit?(sessionId: string): unknown;
+  toggleAutoEdit?(sessionId: string): unknown;
+  getAutoEditState?(sessionId: string | undefined): unknown;
+  isAutoEditActive?(sessionId: string | undefined): boolean;
 }
 
 /** IPCServer 对 ToolExecutionHandle 的最小依赖接口 */
@@ -380,6 +386,21 @@ export class IPCServer extends EventEmitter {
           this.backend.setCwd?.(params[0] as string);
           result = null;
           break;
+        case Methods.ENABLE_AUTO_EDIT:
+          result = this.backend.enableAutoEdit?.(params[0] as string) ?? null;
+          break;
+        case Methods.DISABLE_AUTO_EDIT:
+          result = this.backend.disableAutoEdit?.(params[0] as string) ?? null;
+          break;
+        case Methods.TOGGLE_AUTO_EDIT:
+          result = this.backend.toggleAutoEdit?.(params[0] as string) ?? null;
+          break;
+        case Methods.GET_AUTO_EDIT_STATE:
+          result = this.backend.getAutoEditState?.(params[0] as string | undefined) ?? null;
+          break;
+        case Methods.IS_AUTO_EDIT_ACTIVE:
+          result = this.backend.isAutoEditActive?.(params[0] as string | undefined) ?? false;
+          break;
 
         // ---- 工具 Handle ----
         case Methods.GET_TOOL_HANDLE: {
@@ -392,6 +413,9 @@ export class IPCServer extends EventEmitter {
           result = handles.map((h: any) => this.serializeHandle(h));
           break;
         }
+        case Methods.GET_TOOL_DIFF_PREVIEW:
+          result = await this.backend.getToolDiffPreview?.(params[0] as string);
+          break;
 
         // ---- Handle 操作 ----
         case Methods.HANDLE_APPROVE: {
@@ -660,6 +684,16 @@ export class IPCServer extends EventEmitter {
       case Methods.SET_CWD:
         backend.setCwd?.(params[0] as string);
         return null;
+      case Methods.ENABLE_AUTO_EDIT:
+        return backend.enableAutoEdit?.(params[0] as string) ?? null;
+      case Methods.DISABLE_AUTO_EDIT:
+        return backend.disableAutoEdit?.(params[0] as string) ?? null;
+      case Methods.TOGGLE_AUTO_EDIT:
+        return backend.toggleAutoEdit?.(params[0] as string) ?? null;
+      case Methods.GET_AUTO_EDIT_STATE:
+        return backend.getAutoEditState?.(params[0] as string | undefined) ?? null;
+      case Methods.IS_AUTO_EDIT_ACTIVE:
+        return backend.isAutoEditActive?.(params[0] as string | undefined) ?? false;
       case Methods.GET_TOOL_HANDLE: {
         const handle = backend.getToolHandle?.(params[0] as string);
         return handle ? this.serializeHandle(handle, agentName) : null;

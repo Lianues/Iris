@@ -11,6 +11,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { MutableRefObject } from 'react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import { COMMANDS, type Command, type CommandArgSuggestion, getCommandInput, isExactCommandValue } from '../input-commands';
 import { useTextInput } from '../hooks/use-text-input';
@@ -26,6 +27,11 @@ export interface PendingFile {
   path: string;
   fileType: 'image' | 'document' | 'audio' | 'video';
   mimeType: string;
+}
+
+export interface PromptInputController {
+  hasValue(): boolean;
+  clear(): void;
 }
 
 const FILE_TYPE_ICONS: Record<string, string> = {
@@ -60,12 +66,16 @@ function isPlanModeToggleShortcut(key: any): boolean {
     || key.sequence === '\x1b[Z';
 }
 
+function isAutoEditToggleShortcut(key: any): boolean {
+  return key.ctrl && key.name === 'e';
+}
+
 interface InputBarProps {
   disabled: boolean;
   isGenerating: boolean;
   queueSize: number;
   onSubmit: (text: string) => void;
-  /** 强制优先发送：中断当前生成，在队列最前面插入并立即发送 */
+  /** 优先发送：生成中插入队首，当前回复完成后优先处理，不中断当前生成 */
   onPrioritySubmit: (text: string) => void;
   /** Shift+Left/Right 切换思考强度 */
   onCycleThinkingEffort: (direction: 1 | -1) => void;
@@ -79,9 +89,16 @@ interface InputBarProps {
   isRemote?: boolean;
   dynamicCommands?: Command[];
   supportsHeadlessTransition?: boolean;
+  inputControllerRef?: MutableRefObject<PromptInputController | null>;
 }
 
-export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled }: InputBarProps) {
+function isPrioritySubmitShortcut(key: any): boolean {
+  return (key.ctrl && key.name === 's')
+    || key.sequence === '\x13'
+    || key.raw === '\x13';
+}
+
+export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [queuePromptFrame, setQueuePromptFrame] = useState(0);
@@ -160,6 +177,22 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
   // 输入内容变化时重新打开面板
   useEffect(() => { setCommandsDismissed(false); }, [commandQuery]);
 
+  useEffect(() => {
+    if (!inputControllerRef) return;
+    const controller: PromptInputController = {
+      hasValue: () => value.length > 0,
+      clear: () => {
+        inputActions.setValue('');
+        setSelectedIndex(0);
+        setCommandsDismissed(false);
+      },
+    };
+    inputControllerRef.current = controller;
+    return () => {
+      if (inputControllerRef.current === controller) inputControllerRef.current = null;
+    };
+  }, [inputControllerRef, inputActions, value]);
+
   const showCommands = commandQuery.length > 0 && !commandsDismissed;
   const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && value.startsWith(`${activeArgCommand.name} `);
 
@@ -235,6 +268,12 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
       return;
     }
 
+    // Ctrl+E 是全局自动编辑切换快捷键，输入框不应把它当作“移动到行尾”。
+    if (isAutoEditToggleShortcut(key)) {
+      key.preventDefault?.();
+      return;
+    }
+
     // 指令面板导航
     if ((showCommands && filtered.length > 0) || (showArgSuggestions && argSuggestions.length > 0)) {
       if (key.name === 'up') { key.preventDefault?.(); applySelection(selectedIndex + 1); return; }
@@ -265,8 +304,10 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
       }
     }
 
-    // Ctrl+S → 强制优先发送（中断当前生成，跳过队列立即发送）
-    if (key.ctrl && key.name === 's') {
+    // Ctrl+S → 优先发送（插入队首，不中断当前生成）
+    if (isPrioritySubmitShortcut(key)) {
+      key.preventDefault?.();
+      key.stopPropagation?.();
       if (!isQueueMode) return;
       key.preventDefault?.();
       const text = value.trim();

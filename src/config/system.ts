@@ -10,6 +10,7 @@
 
 import { SystemConfig, SkillDefinition } from './types';
 import { loadSkillsFromFilesystem, buildSkillDefinition } from './skill-loader';
+import { normalizeCallmeAttributionConfig } from '../git/callme';
 
 /** Skill 名称校验：仅允许 ASCII 字母、数字、下划线、连字符，1-64 字符 */
 const SKILL_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -62,6 +63,7 @@ export function parseSystemConfig(raw: any = {}, dataDir?: string): SystemConfig
     devSourceExtensions: Array.isArray(raw.devSourceExtensions)
       ? raw.devSourceExtensions.filter((s: unknown): s is string => typeof s === 'string' && s.trim().length > 0)
       : undefined,
+    callme: normalizeCallmeAttributionConfig(raw.callme),
     devSourceSdk: raw.devSourceSdk === true,
     extensions: parseExtensionsBlock(raw.extensions),
   };

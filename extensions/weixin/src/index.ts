@@ -20,6 +20,7 @@
  */
 
 import { createExtensionLogger, definePlatformFactory, splitText, autoApproveHandle, formatToolStatusLine, PlatformAdapter, type ImageInput, type IrisBackendLike, type IrisPlatformFactoryContextLike } from 'irises-extension-sdk';
+import { resolveRuntimeConfigDir } from 'irises-extension-sdk/utils';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -177,13 +178,15 @@ export class WeixinPlatform extends PlatformAdapter {
    * key = userId
    */
   private activeSessions = new Map<string, string>();
+  private backendListenersReady = false;
+
 
   constructor(backend: IrisBackendLike, config: WeixinConfig) {
     super();
     this.backend = backend;
     this.config = config;
     this.baseUrl = (config.baseUrl || 'https://ilinkai.weixin.qq.com').replace(/\/$/, '');
-    this.configDir = path.resolve(config.configDir || path.join(process.cwd(), 'data', 'configs'));
+    this.configDir = path.resolve(config.configDir || resolveRuntimeConfigDir());
 
     if (!this.config.botToken) {
       this.loadTokenFromCache();
@@ -221,6 +224,7 @@ export class WeixinPlatform extends PlatformAdapter {
   }
 
   async start(): Promise<void> {
+    if (this.polling) return;
     if (!this.config.botToken) {
       logger.info('未配置 botToken，准备扫码登录...');
       const { botToken, baseUrl } = await this.performQRLogin();
@@ -669,6 +673,9 @@ export class WeixinPlatform extends PlatformAdapter {
   }
 
   private setupBackendListeners() {
+    if (this.backendListenersReady) return;
+    this.backendListenersReady = true;
+
     this.backend.on('stream:start', (sid: string) => {
       const userId = this.findUserIdBySid(sid);
       if (!userId) return;

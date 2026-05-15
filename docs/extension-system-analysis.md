@@ -110,7 +110,7 @@ src/bootstrap/extensions.ts      BootstrapExtensionRegistry —— 内置 Provid
 
 | 注册表 | 类型 | 内置项 |
 |--------|------|--------|
-| `llmProviders` | `LLMProviderFactory` | gemini, openai-compatible, claude, openai-responses |
+| `llmProviders` | `LLMProviderFactory` | deepseek, gemini, openai-compatible, claude, openai-responses |
 | `storageProviders` | `StorageFactory` | json-file, sqlite |
 | `ocrProviders` | `OCRFactory` | openai-compatible |
 | `platforms` | `PlatformRegistry` | （由 Extension manifest 中的 platforms 动态注册） |

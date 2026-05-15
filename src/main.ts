@@ -17,6 +17,9 @@
  *   iris extension                     → 插件安装与管理界面
  *   iris extension install <path>      → 安装 extension
  *   iris ext install-local <name>      → 本地安装 extension
+ *   iris models list/add/...           → 管理 LLM 模型配置
+ *   iris mcp add ...                   → 添加 MCP 服务器到 Iris 配置
+ *   iris cron add/list/...             → 管理 Cron 定时任务
  *   iris ext install-git <url>         → 从 Git 仓库安装 extension
  *   iris ext update <name>             → 升级 Git 安装的 extension
  *   iris --help                        → 显示帮助
@@ -51,6 +54,9 @@ Iris - AI Agent
   iris models             模型配置界面
   iris platforms          平台配置界面
   iris settings           配置文件查看与编辑
+  iris models <cmd>       模型配置命令（list/add/get/remove/default）
+  iris mcp                MCP 配置命令（add/list/get/remove/enable/disable）
+  iris cron               定时任务命令（status/config/list/add/remove/enable/disable）
   iris extension          插件安装与管理（含远程 / Git 安装）
 
 全局参数:
@@ -89,6 +95,15 @@ if (command === '-v' || command === '--version') {
 // 修正：原路由使用并列 if，匹配到命令后执行完仍会 fall-through 到末尾的"未知命令"。
 // 改为 if/else if 链，确保每个命令分支互斥，不再误报。
 
+if (command === 'models') {
+  const { isModelsCliSubcommand, runModelsCli } = await import('./models-cli');
+  if (isModelsCliSubcommand(args[1])) {
+    const result = await runModelsCli(args.slice(1));
+    if (result.message) (result.ok ? console.log : console.error)(result.message);
+    process.exit(result.exitCode ?? (result.ok ? 0 : 1));
+  }
+}
+
 // Terminal TUI 命令（onboard / platforms / models / settings）
 if (command && TERMINAL_COMMANDS.has(command)) {
   runTerminalCommand(command, args.slice(1));
@@ -101,6 +116,18 @@ if (command && TERMINAL_COMMANDS.has(command)) {
   // CLI 提示词模式
   process.argv.splice(2, 1); // 移除 'chat'，让 cli.ts 解析剩余参数
   await import('./cli');
+} else if (command === 'mcp') {
+  // MCP 配置命令（写入 Iris 自己的 ~/.iris/configs/mcp.yaml 或 Agent 覆盖层）
+  const { runMcpCli } = await import('./mcp-cli');
+  const result = await runMcpCli(args.slice(1), { stderr: (message) => console.error(message) });
+  if (result.message) (result.ok ? console.log : console.error)(result.message);
+  process.exit(result.exitCode ?? (result.ok ? 0 : 1));
+} else if (command === 'cron') {
+  // Cron 定时任务命令（写入 cron.yaml 和 extension-data/cron/cron-jobs.json）
+  const { runCronCli } = await import('./cron-cli');
+  const result = await runCronCli(args.slice(1));
+  if (result.message) (result.ok ? console.log : console.error)(result.message);
+  process.exit(result.exitCode ?? (result.ok ? 0 : 1));
 } else if (command === 'attach') {
   // 跨进程 / 跨设备连接已运行的 Iris 实例
   const { runAttach } = await import('./attach');

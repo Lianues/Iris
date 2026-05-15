@@ -41,6 +41,7 @@ type ToolPolicyMode = 'disabled' | 'manual' | 'auto';
 
 type RowTarget =
   | { kind: 'modelProvider'; modelIndex: number }
+  | { kind: 'deepseekModel'; modelIndex: number }
   | { kind: 'modelField'; modelIndex: number; field: 'modelName' | 'modelId' | 'apiKey' | 'baseUrl' }
   | { kind: 'modelDefault'; modelIndex: number }
   | { kind: 'systemField'; field: 'systemPrompt' | 'maxToolRounds' | 'stream' | 'retryOnError' | 'maxRetries' | 'logRequests' | 'maxAgentDepth' | 'defaultMode' | 'asyncSubAgents' }
@@ -73,9 +74,12 @@ interface SettingsRow {
   indent?: number;
 }
 
+const DEEPSEEK_MODEL_IDS = ['deepseek-v4-flash', 'deepseek-v4-pro'] as const;
+
 
 function isInlineCycleTarget(target: RowTarget): boolean {
   return target.kind === 'modelProvider'
+    || target.kind === 'deepseekModel'
     || target.kind === 'toolPolicy'
     || (target.kind === 'mcpField' && target.field === 'transport');
 }
@@ -225,9 +229,15 @@ function buildRows(snapshot: ConsoleSettingsSnapshot, termWidth: number): Settin
       '左右方向键切换 Provider。', 6,
     );
     pushField(`model.${index}.modelName`, 'general', '名称', model.modelName || '(空)', { kind: 'modelField', modelIndex: index, field: 'modelName' }, '回车编辑。', 6);
-    pushField(`model.${index}.modelId`, 'general', '模型 ID', model.modelId || '(空)', { kind: 'modelField', modelIndex: index, field: 'modelId' }, '回车编辑。', 6);
+    if (model.provider === 'deepseek') {
+      pushField(`model.${index}.modelId`, 'general', '模型 ID', model.modelId || '(空)', { kind: 'deepseekModel', modelIndex: index }, 'Enter 或 → 在 Flash / Pro 间切换。', 6);
+    } else {
+      pushField(`model.${index}.modelId`, 'general', '模型 ID', model.modelId || '(空)', { kind: 'modelField', modelIndex: index, field: 'modelId' }, '回车编辑。', 6);
+    }
     pushField(`model.${index}.apiKey`, 'general', 'API Key', model.apiKey || '未配置', { kind: 'modelField', modelIndex: index, field: 'apiKey' }, undefined, 6);
-    pushField(`model.${index}.baseUrl`, 'general', 'Base URL', model.baseUrl || '(空)', { kind: 'modelField', modelIndex: index, field: 'baseUrl' }, '回车编辑。', 6);
+    if (model.provider !== 'deepseek') {
+      pushField(`model.${index}.baseUrl`, 'general', 'Base URL', model.baseUrl || '(空)', { kind: 'modelField', modelIndex: index, field: 'baseUrl' }, '回车编辑。', 6);
+    }
   });
 
   pushField('system.systemPrompt', 'general', 'System / Prompt', previewText(snapshot.system.systemPrompt, maxPreview), { kind: 'systemField', field: 'systemPrompt' }, '回车编辑；\\n 表示换行。');
@@ -515,14 +525,21 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
   }, [onLoad, setStatus]);
 
   const handleAddModel = useCallback(() => {
-    let nextIndex = 0;
+    const nextIndex = draft?.models.length ?? 0;
     updateDraft((snapshot: ConsoleSettingsSnapshot) => {
-      nextIndex = snapshot.models.length;
       snapshot.models.push(createEmptyModel());
     });
+    const target: Extract<RowTarget, { kind: 'modelField' }> = {
+      kind: 'modelField',
+      modelIndex: nextIndex,
+      field: 'modelName',
+    };
     setSelectedRowId(`model.${nextIndex}.modelName`);
-    setStatus('已新增模型草稿，请先填写名称后保存', 'info');
-  }, [setStatus, updateDraft]);
+    setNavFocused(false);
+    setEditor({ target, label: `model_${nextIndex + 1}.modelName`, value: '', hint: '请输入模型别名，例如 deepseek_flash。' });
+    setEditorValue('');
+    setStatus('已新增模型草稿，请填写名称后按 Enter 保存', 'info');
+  }, [draft?.models.length, setStatus, updateDraft]);
 
   const handleAddMcpServer = useCallback(() => {
     let nextIndex = 0;
@@ -573,6 +590,12 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         if (!model) return;
         const next = cycleValue(CONSOLE_LLM_PROVIDER_OPTIONS, model.provider, direction);
         snapshot.models[target.modelIndex] = applyModelProviderChange(model, next as ConsoleLLMProvider);
+        return;
+      }
+      if (target.kind === 'deepseekModel') {
+        const model = snapshot.models[target.modelIndex];
+        if (!model) return;
+        model.modelId = cycleValue(DEEPSEEK_MODEL_IDS, model.modelId as typeof DEEPSEEK_MODEL_IDS[number], direction);
         return;
       }
       if (target.kind === 'mcpField' && target.field === 'transport') {

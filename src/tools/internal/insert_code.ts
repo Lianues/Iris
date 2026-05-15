@@ -8,6 +8,7 @@
 import * as fs from 'fs';
 import { ToolDefinition } from '../../types';
 import { resolveProjectPath } from '../utils';
+import { applyInsertCodeTransform } from '../edit-transforms';
 
 export { normalizeInsertArgs } from 'irises-extension-sdk/tool-utils';
 export type { InsertEntry } from 'irises-extension-sdk/tool-utils';
@@ -37,23 +38,10 @@ export const insertCode: ToolDefinition = {
 
     const resolved = resolveProjectPath(filePath);
     const content = fs.readFileSync(resolved, 'utf-8');
-    const lines = content.split('\n');
-    const totalLines = lines.length;
+    const transformed = applyInsertCodeTransform(content, line, contentToInsert);
 
-    if (line < 1 || line > totalLines + 1) {
-      throw new Error(`行号 ${line} 超出范围（1~${totalLines + 1}）`);
-    }
+    fs.writeFileSync(resolved, transformed.newContent, 'utf-8');
 
-    const insertLines = contentToInsert.split('\n');
-    const idx = line - 1;
-    const newLines = [
-      ...lines.slice(0, idx),
-      ...insertLines,
-      ...lines.slice(idx),
-    ];
-
-    fs.writeFileSync(resolved, newLines.join('\n'), 'utf-8');
-
-    return { path: filePath, success: true, line, insertedLines: insertLines.length };
+    return { path: filePath, success: true, line, insertedLines: transformed.insertedLines };
   },
 };

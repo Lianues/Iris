@@ -41,7 +41,7 @@ import { resolveOnboardPlatformOption } from "./platform-catalog.js"
 import { resolveRuntimeConfigDir } from "./runtime-paths.js"
 
 export interface OnboardConfig {
-  provider: "gemini" | "openai-compatible" | "openai-responses" | "claude"
+  provider: "deepseek" | "gemini" | "openai-compatible" | "openai-responses" | "claude"
   apiKey: string
   model: string
   baseUrl: string
@@ -56,6 +56,11 @@ export const PROVIDER_DEFAULTS: Record<
   string,
   { model: string; baseUrl: string; contextWindow: number }
 > = {
+  deepseek: {
+    model: "deepseek-v4-flash",
+    baseUrl: "https://api.deepseek.com/v1",
+    contextWindow: 1000000,
+  },
   gemini: {
     model: "gemini-2.5-flash",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
@@ -78,7 +83,18 @@ export const PROVIDER_DEFAULTS: Record<
   },
 }
 
+const DEEPSEEK_BASE_URL = PROVIDER_DEFAULTS.deepseek.baseUrl
+const DEEPSEEK_MODEL_IDS = ["deepseek-v4-flash", "deepseek-v4-pro"] as const
+
+function normalizeDeepSeekModelId(modelId: unknown): string {
+  const value = typeof modelId === "string" ? modelId.trim() : ""
+  return (DEEPSEEK_MODEL_IDS as readonly string[]).includes(value)
+    ? value
+    : DEEPSEEK_MODEL_IDS[0]
+}
+
 export const PROVIDER_LABELS: Record<string, string> = {
+  deepseek: "DeepSeek",
   gemini: "Google Gemini",
   "openai-compatible": "OpenAI Compatible",
   "openai-responses": "OpenAI Responses",
@@ -131,6 +147,8 @@ export function writeConfigs(installDir: string, config: OnboardConfig, skippedS
       ? existingLlm.models as Record<string, unknown>
       : {}
 
+    const baseUrl = config.provider === "deepseek" ? DEEPSEEK_BASE_URL : config.baseUrl
+    const model = config.provider === "deepseek" ? normalizeDeepSeekModelId(config.model) : config.model
     const llmConfig = {
       ...existingLlm,
       defaultModel: modelKey,
@@ -139,8 +157,8 @@ export function writeConfigs(installDir: string, config: OnboardConfig, skippedS
         [modelKey]: {
           provider: config.provider,
           apiKey: config.apiKey,
-          model: config.model,
-          baseUrl: config.baseUrl,
+          model,
+          baseUrl,
         },
       },
     }

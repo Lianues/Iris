@@ -57,6 +57,8 @@ export class PluginManager {
   private _appConfig?: AppConfig;
   /** 宿主配置目录（由 bootstrap 设置） */
   private _configDir?: string;
+  /** 最近一次已就绪的平台集合，供运行时热加载插件时补触发 onPlatformsReady。 */
+  private _platformsReady?: ReadonlyMap<string, PlatformAdapter>;
   /** 开发模式：源码加载的扩展白名单 */
   private _devSourceExtensions?: string[];
   /** 扩展发现选项（来自 system.yaml.extensions），由 bootstrap 设置 */
@@ -227,6 +229,7 @@ export class PluginManager {
    * 在 createPlatforms() 之后调用，传递已创建的平台 Map。
    */
   async notifyPlatformsReady(platforms: ReadonlyMap<string, PlatformAdapter>): Promise<void> {
+    this._platformsReady = platforms;
     if (!this._api) return;
     for (const loaded of byPriorityDesc(
       Array.from(this.plugins.values()).map(item => item.entry),
@@ -278,7 +281,7 @@ export class PluginManager {
    * 运行时激活单个插件（热加载）。
    * 要求 activateAll 已执行过（internals 已缓存）。
    */
-  async activatePlugin(name: string): Promise<void> {
+  async activatePlugin(name: string, entryOverride?: PluginEntry): Promise<void> {
     if (this.plugins.has(name)) {
       throw new Error(`插件 "${name}" 已激活`);
     }
@@ -286,13 +289,30 @@ export class PluginManager {
       throw new Error('PluginManager 尚未初始化（internals 未缓存）');
     }
 
-    const entry: PluginEntry = { name, type: 'local', enabled: true };
+    // 热启用时必须尽量复用启动期/调用方传入的完整 PluginEntry，
+    // 否则 plugins.yaml 中的 priority/config 会在同进程关闭后重开时丢失。
+    const preparedEntry = this.prepared.find(item => item.entry.name === name)?.entry;
+    const entry: PluginEntry = {
+      ...(preparedEntry ?? {}),
+      ...(entryOverride ?? {}),
+      name,
+      type: entryOverride?.type ?? preparedEntry?.type ?? 'local',
+      enabled: true,
+    };
+
     const resolved = await this.resolvePlugin(entry);
     const pluginConfig = this.loadPluginConfig(entry, resolved.localSource);
     const extensionRootDir = resolved.localSource?.rootDir;
 
     const prepared: PreparedPlugin = { entry, plugin: resolved.plugin, pluginConfig, extensionRootDir };
     await this.activatePrepared(prepared, this._internals, this._appConfig);
+
+    const preparedIndex = this.prepared.findIndex(item => item.entry.name === name);
+    if (preparedIndex >= 0) {
+      this.prepared[preparedIndex] = prepared;
+    } else {
+      this.prepared.push(prepared);
+    }
 
     // 如果已过 notifyReady 阶段，立即触发 onReady 回调
     const loaded = this.plugins.get(name);
@@ -303,6 +323,16 @@ export class PluginManager {
           await callback(this._api);
         } catch (err) {
           logger.error(`插件 "${name}" onReady 回调执行失败:`, err);
+        }
+      }
+
+      if (this._platformsReady) {
+        for (const callback of loaded.platformReadyCallbacks) {
+          try {
+            await callback(this._platformsReady, this._api);
+          } catch (err) {
+            logger.error(`插件 "${name}" onPlatformsReady 回调执行失败:`, err);
+          }
         }
       }
     }
@@ -408,7 +438,12 @@ export class PluginManager {
       this._configDir,
     );
 
-    await prepared.plugin.activate(context);
+    try {
+      await prepared.plugin.activate(context);
+    } catch (err) {
+      context.dispose();
+      throw err;
+    }
 
     this.plugins.set(prepared.entry.name, {
       entry: prepared.entry,

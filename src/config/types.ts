@@ -2,6 +2,8 @@
  * 配置类型定义
  */
 
+import type { CallmeAttributionConfig } from '../git/callme';
+
 
 /**
  * 对码（Pairing）配置。
@@ -77,6 +79,7 @@ export interface LLMConfig {
    *   gemini:             generationConfig.thinkingConfig
    *   openai-compatible:  reasoning_effort
    *   openai-responses:   reasoning.effort + reasoning.summary
+   *   deepseek:           thinking.type + reasoning_effort
    *
    * 如果你在 requestBody 中显式设置了上述字段，它们会覆盖便捷控制的设置。
    * 设为 false 可完全关闭此功能，隐藏指示器并禁用快捷键。
@@ -315,6 +318,12 @@ export interface SystemConfig {
     /** 当 loadWorkspaceExtensions=true 时，仅这些名字会被纳入；为空表示不收窄（全部纳入）。 */
     workspaceAllowlist?: string[];
   };
+
+  /**
+   * /callme：用户显式开启后，Iris 代执行 git commit 时自动追加固定链接署名。
+   * 默认关闭；通过 Console TUI 输入 /callme 写入 system.yaml。
+   */
+  callme?: CallmeAttributionConfig;
 }
 
 /** 上下文压缩（/compact）配置 */
@@ -408,7 +417,7 @@ export interface SubAgentTypeDef {
   modelName?: string;
   /** 最大工具执行轮次 */
   maxToolRounds: number;
-  /** 此类型是否使用流式输出（默认 false）；全局 stream 有值时被覆盖 */
+  /** 此类型是否使用流式输出（默认 true）；全局 stream 有值时被覆盖 */
   stream: boolean;
   /** 当前类型的 sub_agent 调用是否可按 parallel 工具参与调度，默认 false */
   parallel: boolean;

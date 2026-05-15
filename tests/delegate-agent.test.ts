@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'events';
 import { createDelegateToAgentTool } from '../src/tools/internal/delegate-agent/index.js';
 import { CrossAgentTaskBoard } from '../src/core/cross-agent-task-board.js';
 import { ToolRegistry } from '../src/tools/registry.js';
@@ -82,5 +83,37 @@ describe('delegate_to_agent 工具', () => {
     const secondPayload = JSON.parse(JSON.stringify(registry.getDeclarations()));
     expect(secondPayload[0].description).toContain('reviewer: 审查助手');
     expect(secondPayload[0].description).not.toContain('coder: 编码助手');
+  });
+
+  it('中止委派任务时会同步中止目标 Agent 的会话', async () => {
+    const board = new CrossAgentTaskBoard();
+    const targetBackend = Object.assign(new EventEmitter(), {
+      chat: vi.fn(() => new Promise(() => {})),
+      abortChat: vi.fn(),
+      isStreamEnabled: vi.fn(() => false),
+      clearSession: vi.fn(async () => {}),
+      switchModel: vi.fn(() => ({ modelName: 'mock', modelId: 'mock' })),
+      listModels: vi.fn(() => []),
+      listSessionMetas: vi.fn(async () => []),
+    });
+    const state = createNetworkState(['worker']);
+    state.network.getPeerBackend = vi.fn(() => targetBackend as any);
+
+    const tool = createDelegateToAgentTool({
+      agentNetwork: state.network as any,
+      taskBoard: board,
+      getSessionId: () => 'source-session',
+    });
+
+    const result = await tool.handler({ agent: 'worker', prompt: '执行长时间任务' }) as any;
+    expect(result.status).toBe('dispatched');
+
+    // runDelegatedTask 是 fire-and-forget；让它完成监听器注册和 chat 启动。
+    await Promise.resolve();
+
+    board.kill(result.taskId);
+
+    expect(targetBackend.abortChat).toHaveBeenCalledWith(`cross-agent:master:${result.taskId}`);
+    expect(board.get(result.taskId)?.status).toBe('killed');
   });
 });

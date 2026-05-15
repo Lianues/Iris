@@ -225,6 +225,8 @@ export type {
   StorageFactory,
   StorageLike,
   ToolExecInterception,
+  ToolDiffPreviewItemLike,
+  ToolDiffPreviewResponseLike,
   ToolPreviewUtilsLike,
   ToolRegistryLike,
   ToolWrapper,

@@ -1,6 +1,7 @@
 import type { Content } from './message.js';
 import type { ToolExecutionHandleLike } from './tool.js';
 import type { Disposable } from './plugin/service.js';
+import type { ToolDiffPreviewResponseLike } from './plugin/tool-preview.js';
 
 export type ImageInput = {
   mimeType: string;
@@ -99,6 +100,15 @@ export interface BackendEventMap {
   'agent:notification': (sessionId: string, taskId: string, status: string, summary: string, taskType?: string, silent?: boolean) => void;
   'task:result':        (sessionId: string, taskId: string, status: string, description: string, taskType?: string, silent?: boolean, result?: string) => void;
   'notification:payloads': (sessionId: string, payloads: unknown[]) => void;
+  'auto-edit:update':   (sessionId: string, active: boolean) => void;
+}
+
+export interface AutoEditSessionStateLike {
+  sessionId: string;
+  active: boolean;
+  enabledBy?: string;
+  enabledAt?: number;
+  updatedAt?: number;
 }
 
 export interface IrisBackendLike {
@@ -138,6 +148,8 @@ export interface IrisBackendLike {
   getToolNames?(): string[];
   /** 获取指定工具的双向通道 Handle */
   getToolHandle(toolId: string): ToolExecutionHandleLike | undefined;
+  /** 生成指定工具调用的统一 diff 预览（用于 diff 审批 UI） */
+  getToolDiffPreview?(toolId: string): ToolDiffPreviewResponseLike | Promise<ToolDiffPreviewResponseLike>;
   /** 获取指定会话的所有工具 Handle */
   getToolHandles(sessionId: string): ToolExecutionHandleLike[];
   /** 查询指定 session 的所有异步子代理任务（只读） */
@@ -157,6 +169,11 @@ export interface IrisBackendLike {
   getDisabledTools?(): string[] | undefined;
   /** 获取当前活跃会话 ID */
   getActiveSessionId?(): string | undefined;
+  enableAutoEdit?(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike>;
+  disableAutoEdit?(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike>;
+  toggleAutoEdit?(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike>;
+  getAutoEditState?(sessionId: string | undefined): AutoEditSessionStateLike | null | Promise<AutoEditSessionStateLike | null>;
+  isAutoEditActive?(sessionId: string | undefined): boolean;
 }
 
 // ── BackendHandle：稳定代理层 ──
@@ -248,6 +265,10 @@ export class BackendHandle implements IrisBackendLike {
     return this._backend.getToolHandle(toolId);
   }
 
+  getToolDiffPreview(toolId: string): ToolDiffPreviewResponseLike | Promise<ToolDiffPreviewResponseLike> {
+    return this._backend.getToolDiffPreview?.(toolId) ?? Promise.reject(new Error('getToolDiffPreview is not supported by this backend'));
+  }
+
   getToolHandles(sessionId: string): ToolExecutionHandleLike[] {
     return this._backend.getToolHandles(sessionId);
   }
@@ -308,6 +329,26 @@ export class BackendHandle implements IrisBackendLike {
 
   getActiveSessionId(): string | undefined {
     return this._backend.getActiveSessionId?.();
+  }
+
+  enableAutoEdit(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike> {
+    return this._backend.enableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+
+  disableAutoEdit(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike> {
+    return this._backend.disableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+
+  toggleAutoEdit(sessionId: string): AutoEditSessionStateLike | Promise<AutoEditSessionStateLike> {
+    return this._backend.toggleAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+
+  getAutoEditState(sessionId: string | undefined): AutoEditSessionStateLike | null | Promise<AutoEditSessionStateLike | null> {
+    return this._backend.getAutoEditState?.(sessionId) ?? null;
+  }
+
+  isAutoEditActive(sessionId: string | undefined): boolean {
+    return this._backend.isAutoEditActive?.(sessionId) === true;
   }
 }
 

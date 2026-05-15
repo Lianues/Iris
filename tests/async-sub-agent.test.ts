@@ -196,6 +196,49 @@ describe('async-sub-agent: 异步路径', () => {
     expect(result2.status).toBeUndefined();
   });
 
+
+  it('流式子代理遇到 JSON 解析失败时降级为非流式调用', async () => {
+    typeRegistry.register({
+      name: 'stream-explore',
+      description: '流式探索子代理',
+      systemPrompt: '你是流式探索子代理。',
+      parallel: true,
+      maxToolRounds: 10,
+      stream: true,
+    });
+
+    const fallbackRouter = {
+      chat: vi.fn(async () => ({
+        content: {
+          role: 'model' as const,
+          parts: [{ text: 'fallback result' }] as Part[],
+          createdAt: Date.now(),
+        },
+        usageMetadata: { totalTokenCount: 42 },
+      })),
+      chatStream: vi.fn(async function* () {
+        throw new Error('Failed to parse JSON');
+      }),
+      getCurrentModelName: vi.fn(() => 'mock-model'),
+    } as any;
+
+    const tool = createSubAgentTool({
+      getRouter: () => fallbackRouter,
+      tools,
+      subAgentTypes: typeRegistry,
+      maxDepth: 3,
+      getToolPolicies: () => ({}),
+      getSessionId,
+      taskBoard,
+      agentName: 'test-agent',
+    });
+
+    const result = await consumeHandler(tool.handler!({ prompt: '探索任务', type: 'stream-explore' }));
+    expect(result.result).toBe('fallback result');
+    expect(fallbackRouter.chatStream).toHaveBeenCalledTimes(1);
+    expect(fallbackRouter.chat).toHaveBeenCalledTimes(1);
+  });
+
   // ---- 并发限制 ----
 
   it('并发异步子代理数超过 MAX_CONCURRENT_ASYNC_AGENTS 时拒绝创建', async () => {

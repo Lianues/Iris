@@ -1,4 +1,7 @@
 import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 /**
  * 终端兼容性模块。
@@ -87,6 +90,60 @@ export function readClipboardText(): string | undefined {
   return read('wl-paste', ['-n'])
     ?? read('xclip', ['-selection', 'clipboard', '-out'])
     ?? read('xsel', ['--clipboard', '--output']);
+}
+
+export function writeClipboardText(text: string): boolean {
+  const timeout = 1500;
+  const write = (command: string, args: string[]): boolean => {
+    try {
+      execFileSync(command, args, {
+        input: text,
+        windowsHide: true,
+        timeout,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const psQuote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
+  const writeWindowsViaPowerShellFile = (command: string): boolean => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-clipboard-'));
+    const tempFile = path.join(tempDir, 'clipboard.txt');
+    try {
+      // 不通过 PowerShell stdin 传正文：Windows PowerShell 会按控制台代码页解释 stdin，
+      // 中文/Emoji 容易乱码。改为 UTF-8 临时文件 + .NET 显式 UTF8 读取。
+      fs.writeFileSync(tempFile, text, 'utf8');
+      execFileSync(command, [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `Set-Clipboard -Value ([System.IO.File]::ReadAllText(${psQuote(tempFile)}, [System.Text.Encoding]::UTF8))`,
+      ], {
+        windowsHide: true,
+        timeout,
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  };
+
+  if (process.platform === 'win32') {
+    return writeWindowsViaPowerShellFile('powershell.exe')
+      || writeWindowsViaPowerShellFile('powershell');
+  }
+
+  if (process.platform === 'darwin') {
+    return write('pbcopy', []);
+  }
+
+  return write('wl-copy', [])
+    || write('xclip', ['-selection', 'clipboard', '-in'])
+    || write('xsel', ['--clipboard', '--input']);
 }
 
 export function normalizePastedSingleLine(text: string): string {

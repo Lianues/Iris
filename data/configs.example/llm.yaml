@@ -1,3 +1,6 @@
+# 模板/运行时路径说明：仓库/安装包中的 data/configs.example/ 只作为首次初始化模板。
+# 默认会复制到 ~/.iris/configs/；除非用户设置了 IRIS_DATA_DIR，此时会复制到 IRIS_DATA_DIR/configs/。
+# 之后 Iris 实际读取和写入的是用户运行时目录中的同名文件；请在用户目录中修改配置。
 # LLM 配置（模型池）
 # defaultModel: 启动时默认使用的模型名称
 # models:       可用模型列表，键名就是模型名称
@@ -18,13 +21,14 @@ summaryModel: gemini_flash
 
 models:
   gemini_flash:
-    # 提供商: gemini | openai-compatible | openai-responses | claude
+    # 提供商: deepseek | gemini | openai-compatible | openai-responses | claude
     provider: gemini
     apiKey: your-api-key-here
     # model 字段填写提供商真实模型 id
     model: gemini-2.0-flash
-    # Gemini 要以 /v1beta 结尾；OpenAI 兼容 / OpenAI Responses / Claude 要以 /v1 结尾
-    # 在此基础上，程序再补全具体接口后缀
+    # Gemini 要以 /v1beta 结尾；OpenAI 兼容 / OpenAI Responses / Claude 通常以 /v1 结尾
+    # 程序会在此基础上继续补全具体接口路径
+    # DeepSeek 固定使用官方地址 https://api.deepseek.com/v1，无需/不能自定义 baseUrl
     baseUrl: https://generativelanguage.googleapis.com/v1beta
     # 是否支持图片输入；不填时程序会按模型名自动判断。
     # 如果你使用代理网关、自定义模型别名，建议显式填写。
@@ -46,6 +50,7 @@ models:
     #   gemini:             generationConfig.thinkingConfig              (not-set/minimal/low/medium/high)
     #   openai-compatible:  reasoning_effort                             (not-set/none/minimal/low/medium/high/xhigh)
     #   openai-responses:   reasoning.effort + reasoning.summary         (not-set/none/minimal/low/medium/high/xhigh)
+    #   deepseek:           thinking.type + reasoning_effort             (not-set/none/high/max)
     # 注意：
     #   - 便捷控制使用深合并，仅修改上述叶级字段，不会覆盖同级其他参数
     #   - 如果你在 requestBody 中显式配置了上述字段，它们会覆盖便捷控制的设置（YAML 优先）
@@ -81,6 +86,13 @@ models:
   #   model: gpt-4o
   #   baseUrl: https://api.openai.com/v1
   #   supportsVision: true
+
+  # deepseek_flash:
+  #   provider: deepseek
+  #   apiKey: your-api-key-here
+  #   model: deepseek-v4-flash
+  #   # 或 model: deepseek-v4-pro
+  #   contextWindow: 1000000
 
 # Claude 示例：
 # models:

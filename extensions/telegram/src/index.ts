@@ -99,6 +99,10 @@ export class TelegramPlatform extends PlatformAdapter {
   private readonly messageDedup = new Set<number>();
   /** Phase 7：去重集合上次清理时间 */
   private lastDedupCleanup = Date.now();
+  private backendListenersReady = false;
+  private taskResultListenerReady = false;
+  private clientHandlersReady = false;
+  private started = false;
 
   constructor(private readonly backend: IrisBackendLike, private readonly config: TelegramConfig, private readonly api?: IrisAPI) {
     super();
@@ -120,9 +124,15 @@ export class TelegramPlatform extends PlatformAdapter {
   }
 
   async start(): Promise<void> {
+    if (this.started) return;
+    this.started = true;
+
     this.setupBackendListeners();
-    this.client.onMessage((ctx) => this.handleMessage(ctx));
-    this.client.onCallbackQuery((ctx) => this.handleCallbackQuery(ctx));
+    if (!this.clientHandlersReady) {
+      this.client.onMessage((ctx) => this.handleMessage(ctx));
+      this.client.onCallbackQuery((ctx) => this.handleCallbackQuery(ctx));
+      this.clientHandlersReady = true;
+    }
     await this.client.start();
     this.registerDeliveryProvider();
     logger.info('Telegram 平台已启动');
@@ -130,37 +140,40 @@ export class TelegramPlatform extends PlatformAdapter {
     // ── 轻量级任务结果广播：通用的 task:result 通道 ──
     // 所有终态任务都会 emit 此事件，不绑定 silent 或任务类型。
     // 当前策略：仅 silent 任务渲染通知推送（非 silent 由 LLM 通过 stream 事件回复）。
-    this.backend.on('task:result' as any, (
-      sid: string, _taskId: string, status: string,
-      description: string, _taskType?: string, silent?: boolean, result?: string,
-    ) => {
-      // 非 silent 任务的结果由 LLM 通过 stream 事件回复，不在此推送
-      if (!silent) return;
+    if (!this.taskResultListenerReady) {
+      this.backend.on('task:result' as any, (
+        sid: string, _taskId: string, status: string,
+        description: string, _taskType?: string, silent?: boolean, result?: string,
+      ) => {
+        // 非 silent 任务的结果由 LLM 通过 stream 事件回复，不在此推送
+        if (!silent) return;
 
-      // 按聊天身份定向投递：只发送到创建该任务的聊天，而非广播所有聊天。
-      // 使用 chatKey 前缀匹配（而非精确 sessionId），
-      // 因为用户 /new 新建对话后 sessionId 的时间戳部分会变更。
-      const targetCs = this.findChatStateByChatOrigin(sid);
-      if (!targetCs || targetCs.stopped) {
-        logger.info(`task:result 未找到匹配的聊天 (sid=${sid})，跳过`);
-        return;
-      }
+        // 按聊天身份定向投递：只发送到创建该任务的聊天，而非广播所有聊天。
+        // 使用 chatKey 前缀匹配（而非精确 sessionId），
+        // 因为用户 /new 新建对话后 sessionId 的时间戳部分会变更。
+        const targetCs = this.findChatStateByChatOrigin(sid);
+        if (!targetCs || targetCs.stopped) {
+          logger.info(`task:result 未找到匹配的聊天 (sid=${sid})，跳过`);
+          return;
+        }
 
-      let text: string;
-      if (status === 'completed') {
-        // Telegram 限制消息长度，截断结果摘要到 1000 字符
-        const preview = (result ?? '').slice(0, 1000);
-        text = `⏰ ${description} 完成：\n${preview}`;
-      } else if (status === 'killed') {
-        text = `⏰ ${description} 被中止`;
-      } else {
-        text = `⏰ ${description} 失败：${result ?? '未知错误'}`;
-      }
+        let text: string;
+        if (status === 'completed') {
+          // Telegram 限制消息长度，截断结果摘要到 1000 字符
+          const preview = (result ?? '').slice(0, 1000);
+          text = `⏰ ${description} 完成：\n${preview}`;
+        } else if (status === 'killed') {
+          text = `⏰ ${description} 被中止`;
+        } else {
+          text = `⏰ ${description} 失败：${result ?? '未知错误'}`;
+        }
 
-      // 定向推送到创建任务的聊天
-      void this.sendToChat(targetCs, text, { trackMessage: false });
-    });
-    logger.info('已通过 task:result 监听任务结果（按聊天定向投递）');
+        // 定向推送到创建任务的聊天
+        void this.sendToChat(targetCs, text, { trackMessage: false });
+      });
+      this.taskResultListenerReady = true;
+      logger.info('已通过 task:result 监听任务结果（按聊天定向投递）');
+    }
 
     // 启动对码输出
     if (this.pairingGuard && this.pairingStore?.needsBootstrap()) {
@@ -185,6 +198,7 @@ export class TelegramPlatform extends PlatformAdapter {
     this.chatStates.clear();
     this.messageDedup.clear();
     await this.client.stop();
+    this.started = false;
     logger.info('Telegram 平台已停止');
   }
 
@@ -318,6 +332,8 @@ export class TelegramPlatform extends PlatformAdapter {
   // ---- Backend 事件监听 ----
 
   private setupBackendListeners(): void {
+    if (this.backendListenersReady) return;
+    this.backendListenersReady = true;
     // ---- 工具状态 ----
     this.backend.on('tool:execute' as any, (sid: string, handle: any) => {
       autoApproveHandle(handle);

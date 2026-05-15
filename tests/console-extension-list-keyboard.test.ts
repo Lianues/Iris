@@ -107,10 +107,15 @@ describe('console /extension keyboard regressions', () => {
       path.resolve(__dirname, '../extensions/console/src/hooks/use-app-keyboard.ts'),
       'utf8',
     );
+    const toggleSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/extension-toggle.ts'),
+      'utf8',
+    );
 
     expect(platformSource).toContain('ext.discoverAll?.() ?? packages');
-    expect(platformSource).toContain('updateWorkspaceExtensionDiscoveryConfig');
-    expect(platformSource).toContain('ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace)');
+    expect(platformSource).toContain('handleConsoleToggleExtension');
+    expect(toggleSource).toContain('updateWorkspaceExtensionDiscoveryConfig');
+    expect(toggleSource).toContain('ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace)');
     expect(keyboardSource).toContain("onToggleExtension(item.name, item.status === 'active')");
   });
 

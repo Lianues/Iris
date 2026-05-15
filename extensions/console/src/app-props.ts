@@ -1,4 +1,4 @@
-import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta } from 'irises-extension-sdk';
+import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolDiffPreviewResponseLike } from 'irises-extension-sdk';
 import type { MemoryItem } from './components/MemoryListView';
 import type { ExtensionItem } from './components/ExtensionListView';
 import type { AgentDefinitionLike } from 'irises-extension-sdk';
@@ -36,7 +36,9 @@ export interface AppProps {
   onToolApply: (toolId: string, applied: boolean) => void;
   /** 向交互式工具发送上行消息 */
   onToolMessage?: (toolId: string, type: string, data?: unknown) => void;
-  /** shell/bash 审批中用户选择"始终允许"或"始终询问"时，持久化命令模式 */
+  /** 获取工具调用的后端统一 diff 预览 */
+  onGetToolDiffPreview?: (toolId: string) => ToolDiffPreviewResponseLike | Promise<ToolDiffPreviewResponseLike>;
+  /** shell/bash 审批中用户选择“允许此类命令”或“询问此类命令”时，持久化命令模式 */
   onAddCommandPattern?: (toolName: string, command: string, type: 'allow' | 'deny') => void;
   onAbort: () => void;
   /** 用户请求打开工具详情 */
@@ -70,6 +72,10 @@ export interface AppProps {
   onSummarize: () => Promise<{ ok: boolean; message: string }>;
   /** Plan Mode 命令处理（/plan）。返回需要显示在聊天区的提示文本。 */
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
+  /** 自动编辑命令处理（/auto-edit）。 */
+  onAutoEditCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
+  /** /callme：显式开启/关闭 git commit co-author 署名。 */
+  onCallmeCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   /** 获取可切换的 Agent 列表（/agent 命令触发） */
   onListAgents?: () => AgentDefinitionLike[];
   /** 用户在 agent-list 视图中确认选择后，执行实际的 Agent 切换 */

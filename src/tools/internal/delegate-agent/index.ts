@@ -225,7 +225,17 @@ async function runDelegatedTask(opts: {
       };
 
       // abort 处理
+      const abortTarget = () => {
+        try {
+          targetBackend.abortChat(targetSessionId);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.warn(`跨 Agent 委派中止目标会话失败: taskId=${taskId}, targetSession=${targetSessionId}, error=${message}`);
+        }
+      };
+
       const onAbort = () => {
+        abortTarget();
         cleanup();
         reject(new Error('任务被中止'));
       };
@@ -245,6 +255,10 @@ async function runDelegatedTask(opts: {
       targetBackend.on('done', onDone);
       targetBackend.on('error', onError);
       signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
 
       // 发起 chat 调用
       targetBackend.chat(targetSessionId, targetPrompt).catch((err: Error) => {

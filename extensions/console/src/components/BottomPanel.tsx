@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 import React from 'react';
+import type { MutableRefObject } from 'react';
 import type { ToolInvocation } from 'irises-extension-sdk';
 import type { ApprovalChoice, ConfirmChoice, PendingConfirm, ThinkingEffortLevel } from '../app-types';
 import type { ApprovalPage } from '../hooks/use-approval';
@@ -9,7 +10,7 @@ import { ConfirmBar } from './ConfirmBar';
 import { AskQuestionFirstPanel } from './AskQuestionFirstPanel';
 import { PlanApprovalBar } from './PlanApprovalBar';
 import { HintBar } from './HintBar';
-import { InputBar, type PendingFile } from './InputBar';
+import { InputBar, type PendingFile, type PromptInputController } from './InputBar';
 import type { Command } from '../input-commands';
 import { StatusBar } from './StatusBar';
 import { ThinkingIndicator } from './ThinkingIndicator';
@@ -41,6 +42,8 @@ interface BottomPanelProps {
   backgroundTaskCount?: number;
   /** 当前会话是否处于 Plan Mode */
   planModeActive?: boolean;
+  /** 当前会话是否开启自动编辑 */
+  autoEditActive?: boolean;
   /** 当前后台运行中的委派任务数量（delegate_to_agent） */
   delegateTaskCount?: number;
   /** 所有后台任务的累计 token 数 */
@@ -67,6 +70,7 @@ interface BottomPanelProps {
   /** 右侧状态栏扩展片段（显示在 ctx 右侧） */
   statusSegments?: ConsoleStatusSegmentSnapshot[];
   supportsHeadlessTransition?: boolean;
+  inputControllerRef?: MutableRefObject<PromptInputController | null>;
 }
 
 export function BottomPanel({
@@ -92,6 +96,7 @@ export function BottomPanel({
   exitConfirmArmed,
   backgroundTaskCount,
   planModeActive,
+  autoEditActive,
   delegateTaskCount,
   backgroundTaskTokens,
   backgroundTaskSpinnerFrame,
@@ -106,6 +111,7 @@ export function BottomPanel({
   dynamicCommands,
   statusSegments,
   supportsHeadlessTransition,
+  inputControllerRef,
 }: BottomPanelProps) {
   // 输入框仅在审批/确认对话框期间完全禁用
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
@@ -157,6 +163,7 @@ export function BottomPanel({
             dynamicCommands={dynamicCommands}
             supportsHeadlessTransition={supportsHeadlessTransition}
             thinkingControlEnabled={thinkingControlEnabled}
+            inputControllerRef={inputControllerRef}
           />
           <StatusBar
             agentName={agentName}
@@ -178,10 +185,12 @@ export function BottomPanel({
 
       <HintBar
         isGenerating={isGenerating}
+        hasRunningBackgroundTasks={(backgroundTaskCount ?? 0) + (delegateTaskCount ?? 0) > 0}
         queueSize={queueSize}
         copyMode={copyMode}
         exitConfirmArmed={exitConfirmArmed}
         remoteHost={remoteHost}
+        autoEditActive={autoEditActive}
       />
     </box>
   );

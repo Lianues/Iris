@@ -8,24 +8,7 @@
   "distribution": {
     "files": [
       ".gitignore",
-      "dist/base.js",
-      "dist/config-template.js",
-      "dist/config.js",
-      "dist/consolidation.js",
-      "dist/extract.js",
-      "dist/index.js",
       "dist/index.mjs",
-      "dist/prompts/consolidation.js",
-      "dist/prompts/extract.js",
-      "dist/prompts/session-notes.js",
-      "dist/prompts/system-rules.js",
-      "dist/retrieval.js",
-      "dist/session-memory.js",
-      "dist/sqlite/index.js",
-      "dist/tools.js",
-      "dist/types.js",
-      "dist/utils/age.js",
-      "dist/utils/manifest.js",
       "package.json"
     ]
   }

@@ -1,3 +1,6 @@
+# 模板/运行时路径说明：仓库/安装包中的 data/configs.example/ 只作为首次初始化模板。
+# 默认会复制到 ~/.iris/configs/；除非用户设置了 IRIS_DATA_DIR，此时会复制到 IRIS_DATA_DIR/configs/。
+# 之后 Iris 实际读取和写入的是用户运行时目录中的同名文件；请在用户目录中修改配置。
 # 系统配置
 
 # 系统提示词（留空则使用默认）
@@ -32,6 +35,14 @@ maxRetries: 3
 # 启用后，子代理可在后台异步执行，主对话不阻塞等待子代理完成。
 # 需同时在 sub_agents.yaml 中定义至少一个子代理类型才会真正生效。
 # asyncSubAgents: true
+
+# /callme git 提交署名（默认关闭）
+# 在 Console TUI 输入 /callme 后会自动写入：
+# callme: true
+#
+# 开启后，Iris 代你执行 git commit 时会自动在提交信息末尾追加：
+# Co-authored with Iris: https://github.com/Lianues/Iris
+# 该功能只提供开关，不支持自定义署名内容；关闭时为 callme: false。
 
 # 兼容旧配置：skillPreamble 仍可被读取，但当前版本已不再使用。
 # 说明：Skill 已改为通过 read_skill 工具按需读取，不再拼接到用户消息末尾。

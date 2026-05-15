@@ -1,30 +1,38 @@
-// extensions/cron/node_modules/irises-extension-sdk/src/scheduler.ts
+// ../../packages/extension-sdk/dist/scheduler.js
 var SCHEDULER_SERVICE_ID = "scheduler.tasks";
-// extensions/cron/node_modules/irises-extension-sdk/src/logger.ts
-var _logLevel = 1 /* INFO */;
+// ../../packages/extension-sdk/dist/logger.js
+var LogLevel;
+(function(LogLevel2) {
+  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
+  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
+  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
+  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
+  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
+})(LogLevel || (LogLevel = {}));
+var _logLevel = LogLevel.INFO;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= 0 /* DEBUG */)
+      if (_logLevel <= LogLevel.DEBUG)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= 1 /* INFO */)
+      if (_logLevel <= LogLevel.INFO)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= 2 /* WARN */)
+      if (_logLevel <= LogLevel.WARN)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= 3 /* ERROR */)
+      if (_logLevel <= LogLevel.ERROR)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
 
-// extensions/cron/node_modules/irises-extension-sdk/src/plugin/context.ts
+// ../../packages/extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -32,17 +40,18 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
-// extensions/cron/node_modules/irises-extension-sdk/src/runtime-paths.ts
+// ../../packages/extension-sdk/dist/runtime-paths.js
 import os from "node:os";
 import path from "node:path";
 function resolveDefaultDataDir(customDataDir) {
   return path.resolve(customDataDir || process.env.IRIS_DATA_DIR || path.join(os.homedir(), ".iris"));
 }
-// extensions/cron/src/scheduler.ts
+// src/scheduler.ts
 import * as fs from "fs";
 import * as path2 from "path";
+import * as crypto from "crypto";
 
-// extensions/cron/node_modules/croner/dist/croner.js
+// node_modules/croner/dist/croner.js
 function T(s) {
   return Date.UTC(s.y, s.m - 1, s.d, s.h, s.i, s.s);
 }
@@ -816,7 +825,7 @@ var E = class {
   }
 };
 
-// extensions/cron/src/types.ts
+// src/types.ts
 var DEFAULT_SCHEDULER_CONFIG = {
   enabled: true,
   quietHours: {
@@ -849,7 +858,7 @@ var DEFAULT_BACKGROUND_CONFIG = {
   retentionCount: 100
 };
 
-// extensions/cron/src/delivery-gate.ts
+// src/delivery-gate.ts
 var logger = createPluginLogger("cron", "condition");
 function parseTimeToMinutes(time) {
   const parts = time.split(":");
@@ -910,6 +919,9 @@ function evaluateCondition(expression, globalStore, agentName, sessionId) {
 function shouldSkip(job, config, lastActivityMap, context, now) {
   const currentDate = now ?? new Date;
   const currentTimestamp = currentDate.getTime();
+  if (!config.enabled) {
+    return { skip: true, reason: "定时任务调度器已禁用" };
+  }
   if (!job.enabled) {
     return { skip: true, reason: `任务 "${job.name}" 已禁用` };
   }
@@ -940,8 +952,106 @@ function shouldSkip(job, config, lastActivityMap, context, now) {
   return { skip: false };
 }
 
-// extensions/cron/src/scheduler.ts
+// src/scheduler.ts
 var logger2 = createPluginLogger("cron");
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+function isProcessAlive(pid) {
+  if (!Number.isFinite(pid) || pid <= 0)
+    return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err?.code === "EPERM";
+  }
+}
+function readLockPayload(lockPath) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
+    if (typeof raw.pid !== "number" || typeof raw.createdAt !== "number")
+      return;
+    return {
+      pid: raw.pid,
+      createdAt: raw.createdAt,
+      targetPath: typeof raw.targetPath === "string" ? raw.targetPath : ""
+    };
+  } catch {
+    return;
+  }
+}
+function tryRemoveStaleLock(lockPath) {
+  if (!fs.existsSync(lockPath))
+    return;
+  const payload = readLockPayload(lockPath);
+  const shouldRemove = payload ? !isProcessAlive(payload.pid) : (() => {
+    try {
+      return Date.now() - fs.statSync(lockPath).mtimeMs > 30000;
+    } catch {
+      return true;
+    }
+  })();
+  if (!shouldRemove)
+    return;
+  try {
+    fs.unlinkSync(lockPath);
+  } catch {}
+}
+function withFileLockSync(targetPath, fn) {
+  const lockPath = `${targetPath}.lock`;
+  const deadline = Date.now() + 1e4;
+  fs.mkdirSync(path2.dirname(lockPath), { recursive: true });
+  let fd;
+  while (fd === undefined) {
+    try {
+      fd = fs.openSync(lockPath, "wx");
+      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: Date.now(), targetPath }), "utf-8");
+    } catch (err) {
+      if (err?.code !== "EEXIST")
+        throw err;
+      tryRemoveStaleLock(lockPath);
+      if (Date.now() >= deadline)
+        throw new Error(`等待 cron 持久化文件锁超时: ${lockPath}`);
+      sleepSync(50);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {}
+    try {
+      fs.unlinkSync(lockPath);
+    } catch {}
+  }
+}
+function atomicWriteTextFileSync(filePath, content) {
+  fs.mkdirSync(path2.dirname(filePath), { recursive: true });
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  let fd;
+  try {
+    fd = fs.openSync(tmpPath, "w");
+    fs.writeFileSync(fd, content, "utf-8");
+    try {
+      fs.fsyncSync(fd);
+    } catch {}
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    if (fd !== undefined)
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    try {
+      if (fs.existsSync(tmpPath))
+        fs.unlinkSync(tmpPath);
+    } catch {}
+    throw err;
+  }
+}
 function generateId() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = Math.random() * 16 | 0;
@@ -1164,6 +1274,13 @@ class CronScheduler {
       };
     }
     logger2.info("调度器配置已热更新");
+  }
+  updateBackgroundConfig(newConfig) {
+    this.backgroundConfig = {
+      ...this.backgroundConfig,
+      ...newConfig
+    };
+    logger2.info("后台执行配置已热更新");
   }
   recordActivity(sessionId) {
     this.lastActivityMap.set(sessionId, Date.now());
@@ -1554,24 +1671,26 @@ class CronScheduler {
   }
   persistSync() {
     try {
-      const dir = path2.dirname(this.filePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      if (fs.existsSync(this.filePath)) {
+      withFileLockSync(this.filePath, () => {
+        const dir = path2.dirname(this.filePath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        if (fs.existsSync(this.filePath)) {
+          try {
+            const stat = fs.statSync(this.filePath);
+            if (stat.mtimeMs > this.lastFileModTime) {
+              this.onFileChanged();
+            }
+          } catch {}
+        }
+        const data = JSON.stringify(Array.from(this.jobs.values()), null, 2);
+        atomicWriteTextFileSync(this.filePath, data);
         try {
           const stat = fs.statSync(this.filePath);
-          if (stat.mtimeMs > this.lastFileModTime) {
-            this.onFileChanged();
-          }
+          this.lastFileModTime = stat.mtimeMs;
         } catch {}
-      }
-      const data = JSON.stringify(Array.from(this.jobs.values()), null, 2);
-      fs.writeFileSync(this.filePath, data, "utf-8");
-      try {
-        const stat = fs.statSync(this.filePath);
-        this.lastFileModTime = stat.mtimeMs;
-      } catch {}
+      });
     } catch (err) {
       logger2.error(`持久化写入失败: ${err}`);
     }
@@ -1686,7 +1805,7 @@ class CronScheduler {
   }
 }
 
-// extensions/cron/src/tool.ts
+// src/tool.ts
 function parseOnceScheduleValue(value) {
   const trimmed = value.trim();
   const relativeMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hr|hour|hours|d|day|days)$/i);
@@ -2032,7 +2151,7 @@ var manageScheduledTasksTool = {
   }
 };
 
-// extensions/cron/src/config-template.ts
+// src/config-template.ts
 function buildDefaultConfigTemplate() {
   const promptYaml = DEFAULT_CRON_SYSTEM_PROMPT.split(`
 `).map((line) => `    ${line}`).join(`
@@ -2117,7 +2236,7 @@ skipIfRecentActivity:
 `;
 }
 
-// extensions/cron/src/service.ts
+// src/service.ts
 function toSchedulerJob(job) {
   return {
     id: job.id,
@@ -2200,13 +2319,14 @@ function createCronSchedulerService(scheduler2, api) {
   };
 }
 
-// extensions/cron/src/index.ts
+// src/index.ts
 var logger4 = createPluginLogger("cron");
 var schedulerInstance = null;
 var schedulerServiceDisposable;
 var lifecycleDisposables = [];
 var backendWithDoneListener;
 var backendDoneListener;
+var lastCronConfigSignature = "";
 function trackDisposable(disposable) {
   if (disposable)
     lifecycleDisposables.push(disposable);
@@ -2238,9 +2358,28 @@ var src_default = definePlugin({
     const mergedRaw = rawSection ?? {};
     const config = resolveConfig(mergedRaw);
     const bgConfig = resolveBackgroundConfig(mergedRaw?.backgroundExecution);
+    lastCronConfigSignature = stableStringify(mergedRaw);
+    ctx.addHook({
+      name: "cron:config-reload",
+      async onConfigReload({ rawMergedConfig }) {
+        const raw = rawMergedConfig.cron ?? {};
+        const nextSignature = stableStringify(raw);
+        if (nextSignature === lastCronConfigSignature)
+          return;
+        lastCronConfigSignature = nextSignature;
+        const nextConfig = resolveConfig(raw);
+        const nextBackgroundConfig = resolveBackgroundConfig(raw.backgroundExecution);
+        if (!schedulerInstance) {
+          logger4.info("cron.yaml 已变更，但调度器尚未初始化；将在下次启动时生效");
+          return;
+        }
+        schedulerInstance.updateConfig(nextConfig);
+        schedulerInstance.updateBackgroundConfig(nextBackgroundConfig);
+        logger4.info("cron.yaml 已热重载");
+      }
+    });
     if (!config.enabled) {
-      logger4.info("调度器未启用（config.enabled = false）");
-      return;
+      logger4.info("调度器当前为禁用状态（config.enabled = false），仍初始化服务以支持运行中热启用；触发时会跳过任务。");
     }
     ctx.registerTool(manageScheduledTasksTool);
     logger4.info("manage_scheduled_tasks 工具已注册");
@@ -2510,6 +2649,16 @@ function resolveBackgroundConfig(raw) {
     retentionDays: typeof raw.retentionDays === "number" && raw.retentionDays > 0 ? raw.retentionDays : DEFAULT_BACKGROUND_CONFIG.retentionDays,
     retentionCount: typeof raw.retentionCount === "number" && raw.retentionCount > 0 ? raw.retentionCount : DEFAULT_BACKGROUND_CONFIG.retentionCount
   };
+}
+function stableStringify(value) {
+  return JSON.stringify(sortForStableStringify(value));
+}
+function sortForStableStringify(value) {
+  if (Array.isArray(value))
+    return value.map(sortForStableStringify);
+  if (!value || typeof value !== "object")
+    return value;
+  return Object.fromEntries(Object.entries(value).sort(([a], [b2]) => a.localeCompare(b2)).map(([k2, v2]) => [k2, sortForStableStringify(v2)]));
 }
 export {
   src_default as default

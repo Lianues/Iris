@@ -32,9 +32,9 @@ var __toESM = (mod, isNodeMode, target) => {
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// extensions/weixin/node_modules/silk-wasm/lib/index.cjs
+// node_modules/silk-wasm/lib/index.cjs
 var require_lib = __commonJS((exports, module) => {
-  var __filename = "F:\\111\\Iris\\extensions\\weixin\\node_modules\\silk-wasm\\lib\\index.cjs";
+  var __filename = "D:\\Iris\\extensions\\weixin\\node_modules\\silk-wasm\\lib\\index.cjs";
   var __defProp2 = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
@@ -892,7 +892,7 @@ return ret;
   }
 });
 
-// packages/extension-sdk/src/platform.ts
+// ../../packages/extension-sdk/src/platform.ts
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -955,6 +955,9 @@ class BackendHandle {
   getToolHandle(toolId) {
     return this._backend.getToolHandle(toolId);
   }
+  getToolDiffPreview(toolId) {
+    return this._backend.getToolDiffPreview?.(toolId) ?? Promise.reject(new Error("getToolDiffPreview is not supported by this backend"));
+  }
   getToolHandles(sessionId) {
     return this._backend.getToolHandles(sessionId);
   }
@@ -1000,12 +1003,6 @@ class BackendHandle {
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
   }
-  getMilestones(sessionId) {
-    return this._backend.getMilestones?.(sessionId);
-  }
-  loadMilestones(sessionId) {
-    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
-  }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
   }
@@ -1017,6 +1014,21 @@ class BackendHandle {
   }
   getActiveSessionId() {
     return this._backend.getActiveSessionId?.();
+  }
+  enableAutoEdit(sessionId) {
+    return this._backend.enableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  disableAutoEdit(sessionId) {
+    return this._backend.disableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  toggleAutoEdit(sessionId) {
+    return this._backend.toggleAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  getAutoEditState(sessionId) {
+    return this._backend.getAutoEditState?.(sessionId) ?? null;
+  }
+  isAutoEditActive(sessionId) {
+    return this._backend.isAutoEditActive?.(sessionId) === true;
   }
 }
 function getPlatformConfig(context, platformName) {
@@ -1062,7 +1074,7 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// packages/extension-sdk/src/logger.ts
+// ../../packages/extension-sdk/src/logger.ts
 var _logLevel = 1 /* INFO */;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
@@ -1085,7 +1097,7 @@ function createExtensionLogger(extensionName, tag) {
     }
   };
 }
-// packages/extension-sdk/src/platform-utils.ts
+// ../../packages/extension-sdk/src/platform-utils.ts
 var TOOL_STATUS_ICONS = {
   queued: "⏳",
   executing: "\uD83D\uDD27",
@@ -1126,9 +1138,24 @@ function autoApproveHandle(handle) {
     }
   });
 }
-// extensions/weixin/src/index.ts
-import fs from "node:fs";
+// ../../packages/extension-sdk/src/runtime-paths.ts
+import os from "node:os";
 import path from "node:path";
+function resolveDefaultDataDir2(customDataDir) {
+  return path.resolve(customDataDir || process.env.IRIS_DATA_DIR || path.join(os.homedir(), ".iris"));
+}
+
+// ../../packages/extension-sdk/src/utils/runtime-paths.ts
+import * as path2 from "node:path";
+function resolveRuntimeDataDir() {
+  return resolveDefaultDataDir2();
+}
+function resolveRuntimeConfigDir() {
+  return path2.join(resolveRuntimeDataDir(), "configs");
+}
+// src/index.ts
+import fs from "node:fs";
+import path3 from "node:path";
 import crypto from "node:crypto";
 var logger = createExtensionLogger("WeixinExtension", "Weixin");
 var SILK_SAMPLE_RATE = 24000;
@@ -1175,18 +1202,19 @@ class WeixinPlatform extends PlatformAdapter {
   cooldownUntil = 0;
   chatStates = new Map;
   activeSessions = new Map;
+  backendListenersReady = false;
   constructor(backend, config) {
     super();
     this.backend = backend;
     this.config = config;
     this.baseUrl = (config.baseUrl || "https://ilinkai.weixin.qq.com").replace(/\/$/, "");
-    this.configDir = path.resolve(config.configDir || path.join(process.cwd(), "data", "configs"));
+    this.configDir = path3.resolve(config.configDir || resolveRuntimeConfigDir());
     if (!this.config.botToken) {
       this.loadTokenFromCache();
     }
   }
   loadTokenFromCache() {
-    const cachePath = path.join(this.configDir, "weixin-auth.json");
+    const cachePath = path3.join(this.configDir, "weixin-auth.json");
     if (fs.existsSync(cachePath)) {
       try {
         const data = JSON.parse(fs.readFileSync(cachePath, "utf-8"));
@@ -1207,7 +1235,7 @@ class WeixinPlatform extends PlatformAdapter {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      const cachePath = path.join(dir, "weixin-auth.json");
+      const cachePath = path3.join(dir, "weixin-auth.json");
       fs.writeFileSync(cachePath, JSON.stringify({ botToken, baseUrl }, null, 2));
       logger.info(`微信 Token 已保存到本地缓存`);
     } catch (err) {
@@ -1215,6 +1243,8 @@ class WeixinPlatform extends PlatformAdapter {
     }
   }
   async start() {
+    if (this.polling)
+      return;
     if (!this.config.botToken) {
       logger.info("未配置 botToken，准备扫码登录...");
       const { botToken, baseUrl } = await this.performQRLogin();
@@ -1572,6 +1602,9 @@ ${qrcodeUrl}
     return;
   }
   setupBackendListeners() {
+    if (this.backendListenersReady)
+      return;
+    this.backendListenersReady = true;
     this.backend.on("stream:start", (sid) => {
       const userId = this.findUserIdBySid(sid);
       if (!userId)

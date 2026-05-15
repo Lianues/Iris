@@ -97,7 +97,12 @@
                 </div>
                 <div class="form-group">
                   <label>模型 ID</label>
-                  <div class="inline-field-actions">
+                  <AppSelect
+                    v-if="entry.provider === 'deepseek'"
+                    v-model="entry.modelId"
+                    :options="deepseekModelOptions"
+                  />
+                  <div v-else class="inline-field-actions">
                     <input type="text" v-model="entry.modelId" placeholder="例如：gpt-4o 或 gemini-2.0-flash" />
                     <button
                       class="btn-inline-action"
@@ -109,7 +114,7 @@
                     </button>
                   </div>
                   <AppSelect
-                    v-if="entry.modelCatalog.options.length > 0"
+                    v-if="entry.provider !== 'deepseek' && entry.modelCatalog.options.length > 0"
                     v-model="entry.modelId"
                     class="model-list-select"
                     :options="buildModelCatalogSelectOptions(entry.modelCatalog.options)"
@@ -121,7 +126,7 @@
                   <input type="password" v-model="entry.apiKey" placeholder="输入或保留已有密钥" />
                   <p class="field-hint">{{ modelKeyHint(entry) }}</p>
                 </div>
-                <div class="form-group full-width">
+                <div v-if="entry.provider !== 'deepseek'" class="form-group full-width">
                   <label>API 地址</label>
                   <input type="text" v-model="entry.baseUrl" placeholder="模型服务请求地址" />
                 </div>
@@ -768,10 +773,16 @@ import { ICONS } from '../constants/icons'
 import { useSettingsPanel } from '../features/settings/useSettingsPanel'
 
 const llmProviderOptions = [
+  { value: 'deepseek', label: 'DeepSeek', description: 'DeepSeek Chat Completions API' },
   { value: 'gemini', label: 'Gemini', description: 'Google AI Studio / Vertex AI' },
   { value: 'openai-compatible', label: 'OpenAI 兼容', description: '任何兼容 OpenAI Chat Completions 的 API' },
   { value: 'openai-responses', label: 'OpenAI Responses', description: 'OpenAI Responses API 格式' },
   { value: 'claude', label: 'Claude', description: 'Anthropic 官方 API' },
+]
+
+const deepseekModelOptions = [
+  { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', description: '速度优先' },
+  { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', description: '能力优先' },
 ]
 
 const mcpTransportOptions = [

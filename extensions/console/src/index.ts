@@ -56,14 +56,31 @@ import {
   type ConsoleProgressArchiveLike,
   type ConsoleProgressUiStateLike,
 } from './progress-service';
+import { handleConsoleToggleExtension } from './extension-toggle';
 
-/** 从 shell 命令生成前缀通配模式（如 "npm install express" → "npm install *"） */
-function generateCommandPattern(command: string): string {
-  const tokens = command.trim().split(/\s+/);
-  if (tokens.length === 0 || !tokens[0]) return '*';
-  if (tokens.length <= 1) return tokens[0] + ' *';
-  if (tokens[1].startsWith('-')) return tokens[0] + ' *';
-  return tokens[0] + ' ' + tokens[1] + ' *';
+/**
+ * 从 shell 命令生成可记忆的命令模式。
+ *
+ * 同时写入“完整命令精确模式”和“前缀通配模式”：
+ * - "npm test" → ["npm test", "npm test *"]
+ * - "ls"       → ["ls", "ls *"]
+ *
+ * 这样用户对无参数命令选择“允许此类命令”后，下次相同无参数命令也能命中；
+ * 旧的单一 "cmd *" 模式只匹配带额外参数的命令，无法匹配 "cmd" 本身。
+ *
+ * 注意：精确模式必须使用完整命令，而不是前缀基础命令；否则
+ * "git push origin main" 会额外允许裸 "git push"。
+ */
+function generateCommandPatterns(command: string): string[] {
+  const normalized = command.trim().replace(/\s+/g, ' ');
+  if (!normalized) return ['*'];
+
+  const tokens = normalized.split(' ');
+  const prefixBase = tokens.length <= 1 || tokens[1].startsWith('-')
+    ? tokens[0]
+    : `${tokens[0]} ${tokens[1]}`;
+
+  return Array.from(new Set([normalized, `${prefixBase} *`]));
 }
 
 type WsIPCClientLike = IPCClientLike & {
@@ -110,6 +127,24 @@ interface PlanCommandResult {
   message: string;
   followupPrompt?: string;
 }
+
+interface AutoEditCommandResult {
+  ok: boolean;
+  message: string;
+}
+
+interface AutoEditStateLike {
+  sessionId?: string;
+  active?: boolean;
+}
+
+type AutoEditBackendLike = IrisBackendLike & {
+  enableAutoEdit?: (sessionId: string) => AutoEditStateLike | Promise<AutoEditStateLike>;
+  disableAutoEdit?: (sessionId: string) => AutoEditStateLike | Promise<AutoEditStateLike>;
+  toggleAutoEdit?: (sessionId: string) => AutoEditStateLike | Promise<AutoEditStateLike>;
+  getAutoEditState?: (sessionId: string | undefined) => AutoEditStateLike | null | Promise<AutoEditStateLike | null>;
+  isAutoEditActive?: (sessionId: string | undefined) => boolean;
+};
 
 function createToolInvocationFromFunctionCall(
   part: any,
@@ -467,6 +502,21 @@ function buildThinkingPatch(provider: string, level: string): Record<string, unk
       return {
         reasoning: { effort: level, summary: 'auto' },
       };
+    case 'deepseek': {
+      // DeepSeek 官方 Chat Completions 兼容接口使用 thinking.type 控制开关；
+      // 强度目前只暴露 high / max。reasoning_effort 是官方 Node.js 示例中的主字段，
+      // output_config.effort 可由用户通过 YAML requestBody 手动覆盖/补充。
+      if (level === 'none') {
+        return {
+          thinking: { type: 'disabled' },
+        };
+      }
+      const effort = level === 'max' ? 'max' : 'high';
+      return {
+        thinking: { type: 'enabled' },
+        reasoning_effort: effort,
+      };
+    }
     default:
       // 未知 provider：不做任何修改
       return null;
@@ -491,6 +541,8 @@ function getThinkingRemovePaths(provider: string): string[] {
       return ['reasoning_effort'];
     case 'openai-responses':
       return ['reasoning.effort', 'reasoning.summary'];
+    case 'deepseek':
+      return ['thinking.type', 'reasoning_effort', 'output_config.effort'];
     default:
       return [];
   }
@@ -653,6 +705,31 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.appHandle?.setPlanModeActive(active);
     } catch {
       this.appHandle?.setPlanModeActive(false);
+    }
+  }
+
+  private syncAutoEditStatus(): void {
+    try {
+      const sessionId = this.sessionId;
+      const backend = this.backend as AutoEditBackendLike;
+      const cachedActive = backend.isAutoEditActive?.(sessionId);
+      if (typeof cachedActive === 'boolean') {
+        this.appHandle?.setAutoEditActive(cachedActive);
+      }
+      const stateOrPromise = backend.getAutoEditState?.(sessionId);
+      if (stateOrPromise !== undefined) {
+        void Promise.resolve(stateOrPromise).then((state) => {
+          if (this.appHandle && this.sessionId === sessionId) {
+            this.appHandle.setAutoEditActive(state?.active === true);
+          }
+        }).catch(() => {
+          this.appHandle?.setAutoEditActive(false);
+        });
+      } else if (typeof cachedActive !== 'boolean') {
+        this.appHandle?.setAutoEditActive(false);
+      }
+    } catch {
+      this.appHandle?.setAutoEditActive(false);
     }
   }
 
@@ -904,6 +981,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.appHandle?.addMessage('assistant', text);
     });
 
+    this.onBackend('auto-edit:update', (sid: string, active: boolean) => {
+      if (sid === this.sessionId) {
+        this.appHandle?.setAutoEditActive(active);
+      }
+    });
+
     this.onBackend('auto-compact', (sid: string, summaryText: string) => {
       if (sid === this.sessionId) {
         const fullText = `[Context Summary]\n\n${summaryText}`;
@@ -965,6 +1048,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
           this.appHandle = handle;
           this.syncPlanModeStatus();
           void this.syncProgress();
+          this.syncAutoEditStatus();
           resolve();
         },
         onSubmit: (text: string) => this.handleInput(text),
@@ -1016,6 +1100,13 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onToolMessage: (toolId: string, type: string, data?: unknown) => {
           (this.backend as any).getToolHandle?.(toolId)?.send(type, data);
         },
+        onGetToolDiffPreview: async (toolId: string) => {
+          const getPreview = (this.backend as any).getToolDiffPreview;
+          if (typeof getPreview !== 'function') {
+            throw new Error('当前 Backend 不支持 diff 预览');
+          }
+          return await getPreview.call(this.backend, toolId);
+        },
         onAddCommandPattern: (toolName: string, command: string, type: 'allow' | 'deny') => {
           this.addCommandPattern(toolName, command, type);
         },
@@ -1059,6 +1150,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         supportsHeadlessTransition: this.supportsHeadlessTransition,
         onSummarize: () => this.handleSummarize(),
         onPlanCommand: (arg: string) => this.handlePlanCommand(arg),
+        onAutoEditCommand: (arg: string) => this.handleAutoEditCommand(arg),
+        onCallmeCommand: (arg: string) => this.handleCallmeCommand(arg),
         onListAgents: () => this.handleListAgents(),
         onSelectAgent: (name: string) => this.handleSelectAgent(name),
         onDream: () => this.handleDream(),
@@ -1544,6 +1637,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.appHandle?.setPlanModeActive(false);
     this.appHandle?.setProgress(null);
     this.clearRemoteExecSession(this.sessionId);
+    this.appHandle?.setAutoEditActive(false);
   }
 
   /** 打开工具详情 */
@@ -1599,7 +1693,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
    * 内存立即生效 + 持久化到 tools.yaml。
    */
   private addCommandPattern(toolName: string, command: string, type: 'allow' | 'deny'): void {
-    const pattern = generateCommandPattern(command);
+    const patterns = generateCommandPatterns(command);
     const key = type === 'allow' ? 'allowPatterns' : 'denyPatterns';
 
     // 1. 内存生效：直接修改 backend 的 policy 引用
@@ -1615,16 +1709,17 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     // 添加到目标列表
     const arr = (policy as any)[key] as string[] | undefined;
     if (arr) {
-      if (!arr.includes(pattern)) arr.push(pattern);
+      for (const pattern of patterns) {
+        if (!arr.includes(pattern)) arr.push(pattern);
+      }
     } else {
-      (policy as any)[key] = [pattern];
+      (policy as any)[key] = [...patterns];
     }
-    // 从对立列表移除冲突模式（如"始终允许"时清除"始终询问"中的同模式）
+    // 从对立列表移除冲突模式（如“允许此类命令”时清除“询问此类命令”中的同模式）
     const oppositeKey = type === 'allow' ? 'denyPatterns' : 'allowPatterns';
     const oppositeArr = (policy as any)[oppositeKey] as string[] | undefined;
     if (oppositeArr) {
-      const idx = oppositeArr.indexOf(pattern);
-      if (idx !== -1) oppositeArr.splice(idx, 1);
+      (policy as any)[oppositeKey] = oppositeArr.filter((item) => !patterns.includes(item));
     }
 
     // 2. 持久化到 tools.yaml
@@ -1634,17 +1729,21 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         const raw = configManager.readEditableConfig() as Record<string, any>;
         const tools = raw.tools ?? {};
         const toolSection = tools[toolName] ?? {};
-        const existing: string[] = Array.isArray(toolSection[key]) ? toolSection[key] : [];
-        if (!existing.includes(pattern)) {
-          existing.push(pattern);
+        const existing: string[] = Array.isArray(toolSection[key]) ? [...toolSection[key]] : [];
+        for (const pattern of patterns) {
+          if (!existing.includes(pattern)) {
+            existing.push(pattern);
+          }
         }
         // 从对立列表移除冲突模式
         const oppositeKey = type === 'allow' ? 'denyPatterns' : 'allowPatterns';
-        const opposite: string[] = Array.isArray(toolSection[oppositeKey]) ? toolSection[oppositeKey] : [];
-        const oidx = opposite.indexOf(pattern);
-        if (oidx !== -1) opposite.splice(oidx, 1);
         const updates: Record<string, any> = { [key]: existing };
-        if (oidx !== -1) updates[oppositeKey] = opposite;
+        if (Array.isArray(toolSection[oppositeKey])) {
+          const opposite = toolSection[oppositeKey].filter((item: unknown): item is string => (
+            typeof item === 'string' && !patterns.includes(item)
+          ));
+          if (opposite.length !== toolSection[oppositeKey].length) updates[oppositeKey] = opposite;
+        }
         configManager.updateEditableConfig({ tools: { [toolName]: updates } });
       } catch {
         // 持久化失败不阻塞审批
@@ -1825,6 +1924,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     const envRestorePromise = this.restoreRemoteExecEnvironmentForSession(id, true);
     this.syncPlanModeStatus();
     await this.syncProgress();
+    this.syncAutoEditStatus();
 
     const history = await this.backend.getHistory?.(id) ?? [];
     const progressArchives = (await this.loadProgressArchives(id))
@@ -2113,12 +2213,18 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   }
 
   private isWorkspaceExtensionEnabled(raw: Record<string, any> | undefined, name: string): boolean {
+    const discovery = this.readWorkspaceExtensionDiscoveryConfig(raw);
+    if (!discovery.enabled) return false;
+    return discovery.allowlist.length === 0 || discovery.allowlist.includes(name);
+  }
+
+  private readWorkspaceExtensionDiscoveryConfig(raw: Record<string, any> | undefined): { enabled: boolean; allowlist: string[] } {
     const extensions = raw?.system?.extensions;
-    if (!extensions || typeof extensions !== 'object' || extensions.loadWorkspaceExtensions !== true) return false;
+    if (!extensions || typeof extensions !== 'object') return { enabled: false, allowlist: [] };
     const allowlist = Array.isArray(extensions.workspaceAllowlist)
       ? extensions.workspaceAllowlist.filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
       : [];
-    return allowlist.length === 0 || allowlist.includes(name);
+    return { enabled: extensions.loadWorkspaceExtensions === true, allowlist };
   }
 
   private updateWorkspaceExtensionDiscoveryConfig(
@@ -2201,70 +2307,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   }
 
   private async handleToggleExtension(name: string, desiredEnabled?: boolean): Promise<{ ok: boolean; message: string }> {
-    const ext = (this.api as any)?.extensions;
-    const configManager = this.api?.configManager;
-    if (!ext || !configManager) {
-      return { ok: false, message: '扩展管理 API 不可用' };
-    }
-
-    try {
-      // 读取当前 plugins.yaml
-      const raw = configManager.readEditableConfig() as Record<string, any>;
-      const pluginEntries: Array<{ name: string; enabled?: boolean; [k: string]: any }> = [...this.readPluginEntries(raw)];
-      const existing = pluginEntries.find(p => p.name === name);
-      const packages: Array<{ manifest: { name: string; entry?: string; plugin?: any; platforms?: any[] }; source?: string; rootDir?: string }> = ext.discoverAll?.() ?? ext.discover?.() ?? [];
-      const pkg = packages.find((item) => item.manifest.name === name);
-      const hasPlugin = pkg ? this.hasPluginContribution(pkg.manifest) : true;
-      const isWorkspace = pkg?.source === 'workspace';
-
-      // 判断运行时状态
-      const active = (this.api as any)?.pluginManager?.listPlugins?.() ?? [];
-      const isActive = active.some((p: any) => p.name === name);
-      const shouldEnable = desiredEnabled ?? !isActive;
-
-      if (!shouldEnable) {
-        // 禁用：停用插件 + 更新 yaml
-        if (isActive) await ext.deactivate(name);
-        if (isWorkspace) {
-          const workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, false, packages);
-          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
-        }
-        if (existing) {
-          existing.enabled = false;
-        } else if (hasPlugin) {
-          pluginEntries.push({ name, enabled: false });
-        }
-        configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries) as any);
-        return { ok: true, message: `已禁用 "${name}"` };
-      } else {
-        let workspaceUpdate: { workspace: { enabled: boolean; allowlist: string[] }; mergedRaw?: Record<string, unknown> } | undefined;
-        if (isWorkspace) {
-          workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, true, packages);
-          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
-        }
-
-        // 启用：插件扩展先激活，成功后再更新 yaml（防止 activate 失败导致状态不一致）。
-        // 纯平台 workspace 扩展只更新发现配置；配置 platform.yaml / 重启后生效。
-        let installedDeps: string[] = [];
-        if (hasPlugin) {
-          if (pkg?.rootDir) {
-            const depsResult = await ensureExtensionRuntimeDependencies(pkg.rootDir);
-            if (depsResult.installed) installedDeps = depsResult.missingDependencies;
-          }
-          await ext.activate(name);
-        }
-        if (existing) {
-          existing.enabled = true;
-        } else if (hasPlugin) {
-          pluginEntries.push({ name, enabled: true });
-        }
-        if (hasPlugin) configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries) as any);
-        if (!hasPlugin) return { ok: true, message: `已启用可选平台扩展 "${name}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。` };
-        return { ok: true, message: installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(', ')} 并启用 "${name}"` : `已启用 "${name}"` };
-      }
-    } catch (err) {
-      return { ok: false, message: `操作失败: ${err instanceof Error ? err.message : String(err)}` };
-    }
+    return handleConsoleToggleExtension(this.api as any, name, desiredEnabled);
   }
 
 
@@ -2402,6 +2445,126 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     if (pkg.source === 'installed') return { kind: 'global' };
     if (pkg.source === 'agent-installed') return ext?.defaultScope ?? undefined;
     return undefined;
+  }
+
+  private readCallmeConfigFromEditable(): { enabled: boolean; trailer: string } {
+    const manager = this.api?.configManager;
+    const rawConfig = manager?.readEditableConfig?.() ?? (this.api?.config as Record<string, unknown> | undefined) ?? {};
+    const rawSystem = rawConfig.system && typeof rawConfig.system === 'object'
+      ? rawConfig.system as Record<string, unknown>
+      : {};
+    const trailer = 'Co-authored with Iris: https://github.com/Lianues/Iris';
+
+    try {
+      const parsedSystem = manager?.parseSystemConfig?.(rawSystem) as Record<string, any> | undefined;
+      const callme = parsedSystem?.callme;
+      if (callme && typeof callme === 'object') {
+        return { enabled: callme.enabled === true, trailer };
+      }
+    } catch { /* fallback below */ }
+
+    const rawCallme = rawSystem.callme;
+    if (typeof rawCallme === 'boolean') {
+      return { enabled: rawCallme, trailer };
+    }
+    if (rawCallme && typeof rawCallme === 'object' && !Array.isArray(rawCallme)) {
+      const record = rawCallme as Record<string, unknown>;
+      return { enabled: record.enabled === true, trailer };
+    }
+    return { enabled: false, trailer };
+  }
+
+  private formatCallmeStatus(enabled: boolean, trailer: string): string {
+    if (enabled) {
+      return `感谢开启 /callme 模式。以后我帮你执行 git commit 时，会在提交信息末尾带上：\n\n${trailer}\n\n再次输入 /callme 可关闭。`;
+    }
+    return `/callme 目前关闭。输入 /callme 后开启；开启后 Iris 代你执行 git commit 时会追加：\n\n${trailer}`;
+  }
+
+  private async handleCallmeCommand(arg: string): Promise<{ ok: boolean; message: string }> {
+    const normalized = arg.trim().toLowerCase();
+    const statusOnly = normalized === 'status' || normalized === '状态';
+    const toggle = !normalized;
+    const explicitEnable = ['on', 'enable', 'enabled', 'true', '1', '开启', '打开'].includes(normalized);
+    const explicitDisable = ['off', 'disable', 'disabled', 'false', '0', '关闭', '关'].includes(normalized);
+
+    const current = this.readCallmeConfigFromEditable();
+    if (statusOnly) {
+      return { ok: true, message: this.formatCallmeStatus(current.enabled, current.trailer) };
+    }
+    if (!toggle && !explicitEnable && !explicitDisable) {
+      return {
+        ok: false,
+        message: '用法：/callme 切换开关；/callme status 查看状态。',
+      };
+    }
+
+    const manager = this.api?.configManager;
+    if (!manager) {
+      return { ok: false, message: '当前运行环境不支持写入 /callme 设置。' };
+    }
+
+    const nextEnabled = toggle ? !current.enabled : explicitEnable;
+    const merged = manager.updateEditableConfig({ system: { callme: nextEnabled } });
+    const reload = await manager.applyRuntimeConfigReload(merged.mergedRaw);
+    if (!reload.success) {
+      return { ok: false, message: `已写入 /callme 设置，但热重载失败：${reload.error ?? '未知错误'}。重启后生效。` };
+    }
+
+    return { ok: true, message: nextEnabled ? this.formatCallmeStatus(true, current.trailer) : '已关闭 /callme 模式。之后 Iris 不会再自动给 git commit 添加链接署名；再次输入 /callme 可重新开启。' };
+  }
+
+  private async handleAutoEditCommand(arg: string): Promise<AutoEditCommandResult> {
+    const normalized = arg.trim().toLowerCase();
+    const backend = this.backend as AutoEditBackendLike;
+    if (!backend.getAutoEditState || !backend.enableAutoEdit || !backend.disableAutoEdit || !backend.toggleAutoEdit) {
+      return { ok: false, message: '当前 Backend 不支持自动编辑。' };
+    }
+
+    const formatStatus = (active: boolean) => active
+      ? '自动编辑已开启：安全的项目内结构化文件编辑将自动应用；敏感路径、项目外路径、delete_file、search_in_files.replace、shell/bash 写操作仍会走普通审批或被安全策略拦截。'
+      : '自动编辑已关闭：文件编辑将恢复普通审批流程。';
+
+    const isActiveState = (state: any) => state?.active === true;
+
+    if (normalized === 'status') {
+      const state = await backend.getAutoEditState(this.sessionId);
+      const active = isActiveState(state) || backend.isAutoEditActive?.(this.sessionId) === true;
+      this.appHandle?.setAutoEditActive(active);
+      const planActive = this.getPlanModeService()?.isActive(this.sessionId) === true;
+      return {
+        ok: true,
+        message: `${formatStatus(active)}${active && planActive ? '\n当前处于 Plan Mode，自动编辑会暂停生效。' : ''}`,
+      };
+    }
+
+    if (normalized === 'on' || normalized === 'enable') {
+      const state = await backend.enableAutoEdit(this.sessionId);
+      this.appHandle?.setAutoEditActive(isActiveState(state));
+      const planActive = this.getPlanModeService()?.isActive(this.sessionId) === true;
+      return {
+        ok: true,
+        message: `${formatStatus(true)}${planActive ? '\n提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。' : ''}`,
+      };
+    }
+
+    if (normalized === 'off' || normalized === 'disable') {
+      const state = await backend.disableAutoEdit(this.sessionId);
+      this.appHandle?.setAutoEditActive(isActiveState(state));
+      return { ok: true, message: formatStatus(false) };
+    }
+
+    if (normalized && normalized !== 'toggle') {
+      return { ok: false, message: '用法：/auto-edit 切换；/auto-edit on 开启；/auto-edit off 关闭；/auto-edit status 查看状态。' };
+    }
+
+    const state = await backend.toggleAutoEdit(this.sessionId);
+    this.appHandle?.setAutoEditActive(isActiveState(state));
+    const planActive = this.getPlanModeService()?.isActive(this.sessionId) === true;
+    return {
+      ok: true,
+      message: `${formatStatus(isActiveState(state))}${isActiveState(state) && planActive ? '\n提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。' : ''}`,
+    };
   }
 
   private async handlePlanCommand(arg: string): Promise<PlanCommandResult> {

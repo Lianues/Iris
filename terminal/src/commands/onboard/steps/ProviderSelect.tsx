@@ -1,6 +1,7 @@
 import { OptionSelectPage, type OptionSelectItem } from "../../../shared/pages/index.js"
 
 const PROVIDERS: OptionSelectItem[] = [
+  { value: "deepseek", label: "DeepSeek", description: "DeepSeek Chat Completions API" },
   { value: "gemini", label: "Google Gemini", description: "Google AI Studio / Vertex AI" },
   { value: "openai-compatible", label: "OpenAI Compatible", description: "任何兼容 OpenAI Chat Completions 的 API" },
   { value: "claude", label: "Anthropic Claude", description: "Anthropic 官方 API" },

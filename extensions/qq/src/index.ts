@@ -198,6 +198,9 @@ export class QQPlatform extends PlatformAdapter {
 
   /** Action 请求计数器（用于生成 echo） */
   private echoCounter = 0;
+  private backendListenersReady = false;
+  private started = false;
+
   /** 等待响应的 Action 请求 */
   private pendingActions = new Map<string, {
     resolve: (data: any) => void;
@@ -216,6 +219,9 @@ export class QQPlatform extends PlatformAdapter {
   }
 
   async start(): Promise<void> {
+    if (this.started) return;
+    this.started = true;
+    this.stopping = false;
     this.setupBackendListeners();
     this.connect();
     logger.info('平台启动中，正在连接 NapCat...');
@@ -237,6 +243,7 @@ export class QQPlatform extends PlatformAdapter {
       this.ws.close();
       this.ws = null;
     }
+    this.started = false;
     this.chatStates.clear();
     logger.info('平台已停止');
   }
@@ -403,6 +410,9 @@ export class QQPlatform extends PlatformAdapter {
   }
 
   private setupBackendListeners(): void {
+    if (this.backendListenersReady) return;
+    this.backendListenersReady = true;
+
     // ──────────────────────────────────────────────────────────
     // ⚠️ 工具调用审批：自动批准所有工具调用。
     // QQ 不支持消息编辑/卡片交互，无法实现交互式审批 UI。

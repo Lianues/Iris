@@ -149,6 +149,12 @@ function resolveInheritedToolsConfig(deps: SubAgentToolDeps): ToolsConfig {
   };
 }
 
+function isJsonParseFailure(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /failed to parse json|json parse|json\.parse|unexpected token|unexpected end of json/i.test(message);
+}
+
+
 /**
  * 创建带有可选实时反馈的流式 LLMCaller。
  *
@@ -167,42 +173,49 @@ function createStreamingLLMCaller(
     const router = deps.getRouter();
 
     if (typeConfig.stream) {
-      const parts: Part[] = [];
-      let usageMetadata: UsageMetadata | undefined;
-      for await (const chunk of router.chatStream(request, modelName, signal)) {
-        // 提取当前 chunk 的文本增量，供 onChunk 回调传递给调用方
-        let textDelta: string | undefined;
-        if (chunk.partsDelta && chunk.partsDelta.length > 0) {
-          for (const part of chunk.partsDelta) {
-            if ('text' in part && typeof (part as any).text === 'string') {
-              textDelta = (textDelta || '') + (part as any).text;
+      try {
+        const parts: Part[] = [];
+        let usageMetadata: UsageMetadata | undefined;
+        for await (const chunk of router.chatStream(request, modelName, signal)) {
+          // 提取当前 chunk 的文本增量，供 onChunk 回调传递给调用方
+          let textDelta: string | undefined;
+          if (chunk.partsDelta && chunk.partsDelta.length > 0) {
+            for (const part of chunk.partsDelta) {
+              if ('text' in part && typeof (part as any).text === 'string') {
+                textDelta = (textDelta || '') + (part as any).text;
+              }
+              appendMergedPart(parts, part, Date.now());
             }
-            appendMergedPart(parts, part, Date.now());
+          } else {
+            if (chunk.textDelta) {
+              textDelta = chunk.textDelta;
+              appendMergedPart(parts, { text: chunk.textDelta }, Date.now());
+            }
+            if (chunk.functionCalls) {
+              for (const fc of chunk.functionCalls) appendMergedPart(parts, fc, Date.now());
+            }
           }
-        } else {
-          if (chunk.textDelta) {
-            textDelta = chunk.textDelta;
-            appendMergedPart(parts, { text: chunk.textDelta }, Date.now());
-          }
-          if (chunk.functionCalls) {
-            for (const fc of chunk.functionCalls) appendMergedPart(parts, fc, Date.now());
+          // chunk 心跳回调：驱动 spinner 动画 + 传递文本增量
+          onChunk?.(textDelta);
+          if (chunk.usageMetadata) {
+            usageMetadata = chunk.usageMetadata;
+            // token 更新回调：实时推送 token 计数
+            const tokens = usageMetadata.totalTokenCount ?? usageMetadata.candidatesTokenCount ?? 0;
+            if (tokens > 0) {
+              onTokens?.(tokens);
+            }
           }
         }
-        // chunk 心跳回调：驱动 spinner 动画 + 传递文本增量
-        onChunk?.(textDelta);
-        if (chunk.usageMetadata) {
-          usageMetadata = chunk.usageMetadata;
-          // token 更新回调：实时推送 token 计数
-          const tokens = usageMetadata.totalTokenCount ?? usageMetadata.candidatesTokenCount ?? 0;
-          if (tokens > 0) {
-            onTokens?.(tokens);
-          }
-        }
+        if (parts.length === 0) parts.push({ text: '' });
+        const content: Content = { role: 'model', parts, createdAt: Date.now() };
+        if (usageMetadata) content.usageMetadata = usageMetadata;
+        return content;
+      } catch (err) {
+        if (signal?.aborted || !isJsonParseFailure(err)) throw err;
+        logger.warn(`子代理流式 LLM 返回非 JSON/SSE 数据，降级为非流式调用: ${err instanceof Error ? err.message : String(err)}`);
+        const response = await router.chat(request, modelName, signal);
+        return response.content;
       }
-      if (parts.length === 0) parts.push({ text: '' });
-      const content: Content = { role: 'model', parts, createdAt: Date.now() };
-      if (usageMetadata) content.usageMetadata = usageMetadata;
-      return content;
     }
 
     const response = await router.chat(request, modelName, signal);

@@ -13,6 +13,7 @@ import type { QueuedMessage } from './use-message-queue';
 import { filterMemories, nextFilter, type MemoryItem, type MemoryFilter } from '../components/MemoryListView';
 import { normalizePastedSingleLine, readClipboardText } from '../terminal-compat';
 import type { ProgressSnapshotLike } from '../progress-types';
+import type { PromptInputController } from '../components/InputBar';
 
 type SetState<T> = Dispatch<SetStateAction<T>>;
 
@@ -44,12 +45,16 @@ interface UseAppKeyboardOptions {
   copyMode: boolean;
   /** 聊天消息 scrollbox 的 ref，用于复制模式下的键盘滚动 */
   chatScrollBoxRef: MutableRefObject<any>;
+  /** 底部正文输入框控制器；用于输入框有内容时 Ctrl+C 只清空输入 */
+  promptInputControllerRef?: MutableRefObject<PromptInputController | null>;
   pendingConfirm: PendingConfirm | null;
   confirmChoice: ConfirmChoice;
   setPendingConfirm: SetState<PendingConfirm | null>;
   setConfirmChoice: SetState<ConfirmChoice>;
   exitConfirm: ExitConfirmController;
   isGenerating: boolean;
+  /** 当前会话是否有后台任务仍在运行（异步 sub_agent / delegate） */
+  hasRunningBackgroundTasks?: boolean;
   /** AskQuestionFirst 交互面板是否正在接管键盘 */
   askQuestionActive?: boolean;
   pendingApplies: ToolInvocation[];
@@ -63,6 +68,7 @@ interface UseAppKeyboardOptions {
   onToolApproval: (toolId: string, approved: boolean) => void;
   onAddCommandPattern?: (toolName: string, command: string, type: 'allow' | 'deny') => void;
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
+  onAutoEditCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   sessionList: SessionMeta[];
   modelList: LLMModelInfo[];
   defaultModelName: string;
@@ -213,12 +219,17 @@ function altScrollKeyName(key: any): 'up' | 'down' | 'pageup' | 'pagedown' | und
   }
 }
 
+function isAutoEditToggleShortcut(key: any): boolean {
+  return key.ctrl && key.name === 'e';
+}
+
 export function useAppKeyboard({
   viewMode,
   setViewMode,
   setCopyMode,
   copyMode,
   chatScrollBoxRef,
+  promptInputControllerRef,
   pendingConfirm,
   confirmChoice,
   setPendingConfirm,
@@ -232,10 +243,12 @@ export function useAppKeyboard({
   approval,
   onExit,
   onAbort,
+  hasRunningBackgroundTasks = false,
   onToolApply,
   onToolApproval,
   onAddCommandPattern,
   onPlanCommand,
+  onAutoEditCommand,
   sessionList,
   modelList,
   defaultModelName,
@@ -377,6 +390,18 @@ export function useAppKeyboard({
 
   useKeyboard((key) => {
     if (key.ctrl && key.name === 'c') {
+      if (viewMode === 'chat'
+        && !pendingConfirm
+        && !askQuestionActive
+        && pendingApprovals.length === 0
+        && pendingApplies.length === 0
+        && promptInputControllerRef?.current?.hasValue()) {
+        promptInputControllerRef.current.clear();
+        exitConfirm.clearExitConfirm();
+        key.preventDefault?.();
+        key.stopPropagation?.();
+        return;
+      }
       if (exitConfirm.exitConfirmArmed) {
         exitConfirm.clearExitConfirm();
         onExit();
@@ -431,19 +456,37 @@ export function useAppKeyboard({
     }
 
     // Shift+Tab：切换当前 Agent/session 的 Plan Mode。
-    // 仅在聊天主视图空闲时触发，避免和审批页 Tab/Shift+Tab 选择冲突。
+    // 生成/流式输出期间也允许切换；只避开审批、确认与工具应用等需要接管键盘的状态。
+    // 工具执行列表/详情页也允许切换，避免工具调用中无法进出 Plan Mode。
     if (
       isPlanModeToggleShortcut(key)
-      && viewMode === 'chat'
-      && !isGenerating
+      && (viewMode === 'chat' || viewMode === 'tool-list' || viewMode === 'tool-detail')
       && pendingApprovals.length === 0
       && pendingApplies.length === 0
       && !pendingConfirm
     ) {
       key.preventDefault?.();
       void onPlanCommand?.('').then((result) => {
-        appendCommandMessage(setMessages, result.message, result.ok ? { label: 'plan' } : { label: 'plan', isError: true });
-      }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: 'plan', isError: true }));
+        appendCommandMessage(setMessages, result.message, result.ok ? { label: 'plan', beforeActiveAssistant: isGenerating } : { label: 'plan', isError: true, beforeActiveAssistant: isGenerating });
+      }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: 'plan', isError: true, beforeActiveAssistant: isGenerating }));
+      return;
+    }
+
+    // Ctrl+E：切换当前 Agent/session 的自动编辑。
+    // 生成期间允许切换，使后续工具调用能立刻按最新审批档位执行；
+    // 审批/确认/AskQuestion 等交互面板接管键盘时不抢占。
+    if (
+      isAutoEditToggleShortcut(key)
+      && (viewMode === 'chat' || viewMode === 'tool-list' || viewMode === 'tool-detail')
+      && pendingApprovals.length === 0
+      && pendingApplies.length === 0
+      && !pendingConfirm
+      && !askQuestionActive
+    ) {
+      key.preventDefault?.();
+      void onAutoEditCommand?.('').then((result) => {
+        appendCommandMessage(setMessages, result.message, result.ok ? { label: '自动编辑', beforeActiveAssistant: isGenerating } : { label: '自动编辑', isError: true, beforeActiveAssistant: isGenerating });
+      }).catch((err) => appendCommandMessage(setMessages, `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: '自动编辑', isError: true, beforeActiveAssistant: isGenerating }));
       return;
     }
 
@@ -875,7 +918,7 @@ export function useAppKeyboard({
       // 全局层不能把 Esc 当作 abort，否则会直接中断整个 turn。
       if (askQuestionActive) return;
 
-      if (isGenerating) {
+      if (isGenerating || hasRunningBackgroundTasks) {
         onAbort();
         return;
       }
@@ -1336,9 +1379,8 @@ export function useAppKeyboard({
     }
 
     // ── F6 复制模式：拦截方向键/翻页键，手动滚动聊天消息列表 ──
-    // useMouse=false 时终端可能将鼠标滚轮转为方向键序列，
-    // 这些键会被输入框消费。此处在全局层拦截并手动滚动 scrollbox，
-    // 同时 preventDefault 阻止事件传递到输入框。
+    // 鼠标拖选由 OpenTUI selection 处理；这里保留键盘滚动能力，
+    // 同时 preventDefault 阻止方向键/翻页键传递到输入框。
     if (copyMode) {
       const sb = chatScrollBoxRef?.current;
       if (sb && (key.name === 'up' || key.name === 'down' || key.name === 'pageup' || key.name === 'pagedown')) {

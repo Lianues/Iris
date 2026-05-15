@@ -10,6 +10,7 @@ import { createGeminiProvider } from '../llm/providers/gemini';
 import { createOpenAICompatibleProvider } from '../llm/providers/openai-compatible';
 import { createClaudeProvider } from '../llm/providers/claude';
 import { createOpenAIResponsesProvider } from '../llm/providers/openai-responses';
+import { createDeepSeekProvider } from '../llm/providers/deepseek';
 import type { StorageProvider } from '../storage/base';
 import { JsonFileStorage } from '../storage/json-file';
 import { PlatformRegistry } from '../core/platform-registry';
@@ -60,6 +61,7 @@ export function createBootstrapExtensionRegistry(): BootstrapExtensionRegistry {
   // 注册内置 LLM Provider
   // 修改原因：改为透传整个 config 对象，消除手动同步字段的负担。
   // 字段解构现在由各个 Provider 的 create 函数自行处理。
+  llmProviders.register('deepseek', (config) => createDeepSeekProvider(config));
   llmProviders.register('gemini', (config) => createGeminiProvider(config));
   llmProviders.register('openai-compatible', (config) => createOpenAICompatibleProvider(config));
   llmProviders.register('claude', (config) => createClaudeProvider(config));

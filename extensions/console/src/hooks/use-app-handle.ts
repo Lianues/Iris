@@ -35,6 +35,8 @@ export interface AppHandle {
   setPlanModeActive(active: boolean): void;
   /** 更新当前会话 progress/task 清单快照 */
   setProgress(snapshot: ProgressSnapshotLike | null): void;
+  /** 更新当前会话自动编辑指示状态 */
+  setAutoEditActive(active: boolean): void;
   setUserTokens(tokenCount: number): void;
   addSummaryMessage(summaryText: string, tokenCount?: number): void;
   commitTools(): void;
@@ -118,6 +120,8 @@ export interface UseAppHandleReturn {
   planModeActive: boolean;
   /** 当前会话 progress/task 清单快照 */
   progressSnapshot: ProgressSnapshotLike | null;
+  /** 当前会话是否启用自动编辑 */
+  autoEditActive: boolean;
   /** 当前后台运行中的异步子代理数量 */
   backgroundTaskCount: number;
   /** 当前后台运行中的委派任务数量（delegate_to_agent），与子代理分开计数 */
@@ -144,6 +148,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
   const [pendingApprovals, setPendingApprovals] = useState<ToolInvocation[]>([]);
   const [pendingApplies, setPendingApplies] = useState<ToolInvocation[]>([]);
   const [planModeActive, setPlanModeActive] = useState(false);
+  const [autoEditActive, setAutoEditActive] = useState(false);
   const [progressSnapshot, setProgressSnapshot] = useState<ProgressSnapshotLike | null>(null);
   const progressSnapshotRef = useRef<ProgressSnapshotLike | null>(null);
   const archivedProgressUpdatedAtRef = useRef<number | null>(null);
@@ -293,8 +298,16 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
           const last = prev[prev.length - 1];
           // 普通 turn 内的多轮 tool loop 复用同一条 assistant 消息（stream:start 在同一 turn 内多次调用）。
           // notification turn 必须创建新消息，不能合并到上一轮用户 turn 的 assistant 消息中。
-          // 错误消息不可复用为流式占位，否则后续内容会混入错误消息。
-          if (last?.role === 'assistant' && !isNotif && !last.isError) return prev;
+          // 错误/命令消息不可复用为流式占位，否则后续内容会混入错误或命令提示消息。
+          if (last?.role === 'assistant' && !isNotif && !last.isError && !last.isCommand) return prev;
+          if (last?.isCommand && !isNotif) {
+            // 流式输出/工具调用期间可能插入 /plan 等命令消息；此时继续复用命令前
+            // 已存在的普通 assistant 作为当前 turn 的占位，避免创建额外空回复块。
+            for (let i = prev.length - 2; i >= 0; i--) {
+              const message = prev[i];
+              if (message.role === 'assistant' && !message.isError && !message.isCommand) return prev;
+            }
+          }
           return [...prev, {
             id: nextMsgId(),
             role: 'assistant',
@@ -331,37 +344,54 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
         const notifMeta = isNotif ? { isNotification: true as const, notificationDescription: notifDesc } : {};
         setMessages((prev) => {
           if (normalizedParts.length === 0 && !meta) return prev;
-          const last = prev[prev.length - 1];
+
+          const resolveMergeTargetIndex = (): number => {
+            const tail = prev[prev.length - 1];
+            if (tail?.role === 'assistant' && !tail.isCommand) return prev.length - 1;
+            // 流式输出期间可能插入命令消息（例如 Shift+Tab 切换 Plan Mode）。
+            // 此时真正的回复目标是命令消息之前的普通 assistant 消息。
+            if (tail?.isCommand) {
+              for (let i = prev.length - 2; i >= 0; i--) {
+                const message = prev[i];
+                if (message.role === 'assistant' && !message.isCommand && !message.isError) return i;
+              }
+            }
+            return -1;
+          };
+
+          const targetIndex = resolveMergeTargetIndex();
+          const target = targetIndex >= 0 ? prev[targetIndex] : undefined;
           if (normalizedParts.length === 0) {
-            if (!last || last.role !== 'assistant') return prev;
+            if (!target || target.role !== 'assistant') return prev;
             const copy = [...prev];
-            copy[copy.length - 1] = { ...last, ...meta, ...notifMeta };
+            copy[targetIndex] = { ...target, ...meta, ...notifMeta };
             return copy;
           }
           if (prev.length === 0) return [{ id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta, ...notifMeta }];
-          if (last.role !== 'assistant') return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta, ...notifMeta }];
+          if (!target || target.role !== 'assistant') return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta, ...notifMeta }];
           // notification turn 不应合并到上一轮非-notification 的 assistant 消息中，
           // 否则通知内容会混入普通回复，NotificationPayloadBlock 也不会渲染。
-          if (isNotif && !last.isNotification) {
+          if (isNotif && !target.isNotification) {
             return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta, ...notifMeta }];
           }
           // 不合并到错误消息中：流式期间若有 addErrorMessage 插入了 isError 消息，
           // 应创建新的 assistant 消息保存 LLM 回复，避免内容与错误混合后被吞掉。
-          if (last.isError) {
+          if (target.isError) {
             return [...prev, { id: nextMsgId(), role: 'assistant', parts: normalizedParts, ...meta, ...notifMeta }];
           }
           const copy = [...prev];
-          let finalParts = mergeMessageParts([...last.parts, ...normalizedParts]);
+          let finalParts = mergeMessageParts([...target.parts, ...normalizedParts]);
           // 流式阶段 setToolInvocations 可能因 parts 为空而被跳过，
           // 此时 toolInvocationsRef 中已暂存了工具执行状态。
-          // 在 parts 定序完成后补充应用，确保工具状态（✓/✗/结果）正确显示。
+          // 在 parts 定序完成后补充应用，确保工具状态（✓/✗/）正确显示。
           const pending = toolInvocationsRef.current;
-          if (pending.length > 0 && finalParts.some(p => p.type === 'tool_use')) {
+          if (pending.length > 0 && finalParts.some(part => part.type === 'tool_use')) {
             finalParts = mergeMessageParts(applyToolInvocationsToParts(finalParts, pending));
           }
-          copy[copy.length - 1] = { ...last, parts: finalParts, ...meta, ...notifMeta };
+          copy[targetIndex] = { ...target, parts: finalParts, ...meta, ...notifMeta };
           return copy;
         });
+
       },
       setToolInvocations(invocations) {
         const copy = [...invocations];
@@ -371,20 +401,33 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
         setPendingApplies(copy.filter((invocation) => invocation.status === 'awaiting_apply'));
         setMessages((prev) => {
           if (prev.length === 0) return prev;
-          const last = prev[prev.length - 1];
-          if (last.role !== 'assistant') return prev;
+          const resolveToolTargetIndex = (): number => {
+            const tail = prev[prev.length - 1];
+            if (tail?.role === 'assistant' && !tail.isCommand) return prev.length - 1;
+            if (tail?.isCommand) {
+              for (let i = prev.length - 2; i >= 0; i--) {
+                const message = prev[i];
+                if (message.role === 'assistant' && !message.isCommand && !message.isError) return i;
+              }
+            }
+            return -1;
+          };
+          const targetIndex = resolveToolTargetIndex();
+          const target = targetIndex >= 0 ? prev[targetIndex] : undefined;
+          if (!target || target.role !== 'assistant') return prev;
           // 如果 parts 为空（startStream 刚创建的占位消息，finalize 尚未完成），
           // 跳过本次更新——避免将 tool_use 插入空数组导致工具显示在 thinking 上方。
           // invocations 已保存在 toolInvocationsRef，将在 finalizeAssistantParts 中补充应用。
-          if (last.parts.length === 0) return prev;
+          if (target.parts.length === 0) return prev;
           // 不追加 leftover：多轮 ToolLoop 中新一轮的 invocations 应等待
           // finalizeAssistantParts 创建对应 tool_use 槽位后再映射，
           // 避免在旧轮内容和新轮内容之间错误地插入工具。
-          const nextParts = applyToolInvocationsToParts(last.parts, copy, false);
+          const nextParts = applyToolInvocationsToParts(target.parts, copy, false);
           const copyMessages = [...prev];
-          copyMessages[copyMessages.length - 1] = { ...last, parts: mergeMessageParts(nextParts) };
+          copyMessages[targetIndex] = { ...target, parts: mergeMessageParts(nextParts) };
           return copyMessages;
         });
+
       },
       setGenerating(generating) {
         if (!generating) {
@@ -426,6 +469,9 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
       },
       setPlanModeActive(active: boolean) {
         setPlanModeActive(active);
+      },
+      setAutoEditActive(active: boolean) {
+        setAutoEditActive(active);
       },
       setProgress(snapshot: ProgressSnapshotLike | null) {
         const next = snapshot && snapshot.items.length > 0 ? snapshot : null;
@@ -593,6 +639,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
     pendingApplies,
     planModeActive,
     progressSnapshot,
+    autoEditActive,
     toolInvocations,
     backgroundTaskCount,
     delegateTaskCount,

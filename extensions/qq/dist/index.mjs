@@ -32,7 +32,7 @@ var __toESM = (mod, isNodeMode, target) => {
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// extensions/qq/node_modules/ws/lib/constants.js
+// node_modules/ws/lib/constants.js
 var require_constants = __commonJS((exports, module) => {
   var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
   var hasBlob = typeof Blob !== "undefined";
@@ -52,7 +52,7 @@ var require_constants = __commonJS((exports, module) => {
   };
 });
 
-// extensions/qq/node_modules/ws/lib/buffer-util.js
+// node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS((exports, module) => {
   var { EMPTY_BUFFER } = require_constants();
   var FastBuffer = Buffer[Symbol.species];
@@ -130,7 +130,7 @@ var require_buffer_util = __commonJS((exports, module) => {
   }
 });
 
-// extensions/qq/node_modules/ws/lib/limiter.js
+// node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS((exports, module) => {
   var kDone = Symbol("kDone");
   var kRun = Symbol("kRun");
@@ -162,7 +162,7 @@ var require_limiter = __commonJS((exports, module) => {
   module.exports = Limiter;
 });
 
-// extensions/qq/node_modules/ws/lib/permessage-deflate.js
+// node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS((exports, module) => {
   var zlib = __require("zlib");
   var bufferUtil = require_buffer_util();
@@ -426,7 +426,7 @@ var require_permessage_deflate = __commonJS((exports, module) => {
   }
 });
 
-// extensions/qq/node_modules/ws/lib/validation.js
+// node_modules/ws/lib/validation.js
 var require_validation = __commonJS((exports, module) => {
   var { isUtf8 } = __require("buffer");
   var { hasBlob } = require_constants();
@@ -613,7 +613,7 @@ var require_validation = __commonJS((exports, module) => {
   }
 });
 
-// extensions/qq/node_modules/ws/lib/receiver.js
+// node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS((exports, module) => {
   var { Writable } = __require("stream");
   var PerMessageDeflate = require_permessage_deflate();
@@ -994,7 +994,7 @@ var require_receiver = __commonJS((exports, module) => {
   module.exports = Receiver;
 });
 
-// extensions/qq/node_modules/ws/lib/sender.js
+// node_modules/ws/lib/sender.js
 var require_sender = __commonJS((exports, module) => {
   var { Duplex } = __require("stream");
   var { randomFillSync } = __require("crypto");
@@ -1348,7 +1348,7 @@ var require_sender = __commonJS((exports, module) => {
   }
 });
 
-// extensions/qq/node_modules/ws/lib/event-target.js
+// node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS((exports, module) => {
   var { kForOnEventAttribute, kListener } = require_constants();
   var kCode = Symbol("kCode");
@@ -1499,7 +1499,7 @@ var require_event_target = __commonJS((exports, module) => {
   }
 });
 
-// extensions/qq/node_modules/ws/lib/extension.js
+// node_modules/ws/lib/extension.js
 var require_extension = __commonJS((exports, module) => {
   var { tokenChars } = require_validation();
   function push(dest, name, elem) {
@@ -1664,7 +1664,7 @@ var require_extension = __commonJS((exports, module) => {
   module.exports = { format, parse };
 });
 
-// extensions/qq/node_modules/ws/lib/websocket.js
+// node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS((exports, module) => {
   var EventEmitter = __require("events");
   var https = __require("https");
@@ -2430,7 +2430,7 @@ var require_websocket = __commonJS((exports, module) => {
   }
 });
 
-// extensions/qq/node_modules/ws/lib/stream.js
+// node_modules/ws/lib/stream.js
 var require_stream = __commonJS((exports, module) => {
   var WebSocket = require_websocket();
   var { Duplex } = __require("stream");
@@ -2533,7 +2533,7 @@ var require_stream = __commonJS((exports, module) => {
   module.exports = createWebSocketStream;
 });
 
-// extensions/qq/node_modules/ws/lib/subprotocol.js
+// node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS((exports, module) => {
   var { tokenChars } = require_validation();
   function parse(header) {
@@ -2578,7 +2578,7 @@ var require_subprotocol = __commonJS((exports, module) => {
   module.exports = { parse };
 });
 
-// extensions/qq/node_modules/ws/lib/websocket-server.js
+// node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS((exports, module) => {
   var EventEmitter = __require("events");
   var http = __require("http");
@@ -2884,7 +2884,7 @@ var require_websocket_server = __commonJS((exports, module) => {
   }
 });
 
-// packages/extension-sdk/src/platform.ts
+// ../../packages/extension-sdk/src/platform.ts
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -2947,6 +2947,9 @@ class BackendHandle {
   getToolHandle(toolId) {
     return this._backend.getToolHandle(toolId);
   }
+  getToolDiffPreview(toolId) {
+    return this._backend.getToolDiffPreview?.(toolId) ?? Promise.reject(new Error("getToolDiffPreview is not supported by this backend"));
+  }
   getToolHandles(sessionId) {
     return this._backend.getToolHandles(sessionId);
   }
@@ -2992,12 +2995,6 @@ class BackendHandle {
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
   }
-  getMilestones(sessionId) {
-    return this._backend.getMilestones?.(sessionId);
-  }
-  loadMilestones(sessionId) {
-    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
-  }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
   }
@@ -3009,6 +3006,21 @@ class BackendHandle {
   }
   getActiveSessionId() {
     return this._backend.getActiveSessionId?.();
+  }
+  enableAutoEdit(sessionId) {
+    return this._backend.enableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  disableAutoEdit(sessionId) {
+    return this._backend.disableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  toggleAutoEdit(sessionId) {
+    return this._backend.toggleAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  getAutoEditState(sessionId) {
+    return this._backend.getAutoEditState?.(sessionId) ?? null;
+  }
+  isAutoEditActive(sessionId) {
+    return this._backend.isAutoEditActive?.(sessionId) === true;
   }
 }
 function getPlatformConfig(context, platformName) {
@@ -3054,7 +3066,7 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
-// packages/extension-sdk/src/logger.ts
+// ../../packages/extension-sdk/src/logger.ts
 var _logLevel = 1 /* INFO */;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
@@ -3077,7 +3089,7 @@ function createExtensionLogger(extensionName, tag) {
     }
   };
 }
-// packages/extension-sdk/src/platform-utils.ts
+// ../../packages/extension-sdk/src/platform-utils.ts
 function detectImageMime(buffer) {
   if (buffer.length < 4)
     return null;
@@ -3133,7 +3145,7 @@ function autoApproveHandle(handle) {
     }
   });
 }
-// extensions/qq/node_modules/ws/wrapper.mjs
+// node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
 var import_extension = __toESM(require_extension(), 1);
 var import_permessage_deflate = __toESM(require_permessage_deflate(), 1);
@@ -3144,7 +3156,7 @@ var import_websocket = __toESM(require_websocket(), 1);
 var import_websocket_server = __toESM(require_websocket_server(), 1);
 var wrapper_default = import_websocket.default;
 
-// extensions/qq/src/index.ts
+// src/index.ts
 var logger = createExtensionLogger("QQExtension", "QQ");
 var MESSAGE_MAX_LENGTH = 4500;
 var IMAGE_DOWNLOAD_TIMEOUT_MS = 30000;
@@ -3188,6 +3200,8 @@ class QQPlatform extends PlatformAdapter {
   reconnectTimer = null;
   stopping = false;
   echoCounter = 0;
+  backendListenersReady = false;
+  started = false;
   pendingActions = new Map;
   notifiedToolIds = new Set;
   constructor(backend, config) {
@@ -3197,6 +3211,10 @@ class QQPlatform extends PlatformAdapter {
     this.showToolStatus = config.showToolStatus !== false;
   }
   async start() {
+    if (this.started)
+      return;
+    this.started = true;
+    this.stopping = false;
     this.setupBackendListeners();
     this.connect();
     logger.info("平台启动中，正在连接 NapCat...");
@@ -3216,6 +3234,7 @@ class QQPlatform extends PlatformAdapter {
       this.ws.close();
       this.ws = null;
     }
+    this.started = false;
     this.chatStates.clear();
     logger.info("平台已停止");
   }
@@ -3336,6 +3355,9 @@ class QQPlatform extends PlatformAdapter {
     return;
   }
   setupBackendListeners() {
+    if (this.backendListenersReady)
+      return;
+    this.backendListenersReady = true;
     this.backend.on("tool:execute", (sid, handle) => {
       autoApproveHandle(handle);
       if (!this.showToolStatus)

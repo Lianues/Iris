@@ -1,10 +1,14 @@
+import { DEEPSEEK_MODEL_OPTIONS, PROVIDER_DEFAULTS } from "./provider-config.js"
+
 export interface ModelEntry {
   id: string
   label: string
 }
 
 function normalizeBaseUrl(provider: string, baseUrl: string): string {
-  let url = baseUrl.trim().replace(/\/+$/, "")
+  let url = (provider === "deepseek" ? PROVIDER_DEFAULTS.deepseek.baseUrl : baseUrl)
+    .trim()
+    .replace(/\/+$/, "")
 
   switch (provider) {
     case "gemini":
@@ -15,6 +19,7 @@ function normalizeBaseUrl(provider: string, baseUrl: string): string {
       break
     case "openai-compatible":
     case "openai-responses":
+    case "deepseek":
       url = url
         .replace(/\/chat\/completions$/i, "")
         .replace(/\/responses$/i, "")
@@ -61,6 +66,13 @@ export async function fetchModelList(
   baseUrl: string,
 ): Promise<ModelEntry[]> {
   const url = normalizeBaseUrl(provider, baseUrl)
+  if (provider === "deepseek") {
+    return DEEPSEEK_MODEL_OPTIONS.map((option) => ({
+      id: option.id,
+      label: option.label,
+    }))
+  }
+
   if (!apiKey || !url) return []
 
   try {
@@ -90,7 +102,8 @@ export async function fetchModelList(
         )
       }
       case "openai-compatible":
-      case "openai-responses": {
+      case "openai-responses":
+      case "deepseek": {
         const body = await requestJSON(`${url}/models`, {
           Authorization: `Bearer ${apiKey}`,
         })

@@ -40,9 +40,12 @@ import { useTextInput } from './hooks/use-text-input';
 import { createUndoRedoStack, type UndoRedoStack } from './undo-redo';
 import { getSlashCommands, onSlashCommandsChanged } from './slash-command-service';
 import { getStatusSegments, onStatusSegmentsChanged } from './status-segment-service';
+import { writeClipboardText } from './terminal-compat';
+import type { PromptInputController } from './components/InputBar';
 
 // ── Provider 级别映射 ──────────────────────────────────────
 const PROVIDER_LEVELS: Record<string, ThinkingEffortLevel[]> = {
+  'deepseek':           ['not-set', 'none', 'high', 'max'],
   'claude':             ['not-set', 'none', 'low', 'medium', 'high', 'xhigh', 'max'],
   'gemini':             ['not-set', 'minimal', 'low', 'medium', 'high'],
   'openai-compatible':  ['not-set', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
@@ -53,6 +56,54 @@ const DEFAULT_LEVELS: ThinkingEffortLevel[] = ['not-set', 'low', 'medium', 'high
 function getProviderThinkingLevels(provider?: string): ThinkingEffortLevel[] {
   if (!provider) return DEFAULT_LEVELS;
   return PROVIDER_LEVELS[provider] ?? DEFAULT_LEVELS;
+}
+
+function normalizeSelectionText(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+function findLineOverlap(left: string[], right: string[]): number {
+  const max = Math.min(left.length, right.length);
+  for (let size = max; size > 0; size--) {
+    let matches = true;
+    for (let i = 0; i < size; i++) {
+      if (left[left.length - size + i] !== right[i]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return size;
+  }
+  return 0;
+}
+
+/**
+ * F6 应用内复制模式中，拖选 + 滚轮会产生多个“当前可见选区”快照。
+ * 这里按行做前后缀重叠合并，尽量把滚动经过的内容拼成一个连续文本，
+ * 同时避免每次滚轮都把同一屏内容重复追加。
+ */
+function mergeSelectionText(previous: string, next: string): string {
+  const a = normalizeSelectionText(previous).trimEnd();
+  const b = normalizeSelectionText(next).trimEnd();
+  if (!a) return b;
+  if (!b) return a;
+  if (a.includes(b)) return a;
+  if (b.includes(a)) return b;
+
+  const aLines = a.split('\n');
+  const bLines = b.split('\n');
+
+  const appendOverlap = findLineOverlap(aLines, bLines);
+  if (appendOverlap > 0) {
+    return [...aLines, ...bLines.slice(appendOverlap)].join('\n');
+  }
+
+  const prependOverlap = findLineOverlap(bLines, aLines);
+  if (prependOverlap > 0) {
+    return [...bLines, ...aLines.slice(prependOverlap)].join('\n');
+  }
+
+  return `${a}\n${b}`;
 }
 
 export type { AppHandle } from './hooks/use-app-handle';
@@ -79,6 +130,7 @@ export function App({
   onToolApproval,
   onToolApply,
   onToolMessage,
+  onGetToolDiffPreview,
   onAddCommandPattern,
   onAbort,
   onToolAbort,
@@ -99,6 +151,8 @@ export function App({
   supportsHeadlessTransition,
   onSummarize,
   onPlanCommand,
+  onAutoEditCommand,
+  onCallmeCommand,
   onListAgents,
   onSelectAgent,
   onThinkingEffortChange,
@@ -217,6 +271,15 @@ export function App({
 
   const canOpenLoverSettings = dynamicCommands.some((command) => command.name === '/lover');
 
+  const copySelectionBufferRef = useRef('');
+  const resetCopySelectionBuffer = useCallback(() => {
+    copySelectionBufferRef.current = '';
+  }, []);
+  const captureCopySelectionSnapshot = useCallback((text: string) => {
+    if (!copyMode || !text.trim()) return;
+    copySelectionBufferRef.current = mergeSelectionText(copySelectionBufferRef.current, text);
+  }, [copyMode]);
+
   const refreshPluginSettingsTabs = useCallback(() => {
     setRuntimePluginSettingsTabs(onListPluginSettingsTabs?.() ?? pluginSettingsTabs ?? []);
   }, [onListPluginSettingsTabs, pluginSettingsTabs]);
@@ -231,6 +294,7 @@ export function App({
 
   const renderer = useRenderer();
   const undoRedoRef = useRef<UndoRedoStack>(createUndoRedoStack());
+  const promptInputControllerRef = useRef<PromptInputController | null>(null);
 
   // ── 聊天滚动区域 ref（供 F6 复制模式键盘滚动使用）──
   const chatScrollBoxRef = useRef<any>(null);
@@ -290,11 +354,10 @@ export function App({
     }
   }, [appState.isGenerating, messageQueue, onSubmit]);
 
-  // ── 强制优先发送：中断当前生成，将消息插到队列最前面立即发送 ──
+  // ── 优先发送：生成中将消息插到队列最前面；不打断当前生成，等待本轮完成后发送 ──
   const handlePrioritySubmit = useCallback((text: string) => {
     messageQueue.prepend(text);
-    onAbort();
-  }, [messageQueue, onAbort]);
+  }, [messageQueue]);
 
   const cycleThinkingEffort = useCallback((direction: 1 | -1) => {
     if (modelState.currentThinkingControlEnabled === false) return;
@@ -346,6 +409,7 @@ export function App({
 
   const handleSubmit = useCommandDispatch({
     onSubmit: queueAwareSubmit,
+    isGenerating: appState.isGenerating,
     onFileAttach: handleFileAttach,
     onOpenFileBrowser: handleOpenFileBrowser,
     getCurrentSessionId,
@@ -377,6 +441,8 @@ export function App({
     remoteHost,
     onSummarize,
     onPlanCommand,
+    onAutoEditCommand,
+    onCallmeCommand,
     undoRedoRef,
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
@@ -395,7 +461,24 @@ export function App({
 
   useEffect(() => {
     if (!renderer) return;
-    renderer.useMouse = !copyMode;
+    // F6 复制模式改为应用内选择：保留鼠标事件，拖选时由 OpenTUI 维护选择范围，
+    // 这样滚轮/边缘自动滚动仍能作用于聊天 scrollbox。
+    renderer.useMouse = true;
+  }, [renderer]);
+
+  useEffect(() => {
+    if (!renderer) return;
+    const handleSelection = (selection: { getSelectedText?: () => string } | null) => {
+      if (!copyMode) return;
+      const finalText = selection?.getSelectedText?.() ?? '';
+      const text = mergeSelectionText(copySelectionBufferRef.current, finalText);
+      copySelectionBufferRef.current = '';
+      if (!text.trim()) return;
+      const copied = writeClipboardText(text) || renderer.copyToClipboardOSC52?.(text) === true;
+      if (!copied) return;
+    };
+    renderer.on?.('selection', handleSelection);
+    return () => { renderer.off?.('selection', handleSelection); };
   }, [renderer, copyMode]);
 
   // 离开 queue-list 视图时：如果当前空闲且队列非空，自动发送队首消息恢复排流。
@@ -499,12 +582,14 @@ export function App({
     setCopyMode,
     copyMode,
     chatScrollBoxRef,
+    promptInputControllerRef,
     pendingConfirm,
     confirmChoice,
     setPendingConfirm,
     setConfirmChoice,
     exitConfirm,
     isGenerating: appState.isGenerating,
+    hasRunningBackgroundTasks: appState.backgroundTaskCount + appState.delegateTaskCount > 0,
     askQuestionActive: !!askQuestionInvocation,
     pendingApplies: appState.pendingApplies,
     pendingApprovals: appState.pendingApprovals,
@@ -516,6 +601,7 @@ export function App({
     onToolApproval,
     onAddCommandPattern,
     onPlanCommand,
+    onAutoEditCommand,
     sessionList,
     modelList,
     setModelList,
@@ -729,6 +815,7 @@ export function App({
         showLineNumbers={approval.showLineNumbers}
         wrapMode={approval.wrapMode}
         previewIndex={approval.previewIndex}
+        getPreview={onGetToolDiffPreview}
       />
     );
   }
@@ -774,6 +861,10 @@ export function App({
           progressSnapshot={appState.progressSnapshot}
           progressCollapsed={(appState.progressSnapshot?.stats.open ?? 0) > 0 ? progressCollapsed : false}
           progressScrollOffset={progressScrollOffset}
+          queuedMessages={messageQueue.queue}
+          copyMode={copyMode}
+          onCopySelectionStart={resetCopySelectionBuffer}
+          onCopySelectionSnapshot={captureCopySelectionSnapshot}
         />
       ) : null}
 
@@ -800,6 +891,7 @@ export function App({
         exitConfirmArmed={exitConfirm.exitConfirmArmed}
         backgroundTaskCount={appState.backgroundTaskCount}
         planModeActive={appState.planModeActive}
+        autoEditActive={appState.autoEditActive}
         delegateTaskCount={appState.delegateTaskCount}
         backgroundTaskTokens={appState.backgroundTaskTokens}
         backgroundTaskSpinnerFrame={appState.backgroundTaskSpinnerFrame}
@@ -814,6 +906,7 @@ export function App({
         dynamicCommands={dynamicCommands}
         statusSegments={rightStatusSegments}
         supportsHeadlessTransition={supportsHeadlessTransition}
+        inputControllerRef={promptInputControllerRef}
       />
     </box>
   );

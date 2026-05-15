@@ -186,6 +186,59 @@ describe('background tool permissions', () => {
     expect((toolState.get(invocation.id)?.status)).toBe('success');
   });
 
+  it('前台写入类工具启用 diff 审批视图时不再先触发通用 Y/N 审批', async () => {
+    let handlerCalled = false;
+    const registry = createRegistry([
+      {
+        name: 'write_file',
+        handler: async () => {
+          handlerCalled = true;
+          return {
+            results: [{ path: 'hello.ts', success: true, action: 'updated' }],
+            successCount: 1,
+            failCount: 0,
+            totalCount: 1,
+          };
+        },
+      },
+    ]);
+
+    const toolState = new ToolStateManager();
+    const invocation = toolState.create(
+      'write_file',
+      { files: [{ path: 'hello.ts', content: 'console.log("hi")' }] },
+      'queued',
+      'visible-session',
+    );
+    const seenStatuses: string[] = [];
+    toolState.on('stateChange', (event) => {
+      if (event.invocation.id !== invocation.id) return;
+      seenStatuses.push(event.invocation.status);
+      if (event.invocation.status === 'awaiting_approval') {
+        queueMicrotask(() => toolState.getHandle(invocation.id)?.approve(true));
+      }
+      if (event.invocation.status === 'awaiting_apply') {
+        queueMicrotask(() => toolState.getHandle(invocation.id)?.apply(true));
+      }
+    });
+
+    const calls = [fc('write_file', { files: [{ path: 'hello.ts', content: 'console.log("hi")' }] })];
+    const plan = buildExecutionPlan(calls, registry);
+    await executePlan(
+      calls,
+      plan,
+      registry,
+      toolState,
+      [invocation.id],
+      { permissions: { write_file: { autoApprove: false, showApprovalView: true } } },
+    );
+
+    expect(handlerCalled).toBe(true);
+    expect(seenStatuses).not.toContain('awaiting_approval');
+    expect(seenStatuses).toContain('awaiting_apply');
+    expect(toolState.get(invocation.id)?.status).toBe('success');
+  });
+
   it('批量工具全失败时，调度层必须标记为 error，不能继续显示 success', async () => {
     const registry = createRegistry([
       {

@@ -29,6 +29,8 @@ type SetSettingsInitialSection = Dispatch<SetStateAction<SettingsInitialSection>
 
 interface UseCommandDispatchOptions {
   onSubmit: (text: string) => void;
+  /** 当前是否正在生成；用于把命令反馈插到活跃 assistant 回复之前，避免破坏流式挂载目标 */
+  isGenerating?: boolean;
   /** 附加文件（图片/文档/音频/视频）到下一条消息 */
   onFileAttach: (filePath: string) => void;
   /** 打开文件浏览器视图 */
@@ -50,6 +52,8 @@ interface UseCommandDispatchOptions {
   /** 获取可切换的 Agent 列表，返回后由 /agent 命令切换到 agent-list 视图 */
   onListAgents?: () => AgentDefinitionLike[];
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
+  onAutoEditCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
+  onCallmeCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   setAgentList: SetAgentList;
   onDream?: () => Promise<{ ok: boolean; message: string }>;
   onListMemories?: () => Promise<MemoryItem[]>;
@@ -89,6 +93,7 @@ function resetRedo(undoRedoRef: MutableRefObject<UndoRedoStack>, onClearRedoStac
 
 export function useCommandDispatch({
   onSubmit,
+  isGenerating,
   onFileAttach,
   onOpenFileBrowser,
   getCurrentSessionId,
@@ -105,6 +110,8 @@ export function useCommandDispatch({
   onEnterHeadless,
   onListAgents,
   onPlanCommand,
+  onAutoEditCommand,
+  onCallmeCommand,
   setAgentList,
 
   onDream,
@@ -393,9 +400,50 @@ export function useCommandDispatch({
       return;
     }
 
+    if (text === '/callme' || text.startsWith('/callme ')) {
+      const arg = text.slice('/callme'.length).trim();
+      if (!onCallmeCommand) {
+        appendCommandMessage(setMessages, '/callme 服务不可用。', { isError: true, label: 'callme' });
+        return;
+      }
+      void onCallmeCommand(arg).then((result) => {
+        appendCommandMessage(
+          setMessages,
+          result.message,
+          result.ok ? { label: 'callme' } : { isError: true, label: 'callme' },
+        );
+      }).catch((err) => {
+        appendCommandMessage(
+          setMessages,
+          `/callme 操作失败: ${err instanceof Error ? err.message : String(err)}`,
+          { isError: true, label: 'callme' },
+        );
+      });
+      return;
+    }
+
+    if (text === '/auto-edit' || text.startsWith('/auto-edit ')) {
+      const arg = text.slice('/auto-edit'.length).trim();
+      const messageOptions = { label: '自动编辑' as const, beforeActiveAssistant: isGenerating };
+      if (!onAutoEditCommand) {
+        appendCommandMessage(setMessages, '自动编辑服务不可用。', { ...messageOptions, isError: true });
+        return;
+      }
+      void onAutoEditCommand(arg).then((result) => {
+        appendCommandMessage(setMessages, result.message, result.ok ? messageOptions : { ...messageOptions, isError: true });
+      }).catch((err) => {
+        appendCommandMessage(
+          setMessages,
+          `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`,
+          { ...messageOptions, isError: true },
+        );
+      });
+      return;
+    }
+
     if (text === '/plan' || text.startsWith('/plan ')) {
       const arg = text.slice('/plan'.length).trim();
-      const planMessageOptions = { label: 'plan' as const };
+      const planMessageOptions = { label: 'plan' as const, beforeActiveAssistant: isGenerating };
       if (!onPlanCommand) {
         appendCommandMessage(setMessages, 'Plan Mode 服务不可用。', { ...planMessageOptions, isError: true });
         return;
@@ -483,6 +531,7 @@ export function useCommandDispatch({
     isRemote,
     remoteHost,
     onResetConfig,
+    isGenerating,
     onRunCommand,
     onSubmit,
     onListAgents,
@@ -491,6 +540,8 @@ export function useCommandDispatch({
     onSwitchModel,
     onSummarize,
     onPlanCommand,
+    onAutoEditCommand,
+    onCallmeCommand,
     onUndo,
     queueClear,
     queueSize,

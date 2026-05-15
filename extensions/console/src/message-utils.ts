@@ -102,17 +102,32 @@ export function appendAssistantParts(prev: ChatMessage[], partsToAppend: Message
 export function appendCommandMessage(
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
   text: string,
-  options?: { isError?: boolean; label?: ChatMessage['commandLabel'] },
+  options?: { isError?: boolean; label?: ChatMessage['commandLabel']; beforeActiveAssistant?: boolean },
 ): void {
-  setMessages((prev) => [
-    ...prev.filter((message) => !message.isCommand),
-    {
+  setMessages((prev) => {
+    const commandMessage: ChatMessage = {
       id: nextMsgId(),
       role: 'assistant',
       parts: [{ type: 'text', text }],
       isCommand: true,
       commandLabel: options?.label,
       isError: options?.isError,
-    },
-  ]);
+    };
+    const withoutOldCommands = prev.filter((message) => !message.isCommand);
+    const lastIndex = withoutOldCommands.length - 1;
+    const last = withoutOldCommands[lastIndex];
+
+    // 流式输出期间触发快捷命令时，最后一条普通 assistant 消息仍是当前回复的
+    // liveParts 挂载目标。把命令消息插到它前面，避免 streaming/finalize 将正文
+    // 误挂到命令消息（例如 Plan Mode 提示）下面。
+    if (options?.beforeActiveAssistant && last?.role === 'assistant' && !last.isError && !last.isCommand) {
+      return [
+        ...withoutOldCommands.slice(0, lastIndex),
+        commandMessage,
+        last,
+      ];
+    }
+
+    return [...withoutOldCommands, commandMessage];
+  });
 }

@@ -1,42 +1,50 @@
-// extensions/virtual-lover/node_modules/irises-extension-sdk/src/message.ts
+// ../../packages/extension-sdk/dist/message.js
 function isVisibleTextPart(part) {
   return "text" in part && part.thought !== true;
 }
 function extractText(parts) {
   return parts.filter((p) => isVisibleTextPart(p)).map((p) => p.text ?? "").join("");
 }
-// extensions/virtual-lover/node_modules/irises-extension-sdk/src/delivery.ts
+// ../../packages/extension-sdk/dist/delivery.js
 var DELIVERY_REGISTRY_SERVICE_ID = "delivery.registry";
-// extensions/virtual-lover/node_modules/irises-extension-sdk/src/scheduler.ts
+// ../../packages/extension-sdk/dist/scheduler.js
 var SCHEDULER_SERVICE_ID = "scheduler.tasks";
-// extensions/virtual-lover/node_modules/irises-extension-sdk/src/environment.ts
+// ../../packages/extension-sdk/dist/environment.js
 var ENVIRONMENT_CONTEXT_SERVICE_ID = "environment.context";
 var WEATHER_SERVICE_ID = "environment.weather";
-// extensions/virtual-lover/node_modules/irises-extension-sdk/src/logger.ts
-var _logLevel = 1 /* INFO */;
+// ../../packages/extension-sdk/dist/logger.js
+var LogLevel;
+(function(LogLevel2) {
+  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
+  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
+  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
+  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
+  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
+})(LogLevel || (LogLevel = {}));
+var _logLevel = LogLevel.INFO;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= 0 /* DEBUG */)
+      if (_logLevel <= LogLevel.DEBUG)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= 1 /* INFO */)
+      if (_logLevel <= LogLevel.INFO)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= 2 /* WARN */)
+      if (_logLevel <= LogLevel.WARN)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= 3 /* ERROR */)
+      if (_logLevel <= LogLevel.ERROR)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
 
-// extensions/virtual-lover/node_modules/irises-extension-sdk/src/plugin/context.ts
+// ../../packages/extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -44,7 +52,7 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
-// extensions/virtual-lover/src/config.ts
+// src/config.ts
 var DEFAULT_PROACTIVE_INSTRUCTION = "请基于伴侣人设、说话风格、相处边界、可用记忆和环境上下文，生成一条自然、简短、不过度打扰的主动消息。只输出要发送给用户的消息正文，不要解释。消息应低压力、可忽略，不要求用户立刻回复。";
 var DEFAULT_VIRTUAL_LOVER_CONFIG = {
   enabled: false,
@@ -335,7 +343,7 @@ function parseVirtualLoverConfig(raw) {
   };
 }
 
-// extensions/virtual-lover/src/config-template.ts
+// src/config-template.ts
 var defaultConfigTemplate = `# Virtual Lover Iris extension
 #
 # 这是 Iris 原生重构版配置，不兼容也不复刻 OpenClaw 的 agents/channels/bindings/gateway 模型。
@@ -458,7 +466,7 @@ web:
   panelPath: /virtual-lover
 `;
 
-// extensions/virtual-lover/src/prompt/antml.ts
+// src/prompt/antml.ts
 function renderAntmlDocument(sections) {
   if (sections.length === 0)
     return "";
@@ -489,7 +497,7 @@ function escapeAttribute(value) {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// extensions/virtual-lover/src/prompt/builder.ts
+// src/prompt/builder.ts
 var SECTION_TITLES = {
   persona: "伴侣人设",
   style: "表达风格",
@@ -561,7 +569,7 @@ function resolveSectionContent(sectionId, input, diagnostics) {
   }
 }
 
-// extensions/virtual-lover/src/prompt/system.ts
+// src/prompt/system.ts
 function applyVirtualLoverSystemPrompt(request, systemText, injectionMode) {
   const text = systemText.trim();
   if (!text)
@@ -578,7 +586,7 @@ function applyVirtualLoverSystemPrompt(request, systemText, injectionMode) {
   };
 }
 
-// extensions/virtual-lover/src/state.ts
+// src/state.ts
 import * as fs from "node:fs";
 import * as path from "node:path";
 var DEFAULT_AGENT_ID = "default";
@@ -710,7 +718,7 @@ function readTemplate(extensionRootDir, relativePath, fallback) {
   return fallback;
 }
 
-// extensions/virtual-lover/src/proactive.ts
+// src/proactive.ts
 async function sendProactiveMessage(input) {
   const { config, api } = input;
   if (!config.enabled) {
@@ -847,7 +855,7 @@ ${normalizedEnvironment}`);
 `);
 }
 
-// extensions/virtual-lover/src/proactive-tool.ts
+// src/proactive-tool.ts
 var VIRTUAL_LOVER_PROACTIVE_TOOL_NAME = "virtual_lover_proactive_send";
 function createVirtualLoverProactiveTool(ctx, api) {
   return {
@@ -894,7 +902,7 @@ function createVirtualLoverProactiveTool(ctx, api) {
   };
 }
 
-// extensions/virtual-lover/src/proactive-schedule-tool.ts
+// src/proactive-schedule-tool.ts
 var VIRTUAL_LOVER_SCHEDULE_PROACTIVE_TOOL_NAME = "virtual_lover_schedule_proactive";
 var TEMPLATES = {
   test_30s: {
@@ -1056,7 +1064,7 @@ function createVirtualLoverScheduleProactiveTool(api) {
   };
 }
 
-// extensions/virtual-lover/src/followup.ts
+// src/followup.ts
 var VIRTUAL_LOVER_SCHEDULE_FOLLOWUP_TOOL_NAME = "virtual_lover_schedule_followup";
 function readString3(value, fallback = "") {
   return typeof value === "string" ? value : fallback;
@@ -1232,7 +1240,7 @@ function createVirtualLoverFollowupTool(ctx, api) {
   };
 }
 
-// extensions/virtual-lover/src/burst-send-tool.ts
+// src/burst-send-tool.ts
 var VIRTUAL_LOVER_BURST_SEND_TOOL_NAME = "virtual_lover_burst_send";
 function readString4(value, fallback = "") {
   return typeof value === "string" ? value : fallback;
@@ -1352,11 +1360,11 @@ function createVirtualLoverBurstSendTool(ctx, api) {
   };
 }
 
-// extensions/virtual-lover/src/legacy-import-tool.ts
+// src/legacy-import-tool.ts
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 
-// extensions/virtual-lover/src/memory-tools.ts
+// src/memory-tools.ts
 var MEMORY_SPACES_SERVICE_ID = "memory.spaces";
 var LOVER_MEMORY_TOOL_NAMES = new Set([
   "lover_memory_search",
@@ -1491,7 +1499,7 @@ function createLoverMemoryTools(getSpace) {
   ];
 }
 
-// extensions/virtual-lover/src/legacy-import-tool.ts
+// src/legacy-import-tool.ts
 var VIRTUAL_LOVER_IMPORT_LEGACY_TOOL_NAME = "virtual_lover_import_legacy";
 var PROMPT_CANDIDATES = {
   persona: [
@@ -1968,11 +1976,11 @@ function createVirtualLoverLegacyImportTool(ctx, api) {
   };
 }
 
-// extensions/virtual-lover/src/web/routes.ts
+// src/web/routes.ts
 import * as fs3 from "node:fs";
 import * as path3 from "node:path";
 
-// extensions/virtual-lover/src/web/html.ts
+// src/web/html.ts
 function buildPanelHTML(basePath) {
   const safeBasePath = escapeHtml(basePath);
   return `<!doctype html>
@@ -1996,7 +2004,7 @@ function escapeHtml(value) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-// extensions/virtual-lover/src/web/routes.ts
+// src/web/routes.ts
 function registerVirtualLoverRoutes(ctx, api, options) {
   const logger = options.logger;
   const config = readCurrentConfig(ctx);
@@ -2228,7 +2236,7 @@ function sendError(res, error) {
   sendJson(res, 400, { error: message });
 }
 
-// extensions/virtual-lover/src/strategies.ts
+// src/strategies.ts
 var JOB_PREFIX = "[virtual-lover:";
 function getScheduler(api) {
   return api.services.get(SCHEDULER_SERVICE_ID);
@@ -2376,7 +2384,7 @@ async function syncVirtualLoverStrategies(api, config) {
   return { ok: true, operations };
 }
 
-// extensions/virtual-lover/src/settings-tab.ts
+// src/settings-tab.ts
 function escapeMultiline(value) {
   return value.replace(/\r\n/g, `
 `).replace(/\n/g, "\\n");
@@ -3140,7 +3148,7 @@ function registerVirtualLoverSettingsTab(ctx, api) {
   });
 }
 
-// extensions/virtual-lover/src/index.ts
+// src/index.ts
 var logger = createPluginLogger("virtual-lover");
 var runtimeStates = new Map;
 var src_default = definePlugin({

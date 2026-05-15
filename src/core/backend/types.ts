@@ -6,6 +6,7 @@ import type { LLMConfig, ToolsConfig, SkillDefinition, SummaryConfig } from '../
 import type { Part, Content, UsageMetadata, ToolInvocation, ToolAttachment } from '../../types';
 import type { ToolExecutionHandle } from '../../tools/handle';
 import type { LLMModelInfo } from '../../llm/router';
+import type { CallmeAttributionConfig } from '../../git/callme';
 
 // ============ 常量 ============
 
@@ -114,6 +115,10 @@ export interface BackendConfig {
   rememberPlatformModel?: boolean;
   /** 是否启用异步子代理（默认 false，向后兼容） */
   asyncSubAgents?: boolean;
+  /** /callme git commit co-author 署名配置。 */
+  callme?: CallmeAttributionConfig;
+  /** 查询当前 session 是否处于 Plan Mode；用于 Auto Edit 在规划模式下暂停生效。 */
+  isPlanModeActive?: (sessionId: string | undefined) => boolean;
 }
 
 /** 异步子代理通知的结构化数据（由 Backend 解析 <task-notification> XML 后生成） */
@@ -207,4 +212,6 @@ export interface BackendEvents {
   'models:changed': (sessionId: string, models: LLMModelInfo[], currentModel: LLMModelInfo) => void;
   /** 异步子代理通知的结构化内容（在 turn:start 之前 emit，供前端展示折叠通知区块） */
   'notification:payloads': (sessionId: string, payloads: NotificationPayload[]) => void;
+  /** 当前会话 Auto Edit 状态变化。 */
+  'auto-edit:update': (sessionId: string, active: boolean) => void;
 }

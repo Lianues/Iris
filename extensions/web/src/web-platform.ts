@@ -41,6 +41,7 @@ import { createNotificationHandler, type NotificationHandler } from './handlers/
 
 const logger = createExtensionLogger('WebPlatform');
 const PLAN_MODE_SERVICE_ID = 'plan-mode';
+const MILESTONE_EXTENSION_SERVICE_ID = 'milestone:service';
 
 interface PlanModeServiceLike {
   enter(sessionId: string): { sessionId?: string; planFilePath: string; active: boolean };
@@ -53,6 +54,16 @@ interface PlanModeServiceLike {
 
 function getPlanModeService(agent: AgentContext): PlanModeServiceLike | undefined {
   return (agent.api?.services as any)?.get?.(PLAN_MODE_SERVICE_ID) as PlanModeServiceLike | undefined;
+}
+
+interface MilestoneServiceLike {
+  getSnapshot?(sessionId: string): unknown;
+  loadLatest?(sessionId: string): Promise<unknown> | unknown;
+  onDidUpdate?(listener: (sessionId: string, snapshot: unknown) => void): Disposable;
+}
+
+function getMilestoneService(agent: AgentContext): MilestoneServiceLike | undefined {
+  return (agent.api?.services as any)?.get?.(MILESTONE_EXTENSION_SERVICE_ID) as MilestoneServiceLike | undefined;
 }
 
 type RuntimeReloadExtensions = Record<string, unknown>;
@@ -68,7 +79,7 @@ export interface WebPlatformConfig {
   authToken?: string;
   managementToken?: string;
   configPath: string;
-  /** 当前活动模型的提供商名称（如 gemini / openai-compatible / claude） */
+  /** 当前活动模型的提供商名称（如 deepseek / gemini / openai-compatible / claude） */
   provider: string;
   modelId: string;
   streamEnabled: boolean;
@@ -555,6 +566,8 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
 
   /** 为一个 Backend 绑定 SSE 事件转发，并追踪监听器以便后续精确移除 */
   private wireBackendEvents(backend: IrisBackendLike, agentName?: string): void {
+    const agent = agentName ? this.agents.get(agentName) : undefined;
+    const milestoneService = agent ? getMilestoneService(agent) : undefined;
     const onResponse = (sid: string, text: string) => {
       this.writeSSE(sid, { type: 'message', text });
     };
@@ -637,9 +650,9 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     const onTurnStart = (sid: string, turnId: string, mode: string) => {
       this.writeSSE(sid, { type: 'turn_start', turnId, mode });
     };
-    const onMilestonesUpdate = (sid: string, snapshot: unknown) => {
+    const milestoneUpdateDisposable = milestoneService?.onDidUpdate?.((sid: string, snapshot: unknown) => {
       this.writeSSE(sid, { type: 'milestones_update', snapshot });
-    };
+    });
 
     backend.on('response', onResponse);
     backend.on('stream:start', onStreamStart);
@@ -656,7 +669,6 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     backend.on('user:token', onUserToken);
     backend.on('agent:notification' as any, onAgentNotification);
     backend.on('turn:start' as any, onTurnStart);
-    backend.on('milestones:update' as any, onMilestonesUpdate);
 
     // 记录清理函数，热重载时精确移除这些监听器而不影响其他平台
     if (agentName) {
@@ -676,7 +688,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
         backend.off!('user:token', onUserToken);
         backend.off!('agent:notification' as any, onAgentNotification);
         backend.off!('turn:start' as any, onTurnStart);
-        backend.off!('milestones:update' as any, onMilestonesUpdate);
+        milestoneUpdateDisposable?.dispose();
       });
     }
   }
@@ -963,9 +975,7 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
     // Diff 预览 API
     this.router.get('/api/tools/:id/diff', async (req, res, params) => {
       const { backend } = this.resolveAgent(req);
-      const utils = this.deps.api?.toolPreviewUtils;
-      if (!utils) { sendJSON(res, 503, { error: 'toolPreviewUtils 不可用' }); return; }
-      return createDiffPreviewHandler(backend, utils)(req, res, params);
+      return createDiffPreviewHandler(backend)(req, res, params);
     });
 
     // 工具审批 API
@@ -1067,8 +1077,12 @@ export class WebPlatform extends PlatformAdapter implements MultiAgentCapable, R
 
     // 异步子代理任务查询 API
     this.router.get('/api/sessions/:id/milestones', async (req, res, params) => {
-      const { backend } = this.resolveAgent(req);
-      const snapshot = await backend.loadMilestones?.(params.id) ?? backend.getMilestones?.(params.id) ?? null;
+      const agent = this.resolveAgent(req);
+      const service = getMilestoneService(agent);
+      const legacyBackend = agent.backend as any;
+      const snapshot = (await service?.loadLatest?.(params.id))
+        ?? service?.getSnapshot?.(params.id)
+        ?? (await legacyBackend.loadMilestones?.(params.id)) ?? legacyBackend.getMilestones?.(params.id) ?? null;
       sendJSON(res, 200, { snapshot });
     });
 

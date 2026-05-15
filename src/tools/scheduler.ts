@@ -24,6 +24,8 @@ import { agentContext, createLogger } from '../logger';
 import type { ToolAttachment, ToolExecutionContext } from '../types';
 import { ToolPolicyConfig, ToolsConfig } from '../config';
 import type { BeforeToolExecInterceptor, AfterToolExecInterceptor } from '../extension';
+import { evaluateAutoEditApproval } from '../auto-edit/evaluate';
+import type { RuntimeApprovalContext } from '../auto-edit/types';
 import type { ToolExecutionHandle } from './handle';
 
 const logger = createLogger('ToolScheduler');
@@ -110,21 +112,39 @@ function isHandlerManagedApprovalTool(call: FunctionCallPart, registry: ToolRegi
 }
 
 /**
- * 从 shell 命令生成前缀通配模式。
+ * 从 shell 命令生成可记忆的命令模式。
  *
- * 取前两个 token + `*`（第二个以 `-` 开头时只取第一个）。
+ * 取前两个 token 作为基础模式（第二个以 `-` 开头时只取第一个），
+ * 同时生成“完整命令精确匹配”和“前缀通配”两条规则。
+ *
+ * 为什么需要两条：旧的单一 "cmd *" 规则只匹配带额外参数的命令，
+ * 例如 "npm test *" 无法匹配 "npm test" 本身，导致 TUI 中对无参数命令
+ * 选择“始终允许”后，下次相同命令仍然弹确认。
+ * 精确匹配使用完整命令而不是基础模式，避免 "git push origin main" 额外允许
+ * 裸 "git push" 这类更宽泛的命令。
+ *
  * 示例：
- *   "npm install express" → "npm install *"
- *   "git push origin main" → "git push *"
- *   "python -m pytest" → "python *"
- *   "ls" → "ls *"
+ *   "npm install express" → ["npm install express", "npm install *"]
+ *   "git push origin main" → ["git push origin main", "git push *"]
+ *   "python -m pytest" → ["python -m pytest", "python *"]
+ *   "ls" → ["ls", "ls *"]
  */
+export function generateCommandPatterns(command: string): string[] {
+  const normalized = command.trim().replace(/\s+/g, ' ');
+  if (!normalized) return ['*'];
+
+  const tokens = normalized.split(' ');
+  const prefixBase = tokens.length <= 1 || tokens[1].startsWith('-')
+    ? tokens[0]
+    : `${tokens[0]} ${tokens[1]}`;
+
+  return Array.from(new Set([normalized, `${prefixBase} *`]));
+}
+
+/** @deprecated 使用 generateCommandPatterns，同时写入精确模式和前缀通配模式。 */
 export function generateCommandPattern(command: string): string {
-  const tokens = command.trim().split(/\s+/);
-  if (tokens.length === 0 || !tokens[0]) return '*';
-  if (tokens.length <= 1) return tokens[0] + ' *';
-  if (tokens[1].startsWith('-')) return tokens[0] + ' *';
-  return tokens[0] + ' ' + tokens[1] + ' *';
+  const patterns = generateCommandPatterns(command);
+  return patterns[patterns.length - 1] ?? '*';
 }
 
 /**
@@ -483,6 +503,7 @@ async function executeSingle(
   beforeToolExec?: BeforeToolExecInterceptor,
   afterToolExec?: AfterToolExecInterceptor,
   onAttachments?: (attachments: ToolAttachment[]) => void,
+  runtimeApprovalContext?: RuntimeApprovalContext,
 ): Promise<FunctionResponsePart> {
   const toolName = call.functionCall.name;
   const handle = toolState && invocationId ? toolState.getHandle(invocationId) : undefined;
@@ -507,8 +528,21 @@ async function executeSingle(
   // 全局开关（最高优先级）
   const globalSkipConfirmation = toolsConfig.autoApproveAll === true || toolsConfig.autoApproveConfirmation === true;
   const globalSkipDiff = toolsConfig.autoApproveAll === true || toolsConfig.autoApproveDiff === true;
-  const autoApproved = globalSkipConfirmation || shouldAutoApprove(call, effectivePolicy, registry);
+
+  const rawArgs = (call.functionCall.args && typeof call.functionCall.args === 'object' && !Array.isArray(call.functionCall.args))
+    ? call.functionCall.args as Record<string, unknown>
+    : {};
+  const autoEditDecision = evaluateAutoEditApproval(toolName, rawArgs, runtimeApprovalContext);
+  const autoEditAccepted = autoEditDecision.allowed === true;
+
+  const policyAutoApproved = globalSkipConfirmation || shouldAutoApprove(call, effectivePolicy, registry);
+  const autoApproved = autoEditAccepted || policyAutoApproved;
   const interactiveApproval = canUseInteractiveApproval(toolState, invocationId);
+  const willUseDiffApprovalView = interactiveApproval && !globalSkipDiff && !autoEditAccepted && shouldShowDiffPreview(call, effectivePolicy);
+
+  if (autoEditAccepted) {
+    logger.info(`Auto Edit 自动批准工具: ${toolName} (${autoEditDecision.targets?.map(t => t.path).join(', ') ?? 'no-target'})`);
+  }
 
   // 追踪用户是否通过交互审批明确批准了此次调用（用于 handler-managed 工具）
   let userExplicitlyApproved = false;
@@ -522,16 +556,16 @@ async function executeSingle(
   const isCommandTool = isCommandToolName(toolName);
   const handlerManagedApproval = toolDef?.approvalMode === 'handler';
   if (!handlerManagedApproval) {
-    if (autoApproved) {
+    if (policyAutoApproved) {
       userExplicitlyApproved = true;
     }
-  } else if (isCommandTool && (globalSkipConfirmation || (autoApproved && effectivePolicy.autoApprove))) {
-    // autoApproved 条件确保 denyPatterns 匹配时（autoApproved=false）autoApprove 不生效，
+  } else if (isCommandTool && (globalSkipConfirmation || (policyAutoApproved && effectivePolicy.autoApprove))) {
+    // policyAutoApproved 条件确保 denyPatterns 匹配时（policyAutoApproved=false）autoApprove 不生效，
     // 维持 denyPatterns > autoApprove 的优先级。
-    // globalSkipConfirmation 是最高优先级，不受 denyPatterns 约束（因为它已在 autoApproved 计算中生效）。
+    // globalSkipConfirmation 是最高优先级，不受 denyPatterns 约束（因为它已在 policyAutoApproved 计算中生效）。
     userExplicitlyApproved = true;
-  } else if (isCommandTool && autoApproved && effectivePolicy.allowPatterns?.length) {
-    // 仅在 denyPatterns 未匹配时（autoApproved = true）才检查 allowPatterns，
+  } else if (isCommandTool && policyAutoApproved && effectivePolicy.allowPatterns?.length) {
+    // 仅在 denyPatterns 未匹配时（policyAutoApproved = true）才检查 allowPatterns，
     // 确保 denyPatterns 优先级高于 allowPatterns。
     const command = extractShellCommand(call);
     if (matchesAnyPattern(command, effectivePolicy.allowPatterns)) {
@@ -564,7 +598,9 @@ async function executeSingle(
 
   if (interactiveApproval && toolState && invocationId) {
     // ── 一类审批：autoApprove 控制，底部 Y/N ──
-    if (!autoApproved) {
+    // 如果本次会进入 Console diff 审批视图，则 diff 视图本身就是人机审批，
+    // 不再先弹一次通用 Y/N，避免同一个写入类工具需要审批两次。
+    if (!autoApproved && !willUseDiffApprovalView) {
       toolState.transition(invocationId, 'awaiting_approval');
       const approved = await toolState.waitForApproval(invocationId, effectiveSignal);
       if (!approved) {
@@ -584,7 +620,7 @@ async function executeSingle(
     // ── 二类审批：showApprovalView 控制，diff 预览视图（执行前） ──
     // [行为修复] showApprovalView 是 Console TUI 专用交互视图。
     // 对隐藏后台 session / 无 ToolState 的非交互场景，不再把它当作阻塞条件。
-    if (!globalSkipDiff && shouldShowDiffPreview(call, effectivePolicy)) {
+    if (willUseDiffApprovalView) {
       toolState.transition(invocationId, 'awaiting_apply');
       const applied = await toolState.waitForApply(invocationId, effectiveSignal);
       if (!applied) {
@@ -597,7 +633,8 @@ async function executeSingle(
           },
         };
       }
-      // applied → 状态已被 handle.apply() 转为 executing
+      // applied → 用户明确批准，状态已被 handle.apply() 转为 executing
+      userExplicitlyApproved = true;
     } else if (autoApproved) {
       // 两类审批都跳过时才需要手动设置 executing
       toolState.transition(invocationId, 'executing');
@@ -920,6 +957,7 @@ export async function executePlan(
   beforeToolExec?: BeforeToolExecInterceptor,
   afterToolExec?: AfterToolExecInterceptor,
   onAttachments?: (attachments: ToolAttachment[]) => void,
+  runtimeApprovalContext?: RuntimeApprovalContext,
 ): Promise<FunctionResponsePart[]> {
   const responseParts: FunctionResponsePart[] = new Array(calls.length);
 
@@ -941,7 +979,7 @@ export async function executePlan(
 
       const results = await Promise.all(
         batch.indices.map(i =>
-          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments)
+          executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments, runtimeApprovalContext)
         ),
       );
       for (let j = 0; j < batch.indices.length; j++) {
@@ -949,7 +987,7 @@ export async function executePlan(
       }
     } else {
       for (const i of batch.indices) {
-        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments);
+        responseParts[i] = await executeSingle(calls[i], registry, toolState, invocationIds?.[i], toolsConfig, signal, beforeToolExec, afterToolExec, onAttachments, runtimeApprovalContext);
       }
     }
   }

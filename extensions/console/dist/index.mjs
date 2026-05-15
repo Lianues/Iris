@@ -16,33 +16,45 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/irises-extension-sdk/src/logger.ts
+// ../../packages/extension-sdk/dist/logger.js
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= 0 /* DEBUG */)
+      if (_logLevel <= LogLevel.DEBUG)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= 1 /* INFO */)
+      if (_logLevel <= LogLevel.INFO)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= 2 /* WARN */)
+      if (_logLevel <= LogLevel.WARN)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= 3 /* ERROR */)
+      if (_logLevel <= LogLevel.ERROR)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
-var _logLevel = 1 /* INFO */;
-var init_logger = () => {};
+var LogLevel, _logLevel;
+var init_logger = __esm(() => {
+  (function(LogLevel2) {
+    LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
+    LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
+    LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
+    LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
+    LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
+  })(LogLevel || (LogLevel = {}));
+  _logLevel = LogLevel.INFO;
+});
 
 // src/terminal-compat.ts
 import { execFileSync } from "child_process";
+import * as fs3 from "fs";
+import * as os from "os";
+import * as path3 from "path";
 function detectTier() {
   if ((process.env.TERM ?? "").toLowerCase() === "dumb")
     return "basic";
@@ -83,6 +95,52 @@ function readClipboardText() {
     return read("pbpaste", []);
   }
   return read("wl-paste", ["-n"]) ?? read("xclip", ["-selection", "clipboard", "-out"]) ?? read("xsel", ["--clipboard", "--output"]);
+}
+function writeClipboardText(text) {
+  const timeout = 1500;
+  const write = (command, args) => {
+    try {
+      execFileSync(command, args, {
+        input: text,
+        windowsHide: true,
+        timeout
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
+  const writeWindowsViaPowerShellFile = (command) => {
+    const tempDir = fs3.mkdtempSync(path3.join(os.tmpdir(), "iris-clipboard-"));
+    const tempFile = path3.join(tempDir, "clipboard.txt");
+    try {
+      fs3.writeFileSync(tempFile, text, "utf8");
+      execFileSync(command, [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `Set-Clipboard -Value ([System.IO.File]::ReadAllText(${psQuote(tempFile)}, [System.Text.Encoding]::UTF8))`
+      ], {
+        windowsHide: true,
+        timeout
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      try {
+        fs3.rmSync(tempDir, { recursive: true, force: true });
+      } catch {}
+    }
+  };
+  if (process.platform === "win32") {
+    return writeWindowsViaPowerShellFile("powershell.exe") || writeWindowsViaPowerShellFile("powershell");
+  }
+  if (process.platform === "darwin") {
+    return write("pbcopy", []);
+  }
+  return write("wl-copy", []) || write("xclip", ["-selection", "clipboard", "-in"]) || write("xsel", ["--clipboard", "--input"]);
 }
 function normalizePastedSingleLine(text) {
   return text.replace(/[\r\n]/g, "").trim();
@@ -175,7 +233,7 @@ __export(exports_remote_wizard, {
   showConnectError: () => showConnectError
 });
 function showSelectionPhase(options) {
-  return new Promise((resolve5) => {
+  return new Promise((resolve4) => {
     const stdin = process.stdin;
     const stdout = process.stdout;
     const wasRaw = stdin.isRaw;
@@ -284,7 +342,7 @@ function showSelectionPhase(options) {
       const key = buf.toString("utf-8");
       if (key === "\x1B" || key === "\x03") {
         cleanup();
-        resolve5(null);
+        resolve4(null);
         return;
       }
       if (key === "\x1B[A") {
@@ -330,11 +388,11 @@ function showSelectionPhase(options) {
           return;
         cleanup();
         if (item.type === "saved") {
-          resolve5({ action: "connect-saved", name: item.name, url: item.url, hasToken: item.hasToken });
+          resolve4({ action: "connect-saved", name: item.name, url: item.url, hasToken: item.hasToken });
         } else if (item.type === "discovered") {
-          resolve5({ action: "connect-discovered", host: item.host, port: item.port, name: item.name });
+          resolve4({ action: "connect-discovered", host: item.host, port: item.port, name: item.name });
         } else {
-          resolve5({ action: "manual" });
+          resolve4({ action: "manual" });
         }
         return;
       }
@@ -344,7 +402,7 @@ function showSelectionPhase(options) {
   });
 }
 function showInputPhase(opts = {}) {
-  return new Promise((resolve5) => {
+  return new Promise((resolve4) => {
     const stdin = process.stdin;
     const stdout = process.stdout;
     let url = opts.prefillUrl || "ws://";
@@ -413,7 +471,7 @@ function showInputPhase(opts = {}) {
       const key = buf.toString("utf-8");
       if (key === "\x1B" || key === "\x03") {
         cleanup();
-        resolve5(null);
+        resolve4(null);
         return;
       }
       if (key === "\t") {
@@ -442,7 +500,7 @@ function showInputPhase(opts = {}) {
             return;
           }
           cleanup();
-          resolve5({ url: url.trim(), token: token.trim() });
+          resolve4({ url: url.trim(), token: token.trim() });
           return;
         }
         nextField();
@@ -483,7 +541,7 @@ function showInputPhase(opts = {}) {
   });
 }
 function showSavePrompt() {
-  return new Promise((resolve5) => {
+  return new Promise((resolve4) => {
     const stdin = process.stdin;
     const stdout = process.stdout;
     let name = "";
@@ -519,7 +577,7 @@ function showSavePrompt() {
       const key = buf.toString("utf-8");
       if (key === "\x1B" || key === "\x03") {
         cleanup();
-        resolve5(null);
+        resolve4(null);
         return;
       }
       if (key === "\r" || key === `
@@ -536,7 +594,7 @@ function showSavePrompt() {
           return;
         }
         cleanup();
-        resolve5(trimmed);
+        resolve4(trimmed);
         return;
       }
       if (key === "" || key === "\b") {
@@ -622,7 +680,7 @@ var init_remote_wizard = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/framing.ts
+// ../../packages/extension-sdk/dist/ipc/framing.js
 import { Transform } from "node:stream";
 function encodeFrame(data) {
   const payload = Buffer.from(JSON.stringify(data), "utf-8");
@@ -673,7 +731,7 @@ var init_framing = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/protocol.ts
+// ../../packages/extension-sdk/dist/ipc/protocol.js
 function isRequest(msg) {
   return "id" in msg && "method" in msg;
 }
@@ -716,6 +774,7 @@ var init_protocol = __esm(() => {
     GET_ACTIVE_SESSION_ID: "backend.getActiveSessionId",
     GET_TOOL_HANDLE: "backend.getToolHandle",
     GET_TOOL_HANDLES: "backend.getToolHandles",
+    GET_TOOL_DIFF_PREVIEW: "backend.getToolDiffPreview",
     RUN_COMMAND: "backend.runCommand",
     RESET_CONFIG: "backend.resetConfigToDefaults",
     GET_AGENT_TASKS: "backend.getAgentTasks",
@@ -724,6 +783,11 @@ var init_protocol = __esm(() => {
     GET_TOOL_POLICIES: "backend.getToolPolicies",
     GET_CWD: "backend.getCwd",
     SET_CWD: "backend.setCwd",
+    ENABLE_AUTO_EDIT: "backend.enableAutoEdit",
+    DISABLE_AUTO_EDIT: "backend.disableAutoEdit",
+    TOGGLE_AUTO_EDIT: "backend.toggleAutoEdit",
+    GET_AUTO_EDIT_STATE: "backend.getAutoEditState",
+    IS_AUTO_EDIT_ACTIVE: "backend.isAutoEditActive",
     GET_CONFIG: "server.getConfig",
     GET_CONFIG_DIR: "server.getConfigDir",
     SERVER_SHUTDOWN: "server.shutdown",
@@ -769,6 +833,7 @@ var init_protocol = __esm(() => {
     TASK_RESULT: "event:task:result",
     NOTIFICATION_PAYLOADS: "event:notification:payloads",
     MODELS_CHANGED: "event:models:changed",
+    AUTO_EDIT_UPDATE: "event:auto-edit:update",
     HANDLE_STATE: "event:handle:state",
     HANDLE_OUTPUT: "event:handle:output",
     HANDLE_PROGRESS: "event:handle:progress",
@@ -793,12 +858,13 @@ var init_protocol = __esm(() => {
     "agent:notification": Events.AGENT_NOTIFICATION,
     "task:result": Events.TASK_RESULT,
     "notification:payloads": Events.NOTIFICATION_PAYLOADS,
-    "models:changed": Events.MODELS_CHANGED
+    "models:changed": Events.MODELS_CHANGED,
+    "auto-edit:update": Events.AUTO_EDIT_UPDATE
   };
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// node_modules/irises-extension-sdk/src/ipc/remote-tool-handle.ts
+// ../../packages/extension-sdk/dist/ipc/remote-tool-handle.js
 import { EventEmitter } from "node:events";
 var logger, RemoteToolHandle;
 var init_remote_tool_handle = __esm(() => {
@@ -902,7 +968,7 @@ var init_remote_tool_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/remote-backend-handle.ts
+// ../../packages/extension-sdk/dist/ipc/remote-backend-handle.js
 import { EventEmitter as EventEmitter2 } from "node:events";
 var logger2, RemoteBackendHandle;
 var init_remote_backend_handle = __esm(() => {
@@ -961,6 +1027,9 @@ var init_remote_backend_handle = __esm(() => {
     }
     getToolHandles(sessionId) {
       return Array.from(this.toolHandles.values()).filter((h) => h.sessionId === sessionId);
+    }
+    async getToolDiffPreview(toolId) {
+      return await this.callRemote(Methods.GET_TOOL_DIFF_PREVIEW, [toolId]);
     }
     async undo(sessionId, scope) {
       return await this.callRemote(Methods.UNDO, [sessionId, scope]) ?? null;
@@ -1026,6 +1095,44 @@ var init_remote_backend_handle = __esm(() => {
         this._cachedCwd = dirPath;
       }).catch((err) => logger2.warn(`setCwd 失败: ${err.message}`));
     }
+    async enableAutoEdit(sessionId) {
+      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.ENABLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
+      this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    async disableAutoEdit(sessionId) {
+      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.DISABLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
+      this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    async toggleAutoEdit(sessionId) {
+      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.TOGGLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
+      this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    async getAutoEditState(sessionId) {
+      const state = sessionId ? this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.GET_AUTO_EDIT_STATE, [sessionId])) : null;
+      if (sessionId)
+        this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    isAutoEditActive(sessionId) {
+      return !!sessionId && this._autoEditStates.get(sessionId) === true;
+    }
+    normalizeAutoEditState(sessionId, state) {
+      if (!state || typeof state !== "object") {
+        return null;
+      }
+      const record = state;
+      return {
+        ...record,
+        sessionId: typeof record.sessionId === "string" ? record.sessionId : sessionId,
+        active: record.active === true
+      };
+    }
+    updateAutoEditCache(sessionId, state) {
+      this._autoEditStates.set(sessionId, state?.active === true);
+    }
     _streamEnabled = true;
     _cachedModels = [];
     _cachedSkills = [];
@@ -1034,6 +1141,7 @@ var init_remote_backend_handle = __esm(() => {
     _cachedCurrentModelInfo = undefined;
     _cachedDisabledTools = undefined;
     _cachedCwd = process.cwd();
+    _autoEditStates = new Map;
     async initCaches() {
       const [models, skills, modes, toolNames, modelInfo, disabledTools, cwd, streamEnabled] = await Promise.all([
         this.callRemote(Methods.LIST_MODELS).catch(() => []),
@@ -1102,6 +1210,10 @@ var init_remote_backend_handle = __esm(() => {
           this.emit("models:changed", ...params);
           return;
         }
+        if (method === Events.AUTO_EDIT_UPDATE) {
+          const [sessionId, active] = params;
+          this._autoEditStates.set(sessionId, active === true);
+        }
         const backendEvent = IPC_TO_BACKEND_EVENT[method];
         if (!backendEvent)
           return;
@@ -1126,7 +1238,7 @@ var init_remote_backend_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/src/ipc/remote-api-proxy.ts
+// ../../packages/extension-sdk/dist/ipc/remote-api-proxy.js
 function callApi(client, targetAgentName, method, params) {
   if (!targetAgentName) {
     return client.call(method, params);
@@ -1203,16 +1315,7 @@ var init_remote_api_proxy = __esm(() => {
   logger3 = createExtensionLogger("RemoteApiProxy");
 });
 
-// node_modules/irises-extension-sdk/src/ipc/index.ts
-var init_ipc = __esm(() => {
-  init_framing();
-  init_protocol();
-  init_remote_backend_handle();
-  init_remote_tool_handle();
-  init_remote_api_proxy();
-});
-
-// node_modules/irises-extension-sdk/dist/ipc/index.js
+// ../../packages/extension-sdk/dist/ipc/index.js
 var exports_ipc = {};
 __export(exports_ipc, {
   isResponse: () => isResponse,
@@ -1229,8 +1332,12 @@ __export(exports_ipc, {
   ErrorCodes: () => ErrorCodes,
   BACKEND_EVENT_TO_IPC: () => BACKEND_EVENT_TO_IPC
 });
-var init_ipc2 = __esm(() => {
-  init_ipc();
+var init_ipc = __esm(() => {
+  init_framing();
+  init_protocol();
+  init_remote_backend_handle();
+  init_remote_tool_handle();
+  init_remote_api_proxy();
 });
 
 // src/index.ts
@@ -1238,7 +1345,7 @@ import React14 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// node_modules/irises-extension-sdk/src/platform.ts
+// ../../packages/extension-sdk/dist/platform.js
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1301,6 +1408,9 @@ class BackendHandle {
   getToolHandle(toolId) {
     return this._backend.getToolHandle(toolId);
   }
+  getToolDiffPreview(toolId) {
+    return this._backend.getToolDiffPreview?.(toolId) ?? Promise.reject(new Error("getToolDiffPreview is not supported by this backend"));
+  }
   getToolHandles(sessionId) {
     return this._backend.getToolHandles(sessionId);
   }
@@ -1346,12 +1456,6 @@ class BackendHandle {
   getAgentTask(taskId) {
     return this._backend.getAgentTask?.(taskId);
   }
-  getMilestones(sessionId) {
-    return this._backend.getMilestones?.(sessionId);
-  }
-  loadMilestones(sessionId) {
-    return this._backend.loadMilestones?.(sessionId) ?? Promise.resolve(this.getMilestones(sessionId));
-  }
   getToolPolicies() {
     return this._backend.getToolPolicies?.();
   }
@@ -1364,29 +1468,31 @@ class BackendHandle {
   getActiveSessionId() {
     return this._backend.getActiveSessionId?.();
   }
+  enableAutoEdit(sessionId) {
+    return this._backend.enableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  disableAutoEdit(sessionId) {
+    return this._backend.disableAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  toggleAutoEdit(sessionId) {
+    return this._backend.toggleAutoEdit?.(sessionId) ?? { sessionId, active: false };
+  }
+  getAutoEditState(sessionId) {
+    return this._backend.getAutoEditState?.(sessionId) ?? null;
+  }
+  isAutoEditActive(sessionId) {
+    return this._backend.isAutoEditActive?.(sessionId) === true;
+  }
 }
 class PlatformAdapter {
   get name() {
     return this.constructor.name;
   }
 }
-// node_modules/irises-extension-sdk/src/utils/paths.ts
-function normalizeText(value) {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-function normalizeRelativeFilePath(input, label = "文件路径") {
-  const normalized = input.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
-  if (!normalized) {
-    throw new Error(`${label}不能为空`);
-  }
-  const parts = normalized.split("/");
-  if (parts.some((part) => !part || part === "." || part === "..")) {
-    throw new Error(`${label}无效: ${input}`);
-  }
-  return parts.join("/");
-}
 
-// node_modules/irises-extension-sdk/src/utils/dependencies.ts
+// ../../packages/extension-sdk/dist/index.js
+init_logger();
+// ../../packages/extension-sdk/dist/utils/dependencies.js
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
@@ -1523,9 +1629,27 @@ async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
     installArgs: args
   };
 }
-// node_modules/irises-extension-sdk/src/utils/git.ts
+// ../../packages/extension-sdk/dist/utils/git.js
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
+
+// ../../packages/extension-sdk/dist/utils/paths.js
+function normalizeText(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+function normalizeRelativeFilePath(input, label = "文件路径") {
+  const normalized = input.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!normalized) {
+    throw new Error(`${label}不能为空`);
+  }
+  const parts = normalized.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error(`${label}无效: ${input}`);
+  }
+  return parts.join("/");
+}
+
+// ../../packages/extension-sdk/dist/utils/git.js
 var GIT_INSTALL_METADATA_FILE = ".iris-extension-install.json";
 function stripGitPlusProtocol(url) {
   return url.startsWith("git+") ? url.slice("git+".length) : url;
@@ -1650,7 +1774,7 @@ function getCharacterCount(text) {
 }
 
 // src/App.tsx
-import { useCallback as useCallback11, useEffect as useEffect12, useMemo as useMemo8, useRef as useRef9, useState as useState15 } from "react";
+import { useCallback as useCallback11, useEffect as useEffect13, useMemo as useMemo8, useRef as useRef9, useState as useState16 } from "react";
 import { useRenderer } from "@opentui/react";
 
 // src/theme.ts
@@ -1659,6 +1783,7 @@ var C = {
   primaryLight: "#a29bfe",
   accent: "#00b894",
   warn: "#fdcb6e",
+  autoEdit: "#74b9ff",
   error: "#d63031",
   text: "#dfe6e9",
   textSec: "#b2bec3",
@@ -1723,7 +1848,7 @@ function ApprovalBar({ toolName, choice, remainingCount, isCommandTool, approval
           children: [
             /* @__PURE__ */ jsxDEV("span", {
               fg: choice === "approve" ? C.command : C.textSec,
-              children: choice === "approve" ? "[(A)始终允许]" : " (A)始终允许 "
+              children: choice === "approve" ? "[(A)允许此类命令]" : " (A)允许此类命令 "
             }, undefined, false, undefined, this),
             /* @__PURE__ */ jsxDEV("span", {
               fg: C.dim,
@@ -1731,7 +1856,7 @@ function ApprovalBar({ toolName, choice, remainingCount, isCommandTool, approval
             }, undefined, false, undefined, this),
             /* @__PURE__ */ jsxDEV("span", {
               fg: choice === "reject" ? "#e17055" : C.textSec,
-              children: choice === "reject" ? "[(S)始终询问]" : " (S)始终询问 "
+              children: choice === "reject" ? "[(S)询问此类命令]" : " (S)询问此类命令 "
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV(Fragment, {
@@ -2872,20 +2997,22 @@ function hardTruncate(text, maxWidth) {
   }
   return result + ICONS.ellipsis;
 }
-function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, remoteHost }) {
+function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, autoEditActive }) {
   const cwd = process.cwd();
   const hasQueue = (queueSize ?? 0) > 0;
+  const escAction = isGenerating ? "esc 中断生成" : hasRunningBackgroundTasks ? "esc 中断任务" : "ctrl+j 换行";
   let hintStr;
   if (exitConfirmArmed) {
     hintStr = "再次按 ctrl+c 退出";
   } else {
     const parts = [];
-    parts.push(isGenerating ? "esc 中断生成" : "ctrl+j 换行");
+    parts.push("ctrl+e 自动编辑");
+    parts.push(escAction);
     parts.push("ctrl+t 工具详情");
     if (isGenerating && hasQueue) {
       parts.push("/queue 管理队列");
     }
-    parts.push(isGenerating ? "ctrl+s 立即发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式");
+    parts.push(isGenerating ? "ctrl+s 优先发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式");
     hintStr = parts.join(`  ${ICONS.separator}  `);
   }
   const hintWidth = getTextWidth(hintStr);
@@ -2927,7 +3054,12 @@ function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, remoteHo
         children: /* @__PURE__ */ jsxDEV7("text", {
           fg: C.dim,
           children: [
-            isGenerating ? "esc 中断生成" : "ctrl+j 换行",
+            /* @__PURE__ */ jsxDEV7("span", {
+              fg: autoEditActive ? C.autoEdit : C.dim,
+              children: "ctrl+e 自动编辑"
+            }, undefined, false, undefined, this),
+            `  ${ICONS.separator}  `,
+            escAction,
             `  ${ICONS.separator}  ctrl+t 工具详情`,
             isGenerating && hasQueue ? /* @__PURE__ */ jsxDEV7(Fragment3, {
               children: [
@@ -2939,7 +3071,7 @@ function HintBar({ isGenerating, queueSize, copyMode, exitConfirmArmed, remoteHo
               ]
             }, undefined, true, undefined, this) : null,
             `  ${ICONS.separator}  `,
-            isGenerating ? "ctrl+s 立即发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式"
+            isGenerating ? "ctrl+s 优先发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式"
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this)
@@ -2964,6 +3096,16 @@ var COMMANDS = [
   { name: "/reset-config", description: "重置配置为默认值" },
   { name: "/compact", description: "压缩上下文（总结历史消息）" },
   { name: "/plan", description: "进入或查看当前 Agent 会话的 Plan Mode" },
+  {
+    name: "/auto-edit",
+    description: "切换当前会话自动编辑（安全编辑自动应用）",
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: "on", description: "开启当前会话自动编辑" },
+      { value: "off", description: "关闭当前会话自动编辑" },
+      { value: "status", description: "查看当前状态" }
+    ]
+  },
   { name: "/net", description: "配置多端互联（Net）" },
   { name: "/remote", description: "连接远程 Iris 实例" },
   { name: "/disconnect", description: "断开远程连接", remoteOnly: true, color: "#fdcb6e" },
@@ -2975,6 +3117,14 @@ var COMMANDS = [
   { name: "/file", description: "附加文件（图片/文档/音频/视频）  clear 清空" },
   { name: "/headless", description: "关闭 TUI 并保留 Core / IPC 后台运行", requiresHeadlessSupport: true },
   { name: "/detach", description: "同 /headless，分离当前 TUI", requiresHeadlessSupport: true },
+  {
+    name: "/callme",
+    description: "切换 Iris git commit 链接署名（默认关闭，可 status）",
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: "status", description: "查看当前状态" }
+    ]
+  },
   { name: "/exit", description: "退出应用" }
 ];
 function getCommandInput(cmd) {
@@ -3030,7 +3180,13 @@ function buildSuggestionWindow(items, selectedIndex, maxRows) {
 function isPlanModeToggleShortcut(key) {
   return key.shift && key.name === "tab" || key.name === "backtab" || key.name === "shift-tab" || key.sequence === "\x1B[Z";
 }
-function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled }) {
+function isAutoEditToggleShortcut(key) {
+  return key.ctrl && key.name === "e";
+}
+function isPrioritySubmitShortcut(key) {
+  return key.ctrl && key.name === "s" || key.sequence === "\x13" || key.raw === "\x13";
+}
+function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef }) {
   const [inputState, inputActions] = useTextInput("");
   const [selectedIndex, setSelectedIndex] = useState4(0);
   const [queuePromptFrame, setQueuePromptFrame] = useState4(0);
@@ -3086,6 +3242,23 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
   useEffect4(() => {
     setCommandsDismissed(false);
   }, [commandQuery]);
+  useEffect4(() => {
+    if (!inputControllerRef)
+      return;
+    const controller = {
+      hasValue: () => value.length > 0,
+      clear: () => {
+        inputActions.setValue("");
+        setSelectedIndex(0);
+        setCommandsDismissed(false);
+      }
+    };
+    inputControllerRef.current = controller;
+    return () => {
+      if (inputControllerRef.current === controller)
+        inputControllerRef.current = null;
+    };
+  }, [inputControllerRef, inputActions, value]);
   const showCommands = commandQuery.length > 0 && !commandsDismissed;
   const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && value.startsWith(`${activeArgCommand.name} `);
   const filtered = useMemo3(() => {
@@ -3142,6 +3315,10 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       key.preventDefault?.();
       return;
     }
+    if (isAutoEditToggleShortcut(key)) {
+      key.preventDefault?.();
+      return;
+    }
     if (showCommands && filtered.length > 0 || showArgSuggestions && argSuggestions.length > 0) {
       if (key.name === "up") {
         key.preventDefault?.();
@@ -3177,7 +3354,9 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         return;
       }
     }
-    if (key.ctrl && key.name === "s") {
+    if (isPrioritySubmitShortcut(key)) {
+      key.preventDefault?.();
+      key.stopPropagation?.();
       if (!isQueueMode)
         return;
       key.preventDefault?.();
@@ -3754,6 +3933,7 @@ function BottomPanel({
   exitConfirmArmed,
   backgroundTaskCount,
   planModeActive,
+  autoEditActive,
   delegateTaskCount,
   backgroundTaskTokens,
   backgroundTaskSpinnerFrame,
@@ -3767,7 +3947,8 @@ function BottomPanel({
   onRemoveFile,
   dynamicCommands,
   statusSegments,
-  supportsHeadlessTransition
+  supportsHeadlessTransition,
+  inputControllerRef
 }) {
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
   return /* @__PURE__ */ jsxDEV11("box", {
@@ -3822,7 +4003,8 @@ function BottomPanel({
             isRemote,
             dynamicCommands,
             supportsHeadlessTransition,
-            thinkingControlEnabled
+            thinkingControlEnabled,
+            inputControllerRef
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV11(StatusBar, {
             agentName,
@@ -3843,10 +4025,12 @@ function BottomPanel({
       }, undefined, true, undefined, this),
       /* @__PURE__ */ jsxDEV11(HintBar, {
         isGenerating,
+        hasRunningBackgroundTasks: (backgroundTaskCount ?? 0) + (delegateTaskCount ?? 0) > 0,
         queueSize,
         copyMode,
         exitConfirmArmed,
-        remoteHost
+        remoteHost,
+        autoEditActive
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -5373,7 +5557,7 @@ var MessageItem = React8.memo(function MessageItem2({ msg, liveTools, liveParts,
     }, undefined, true, undefined, this);
   }
   const commandLabel = msg.commandLabel ?? "shell";
-  const labelName = isSummary ? "context" : isUser ? "you" : msg.isCommand ? commandLabel : (msg.modelName || modelName || "iris").toLowerCase();
+  const labelName = isSummary ? "context" : isUser ? msg.isQueuedPreview ? "you queued" : "you" : msg.isCommand ? commandLabel : (msg.modelName || modelName || "iris").toLowerCase();
   const commandColor = commandLabel === "plan" ? C.warn : C.command;
   const labelColor = isSummary ? C.warn : isUser ? C.roleUser : msg.isError ? C.error : msg.isCommand ? commandColor : C.roleAssistant;
   const headerText = `${ICONS.separator} ${labelName} `;
@@ -5612,23 +5796,55 @@ function ChatMessageList({
   scrollBoxRef,
   progressSnapshot,
   progressCollapsed,
-  progressScrollOffset
+  progressScrollOffset,
+  queuedMessages,
+  copyMode,
+  onCopySelectionStart,
+  onCopySelectionSnapshot
 }) {
   const { height: termHeight } = useTerminalDimensions5();
+  const captureSelectionSnapshot = (scrollBox) => {
+    const text = scrollBox?.ctx?.getSelection?.()?.getSelectedText?.() ?? "";
+    if (text.trim())
+      onCopySelectionSnapshot?.(text);
+  };
+  const scheduleSelectionSnapshot = (scrollBox, updateSelection = false) => {
+    setTimeout(() => {
+      if (updateSelection)
+        scrollBox?.ctx?.requestSelectionUpdate?.();
+      captureSelectionSnapshot(scrollBox);
+    }, 0);
+  };
   const scrollAccel = useMemo5(() => {
     const chatViewportHeight = Math.max(5, termHeight - 8);
     const step = Math.max(1, Math.round(chatViewportHeight / 5));
     return { tick: () => step, reset: () => {} };
   }, [termHeight]);
-  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-  const lastIsActiveAssistant = lastMessage?.role === "assistant" && (isStreaming || isGenerating && lastMessage.parts.length === 0);
+  const activeAssistantIndex = (() => {
+    for (let i = messages.length - 1;i >= 0; i--) {
+      const message = messages[i];
+      if (message.role !== "assistant" || message.isCommand || message.isError || message.isNotificationSummary)
+        continue;
+      return isStreaming || isGenerating && message.parts.length === 0 ? i : -1;
+    }
+    return -1;
+  })();
+  const hasActiveAssistant = activeAssistantIndex >= 0;
   let lastAssistantIndex = -1;
   for (let i = messages.length - 1;i >= 0; i--) {
-    if (messages[i].role === "assistant") {
+    const message = messages[i];
+    if (message.role === "assistant" && !message.isCommand && !message.isError && !message.isNotificationSummary) {
       lastAssistantIndex = i;
       break;
     }
   }
+  const queuedPreviewMessages = useMemo5(() => (queuedMessages ?? []).map((msg) => ({
+    id: `queued-preview-${msg.id}`,
+    role: "user",
+    parts: [{ type: "text", text: msg.text }],
+    createdAt: msg.createdAt,
+    isQueuedPreview: true
+  })), [queuedMessages]);
   return /* @__PURE__ */ jsxDEV29("scrollbox", {
     ref: scrollBoxRef,
     flexGrow: 1,
@@ -5636,9 +5852,21 @@ function ChatMessageList({
     stickyStart: "bottom",
     paddingRight: 1,
     scrollAcceleration: scrollAccel,
+    onMouseDown: copyMode ? function(_event) {
+      onCopySelectionStart?.();
+    } : undefined,
+    onMouseDrag: copyMode ? function() {
+      scheduleSelectionSnapshot(this);
+    } : undefined,
+    onMouseScroll: copyMode ? function() {
+      scheduleSelectionSnapshot(this, true);
+    } : undefined,
+    onMouseUp: copyMode ? function() {
+      scheduleSelectionSnapshot(this);
+    } : undefined,
     children: [
       messages.map((message, index) => {
-        const isLastActive = lastIsActiveAssistant && index === messages.length - 1;
+        const isLastActive = index === activeAssistantIndex;
         const liveParts = isLastActive && streamingParts.length > 0 ? streamingParts : undefined;
         const hasVisibleContent = message.parts.length > 0 || !!liveParts;
         if (isLastActive && !hasVisibleContent) {
@@ -5684,7 +5912,7 @@ function ChatMessageList({
           showControls: true
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this) : null,
-      isGenerating && !lastIsActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? /* @__PURE__ */ jsxDEV29("box", {
+      isGenerating && !hasActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? /* @__PURE__ */ jsxDEV29("box", {
         flexDirection: "column",
         paddingBottom: 1,
         children: /* @__PURE__ */ jsxDEV29(GeneratingTimer, {
@@ -5693,726 +5921,99 @@ function ChatMessageList({
           label: generatingLabel,
           paused: timerPaused
         }, undefined, false, undefined, this)
-      }, undefined, false, undefined, this) : null
+      }, undefined, false, undefined, this) : null,
+      queuedPreviewMessages.map((message) => /* @__PURE__ */ jsxDEV29("box", {
+        flexDirection: "column",
+        paddingBottom: 1,
+        children: /* @__PURE__ */ jsxDEV29(MessageItem, {
+          msg: message,
+          modelName
+        }, undefined, false, undefined, this)
+      }, message.id, false, undefined, this))
     ]
   }, undefined, true, undefined, this);
 }
 
 // src/components/DiffApprovalView.tsx
-import { useMemo as useMemo6 } from "react";
-import * as fs4 from "fs";
-import * as path4 from "path";
-
-// node_modules/irises-extension-sdk/src/tool-utils.ts
-import * as fs3 from "node:fs";
-import * as path3 from "node:path";
-function normalizeLineEndings(text) {
-  return text.replace(/\r\n/g, `
-`).replace(/\r/g, `
-`);
-}
-function sanitizeUnifiedDiffPatch(patch) {
-  const normalized = normalizeLineEndings(patch);
-  const lines = normalized.split(`
-`);
-  const out = [];
-  for (const line of lines) {
-    if (line.startsWith("```"))
-      continue;
-    if (line.startsWith("***")) {
-      if (line === "***" || line.startsWith("*** Begin Patch") || line.startsWith("*** End Patch") || line.startsWith("*** Update File:") || line.startsWith("*** Add File:") || line.startsWith("*** Delete File:") || line.startsWith("*** End of File")) {
-        continue;
-      }
-    }
-    out.push(line);
-  }
-  return out.join(`
-`);
-}
-function parseUnifiedDiff(patch) {
-  const normalized = sanitizeUnifiedDiffPatch(patch);
-  const lines = normalized.split(`
-`);
-  let oldFile;
-  let newFile;
-  const hunks = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.startsWith("diff --git ")) {
-      if (hunks.length > 0 || oldFile || newFile) {
-        throw new Error("Multi-file patch is not supported. Please split into one apply_diff call per file.");
-      }
-      i++;
-      continue;
-    }
-    if (line.startsWith("--- ")) {
-      if (oldFile && (hunks.length > 0 || newFile)) {
-        throw new Error("Multi-file patch is not supported.");
-      }
-      oldFile = line.slice(4).trim().split("\t")[0]?.trim() || "";
-      i++;
-      continue;
-    }
-    if (line.startsWith("+++ ")) {
-      if (newFile && hunks.length > 0) {
-        throw new Error("Multi-file patch is not supported.");
-      }
-      newFile = line.slice(4).trim().split("\t")[0]?.trim() || "";
-      i++;
-      continue;
-    }
-    if (line.startsWith("@@")) {
-      const header = line;
-      const m = header.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
-      if (!m) {
-        throw new Error(`Invalid hunk header: ${header}. ` + `Expected format: @@ -oldStart,oldCount +newStart,newCount @@`);
-      }
-      const oldStart = parseInt(m[1], 10);
-      const oldCount = m[2] ? parseInt(m[2], 10) : 1;
-      const newStart = parseInt(m[3], 10);
-      const newCount = m[4] ? parseInt(m[4], 10) : 1;
-      const hunkLines = [];
-      i++;
-      while (i < lines.length) {
-        const l = lines[i];
-        if (l.startsWith("@@") || l.startsWith("--- ") || l.startsWith("diff --git ") || l.startsWith("+++ "))
-          break;
-        if (l === "") {
-          i++;
-          continue;
-        }
-        if (l.startsWith("\\")) {
-          i++;
-          continue;
-        }
-        const prefix = l[0];
-        const content = l.length > 0 ? l.slice(1) : "";
-        if (prefix === " ") {
-          hunkLines.push({ type: "context", content, raw: l });
-        } else if (prefix === "+") {
-          hunkLines.push({ type: "add", content, raw: l });
-        } else if (prefix === "-") {
-          hunkLines.push({ type: "del", content, raw: l });
-        } else {
-          throw new Error(`Invalid hunk line prefix '${prefix}' in line: ${l}`);
-        }
-        i++;
-      }
-      hunks.push({ oldStart, oldLines: oldCount, newStart, newLines: newCount, header, lines: hunkLines });
-      continue;
-    }
-    i++;
-  }
-  if (hunks.length === 0) {
-    throw new Error("No hunks (@@ ... @@) found in patch.");
-  }
-  return { oldFile, newFile, hunks };
-}
-var DEFAULT_IGNORED_DIRS = new Set([
-  ".git",
-  "node_modules",
-  "dist",
-  "build",
-  ".next",
-  ".turbo",
-  ".limcode"
-]);
-var BINARY_DETECT_BYTES = 8 * 1024;
-function toPosix(p) {
-  return p.split(path3.sep).join("/");
-}
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function globToRegExp(glob) {
-  const g = toPosix(glob.trim());
-  let re = "^";
-  for (let i = 0;i < g.length; i++) {
-    const ch = g[i];
-    if (ch === "*") {
-      const next = g[i + 1];
-      if (next === "*") {
-        i++;
-        if (g[i + 1] === "/") {
-          i++;
-          re += "(?:.*\\/)?";
-        } else {
-          re += ".*";
-        }
-      } else {
-        re += "[^/]*";
-      }
-      continue;
-    }
-    if (ch === "?") {
-      re += "[^/]";
-      continue;
-    }
-    if ("\\.^$+()[]{}|".includes(ch)) {
-      re += "\\" + ch;
-    } else {
-      re += ch;
-    }
-  }
-  re += "$";
-  return new RegExp(re);
-}
-function shouldIgnoreByPath(relativePosixPath) {
-  const parts = relativePosixPath.split("/");
-  return parts.some((p) => DEFAULT_IGNORED_DIRS.has(p));
-}
-function isLikelyBinary(buf) {
-  const n = Math.min(buf.length, BINARY_DETECT_BYTES);
-  if (n === 0)
-    return false;
-  let suspicious = 0;
-  for (let i = 0;i < n; i++) {
-    const b = buf[i];
-    if (b === 0)
-      return true;
-    const isAllowedWhitespace = b === 9 || b === 10 || b === 13;
-    const isControl = b < 32 && !isAllowedWhitespace || b === 127;
-    if (isControl)
-      suspicious++;
-  }
-  const ratio = suspicious / n;
-  return ratio > 0.3;
-}
-function swapByteOrder16(buf) {
-  const len = buf.length - buf.length % 2;
-  const out = Buffer.allocUnsafe(len);
-  for (let i = 0;i < len; i += 2) {
-    out[i] = buf[i + 1];
-    out[i + 1] = buf[i];
-  }
-  return out;
-}
-function decodeText(buf) {
-  const hasCRLF = buf.includes(Buffer.from(`\r
-`));
-  if (buf.length >= 3 && buf[0] === 239 && buf[1] === 187 && buf[2] === 191) {
-    return {
-      text: buf.subarray(3).toString("utf8"),
-      encoding: "utf-8",
-      hasBom: true,
-      hasCRLF
-    };
-  }
-  if (buf.length >= 2 && buf[0] === 255 && buf[1] === 254) {
-    return {
-      text: buf.subarray(2).toString("utf16le"),
-      encoding: "utf-16le",
-      hasBom: true,
-      hasCRLF
-    };
-  }
-  if (buf.length >= 2 && buf[0] === 254 && buf[1] === 255) {
-    const swapped = swapByteOrder16(buf.subarray(2));
-    return {
-      text: swapped.toString("utf16le"),
-      encoding: "utf-16be",
-      hasBom: true,
-      hasCRLF
-    };
-  }
-  return {
-    text: buf.toString("utf8"),
-    encoding: "utf-8",
-    hasBom: false,
-    hasCRLF
-  };
-}
-function buildSearchRegex(query, isRegex) {
-  if (!query || !query.trim()) {
-    throw new Error("query 不能为空");
-  }
-  return isRegex ? new RegExp(query, "g") : new RegExp(escapeRegex(query), "g");
-}
-function walkFiles(rootAbs, onFile, shouldStop, relPosixDir = "") {
-  if (shouldStop())
-    return;
-  const dirAbs = relPosixDir ? path3.join(rootAbs, relPosixDir) : rootAbs;
-  const entries = fs3.readdirSync(dirAbs, { withFileTypes: true });
-  for (const ent of entries) {
-    if (shouldStop())
-      return;
-    const relPosix = relPosixDir ? `${relPosixDir}/${ent.name}` : ent.name;
-    if (ent.isDirectory()) {
-      if (DEFAULT_IGNORED_DIRS.has(ent.name))
-        continue;
-      if (shouldIgnoreByPath(relPosix))
-        continue;
-      walkFiles(rootAbs, onFile, shouldStop, relPosix);
-      continue;
-    }
-    if (ent.isFile()) {
-      if (shouldIgnoreByPath(relPosix))
-        continue;
-      onFile(path3.join(dirAbs, ent.name), relPosix);
-    }
-  }
-}
-function normalizeObjectArrayArg(args, options) {
-  const arrayValue = args[options.arrayKey];
-  if (Array.isArray(arrayValue) && arrayValue.length > 0) {
-    const normalized = arrayValue.filter(options.isEntry);
-    return normalized.length === arrayValue.length ? normalized : undefined;
-  }
-  if (options.isEntry(arrayValue)) {
-    return [arrayValue];
-  }
-  for (const key of options.singularKeys ?? []) {
-    const singularValue = args[key];
-    if (options.isEntry(singularValue)) {
-      return [singularValue];
-    }
-  }
-  if (options.isEntry(args)) {
-    return [args];
-  }
-  return;
-}
-function resolveProjectPath(inputPath, baseCwd) {
-  const cwd = baseCwd ?? process.cwd();
-  const resolved = path3.resolve(cwd, inputPath);
-  if (resolved !== cwd && !resolved.startsWith(cwd + path3.sep)) {
-    throw new Error(`路径超出项目目录: ${inputPath}`);
-  }
-  return resolved;
-}
-function isWriteEntry(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.path === "string" && typeof value.content === "string";
-}
-function normalizeWriteArgs(args) {
-  if (Array.isArray(args.files) && args.files.length > 0) {
-    const normalized = args.files.filter(isWriteEntry);
-    return normalized.length === args.files.length ? normalized : undefined;
-  }
-  if (isWriteEntry(args.files)) {
-    return [args.files];
-  }
-  if (isWriteEntry(args.file)) {
-    return [args.file];
-  }
-  if (isWriteEntry(args)) {
-    return [{
-      path: args.path,
-      content: args.content
-    }];
-  }
-  return;
-}
-function isInsertEntry(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.path === "string" && typeof value.line === "number" && typeof value.content === "string";
-}
-function normalizeInsertArgs(args) {
-  return normalizeObjectArrayArg(args, {
-    arrayKey: "files",
-    singularKeys: ["file"],
-    isEntry: isInsertEntry
-  });
-}
-function isDeleteCodeEntry(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.path === "string" && typeof value.start_line === "number" && typeof value.end_line === "number";
-}
-function normalizeDeleteCodeArgs(args) {
-  return normalizeObjectArrayArg(args, {
-    arrayKey: "files",
-    singularKeys: ["file"],
-    isEntry: isDeleteCodeEntry
-  });
-}
-
-// src/components/DiffApprovalView.tsx
+import { useEffect as useEffect8, useMemo as useMemo6, useState as useState8 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV30 } from "@opentui/react/jsx-dev-runtime";
-var DEFAULT_SEARCH_PATTERN = "**/*";
-var DEFAULT_SEARCH_MAX_FILES = 50;
-var DEFAULT_SEARCH_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
-function normalizeLineEndings2(text) {
-  return text.replace(/\r\n/g, `
-`).replace(/\r/g, `
-`);
+function normalizePreviewIndex(index, itemCount) {
+  return itemCount > 0 ? (index % itemCount + itemCount) % itemCount : 0;
 }
-function sanitizePatchText(patch) {
-  const lines = normalizeLineEndings2(patch).split(`
-`);
-  const out = [];
-  for (const line of lines) {
-    if (line.startsWith("```"))
-      continue;
-    if (line === "***" || line.startsWith("*** Begin Patch") || line.startsWith("*** End Patch") || line.startsWith("*** Update File:") || line.startsWith("*** Add File:") || line.startsWith("*** Delete File:") || line.startsWith("*** End of File"))
-      continue;
-    out.push(line);
-  }
-  return out.join(`
-`).trim();
-}
-function getSafePatch(value) {
-  if (typeof value === "string")
-    return value;
-  if (value == null)
-    return "";
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-function toDiffLinePrefix(type) {
-  if (type === "add")
-    return "+";
-  if (type === "del")
-    return "-";
-  return " ";
-}
-function buildDisplayDiff(filePath, patch) {
-  const cleaned = sanitizePatchText(patch);
-  if (!cleaned)
-    return "";
-  try {
-    const parsed = parseUnifiedDiff(cleaned);
-    const fallbackOld = `a/${filePath || "file"}`;
-    const fallbackNew = `b/${filePath || "file"}`;
-    const body = parsed.hunks.map((hunk) => {
-      const lines = hunk.lines.map((line) => `${toDiffLinePrefix(line.type)}${line.content}`);
-      const oldCount = hunk.lines.filter((l) => l.type === "context" || l.type === "del").length;
-      const newCount = hunk.lines.filter((l) => l.type === "context" || l.type === "add").length;
-      const header = `@@ -${hunk.oldStart},${oldCount} +${hunk.newStart},${newCount} @@`;
-      return [header, ...lines].join(`
-`);
-    }).join(`
-`);
-    return [`--- ${parsed.oldFile ?? fallbackOld}`, `+++ ${parsed.newFile ?? fallbackNew}`, body].filter(Boolean).join(`
-`);
-  } catch {
-    if (/^(diff --git |--- |\+\+\+ )/m.test(cleaned))
-      return cleaned;
-    if (/^@@/m.test(cleaned)) {
-      const p = filePath || "file";
-      return `--- a/${p}
-+++ b/${p}
-${cleaned}`;
-    }
-    return cleaned;
-  }
-}
-function inferFiletype(filePath) {
-  const ext = filePath.toLowerCase().match(/\.[^.\\/]+$/)?.[0] ?? "";
-  const map = {
-    ".ts": "typescript",
-    ".tsx": "typescript",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".mjs": "javascript",
-    ".cjs": "javascript",
-    ".json": "json",
-    ".md": "markdown",
-    ".markdown": "markdown",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".css": "css",
-    ".html": "html",
-    ".htm": "html",
-    ".py": "python",
-    ".sh": "bash",
-    ".rs": "rust",
-    ".go": "go",
-    ".java": "java",
-    ".sql": "sql"
-  };
-  return map[ext];
-}
-function normalizePositiveInteger(value, fallback) {
-  return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value > 0 ? value : fallback;
-}
-function toWholeFileDiffLines(text) {
-  if (!text)
-    return [];
-  const lines = normalizeLineEndings2(text).split(`
-`);
-  if (lines.length > 0 && lines[lines.length - 1] === "")
-    lines.pop();
-  return lines;
-}
-function buildWholeFileDiff(filePath, before, after, existed) {
-  if (before === after)
-    return "";
-  const beforeLines = toWholeFileDiffLines(before);
-  const afterLines = toWholeFileDiffLines(after);
-  const bodyLines = [
-    ...beforeLines.map((line) => `-${line}`),
-    ...afterLines.map((line) => `+${line}`)
-  ];
-  if (bodyLines.length === 0)
-    return "";
-  const oldFile = existed ? `a/${filePath}` : "/dev/null";
-  return [
-    `--- ${oldFile}`,
-    `+++ b/${filePath}`,
-    `@@ -${beforeLines.length > 0 ? 1 : 0},${beforeLines.length} +${afterLines.length > 0 ? 1 : 0},${afterLines.length} @@`,
-    ...bodyLines
-  ].join(`
-`);
-}
-function createMsg(id, filePath, label, message) {
-  return { id, filePath, label, filetype: inferFiletype(filePath), message };
-}
-function buildApplyDiffPreview(inv) {
-  const filePath = typeof inv.args.path === "string" ? inv.args.path : "";
-  const rawPatch = getSafePatch(inv.args.patch);
-  const displayDiff = buildDisplayDiff(filePath, rawPatch);
+function loadingPreview(invocation) {
   return {
-    title: "Diff 审批",
-    toolLabel: "apply_diff",
-    summary: [filePath ? `目标文件：${filePath}` : "目标文件：未提供"],
-    items: [displayDiff ? { id: `${inv.id}:apply_diff`, filePath, label: filePath || "补丁预览", diff: displayDiff, filetype: inferFiletype(filePath) } : createMsg(`${inv.id}:apply_diff.empty`, filePath, filePath || "补丁预览", "当前补丁为空，无法显示 diff。")]
-  };
-}
-function buildWriteFilePreview(inv) {
-  const fileList = normalizeWriteArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return {
-      title: "Diff 审批",
-      toolLabel: "write_file",
-      summary: ["参数不完整，无法生成 write_file 预览。"],
-      items: [createMsg(`${inv.id}:write_file.invalid`, "", "write_file", "files 参数无效。")]
-    };
-  }
-  const items = [];
-  let created = 0, modified = 0, unchanged = 0, errored = 0;
-  fileList.forEach((entry, i) => {
-    try {
-      const resolved = resolveProjectPath(entry.path);
-      let existed = false, before = "";
-      if (fs4.existsSync(resolved)) {
-        before = fs4.readFileSync(resolved, "utf-8");
-        existed = true;
-      }
-      if (existed && before === entry.content) {
-        unchanged++;
-        return;
-      }
-      const diff = buildWholeFileDiff(entry.path, before, entry.content, existed);
-      const action = existed ? "修改" : "新增";
-      items.push(diff ? { id: `${inv.id}:write_file:${i}`, filePath: entry.path, label: `${entry.path} ${ICONS.separator} ${action}`, diff, filetype: inferFiletype(entry.path) } : createMsg(`${inv.id}:write_file:${i}`, entry.path, `${entry.path} ${ICONS.separator} ${action}`, existed ? "内容变化特殊，无法显示 diff。" : "将创建空文件。"));
-      if (existed)
-        modified++;
-      else
-        created++;
-    } catch (err) {
-      errored++;
-      items.push(createMsg(`${inv.id}:write_file:${i}`, entry.path, `${entry.path} ${ICONS.separator} 预览失败`, err instanceof Error ? err.message : String(err)));
-    }
-  });
-  const summary = [`共 ${fileList.length} 个文件`, `新增 ${created}，修改 ${modified}，未变化 ${unchanged}`];
-  if (errored > 0)
-    summary.push(`${errored} 个文件无法生成预览`);
-  if (items.length === 0)
-    items.push(createMsg(`${inv.id}:write_file.empty`, "", "write_file", "本次 write_file 不会产生实际变更。"));
-  return { title: "Diff 审批", toolLabel: "write_file", summary, items };
-}
-function buildInsertCodePreview(inv) {
-  const fileList = normalizeInsertArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return {
-      title: "Diff 审批",
-      toolLabel: "insert_code",
-      summary: ["参数不完整，无法生成 insert_code 预览。"],
-      items: [createMsg(`${inv.id}:insert_code.invalid`, "", "insert_code", "files 参数无效。")]
-    };
-  }
-  const items = [];
-  let successCount = 0, errored = 0;
-  fileList.forEach((entry, i) => {
-    try {
-      const resolved = resolveProjectPath(entry.path);
-      const before = fs4.readFileSync(resolved, "utf-8");
-      const lines = before.split(`
-`);
-      const insertLines = entry.content.split(`
-`);
-      const idx = entry.line - 1;
-      const after = [...lines.slice(0, idx), ...insertLines, ...lines.slice(idx)].join(`
-`);
-      const diff = buildWholeFileDiff(entry.path, before, after, true);
-      items.push(diff ? { id: `${inv.id}:insert_code:${i}`, filePath: entry.path, label: `${entry.path} ${ICONS.separator} 第 ${entry.line} 行前插入 ${insertLines.length} 行`, diff, filetype: inferFiletype(entry.path) } : createMsg(`${inv.id}:insert_code:${i}`, entry.path, `${entry.path} ${ICONS.separator} 插入`, "无法显示 diff。"));
-      successCount++;
-    } catch (err) {
-      errored++;
-      items.push(createMsg(`${inv.id}:insert_code:${i}`, entry.path, `${entry.path} ${ICONS.separator} 预览失败`, err instanceof Error ? err.message : String(err)));
-    }
-  });
-  const summary = [`共 ${fileList.length} 个操作`, `可预览 ${successCount} 个`];
-  if (errored > 0)
-    summary.push(`${errored} 个操作无法生成预览`);
-  if (items.length === 0)
-    items.push(createMsg(`${inv.id}:insert_code.empty`, "", "insert_code", "无可预览的变更。"));
-  return { title: "Diff 审批", toolLabel: "insert_code", summary, items };
-}
-function buildDeleteCodePreview(inv) {
-  const fileList = normalizeDeleteCodeArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return {
-      title: "Diff 审批",
-      toolLabel: "delete_code",
-      summary: ["参数不完整，无法生成 delete_code 预览。"],
-      items: [createMsg(`${inv.id}:delete_code.invalid`, "", "delete_code", "files 参数无效。")]
-    };
-  }
-  const items = [];
-  let successCount = 0, errored = 0;
-  fileList.forEach((entry, i) => {
-    try {
-      const resolved = resolveProjectPath(entry.path);
-      const before = fs4.readFileSync(resolved, "utf-8");
-      const lines = before.split(`
-`);
-      const after = [...lines.slice(0, entry.start_line - 1), ...lines.slice(entry.end_line)].join(`
-`);
-      const deletedCount = entry.end_line - entry.start_line + 1;
-      const diff = buildWholeFileDiff(entry.path, before, after, true);
-      items.push(diff ? { id: `${inv.id}:delete_code:${i}`, filePath: entry.path, label: `${entry.path} ${ICONS.separator} 删除第 ${entry.start_line}-${entry.end_line} 行（${deletedCount} 行）`, diff, filetype: inferFiletype(entry.path) } : createMsg(`${inv.id}:delete_code:${i}`, entry.path, `${entry.path} ${ICONS.separator} 删除`, "无法显示 diff。"));
-      successCount++;
-    } catch (err) {
-      errored++;
-      items.push(createMsg(`${inv.id}:delete_code:${i}`, entry.path, `${entry.path} ${ICONS.separator} 预览失败`, err instanceof Error ? err.message : String(err)));
-    }
-  });
-  const summary = [`共 ${fileList.length} 个操作`, `可预览 ${successCount} 个`];
-  if (errored > 0)
-    summary.push(`${errored} 个操作无法生成预览`);
-  if (items.length === 0)
-    items.push(createMsg(`${inv.id}:delete_code.empty`, "", "delete_code", "无可预览的变更。"));
-  return { title: "Diff 审批", toolLabel: "delete_code", summary, items };
-}
-function buildSearchReplacePreview(inv) {
-  const inputPath = typeof inv.args.path === "string" ? inv.args.path : ".";
-  const pattern = typeof inv.args.pattern === "string" ? inv.args.pattern : DEFAULT_SEARCH_PATTERN;
-  const isRegex = inv.args.isRegex === true;
-  const query = String(inv.args.query ?? "");
-  const replace = inv.args.replace;
-  const maxFiles = normalizePositiveInteger(inv.args.maxFiles, DEFAULT_SEARCH_MAX_FILES);
-  const maxFileSizeBytes = normalizePositiveInteger(inv.args.maxFileSizeBytes, DEFAULT_SEARCH_MAX_FILE_SIZE_BYTES);
-  if (typeof replace !== "string") {
-    return {
-      title: "Diff 审批",
-      toolLabel: "search_in_files.replace",
-      summary: ["replace 参数缺失。"],
-      items: [createMsg(`${inv.id}:search_replace.invalid`, inputPath, "search_in_files.replace", "replace 模式下必须提供 replace 参数。")]
-    };
-  }
-  try {
-    const regex = buildSearchRegex(query, isRegex);
-    const rootAbs = resolveProjectPath(inputPath);
-    const stat = fs4.statSync(rootAbs);
-    const patternRe = globToRegExp(pattern);
-    const items = [];
-    let processedFiles = 0, changedFiles = 0, unchangedFiles = 0;
-    let skippedBinary = 0, skippedTooLarge = 0, totalReplacements = 0;
-    let truncated = false;
-    const shouldStop = () => processedFiles >= maxFiles;
-    const processFile = (fileAbs, relPosix) => {
-      if (shouldStop())
-        return;
-      if (stat.isDirectory() && !patternRe.test(relPosix))
-        return;
-      processedFiles++;
-      const displayPath = stat.isDirectory() ? toPosix(path4.join(inputPath, relPosix)) : toPosix(inputPath);
-      const buf = fs4.readFileSync(fileAbs);
-      if (buf.length > maxFileSizeBytes) {
-        skippedTooLarge++;
-        return;
-      }
-      if (isLikelyBinary(buf)) {
-        skippedBinary++;
-        return;
-      }
-      const decoded = decodeText(buf);
-      const countRegex = new RegExp(regex.source, regex.flags);
-      let replacements = 0;
-      for (;; ) {
-        const m = countRegex.exec(decoded.text);
-        if (!m)
-          break;
-        if (m[0].length === 0) {
-          countRegex.lastIndex++;
-          continue;
-        }
-        replacements++;
-      }
-      if (replacements === 0) {
-        unchangedFiles++;
-        return;
-      }
-      const replaceRegex = new RegExp(regex.source, regex.flags);
-      const newText = decoded.text.replace(replaceRegex, replace);
-      if (newText === decoded.text) {
-        unchangedFiles++;
-        return;
-      }
-      const diff = buildWholeFileDiff(displayPath, decoded.text, newText, true);
-      items.push(diff ? { id: `${inv.id}:search_replace:${displayPath}`, filePath: displayPath, label: `${displayPath} ${ICONS.separator} ${replacements} 处替换`, diff, filetype: inferFiletype(displayPath) } : createMsg(`${inv.id}:search_replace:${displayPath}`, displayPath, `${displayPath} ${ICONS.separator} ${replacements} 处替换`, "文件将变化，但无法显示 diff。"));
-      changedFiles++;
-      totalReplacements += replacements;
-    };
-    if (stat.isFile())
-      processFile(rootAbs, toPosix(path4.basename(rootAbs)));
-    else {
-      walkFiles(rootAbs, processFile, shouldStop);
-      if (processedFiles >= maxFiles)
-        truncated = true;
-    }
-    const summary = [
-      `路径 ${inputPath} ${ICONS.separator} pattern ${pattern}`,
-      `已处理 ${processedFiles} 个文件 ${ICONS.separator} 将变更 ${changedFiles} 个文件 ${ICONS.separator} 共 ${totalReplacements} 处替换`
-    ];
-    if (unchangedFiles > 0)
-      summary.push(`无实际变化 ${unchangedFiles} 个文件`);
-    if (skippedBinary > 0 || skippedTooLarge > 0)
-      summary.push(`跳过二进制 ${skippedBinary} 个 ${ICONS.separator} 跳过过大文件 ${skippedTooLarge} 个`);
-    if (truncated)
-      summary.push(`已达到 maxFiles=${maxFiles}，预览已截断`);
-    if (items.length === 0)
-      items.push(createMsg(`${inv.id}:search_replace.empty`, inputPath, "search_in_files.replace", "当前 replace 不会修改任何文件。"));
-    return { title: "Diff 审批", toolLabel: "search_in_files.replace", summary, items };
-  } catch (err) {
-    return {
-      title: "Diff 审批",
-      toolLabel: "search_in_files.replace",
-      summary: ["生成预览时发生错误。"],
-      items: [createMsg(`${inv.id}:search_replace.error`, inputPath, "search_in_files.replace", err instanceof Error ? err.message : String(err))]
-    };
-  }
-}
-function buildPreview(invocation) {
-  switch (invocation.toolName) {
-    case "apply_diff":
-      return buildApplyDiffPreview(invocation);
-    case "write_file":
-      return buildWriteFilePreview(invocation);
-    case "insert_code":
-      return buildInsertCodePreview(invocation);
-    case "delete_code":
-      return buildDeleteCodePreview(invocation);
-    case "search_in_files":
-      if ((invocation.args.mode ?? "search") === "replace") {
-        return buildSearchReplacePreview(invocation);
-      }
-      break;
-  }
-  return {
+    toolName: invocation.toolName,
     title: "Diff 审批",
     toolLabel: invocation.toolName,
-    summary: ["当前工具不支持 diff 审批预览。"],
-    items: [createMsg(`${invocation.id}:unsupported`, "", invocation.toolName, "当前工具不支持 diff 审批预览。")]
+    summary: ["正在加载 diff 预览…"],
+    items: []
   };
 }
-function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumbers, wrapMode, previewIndex = 0 }) {
-  const preview = useMemo6(() => buildPreview(invocation), [invocation]);
-  const normalizedPreviewIndex = preview.items.length > 0 ? (previewIndex % preview.items.length + preview.items.length) % preview.items.length : 0;
-  const currentItem = preview.items[normalizedPreviewIndex];
+function errorPreview(invocation, message) {
+  return {
+    toolName: invocation.toolName,
+    title: "Diff 审批",
+    toolLabel: invocation.toolName,
+    summary: ["生成预览失败。"],
+    items: [{
+      id: `${invocation.id}:preview.error`,
+      filePath: typeof invocation.args.path === "string" ? invocation.args.path : "",
+      label: invocation.toolName,
+      added: 0,
+      removed: 0,
+      message
+    }]
+  };
+}
+function DiffApprovalView({
+  invocation,
+  pendingCount,
+  choice,
+  view,
+  showLineNumbers,
+  wrapMode,
+  previewIndex = 0,
+  getPreview
+}) {
+  const [preview, setPreview] = useState8(() => loadingPreview(invocation));
+  const [loading, setLoading] = useState8(false);
+  useEffect8(() => {
+    let cancelled = false;
+    if (!getPreview) {
+      setLoading(false);
+      setPreview(errorPreview(invocation, "当前平台不支持 diff 预览。"));
+      return () => {
+        cancelled = true;
+      };
+    }
+    setLoading(true);
+    setPreview(loadingPreview(invocation));
+    Promise.resolve(getPreview(invocation.id)).then((nextPreview) => {
+      if (cancelled)
+        return;
+      setPreview(nextPreview);
+    }).catch((err) => {
+      if (cancelled)
+        return;
+      setPreview(errorPreview(invocation, err instanceof Error ? err.message : String(err)));
+    }).finally(() => {
+      if (!cancelled)
+        setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [getPreview, invocation.id]);
+  const items = preview.items ?? [];
+  const normalizedPreviewIndex = normalizePreviewIndex(previewIndex, items.length);
+  const currentItem = items[normalizedPreviewIndex];
+  const toolLabel = preview.toolLabel ?? preview.toolName ?? invocation.toolName;
+  const summaryLines = useMemo6(() => {
+    if (loading && preview.summary.length === 0)
+      return ["正在加载 diff 预览…"];
+    return preview.summary ?? [];
+  }, [loading, preview.summary]);
   return /* @__PURE__ */ jsxDEV30("box", {
     flexDirection: "column",
     width: "100%",
@@ -6433,20 +6034,24 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
               /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.warn,
                 children: /* @__PURE__ */ jsxDEV30("strong", {
-                  children: preview.title
+                  children: preview.title || "Diff 审批"
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
               /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.dim,
-                children: `  ${preview.toolLabel}`
+                children: `  ${toolLabel}`
               }, undefined, false, undefined, this),
               pendingCount > 1 ? /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.dim,
                 children: `  (剩余 ${pendingCount - 1} 个)`
               }, undefined, false, undefined, this) : null,
-              preview.items.length > 1 ? /* @__PURE__ */ jsxDEV30("span", {
+              items.length > 1 ? /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.dim,
-                children: `  (预览 ${normalizedPreviewIndex + 1}/${preview.items.length})`
+                children: `  (预览 ${normalizedPreviewIndex + 1}/${items.length})`
+              }, undefined, false, undefined, this) : null,
+              currentItem?.diff ? /* @__PURE__ */ jsxDEV30("span", {
+                fg: C.dim,
+                children: `  +${currentItem.added} -${currentItem.removed}`
               }, undefined, false, undefined, this) : null
             ]
           }, undefined, true, undefined, this),
@@ -6470,10 +6075,10 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
             fg: C.dim,
             children: currentItem.label
           }, undefined, false, undefined, this) : null,
-          preview.summary.map((line, index) => /* @__PURE__ */ jsxDEV30("text", {
+          summaryLines.map((line, index) => /* @__PURE__ */ jsxDEV30("text", {
             fg: C.dim,
             children: line
-          }, `${preview.toolLabel}.summary.${index}`, false, undefined, this))
+          }, `${toolLabel}.summary.${index}`, false, undefined, this))
         ]
       }, undefined, true, undefined, this),
       /* @__PURE__ */ jsxDEV30("scrollbox", {
@@ -6484,7 +6089,12 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
         borderColor: C.border,
         verticalScrollbarOptions: { visible: true },
         horizontalScrollbarOptions: { visible: false },
-        children: currentItem?.diff ? /* @__PURE__ */ jsxDEV30("diff", {
+        children: loading ? /* @__PURE__ */ jsxDEV30("text", {
+          fg: C.dim,
+          paddingX: 1,
+          paddingY: 1,
+          children: "加载 diff 预览中…"
+        }, undefined, false, undefined, this) : currentItem?.diff ? /* @__PURE__ */ jsxDEV30("diff", {
           diff: currentItem.diff,
           view,
           filetype: currentItem.filetype,
@@ -6506,7 +6116,7 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
           fg: currentItem?.message ? C.textSec : C.dim,
           paddingX: 1,
           paddingY: 1,
-          children: currentItem?.message ?? "当前补丁为空，无法显示 diff。"
+          children: currentItem?.message ?? "当前没有可显示的 diff。"
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
       /* @__PURE__ */ jsxDEV30("box", {
@@ -6541,7 +6151,7 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
           /* @__PURE__ */ jsxDEV30("text", {
             fg: C.dim,
             children: [
-              preview.items.length > 1 ? `${ICONS.arrowUp} / ${ICONS.arrowDown} 切换文件　` : "",
+              items.length > 1 ? `${ICONS.arrowUp} / ${ICONS.arrowDown} 切换文件　` : "",
               `Tab / ${ICONS.arrowLeft} / ${ICONS.arrowRight} 切换　Enter 确认　Y 批准　N 拒绝　V 切换视图　L 切换行号　W 切换换行　Esc 中断本次生成`
             ]
           }, undefined, true, undefined, this)
@@ -6742,7 +6352,7 @@ function LogoScreen() {
 }
 
 // src/components/ToolDetailView.tsx
-import { useState as useState8, useCallback as useCallback3 } from "react";
+import { useState as useState9, useCallback as useCallback3 } from "react";
 import { useKeyboard as useKeyboard3 } from "@opentui/react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV34 } from "@opentui/react/jsx-dev-runtime";
@@ -6809,8 +6419,8 @@ function childArgsSummary(toolName, args) {
     case "insert_code": {
       if (Array.isArray(args.files) && args.files.length > 0) {
         const first = args.files[0];
-        const path5 = typeof first === "object" && first ? String(first.path || "") : "";
-        return args.files.length > 1 ? `${path5} +${args.files.length - 1}` : path5;
+        const path4 = typeof first === "object" && first ? String(first.path || "") : "";
+        return args.files.length > 1 ? `${path4} +${args.files.length - 1}` : path4;
       }
       return String(args.path || "");
     }
@@ -6855,7 +6465,7 @@ function Divider({ label }) {
 function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort }) {
   const { invocation, output, children } = data;
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
-  const [selectedIdx, setSelectedIdx] = useState8(0);
+  const [selectedIdx, setSelectedIdx] = useState9(0);
   const isFinal = TERMINAL_STATUSES2.has(status);
   const isExecuting = status === "executing";
   const DetailRenderer = getToolDetailRenderer(toolName);
@@ -7687,8 +7297,8 @@ function argsSummary(toolName, args) {
     case "insert_code": {
       if (Array.isArray(args.files) && args.files.length > 0) {
         const first = args.files[0];
-        const path5 = typeof first === "object" && first ? String(first.path || "") : "";
-        return args.files.length > 1 ? `${path5} +${args.files.length - 1}` : path5;
+        const path4 = typeof first === "object" && first ? String(first.path || "") : "";
+        return args.files.length > 1 ? `${path4} +${args.files.length - 1}` : path4;
       }
       return String(args.path || "");
     }
@@ -8430,7 +8040,7 @@ function ExtensionListView({
 }
 
 // src/components/SettingsView.tsx
-import { useCallback as useCallback4, useEffect as useEffect8, useMemo as useMemo7, useState as useState9 } from "react";
+import { useCallback as useCallback4, useEffect as useEffect9, useMemo as useMemo7, useState as useState10 } from "react";
 import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions8 } from "@opentui/react";
 init_terminal_compat();
 
@@ -8464,16 +8074,50 @@ function getConsoleDiffApprovalViewDescription(toolName) {
 
 // src/settings.ts
 var CONSOLE_LLM_PROVIDER_OPTIONS = [
+  "deepseek",
   "gemini",
   "openai-compatible",
   "openai-responses",
   "claude"
 ];
+var DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
+var DEEPSEEK_MODEL_IDS = ["deepseek-v4-flash", "deepseek-v4-pro"];
+function normalizeDeepSeekModelId(modelId) {
+  const value = typeof modelId === "string" ? modelId.trim() : "";
+  return DEEPSEEK_MODEL_IDS.includes(value) ? value : DEEPSEEK_MODEL_IDS[0];
+}
 var CONSOLE_MCP_TRANSPORT_OPTIONS = [
   "stdio",
   "sse",
   "streamable-http"
 ];
+var CONSOLE_LLM_PROVIDER_DEFAULTS = {
+  deepseek: {
+    model: "deepseek-v4-flash",
+    baseUrl: DEEPSEEK_BASE_URL,
+    contextWindow: 1e6
+  },
+  gemini: {
+    model: "gemini-2.0-flash",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    contextWindow: 1048576
+  },
+  "openai-compatible": {
+    model: "gpt-4o",
+    baseUrl: "https://api.openai.com/v1",
+    contextWindow: 128000
+  },
+  "openai-responses": {
+    model: "gpt-4o",
+    baseUrl: "https://api.openai.com/v1",
+    contextWindow: 128000
+  },
+  claude: {
+    model: "claude-sonnet-4-6",
+    baseUrl: "https://api.anthropic.com/v1",
+    contextWindow: 200000
+  }
+};
 function normalizeTransport(value) {
   if (value === "sse" || value === "streamable-http")
     return value;
@@ -8482,28 +8126,30 @@ function normalizeTransport(value) {
   return "stdio";
 }
 function sanitizeServerName(name) {
-  return name.replace(/[^a-zA-Z0-9_]/g, "_");
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
-function createEmptyModel(provider = "gemini", modelName = "", defaults = {}) {
-  const providerDefaults = defaults[provider] ?? defaults.gemini ?? {};
+function createEmptyModel(provider = CONSOLE_LLM_PROVIDER_OPTIONS[0], modelName = "", defaults = {}) {
+  const providerDefaults = defaults[provider] ?? CONSOLE_LLM_PROVIDER_DEFAULTS[provider] ?? defaults.gemini ?? CONSOLE_LLM_PROVIDER_DEFAULTS.gemini ?? {};
   return {
     modelName,
     provider,
     apiKey: "",
-    modelId: providerDefaults.model ?? "",
+    modelId: provider === "deepseek" ? normalizeDeepSeekModelId(providerDefaults.model) : providerDefaults.model ?? "",
     contextWindow: typeof providerDefaults.contextWindow === "number" ? providerDefaults.contextWindow : undefined,
     baseUrl: providerDefaults.baseUrl ?? ""
   };
 }
 function applyModelProviderChange(model, nextProvider, defaults = {}) {
-  const oldDefaults = defaults[model.provider] ?? {};
-  const newDefaults = defaults[nextProvider] ?? {};
+  const oldDefaults = defaults[model.provider] ?? CONSOLE_LLM_PROVIDER_DEFAULTS[model.provider] ?? {};
+  const newDefaults = defaults[nextProvider] ?? CONSOLE_LLM_PROVIDER_DEFAULTS[nextProvider] ?? {};
+  const baseUrl = nextProvider === "deepseek" ? DEEPSEEK_BASE_URL : !model.baseUrl || model.baseUrl === oldDefaults.baseUrl ? newDefaults.baseUrl ?? model.baseUrl : model.baseUrl;
+  const modelId = nextProvider === "deepseek" ? normalizeDeepSeekModelId(newDefaults.model) : !model.modelId || model.modelId === oldDefaults.model ? newDefaults.model ?? model.modelId : model.modelId;
   return {
     ...model,
     provider: nextProvider,
     apiKey: model.apiKey,
-    modelId: !model.modelId || model.modelId === oldDefaults.model ? newDefaults.model ?? model.modelId : model.modelId,
-    baseUrl: !model.baseUrl || model.baseUrl === oldDefaults.baseUrl ? newDefaults.baseUrl ?? model.baseUrl : model.baseUrl
+    modelId,
+    baseUrl
   };
 }
 function createDefaultMCPServerEntry() {
@@ -8525,8 +8171,8 @@ function cloneConsoleSettingsSnapshot(snapshot) {
 function buildModelPayload(model) {
   const payload = {
     provider: model.provider,
-    model: model.modelId,
-    baseUrl: model.baseUrl,
+    model: model.provider === "deepseek" ? normalizeDeepSeekModelId(model.modelId) : model.modelId,
+    baseUrl: model.provider === "deepseek" ? DEEPSEEK_BASE_URL : model.baseUrl,
     contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : null
   };
   payload.apiKey = model.apiKey || null;
@@ -8576,7 +8222,7 @@ function validateSnapshot(snapshot) {
       return "MCP 服务器名称不能为空";
     }
     if (safeName !== trimmedName) {
-      return `MCP 服务器名称 "${trimmedName}" 仅支持字母、数字和下划线`;
+      return `MCP 服务器名称 "${trimmedName}" 仅支持字母、数字、下划线和连字符`;
     }
     if (names.has(trimmedName)) {
       return `MCP 服务器名称 "${trimmedName}" 重复`;
@@ -8683,9 +8329,9 @@ class ConsoleSettingsController {
         originalModelName: model.modelName,
         provider: model.provider,
         apiKey: model.apiKey,
-        modelId: model.model,
+        modelId: model.provider === "deepseek" ? normalizeDeepSeekModelId(model.model) : model.model,
         contextWindow: model.contextWindow,
-        baseUrl: model.baseUrl
+        baseUrl: model.provider === "deepseek" ? DEEPSEEK_BASE_URL : model.baseUrl
       })),
       modelOriginalNames: (llm.models ?? []).map((model) => model.modelName),
       defaultModelName: llm.defaultModelName ?? "",
@@ -8828,8 +8474,9 @@ function formatToolPolicyMode(mode) {
     return "手动确认";
   return "不允许";
 }
+var DEEPSEEK_MODEL_IDS2 = ["deepseek-v4-flash", "deepseek-v4-pro"];
 function isInlineCycleTarget(target) {
-  return target.kind === "modelProvider" || target.kind === "toolPolicy" || target.kind === "mcpField" && target.field === "transport";
+  return target.kind === "modelProvider" || target.kind === "deepseekModel" || target.kind === "toolPolicy" || target.kind === "mcpField" && target.field === "transport";
 }
 function getStatusColor(kind) {
   switch (kind) {
@@ -8936,9 +8583,15 @@ function buildRows(snapshot, termWidth) {
     pushField(`model.${index}.default`, "general", "设为默认", boolText(snapshot.defaultModelName === model.modelName && !!model.modelName), { kind: "modelDefault", modelIndex: index }, "Space 或 Enter 设为默认模型。", 6);
     pushField(`model.${index}.provider`, "general", "Provider", model.provider, { kind: "modelProvider", modelIndex: index }, "左右方向键切换 Provider。", 6);
     pushField(`model.${index}.modelName`, "general", "名称", model.modelName || "(空)", { kind: "modelField", modelIndex: index, field: "modelName" }, "回车编辑。", 6);
-    pushField(`model.${index}.modelId`, "general", "模型 ID", model.modelId || "(空)", { kind: "modelField", modelIndex: index, field: "modelId" }, "回车编辑。", 6);
+    if (model.provider === "deepseek") {
+      pushField(`model.${index}.modelId`, "general", "模型 ID", model.modelId || "(空)", { kind: "deepseekModel", modelIndex: index }, "Enter 或 → 在 Flash / Pro 间切换。", 6);
+    } else {
+      pushField(`model.${index}.modelId`, "general", "模型 ID", model.modelId || "(空)", { kind: "modelField", modelIndex: index, field: "modelId" }, "回车编辑。", 6);
+    }
     pushField(`model.${index}.apiKey`, "general", "API Key", model.apiKey || "未配置", { kind: "modelField", modelIndex: index, field: "apiKey" }, undefined, 6);
-    pushField(`model.${index}.baseUrl`, "general", "Base URL", model.baseUrl || "(空)", { kind: "modelField", modelIndex: index, field: "baseUrl" }, "回车编辑。", 6);
+    if (model.provider !== "deepseek") {
+      pushField(`model.${index}.baseUrl`, "general", "Base URL", model.baseUrl || "(空)", { kind: "modelField", modelIndex: index, field: "baseUrl" }, "回车编辑。", 6);
+    }
   });
   pushField("system.systemPrompt", "general", "System / Prompt", previewText(snapshot.system.systemPrompt, maxPreview), { kind: "systemField", field: "systemPrompt" }, "回车编辑；\\n 表示换行。");
   pushField("system.maxToolRounds", "general", "System / Max Tool Rounds", String(snapshot.system.maxToolRounds), { kind: "systemField", field: "maxToolRounds" });
@@ -9009,19 +8662,19 @@ var BUILTIN_SECTIONS = [
 ];
 function SettingsView({ initialSection = "general", onBack, onLoad, onSave, pluginTabs }) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions8();
-  const [loading, setLoading] = useState9(true);
-  const [saving, setSaving] = useState9(false);
-  const [draft, setDraft] = useState9(null);
-  const [baseline, setBaseline] = useState9(null);
-  const [selectedRowId, setSelectedRowId] = useState9("");
-  const [navFocused, setNavFocused] = useState9(true);
-  const [editor, setEditor] = useState9(null);
-  const [editorValue, setEditorValue] = useState9("");
-  const [statusText, setStatusText] = useState9("");
-  const [statusKind, setStatusKind] = useState9("info");
-  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState9(false);
-  const [pluginDraft, setPluginDraft] = useState9({});
-  const [pluginBaseline, setPluginBaseline] = useState9({});
+  const [loading, setLoading] = useState10(true);
+  const [saving, setSaving] = useState10(false);
+  const [draft, setDraft] = useState10(null);
+  const [baseline, setBaseline] = useState10(null);
+  const [selectedRowId, setSelectedRowId] = useState10("");
+  const [navFocused, setNavFocused] = useState10(true);
+  const [editor, setEditor] = useState10(null);
+  const [editorValue, setEditorValue] = useState10("");
+  const [statusText, setStatusText] = useState10("");
+  const [statusKind, setStatusKind] = useState10("info");
+  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState10(false);
+  const [pluginDraft, setPluginDraft] = useState10({});
+  const [pluginBaseline, setPluginBaseline] = useState10({});
   const sections = useMemo7(() => {
     const pluginSections = (pluginTabs ?? []).map((tab, i) => ({
       id: tab.id,
@@ -9110,7 +8763,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
   }, [selectableRows, selectedRowId]);
   const sectionSelectableRows = useMemo7(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
   const selectedSectionIndex = useMemo7(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
-  useEffect8(() => {
+  useEffect9(() => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -9152,7 +8805,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
       cancelled = true;
     };
   }, [onLoad, setStatus, pluginTabs]);
-  useEffect8(() => {
+  useEffect9(() => {
     if (rows.length === 0)
       return;
     if (selectedRowId && rows.some((row) => row.id === selectedRowId && row.target))
@@ -9188,14 +8841,21 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
     }
   }, [onLoad, setStatus]);
   const handleAddModel = useCallback4(() => {
-    let nextIndex = 0;
+    const nextIndex = draft?.models.length ?? 0;
     updateDraft((snapshot) => {
-      nextIndex = snapshot.models.length;
       snapshot.models.push(createEmptyModel());
     });
+    const target = {
+      kind: "modelField",
+      modelIndex: nextIndex,
+      field: "modelName"
+    };
     setSelectedRowId(`model.${nextIndex}.modelName`);
-    setStatus("已新增模型草稿，请先填写名称后保存", "info");
-  }, [setStatus, updateDraft]);
+    setNavFocused(false);
+    setEditor({ target, label: `model_${nextIndex + 1}.modelName`, value: "", hint: "请输入模型别名，例如 deepseek_flash。" });
+    setEditorValue("");
+    setStatus("已新增模型草稿，请填写名称后按 Enter 保存", "info");
+  }, [draft?.models.length, setStatus, updateDraft]);
   const handleAddMcpServer = useCallback4(() => {
     let nextIndex = 0;
     updateDraft((snapshot) => {
@@ -9240,6 +8900,13 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
           return;
         const next = cycleValue(CONSOLE_LLM_PROVIDER_OPTIONS, model.provider, direction);
         snapshot.models[target.modelIndex] = applyModelProviderChange(model, next);
+        return;
+      }
+      if (target.kind === "deepseekModel") {
+        const model = snapshot.models[target.modelIndex];
+        if (!model)
+          return;
+        model.modelId = cycleValue(DEEPSEEK_MODEL_IDS2, model.modelId, direction);
         return;
       }
       if (target.kind === "mcpField" && target.field === "transport") {
@@ -9927,7 +9594,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
 }
 
 // src/hooks/use-app-handle.ts
-import { useCallback as useCallback5, useEffect as useEffect9, useRef as useRef6, useState as useState10 } from "react";
+import { useCallback as useCallback5, useEffect as useEffect10, useRef as useRef6, useState as useState11 } from "react";
 
 // src/message-utils.ts
 var msgIdCounter = 0;
@@ -10000,17 +9667,27 @@ function appendAssistantParts(prev, partsToAppend, meta) {
   return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta }];
 }
 function appendCommandMessage(setMessages, text, options) {
-  setMessages((prev) => [
-    ...prev.filter((message) => !message.isCommand),
-    {
+  setMessages((prev) => {
+    const commandMessage = {
       id: nextMsgId(),
       role: "assistant",
       parts: [{ type: "text", text }],
       isCommand: true,
       commandLabel: options?.label,
       isError: options?.isError
+    };
+    const withoutOldCommands = prev.filter((message) => !message.isCommand);
+    const lastIndex = withoutOldCommands.length - 1;
+    const last = withoutOldCommands[lastIndex];
+    if (options?.beforeActiveAssistant && last?.role === "assistant" && !last.isError && !last.isCommand) {
+      return [
+        ...withoutOldCommands.slice(0, lastIndex),
+        commandMessage,
+        last
+      ];
     }
-  ]);
+    return [...withoutOldCommands, commandMessage];
+  });
 }
 
 // src/undo-redo.ts
@@ -10042,29 +9719,30 @@ function clearRedo(stack) {
 
 // src/hooks/use-app-handle.ts
 function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef }) {
-  const [messages, setMessages] = useState10([]);
-  const [streamingParts, setStreamingParts] = useState10([]);
-  const [isStreaming, setIsStreaming] = useState10(false);
-  const [isGenerating, setIsGenerating] = useState10(false);
-  const [generatingLabel, setGeneratingLabelState] = useState10();
-  const [contextTokens, setContextTokens] = useState10(0);
-  const [retryInfo, setRetryInfo] = useState10(null);
-  const [pendingApprovals, setPendingApprovals] = useState10([]);
-  const [pendingApplies, setPendingApplies] = useState10([]);
-  const [planModeActive, setPlanModeActive] = useState10(false);
-  const [progressSnapshot, setProgressSnapshot] = useState10(null);
+  const [messages, setMessages] = useState11([]);
+  const [streamingParts, setStreamingParts] = useState11([]);
+  const [isStreaming, setIsStreaming] = useState11(false);
+  const [isGenerating, setIsGenerating] = useState11(false);
+  const [generatingLabel, setGeneratingLabelState] = useState11();
+  const [contextTokens, setContextTokens] = useState11(0);
+  const [retryInfo, setRetryInfo] = useState11(null);
+  const [pendingApprovals, setPendingApprovals] = useState11([]);
+  const [pendingApplies, setPendingApplies] = useState11([]);
+  const [planModeActive, setPlanModeActive] = useState11(false);
+  const [autoEditActive, setAutoEditActive] = useState11(false);
+  const [progressSnapshot, setProgressSnapshot] = useState11(null);
   const progressSnapshotRef = useRef6(null);
   const archivedProgressUpdatedAtRef = useRef6(null);
-  const [toolInvocations, setToolInvocationsState] = useState10([]);
-  const [backgroundTaskCount, setBackgroundTaskCount] = useState10(0);
-  const [delegateTaskCount, setDelegateTaskCount] = useState10(0);
+  const [toolInvocations, setToolInvocationsState] = useState11([]);
+  const [backgroundTaskCount, setBackgroundTaskCount] = useState11(0);
+  const [delegateTaskCount, setDelegateTaskCount] = useState11(0);
   const backgroundTaskTokenMapRef = useRef6(new Map);
-  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState10(0);
+  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState11(0);
   const spinnerFrameRef = useRef6(0);
-  const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState10(0);
-  const [toolDetailData, setToolDetailData] = useState10(null);
-  const [toolDetailStack, setToolDetailStack] = useState10([]);
-  const [toolListItems, setToolListItems] = useState10([]);
+  const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState11(0);
+  const [toolDetailData, setToolDetailData] = useState11(null);
+  const [toolDetailStack, setToolDetailStack] = useState11([]);
+  const [toolListItems, setToolListItems] = useState11([]);
   const streamPartsRef = useRef6([]);
   const toolInvocationsRef = useRef6([]);
   const throttleTimerRef = useRef6(null);
@@ -10077,13 +9755,13 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
     setPendingApprovals([]);
     setPendingApplies([]);
   }, []);
-  useEffect9(() => {
+  useEffect10(() => {
     return () => {
       if (throttleTimerRef.current)
         clearTimeout(throttleTimerRef.current);
     };
   }, []);
-  useEffect9(() => {
+  useEffect10(() => {
     const isCompletedProgressSnapshot = (snapshot) => {
       return !!snapshot && snapshot.items.length > 0 && snapshot.stats.open === 0;
     };
@@ -10190,8 +9868,15 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         const notifDesc = notificationContextRef.current.description;
         setMessages((prev) => {
           const last = prev[prev.length - 1];
-          if (last?.role === "assistant" && !isNotif && !last.isError)
+          if (last?.role === "assistant" && !isNotif && !last.isError && !last.isCommand)
             return prev;
+          if (last?.isCommand && !isNotif) {
+            for (let i = prev.length - 2;i >= 0; i--) {
+              const message = prev[i];
+              if (message.role === "assistant" && !message.isError && !message.isCommand)
+                return prev;
+            }
+          }
           return [...prev, {
             id: nextMsgId(),
             role: "assistant",
@@ -10230,31 +9915,45 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         setMessages((prev) => {
           if (normalizedParts.length === 0 && !meta)
             return prev;
-          const last = prev[prev.length - 1];
+          const resolveMergeTargetIndex = () => {
+            const tail = prev[prev.length - 1];
+            if (tail?.role === "assistant" && !tail.isCommand)
+              return prev.length - 1;
+            if (tail?.isCommand) {
+              for (let i = prev.length - 2;i >= 0; i--) {
+                const message = prev[i];
+                if (message.role === "assistant" && !message.isCommand && !message.isError)
+                  return i;
+              }
+            }
+            return -1;
+          };
+          const targetIndex = resolveMergeTargetIndex();
+          const target = targetIndex >= 0 ? prev[targetIndex] : undefined;
           if (normalizedParts.length === 0) {
-            if (!last || last.role !== "assistant")
+            if (!target || target.role !== "assistant")
               return prev;
             const copy2 = [...prev];
-            copy2[copy2.length - 1] = { ...last, ...meta, ...notifMeta };
+            copy2[targetIndex] = { ...target, ...meta, ...notifMeta };
             return copy2;
           }
           if (prev.length === 0)
             return [{ id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
-          if (last.role !== "assistant")
+          if (!target || target.role !== "assistant")
             return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
-          if (isNotif && !last.isNotification) {
+          if (isNotif && !target.isNotification) {
             return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
           }
-          if (last.isError) {
+          if (target.isError) {
             return [...prev, { id: nextMsgId(), role: "assistant", parts: normalizedParts, ...meta, ...notifMeta }];
           }
           const copy = [...prev];
-          let finalParts = mergeMessageParts([...last.parts, ...normalizedParts]);
+          let finalParts = mergeMessageParts([...target.parts, ...normalizedParts]);
           const pending = toolInvocationsRef.current;
-          if (pending.length > 0 && finalParts.some((p) => p.type === "tool_use")) {
+          if (pending.length > 0 && finalParts.some((part) => part.type === "tool_use")) {
             finalParts = mergeMessageParts(applyToolInvocationsToParts(finalParts, pending));
           }
-          copy[copy.length - 1] = { ...last, parts: finalParts, ...meta, ...notifMeta };
+          copy[targetIndex] = { ...target, parts: finalParts, ...meta, ...notifMeta };
           return copy;
         });
       },
@@ -10267,14 +9966,28 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         setMessages((prev) => {
           if (prev.length === 0)
             return prev;
-          const last = prev[prev.length - 1];
-          if (last.role !== "assistant")
+          const resolveToolTargetIndex = () => {
+            const tail = prev[prev.length - 1];
+            if (tail?.role === "assistant" && !tail.isCommand)
+              return prev.length - 1;
+            if (tail?.isCommand) {
+              for (let i = prev.length - 2;i >= 0; i--) {
+                const message = prev[i];
+                if (message.role === "assistant" && !message.isCommand && !message.isError)
+                  return i;
+              }
+            }
+            return -1;
+          };
+          const targetIndex = resolveToolTargetIndex();
+          const target = targetIndex >= 0 ? prev[targetIndex] : undefined;
+          if (!target || target.role !== "assistant")
             return prev;
-          if (last.parts.length === 0)
+          if (target.parts.length === 0)
             return prev;
-          const nextParts = applyToolInvocationsToParts(last.parts, copy, false);
+          const nextParts = applyToolInvocationsToParts(target.parts, copy, false);
           const copyMessages = [...prev];
-          copyMessages[copyMessages.length - 1] = { ...last, parts: mergeMessageParts(nextParts) };
+          copyMessages[targetIndex] = { ...target, parts: mergeMessageParts(nextParts) };
           return copyMessages;
         });
       },
@@ -10316,6 +10029,9 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
       },
       setPlanModeActive(active) {
         setPlanModeActive(active);
+      },
+      setAutoEditActive(active) {
+        setAutoEditActive(active);
       },
       setProgress(snapshot) {
         const next = snapshot && snapshot.items.length > 0 ? snapshot : null;
@@ -10448,8 +10164,8 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
       setPendingFiles(files) {
         setPendingFilesRef.current?.(files);
       },
-      openFileBrowser(path5, entries) {
-        openFileBrowserRef.current?.(path5, entries);
+      openFileBrowser(path4, entries) {
+        openFileBrowserRef.current?.(path4, entries);
       },
       fileBrowserSelect(dirPath, entry, showHidden) {
         fileBrowserCallbackRef.current?.select(dirPath, entry, showHidden);
@@ -10478,6 +10194,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
     pendingApplies,
     planModeActive,
     progressSnapshot,
+    autoEditActive,
     toolInvocations,
     backgroundTaskCount,
     delegateTaskCount,
@@ -10527,12 +10244,16 @@ function altScrollKeyName(key) {
       return;
   }
 }
+function isAutoEditToggleShortcut2(key) {
+  return key.ctrl && key.name === "e";
+}
 function useAppKeyboard({
   viewMode,
   setViewMode,
   setCopyMode,
   copyMode,
   chatScrollBoxRef,
+  promptInputControllerRef,
   pendingConfirm,
   confirmChoice,
   setPendingConfirm,
@@ -10546,10 +10267,12 @@ function useAppKeyboard({
   approval,
   onExit,
   onAbort,
+  hasRunningBackgroundTasks = false,
   onToolApply,
   onToolApproval,
   onAddCommandPattern,
   onPlanCommand,
+  onAutoEditCommand,
   sessionList,
   modelList,
   defaultModelName,
@@ -10681,6 +10404,13 @@ function useAppKeyboard({
   });
   useKeyboard5((key) => {
     if (key.ctrl && key.name === "c") {
+      if (viewMode === "chat" && !pendingConfirm && !askQuestionActive && pendingApprovals.length === 0 && pendingApplies.length === 0 && promptInputControllerRef?.current?.hasValue()) {
+        promptInputControllerRef.current.clear();
+        exitConfirm.clearExitConfirm();
+        key.preventDefault?.();
+        key.stopPropagation?.();
+        return;
+      }
       if (exitConfirm.exitConfirmArmed) {
         exitConfirm.clearExitConfirm();
         onExit();
@@ -10717,11 +10447,18 @@ function useAppKeyboard({
       }
       return;
     }
-    if (isPlanModeToggleShortcut2(key) && viewMode === "chat" && !isGenerating && pendingApprovals.length === 0 && pendingApplies.length === 0 && !pendingConfirm) {
+    if (isPlanModeToggleShortcut2(key) && (viewMode === "chat" || viewMode === "tool-list" || viewMode === "tool-detail") && pendingApprovals.length === 0 && pendingApplies.length === 0 && !pendingConfirm) {
       key.preventDefault?.();
       onPlanCommand?.("").then((result) => {
-        appendCommandMessage(setMessages, result.message, result.ok ? { label: "plan" } : { label: "plan", isError: true });
-      }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "plan", isError: true }));
+        appendCommandMessage(setMessages, result.message, result.ok ? { label: "plan", beforeActiveAssistant: isGenerating } : { label: "plan", isError: true, beforeActiveAssistant: isGenerating });
+      }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "plan", isError: true, beforeActiveAssistant: isGenerating }));
+      return;
+    }
+    if (isAutoEditToggleShortcut2(key) && (viewMode === "chat" || viewMode === "tool-list" || viewMode === "tool-detail") && pendingApprovals.length === 0 && pendingApplies.length === 0 && !pendingConfirm && !askQuestionActive) {
+      key.preventDefault?.();
+      onAutoEditCommand?.("").then((result) => {
+        appendCommandMessage(setMessages, result.message, result.ok ? { label: "自动编辑", beforeActiveAssistant: isGenerating } : { label: "自动编辑", isError: true, beforeActiveAssistant: isGenerating });
+      }).catch((err) => appendCommandMessage(setMessages, `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "自动编辑", isError: true, beforeActiveAssistant: isGenerating }));
       return;
     }
     if (key.name === "t" && key.ctrl) {
@@ -11127,7 +10864,7 @@ function useAppKeyboard({
       }
       if (askQuestionActive)
         return;
-      if (isGenerating) {
+      if (isGenerating || hasRunningBackgroundTasks) {
         onAbort();
         return;
       }
@@ -11567,19 +11304,19 @@ function useAppKeyboard({
 }
 
 // src/hooks/use-approval.ts
-import { useCallback as useCallback6, useEffect as useEffect10, useState as useState11 } from "react";
+import { useCallback as useCallback6, useEffect as useEffect11, useState as useState12 } from "react";
 function useApproval(pendingApprovals, pendingApplies) {
-  const [approvalChoice, setApprovalChoice] = useState11("approve");
-  const [approvalPage, setApprovalPage] = useState11("basic");
-  const [diffView, setDiffView] = useState11("unified");
-  const [showLineNumbers, setShowLineNumbers] = useState11(true);
-  const [wrapMode, setWrapMode] = useState11("word");
-  const [previewIndex, setPreviewIndex] = useState11(0);
-  useEffect10(() => {
+  const [approvalChoice, setApprovalChoice] = useState12("approve");
+  const [approvalPage, setApprovalPage] = useState12("basic");
+  const [diffView, setDiffView] = useState12("unified");
+  const [showLineNumbers, setShowLineNumbers] = useState12(true);
+  const [wrapMode, setWrapMode] = useState12("word");
+  const [previewIndex, setPreviewIndex] = useState12(0);
+  useEffect11(() => {
     setApprovalChoice("approve");
     setApprovalPage("basic");
   }, [pendingApprovals[0]?.id]);
-  useEffect10(() => {
+  useEffect11(() => {
     setApprovalChoice("approve");
     setDiffView("unified");
     setShowLineNumbers(true);
@@ -11713,6 +11450,7 @@ function resetRedo(undoRedoRef, onClearRedoStack) {
 }
 function useCommandDispatch({
   onSubmit,
+  isGenerating,
   onFileAttach,
   onOpenFileBrowser,
   getCurrentSessionId,
@@ -11729,6 +11467,8 @@ function useCommandDispatch({
   onEnterHeadless,
   onListAgents,
   onPlanCommand,
+  onAutoEditCommand,
+  onCallmeCommand,
   setAgentList,
   onDream,
   onListMemories,
@@ -11993,9 +11733,36 @@ function useCommandDispatch({
       });
       return;
     }
+    if (text === "/callme" || text.startsWith("/callme ")) {
+      const arg = text.slice("/callme".length).trim();
+      if (!onCallmeCommand) {
+        appendCommandMessage(setMessages, "/callme 服务不可用。", { isError: true, label: "callme" });
+        return;
+      }
+      onCallmeCommand(arg).then((result) => {
+        appendCommandMessage(setMessages, result.message, result.ok ? { label: "callme" } : { isError: true, label: "callme" });
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `/callme 操作失败: ${err instanceof Error ? err.message : String(err)}`, { isError: true, label: "callme" });
+      });
+      return;
+    }
+    if (text === "/auto-edit" || text.startsWith("/auto-edit ")) {
+      const arg = text.slice("/auto-edit".length).trim();
+      const messageOptions = { label: "自动编辑", beforeActiveAssistant: isGenerating };
+      if (!onAutoEditCommand) {
+        appendCommandMessage(setMessages, "自动编辑服务不可用。", { ...messageOptions, isError: true });
+        return;
+      }
+      onAutoEditCommand(arg).then((result) => {
+        appendCommandMessage(setMessages, result.message, result.ok ? messageOptions : { ...messageOptions, isError: true });
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`, { ...messageOptions, isError: true });
+      });
+      return;
+    }
     if (text === "/plan" || text.startsWith("/plan ")) {
       const arg = text.slice("/plan".length).trim();
-      const planMessageOptions = { label: "plan" };
+      const planMessageOptions = { label: "plan", beforeActiveAssistant: isGenerating };
       if (!onPlanCommand) {
         appendCommandMessage(setMessages, "Plan Mode 服务不可用。", { ...planMessageOptions, isError: true });
         return;
@@ -12069,6 +11836,7 @@ function useCommandDispatch({
     isRemote,
     remoteHost,
     onResetConfig,
+    isGenerating,
     onRunCommand,
     onSubmit,
     onListAgents,
@@ -12077,6 +11845,8 @@ function useCommandDispatch({
     onSwitchModel,
     onSummarize,
     onPlanCommand,
+    onAutoEditCommand,
+    onCallmeCommand,
     onUndo,
     queueClear,
     queueSize,
@@ -12094,9 +11864,9 @@ function useCommandDispatch({
 }
 
 // src/hooks/use-exit-confirm.ts
-import { useCallback as useCallback8, useEffect as useEffect11, useRef as useRef7, useState as useState12 } from "react";
+import { useCallback as useCallback8, useEffect as useEffect12, useRef as useRef7, useState as useState13 } from "react";
 function useExitConfirm({ timeoutMs = 1500 } = {}) {
-  const [exitConfirmArmed, setExitConfirmArmed] = useState12(false);
+  const [exitConfirmArmed, setExitConfirmArmed] = useState13(false);
   const exitConfirmTimerRef = useRef7(null);
   const clearExitConfirm = useCallback8(() => {
     if (exitConfirmTimerRef.current) {
@@ -12114,7 +11884,7 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
       setExitConfirmArmed(false);
     }, timeoutMs);
   }, [timeoutMs]);
-  useEffect11(() => {
+  useEffect12(() => {
     return () => {
       if (exitConfirmTimerRef.current)
         clearTimeout(exitConfirmTimerRef.current);
@@ -12128,10 +11898,10 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
 }
 
 // src/hooks/use-message-queue.ts
-import { useCallback as useCallback9, useRef as useRef8, useState as useState13 } from "react";
+import { useCallback as useCallback9, useRef as useRef8, useState as useState14 } from "react";
 var queueIdCounter = 0;
 function useMessageQueue() {
-  const [queue, setQueue] = useState13([]);
+  const [queue, setQueue] = useState14([]);
   const queueRef = useRef8([]);
   const sync = useCallback9((next) => {
     queueRef.current = next;
@@ -12226,13 +11996,13 @@ function useMessageQueue() {
 }
 
 // src/hooks/use-model-state.ts
-import { useCallback as useCallback10, useState as useState14 } from "react";
+import { useCallback as useCallback10, useState as useState15 } from "react";
 function useModelState({ modelId, modelName, contextWindow, modelProvider, thinkingControlEnabled }) {
-  const [currentModelId, setCurrentModelId] = useState14(modelId);
-  const [currentModelName, setCurrentModelName] = useState14(modelName);
-  const [currentContextWindow, setCurrentContextWindow] = useState14(contextWindow);
-  const [currentModelProvider, setCurrentModelProvider] = useState14(modelProvider);
-  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState14(thinkingControlEnabled);
+  const [currentModelId, setCurrentModelId] = useState15(modelId);
+  const [currentModelName, setCurrentModelName] = useState15(modelName);
+  const [currentContextWindow, setCurrentContextWindow] = useState15(contextWindow);
+  const [currentModelProvider, setCurrentModelProvider] = useState15(modelProvider);
+  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState15(thinkingControlEnabled);
   const updateModel = useCallback10((result) => {
     if (result.modelId)
       setCurrentModelId(result.modelId);
@@ -12331,8 +12101,10 @@ function onStatusSegmentsChanged(listener) {
 }
 
 // src/App.tsx
+init_terminal_compat();
 import { jsxDEV as jsxDEV42 } from "@opentui/react/jsx-dev-runtime";
 var PROVIDER_LEVELS = {
+  deepseek: ["not-set", "none", "high", "max"],
   claude: ["not-set", "none", "low", "medium", "high", "xhigh", "max"],
   gemini: ["not-set", "minimal", "low", "medium", "high"],
   "openai-compatible": ["not-set", "none", "minimal", "low", "medium", "high", "xhigh"],
@@ -12343,6 +12115,54 @@ function getProviderThinkingLevels(provider) {
   if (!provider)
     return DEFAULT_LEVELS;
   return PROVIDER_LEVELS[provider] ?? DEFAULT_LEVELS;
+}
+function normalizeSelectionText(text) {
+  return text.replace(/\r\n/g, `
+`).replace(/\r/g, `
+`);
+}
+function findLineOverlap(left, right) {
+  const max = Math.min(left.length, right.length);
+  for (let size = max;size > 0; size--) {
+    let matches = true;
+    for (let i = 0;i < size; i++) {
+      if (left[left.length - size + i] !== right[i]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches)
+      return size;
+  }
+  return 0;
+}
+function mergeSelectionText(previous, next) {
+  const a = normalizeSelectionText(previous).trimEnd();
+  const b = normalizeSelectionText(next).trimEnd();
+  if (!a)
+    return b;
+  if (!b)
+    return a;
+  if (a.includes(b))
+    return a;
+  if (b.includes(a))
+    return b;
+  const aLines = a.split(`
+`);
+  const bLines = b.split(`
+`);
+  const appendOverlap = findLineOverlap(aLines, bLines);
+  if (appendOverlap > 0) {
+    return [...aLines, ...bLines.slice(appendOverlap)].join(`
+`);
+  }
+  const prependOverlap = findLineOverlap(bLines, aLines);
+  if (prependOverlap > 0) {
+    return [...bLines, ...aLines.slice(prependOverlap)].join(`
+`);
+  }
+  return `${a}
+${b}`;
 }
 function App({
   onReady,
@@ -12364,6 +12184,7 @@ function App({
   onToolApproval,
   onToolApply,
   onToolMessage,
+  onGetToolDiffPreview,
   onAddCommandPattern,
   onAbort,
   onToolAbort,
@@ -12384,6 +12205,8 @@ function App({
   supportsHeadlessTransition,
   onSummarize,
   onPlanCommand,
+  onAutoEditCommand,
+  onCallmeCommand,
   onListAgents,
   onSelectAgent,
   onThinkingEffortChange,
@@ -12412,61 +12235,61 @@ function App({
   initWarningsColor,
   initWarningsIcon
 }) {
-  const [viewMode, setViewMode] = useState15("chat");
-  const [sessionList, setSessionList] = useState15([]);
-  const [selectedIndex, setSelectedIndex] = useState15(0);
-  const [settingsInitialSection, setSettingsInitialSection] = useState15("general");
-  const [modelList, setModelList] = useState15([]);
-  const [defaultModelName, setDefaultModelName] = useState15("");
-  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState15(null);
-  const [sessionStatusMessage, setSessionStatusMessage] = useState15(null);
-  const [sessionStatusIsError, setSessionStatusIsError] = useState15(false);
-  const [agentList, setAgentList] = useState15([]);
-  const [copyMode, setCopyMode] = useState15(false);
-  const [pendingConfirm, setPendingConfirm] = useState15(null);
-  const [confirmChoice, setConfirmChoice] = useState15("confirm");
+  const [viewMode, setViewMode] = useState16("chat");
+  const [sessionList, setSessionList] = useState16([]);
+  const [selectedIndex, setSelectedIndex] = useState16(0);
+  const [settingsInitialSection, setSettingsInitialSection] = useState16("general");
+  const [modelList, setModelList] = useState16([]);
+  const [defaultModelName, setDefaultModelName] = useState16("");
+  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState16(null);
+  const [sessionStatusMessage, setSessionStatusMessage] = useState16(null);
+  const [sessionStatusIsError, setSessionStatusIsError] = useState16(false);
+  const [agentList, setAgentList] = useState16([]);
+  const [copyMode, setCopyMode] = useState16(false);
+  const [pendingConfirm, setPendingConfirm] = useState16(null);
+  const [confirmChoice, setConfirmChoice] = useState16("confirm");
   const initialLevels = getProviderThinkingLevels(modelProvider);
   const initialMaxLevel = initialLevels[initialLevels.length - 1];
-  const [thinkingEffort, setThinkingEffort] = useState15(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
-  const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState15(0);
-  const [progressCollapsed, setProgressCollapsed] = useState15(false);
-  const [progressScrollOffset, setProgressScrollOffset] = useState15(0);
-  const [modelStatusMessage, setModelStatusMessage] = useState15(null);
-  const [modelStatusIsError, setModelStatusIsError] = useState15(false);
-  const [modelEditingField, setModelEditingField] = useState15(null);
-  const [modelEditTargetName, setModelEditTargetName] = useState15(null);
-  const [memoryList, setMemoryList] = useState15([]);
-  const [memoryFilter, setMemoryFilter] = useState15("all");
-  const [memoryExpandedId, setMemoryExpandedId] = useState15(null);
-  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState15(null);
-  const [extensionList, setExtensionList] = useState15([]);
-  const [extensionTogglingName, setExtensionTogglingName] = useState15(null);
-  const [extensionStatusMessage, setExtensionStatusMessage] = useState15(null);
-  const [extensionStatusIsError, setExtensionStatusIsError] = useState15(false);
-  const [extensionGitInputMode, setExtensionGitInputMode] = useState15(false);
-  const [extensionScopePickMode, setExtensionScopePickMode] = useState15(false);
-  const [extensionInstallScope, setExtensionInstallScope] = useState15("agent");
-  const [extensionPendingDeleteName, setExtensionPendingDeleteName] = useState15(null);
-  const [extensionPendingUpdateName, setExtensionPendingUpdateName] = useState15(null);
-  const [extensionBusy, setExtensionBusy] = useState15(false);
-  const [pendingFiles, setPendingFiles] = useState15([]);
-  const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState15(pluginSettingsTabs ?? []);
-  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState15(() => getSlashCommands());
-  useEffect12(() => {
+  const [thinkingEffort, setThinkingEffort] = useState16(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
+  const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState16(0);
+  const [progressCollapsed, setProgressCollapsed] = useState16(false);
+  const [progressScrollOffset, setProgressScrollOffset] = useState16(0);
+  const [modelStatusMessage, setModelStatusMessage] = useState16(null);
+  const [modelStatusIsError, setModelStatusIsError] = useState16(false);
+  const [modelEditingField, setModelEditingField] = useState16(null);
+  const [modelEditTargetName, setModelEditTargetName] = useState16(null);
+  const [memoryList, setMemoryList] = useState16([]);
+  const [memoryFilter, setMemoryFilter] = useState16("all");
+  const [memoryExpandedId, setMemoryExpandedId] = useState16(null);
+  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState16(null);
+  const [extensionList, setExtensionList] = useState16([]);
+  const [extensionTogglingName, setExtensionTogglingName] = useState16(null);
+  const [extensionStatusMessage, setExtensionStatusMessage] = useState16(null);
+  const [extensionStatusIsError, setExtensionStatusIsError] = useState16(false);
+  const [extensionGitInputMode, setExtensionGitInputMode] = useState16(false);
+  const [extensionScopePickMode, setExtensionScopePickMode] = useState16(false);
+  const [extensionInstallScope, setExtensionInstallScope] = useState16("agent");
+  const [extensionPendingDeleteName, setExtensionPendingDeleteName] = useState16(null);
+  const [extensionPendingUpdateName, setExtensionPendingUpdateName] = useState16(null);
+  const [extensionBusy, setExtensionBusy] = useState16(false);
+  const [pendingFiles, setPendingFiles] = useState16([]);
+  const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState16(pluginSettingsTabs ?? []);
+  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState16(() => getSlashCommands());
+  useEffect13(() => {
     setRuntimePluginSettingsTabs(pluginSettingsTabs ?? []);
   }, [pluginSettingsTabs]);
-  useEffect12(() => {
+  useEffect13(() => {
     const disposable = onSlashCommandsChanged(() => setRuntimeSlashCommands(getSlashCommands()));
     setRuntimeSlashCommands(getSlashCommands());
     return () => disposable.dispose();
   }, []);
-  const [statusSegmentVersion, setStatusSegmentVersion] = useState15(0);
-  useEffect12(() => {
+  const [statusSegmentVersion, setStatusSegmentVersion] = useState16(0);
+  useEffect13(() => {
     const disposable = onStatusSegmentsChanged(() => setStatusSegmentVersion((v) => v + 1));
     return () => disposable.dispose();
   }, []);
-  const [fileBrowserPath, setFileBrowserPath] = useState15("");
-  const [fileBrowserEntries, setFileBrowserEntries] = useState15([]);
+  const [fileBrowserPath, setFileBrowserPath] = useState16("");
+  const [fileBrowserEntries, setFileBrowserEntries] = useState16([]);
   const disabledExtensionNames = useMemo8(() => new Set(extensionList.filter((item) => (item.originalStatus ?? item.status) === "disabled").map((item) => item.name)), [extensionList]);
   const activePluginSettingsTabs = useMemo8(() => runtimePluginSettingsTabs.filter((tab) => !disabledExtensionNames.has(tab.id)), [runtimePluginSettingsTabs, disabledExtensionNames]);
   const dynamicCommands = useMemo8(() => {
@@ -12474,16 +12297,26 @@ function App({
     return [...pluginCommands, ...runtimeSlashCommands];
   }, [activePluginSettingsTabs, runtimeSlashCommands]);
   const canOpenLoverSettings = dynamicCommands.some((command) => command.name === "/lover");
+  const copySelectionBufferRef = useRef9("");
+  const resetCopySelectionBuffer = useCallback11(() => {
+    copySelectionBufferRef.current = "";
+  }, []);
+  const captureCopySelectionSnapshot = useCallback11((text) => {
+    if (!copyMode || !text.trim())
+      return;
+    copySelectionBufferRef.current = mergeSelectionText(copySelectionBufferRef.current, text);
+  }, [copyMode]);
   const refreshPluginSettingsTabs = useCallback11(() => {
     setRuntimePluginSettingsTabs(onListPluginSettingsTabs?.() ?? pluginSettingsTabs ?? []);
   }, [onListPluginSettingsTabs, pluginSettingsTabs]);
-  const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState15(false);
-  const [queueEditingId, setQueueEditingId] = useState15(null);
+  const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState16(false);
+  const [queueEditingId, setQueueEditingId] = useState16(null);
   const [queueEditState, queueEditActions] = useTextInput("");
   const [modelEditState, modelEditActions] = useTextInput("");
   const [extensionGitInputState, extensionGitInputActions] = useTextInput("");
   const renderer = useRenderer();
   const undoRedoRef = useRef9(createUndoRedoStack());
+  const promptInputControllerRef = useRef9(null);
   const chatScrollBoxRef = useRef9(null);
   const messageQueue = useMessageQueue();
   const drainCallbackRef = useRef9(null);
@@ -12496,8 +12329,8 @@ function App({
   const setPendingFilesRef = useRef9(null);
   setPendingFilesRef.current = setPendingFiles;
   const openFileBrowserRef = useRef9(null);
-  openFileBrowserRef.current = (path5, entries) => {
-    setFileBrowserPath(path5);
+  openFileBrowserRef.current = (path4, entries) => {
+    setFileBrowserPath(path4);
     setFileBrowserEntries(entries);
     setSelectedIndex(0);
     setViewMode("file-browser");
@@ -12524,8 +12357,7 @@ function App({
   }, [appState.isGenerating, messageQueue, onSubmit]);
   const handlePrioritySubmit = useCallback11((text) => {
     messageQueue.prepend(text);
-    onAbort();
-  }, [messageQueue, onAbort]);
+  }, [messageQueue]);
   const cycleThinkingEffort = useCallback11((direction) => {
     if (modelState.currentThinkingControlEnabled === false)
       return;
@@ -12541,7 +12373,7 @@ function App({
       return newLevel;
     });
   }, [onThinkingEffortChange, modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (modelState.currentThinkingControlEnabled === false)
       return;
     const levels = getProviderThinkingLevels(modelState.currentModelProvider);
@@ -12553,7 +12385,7 @@ function App({
       return maxLevel;
     });
   }, [modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (thinkingControlEnabled !== false && initialMaxLevel !== "not-set") {
       onThinkingEffortChange?.(initialMaxLevel);
     }
@@ -12569,6 +12401,7 @@ function App({
   }, [onFileAttach]);
   const handleSubmit = useCommandDispatch({
     onSubmit: queueAwareSubmit,
+    isGenerating: appState.isGenerating,
     onFileAttach: handleFileAttach,
     onOpenFileBrowser: handleOpenFileBrowser,
     getCurrentSessionId,
@@ -12600,6 +12433,8 @@ function App({
     remoteHost,
     onSummarize,
     onPlanCommand,
+    onAutoEditCommand,
+    onCallmeCommand,
     undoRedoRef,
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
@@ -12615,13 +12450,33 @@ function App({
     queueClear: messageQueue.clear,
     queueSize: messageQueue.size
   });
-  useEffect12(() => {
+  useEffect13(() => {
     if (!renderer)
       return;
-    renderer.useMouse = !copyMode;
+    renderer.useMouse = true;
+  }, [renderer]);
+  useEffect13(() => {
+    if (!renderer)
+      return;
+    const handleSelection = (selection) => {
+      if (!copyMode)
+        return;
+      const finalText = selection?.getSelectedText?.() ?? "";
+      const text = mergeSelectionText(copySelectionBufferRef.current, finalText);
+      copySelectionBufferRef.current = "";
+      if (!text.trim())
+        return;
+      const copied = writeClipboardText(text) || renderer.copyToClipboardOSC52?.(text) === true;
+      if (!copied)
+        return;
+    };
+    renderer.on?.("selection", handleSelection);
+    return () => {
+      renderer.off?.("selection", handleSelection);
+    };
   }, [renderer, copyMode]);
   const prevViewModeRef = useRef9(viewMode);
-  useEffect12(() => {
+  useEffect13(() => {
     const prev = prevViewModeRef.current;
     prevViewModeRef.current = viewMode;
     if (prev === "queue-list" && viewMode === "chat" && !appState.isGenerating && messageQueue.size > 0) {
@@ -12631,12 +12486,12 @@ function App({
       }
     }
   }, [viewMode, appState.isGenerating, messageQueue, onSubmit]);
-  useEffect12(() => {
+  useEffect13(() => {
     const total = appState.progressSnapshot?.items.length ?? 0;
     const maxOffset = Math.max(0, total - PROGRESS_PANEL_MAX_ITEMS);
     setProgressScrollOffset((prev) => Math.min(Math.max(0, prev), maxOffset));
   }, [appState.progressSnapshot?.items.length]);
-  useEffect12(() => {
+  useEffect13(() => {
     const snapshot = appState.progressSnapshot;
     if (!snapshot || snapshot.items.length === 0) {
       setProgressCollapsed(false);
@@ -12670,7 +12525,7 @@ function App({
       return next;
     });
   }, [appState.progressSnapshot, onSaveProgressUiState]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (viewMode === "model-list")
       return;
     setModelStatusMessage(null);
@@ -12679,21 +12534,21 @@ function App({
     setModelEditTargetName(null);
     modelEditActions.setValue("");
   }, [viewMode]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (viewMode === "session-list")
       return;
     setSessionPendingDeleteId(null);
     setSessionStatusMessage(null);
     setSessionStatusIsError(false);
   }, [viewMode]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (appState.toolDetailData && viewMode !== "tool-detail") {
       setViewMode("tool-detail");
     } else if (!appState.toolDetailData && viewMode === "tool-detail") {
       setViewMode("chat");
     }
   }, [appState.toolDetailData, viewMode]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (appState.toolListItems.length > 0 && viewMode !== "tool-list" && viewMode !== "tool-detail") {
       setSelectedIndex(0);
       setViewMode("tool-list");
@@ -12706,12 +12561,14 @@ function App({
     setCopyMode,
     copyMode,
     chatScrollBoxRef,
+    promptInputControllerRef,
     pendingConfirm,
     confirmChoice,
     setPendingConfirm,
     setConfirmChoice,
     exitConfirm,
     isGenerating: appState.isGenerating,
+    hasRunningBackgroundTasks: appState.backgroundTaskCount + appState.delegateTaskCount > 0,
     askQuestionActive: !!askQuestionInvocation,
     pendingApplies: appState.pendingApplies,
     pendingApprovals: appState.pendingApprovals,
@@ -12723,6 +12580,7 @@ function App({
     onToolApproval,
     onAddCommandPattern,
     onPlanCommand,
+    onAutoEditCommand,
     sessionList,
     modelList,
     setModelList,
@@ -12910,7 +12768,8 @@ function App({
       view: approval.diffView,
       showLineNumbers: approval.showLineNumbers,
       wrapMode: approval.wrapMode,
-      previewIndex: approval.previewIndex
+      previewIndex: approval.previewIndex,
+      getPreview: onGetToolDiffPreview
     }, undefined, false, undefined, this);
   }
   if (viewMode === "tool-list") {
@@ -12958,7 +12817,11 @@ function App({
         scrollBoxRef: chatScrollBoxRef,
         progressSnapshot: appState.progressSnapshot,
         progressCollapsed: (appState.progressSnapshot?.stats.open ?? 0) > 0 ? progressCollapsed : false,
-        progressScrollOffset
+        progressScrollOffset,
+        queuedMessages: messageQueue.queue,
+        copyMode,
+        onCopySelectionStart: resetCopySelectionBuffer,
+        onCopySelectionSnapshot: captureCopySelectionSnapshot
       }, undefined, false, undefined, this) : null,
       /* @__PURE__ */ jsxDEV42(BottomPanel, {
         hasMessages,
@@ -12983,6 +12846,7 @@ function App({
         exitConfirmArmed: exitConfirm.exitConfirmArmed,
         backgroundTaskCount: appState.backgroundTaskCount,
         planModeActive: appState.planModeActive,
+        autoEditActive: appState.autoEditActive,
         delegateTaskCount: appState.delegateTaskCount,
         backgroundTaskTokens: appState.backgroundTaskTokens,
         backgroundTaskSpinnerFrame: appState.backgroundTaskSpinnerFrame,
@@ -12996,15 +12860,16 @@ function App({
         onRemoveFile: handleRemoveFile,
         dynamicCommands,
         statusSegments: rightStatusSegments,
-        supportsHeadlessTransition
+        supportsHeadlessTransition,
+        inputControllerRef: promptInputControllerRef
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
 }
 
 // src/opentui-runtime.ts
-import * as fs5 from "node:fs";
-import * as path5 from "node:path";
+import * as fs4 from "node:fs";
+import * as path4 from "node:path";
 import { addDefaultParsers, clearEnvCache } from "@opentui/core";
 var OPENTUI_RUNTIME_DIR_NAME = "opentui";
 var REQUIRED_ASSET_FILES = [
@@ -13034,36 +12899,36 @@ function resolveBundledRuntimeDir(isCompiledBinary) {
   const searchDirs = [];
   const pkgDir = process.env.__IRIS_PKG_DIR;
   if (pkgDir) {
-    searchDirs.push(path5.join(pkgDir, "bin"));
+    searchDirs.push(path4.join(pkgDir, "bin"));
     try {
-      const nodeModulesDir = path5.join(pkgDir, "node_modules");
-      if (fs5.existsSync(nodeModulesDir)) {
-        for (const entry of fs5.readdirSync(nodeModulesDir)) {
+      const nodeModulesDir = path4.join(pkgDir, "node_modules");
+      if (fs4.existsSync(nodeModulesDir)) {
+        for (const entry of fs4.readdirSync(nodeModulesDir)) {
           if (entry.startsWith("irises-")) {
-            searchDirs.push(path5.join(nodeModulesDir, entry, "bin"));
+            searchDirs.push(path4.join(nodeModulesDir, entry, "bin"));
           }
         }
       }
     } catch {}
   }
   try {
-    const execDir = path5.dirname(fs5.realpathSync(process.execPath));
+    const execDir = path4.dirname(fs4.realpathSync(process.execPath));
     searchDirs.push(execDir);
-    searchDirs.push(path5.resolve(execDir, ".."));
+    searchDirs.push(path4.resolve(execDir, ".."));
   } catch {}
   for (const dir of searchDirs) {
-    const candidate = path5.join(dir, OPENTUI_RUNTIME_DIR_NAME);
-    if (fs5.existsSync(path5.join(candidate, "parser.worker.js"))) {
+    const candidate = path4.join(dir, OPENTUI_RUNTIME_DIR_NAME);
+    if (fs4.existsSync(path4.join(candidate, "parser.worker.js"))) {
       return candidate;
     }
   }
   return null;
 }
 function hasBundledAssets(assetsRoot) {
-  return REQUIRED_ASSET_FILES.every((relativePath) => fs5.existsSync(path5.join(assetsRoot, relativePath)));
+  return REQUIRED_ASSET_FILES.every((relativePath) => fs4.existsSync(path4.join(assetsRoot, relativePath)));
 }
 function createBundledParsers(assetsRoot) {
-  const asset = (...segments) => path5.join(assetsRoot, ...segments);
+  const asset = (...segments) => path4.join(assetsRoot, ...segments);
   return [
     {
       filetype: "javascript",
@@ -13127,7 +12992,7 @@ function configureBundledOpenTuiTreeSitter(isCompiledBinary) {
   if (configured)
     return;
   const runtimeDir = resolveBundledRuntimeDir(isCompiledBinary);
-  const workerPath = process.env.OTUI_TREE_SITTER_WORKER_PATH?.trim() || (runtimeDir ? path5.join(runtimeDir, "parser.worker.js") : "");
+  const workerPath = process.env.OTUI_TREE_SITTER_WORKER_PATH?.trim() || (runtimeDir ? path4.join(runtimeDir, "parser.worker.js") : "");
   if (!workerPath) {
     if (isCompiledBinary) {
       warnRuntimeIssue("未找到 OpenTUI tree-sitter worker，Markdown 标题和加粗高亮可能不可用。");
@@ -13138,7 +13003,7 @@ function configureBundledOpenTuiTreeSitter(isCompiledBinary) {
   process.env.OTUI_TREE_SITTER_WORKER_PATH = workerPath;
   clearEnvCache();
   if (runtimeDir) {
-    const assetsRoot = path5.join(runtimeDir, "assets");
+    const assetsRoot = path4.join(runtimeDir, "assets");
     if (hasBundledAssets(assetsRoot)) {
       addDefaultParsers(createBundledParsers(assetsRoot));
     } else {
@@ -13337,16 +13202,148 @@ var consoleProgressService = {
   }
 };
 
+// src/extension-toggle.ts
+function readConsolePluginEntries(raw) {
+  const section = raw?.plugins;
+  if (Array.isArray(section))
+    return section.filter((item) => item && typeof item.name === "string");
+  if (section && typeof section === "object" && Array.isArray(section.plugins)) {
+    return section.plugins.filter((item) => item && typeof item.name === "string");
+  }
+  return [];
+}
+function buildConsolePluginsConfigUpdate(raw, pluginEntries) {
+  const section = raw?.plugins;
+  if (Array.isArray(section))
+    return { plugins: pluginEntries };
+  const nextSection = section && typeof section === "object" ? { ...section } : {};
+  nextSection.plugins = pluginEntries;
+  return { plugins: nextSection };
+}
+function hasConsolePluginContribution(manifest) {
+  const hasPlatforms = Array.isArray(manifest.platforms) && manifest.platforms.length > 0;
+  return !!manifest.plugin || !!manifest.entry || !hasPlatforms;
+}
+function readWorkspaceExtensionDiscoveryConfig(raw) {
+  const extensions = raw?.system?.extensions;
+  if (!extensions || typeof extensions !== "object")
+    return { enabled: false, allowlist: [] };
+  const allowlist = Array.isArray(extensions.workspaceAllowlist) ? extensions.workspaceAllowlist.filter((item) => typeof item === "string" && item.trim().length > 0) : [];
+  return { enabled: extensions.loadWorkspaceExtensions === true, allowlist };
+}
+function updateWorkspaceExtensionDiscoveryConfig(configManager, name, enabled, packages) {
+  const raw = configManager.readEditableConfig();
+  const system = raw.system && typeof raw.system === "object" ? { ...raw.system } : {};
+  const currentExtensions = system.extensions && typeof system.extensions === "object" ? { ...system.extensions } : {};
+  const workspaceNames = packages.filter((pkg) => pkg.source === "workspace").map((pkg) => pkg.manifest.name);
+  const currentAllowlist = Array.isArray(currentExtensions.workspaceAllowlist) ? currentExtensions.workspaceAllowlist.filter((item) => typeof item === "string" && item.trim().length > 0) : [];
+  const currentlyAllWorkspace = currentExtensions.loadWorkspaceExtensions === true && currentAllowlist.length === 0;
+  let nextAllowlist;
+  let nextEnabled;
+  if (enabled) {
+    nextEnabled = true;
+    nextAllowlist = currentlyAllWorkspace ? [] : Array.from(new Set([...currentAllowlist, name]));
+  } else {
+    nextAllowlist = currentlyAllWorkspace ? workspaceNames.filter((item) => item !== name) : currentAllowlist.filter((item) => item !== name);
+    nextEnabled = nextAllowlist.length > 0;
+    if (!nextEnabled)
+      nextAllowlist = [];
+  }
+  system.extensions = { ...currentExtensions, loadWorkspaceExtensions: nextEnabled, workspaceAllowlist: nextAllowlist };
+  const result = configManager.updateEditableConfig({ system });
+  return { workspace: { enabled: nextEnabled, allowlist: nextAllowlist }, mergedRaw: result.mergedRaw };
+}
+async function handleConsoleToggleExtension(api, name, desiredEnabled) {
+  const ext = api?.extensions;
+  const configManager = api?.configManager;
+  if (!ext || !configManager) {
+    return { ok: false, message: "扩展管理 API 不可用" };
+  }
+  let workspaceRollback;
+  let rollbackWorkspaceOnFailure = false;
+  try {
+    const raw = configManager.readEditableConfig();
+    const pluginEntries = [...readConsolePluginEntries(raw)];
+    const existing = pluginEntries.find((p) => p.name === name);
+    const packages = ext.discoverAll?.() ?? ext.discover?.() ?? [];
+    const pkg = packages.find((item) => item.manifest.name === name);
+    const hasPlugin = pkg ? hasConsolePluginContribution(pkg.manifest) : true;
+    const isWorkspace = pkg?.source === "workspace";
+    const active = api?.pluginManager?.listPlugins?.() ?? [];
+    const isActive = active.some((p) => p.name === name);
+    const shouldEnable = desiredEnabled ?? !isActive;
+    if (!shouldEnable) {
+      if (isActive)
+        await ext.deactivate?.(name);
+      if (isWorkspace) {
+        const workspaceUpdate = updateWorkspaceExtensionDiscoveryConfig(configManager, name, false, packages);
+        ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
+      }
+      if (existing) {
+        existing.enabled = false;
+      } else if (hasPlugin) {
+        pluginEntries.push({ name, enabled: false });
+      }
+      configManager.updateEditableConfig(buildConsolePluginsConfigUpdate(raw, pluginEntries));
+      return { ok: true, message: `已禁用 "${name}"` };
+    }
+    let installedDeps = [];
+    if (pkg?.rootDir) {
+      const depsResult = await ensureExtensionRuntimeDependencies(pkg.rootDir);
+      if (depsResult.installed)
+        installedDeps = depsResult.missingDependencies;
+    }
+    if (isWorkspace) {
+      workspaceRollback = readWorkspaceExtensionDiscoveryConfig(raw);
+      const workspaceUpdate = updateWorkspaceExtensionDiscoveryConfig(configManager, name, true, packages);
+      rollbackWorkspaceOnFailure = true;
+      ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
+    }
+    if (hasPlugin) {
+      const activationEntry = existing ? { ...existing, enabled: true } : { name, type: "local", enabled: true };
+      await ext.activate?.(activationEntry);
+      rollbackWorkspaceOnFailure = false;
+    }
+    if (existing) {
+      existing.enabled = true;
+    } else if (hasPlugin) {
+      pluginEntries.push({ name, enabled: true });
+    }
+    if (hasPlugin)
+      configManager.updateEditableConfig(buildConsolePluginsConfigUpdate(raw, pluginEntries));
+    if (!hasPlugin)
+      return {
+        ok: true,
+        message: installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(", ")} 并启用可选平台扩展 "${name}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。` : `已启用可选平台扩展 "${name}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。`
+      };
+    return { ok: true, message: installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(", ")} 并启用 "${name}"` : `已启用 "${name}"` };
+  } catch (err) {
+    if (rollbackWorkspaceOnFailure && workspaceRollback) {
+      try {
+        const currentRaw = configManager.readEditableConfig();
+        const system = currentRaw.system && typeof currentRaw.system === "object" ? { ...currentRaw.system } : {};
+        const currentExtensions = system.extensions && typeof system.extensions === "object" ? { ...system.extensions } : {};
+        system.extensions = {
+          ...currentExtensions,
+          loadWorkspaceExtensions: workspaceRollback.enabled,
+          workspaceAllowlist: workspaceRollback.allowlist
+        };
+        configManager.updateEditableConfig({ system });
+        ext.setWorkspaceDiscovery?.({ enabled: workspaceRollback.enabled, allowlist: workspaceRollback.allowlist });
+      } catch {}
+    }
+    return { ok: false, message: `操作失败: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 // src/index.ts
-function generateCommandPattern(command) {
-  const tokens = command.trim().split(/\s+/);
-  if (tokens.length === 0 || !tokens[0])
-    return "*";
-  if (tokens.length <= 1)
-    return tokens[0] + " *";
-  if (tokens[1].startsWith("-"))
-    return tokens[0] + " *";
-  return tokens[0] + " " + tokens[1] + " *";
+function generateCommandPatterns(command) {
+  const normalized = command.trim().replace(/\s+/g, " ");
+  if (!normalized)
+    return ["*"];
+  const tokens = normalized.split(" ");
+  const prefixBase = tokens.length <= 1 || tokens[1].startsWith("-") ? tokens[0] : `${tokens[0]} ${tokens[1]}`;
+  return Array.from(new Set([normalized, `${prefixBase} *`]));
 }
 var REMOTE_CONNECT_WS_CLIENT_SERVICE = "remote-connect:WsIPCClient";
 var REMOTE_CONNECT_DISCOVERY_SERVICE = "remote-connect:discoverLanInstances";
@@ -13624,6 +13621,18 @@ function buildThinkingPatch(provider, level) {
       return {
         reasoning: { effort: level, summary: "auto" }
       };
+    case "deepseek": {
+      if (level === "none") {
+        return {
+          thinking: { type: "disabled" }
+        };
+      }
+      const effort = level === "max" ? "max" : "high";
+      return {
+        thinking: { type: "enabled" },
+        reasoning_effort: effort
+      };
+    }
     default:
       return null;
   }
@@ -13641,6 +13650,8 @@ function getThinkingRemovePaths(provider) {
       return ["reasoning_effort"];
     case "openai-responses":
       return ["reasoning.effort", "reasoning.summary"];
+    case "deepseek":
+      return ["thinking.type", "reasoning_effort", "output_config.effort"];
     default:
       return [];
   }
@@ -13772,6 +13783,30 @@ class ConsolePlatform extends PlatformAdapter {
       this.appHandle?.setPlanModeActive(false);
     }
   }
+  syncAutoEditStatus() {
+    try {
+      const sessionId = this.sessionId;
+      const backend = this.backend;
+      const cachedActive = backend.isAutoEditActive?.(sessionId);
+      if (typeof cachedActive === "boolean") {
+        this.appHandle?.setAutoEditActive(cachedActive);
+      }
+      const stateOrPromise = backend.getAutoEditState?.(sessionId);
+      if (stateOrPromise !== undefined) {
+        Promise.resolve(stateOrPromise).then((state) => {
+          if (this.appHandle && this.sessionId === sessionId) {
+            this.appHandle.setAutoEditActive(state?.active === true);
+          }
+        }).catch(() => {
+          this.appHandle?.setAutoEditActive(false);
+        });
+      } else if (typeof cachedActive !== "boolean") {
+        this.appHandle?.setAutoEditActive(false);
+      }
+    } catch {
+      this.appHandle?.setAutoEditActive(false);
+    }
+  }
   async syncProgress() {
     try {
       const provider = consoleProgressService.getActiveProvider();
@@ -13814,7 +13849,7 @@ class ConsolePlatform extends PlatformAdapter {
     return next;
   }
   async start() {
-    this.api?.setLogLevel?.(4 /* SILENT */);
+    this.api?.setLogLevel?.(LogLevel.SILENT);
     configureBundledOpenTuiTreeSitter(this.isCompiledBinary);
     this.onBackend("assistant:content", (sid, content) => {
       if (sid === this.sessionId) {
@@ -13973,6 +14008,11 @@ class ConsolePlatform extends PlatformAdapter {
       }
       this.appHandle?.addMessage("assistant", text);
     });
+    this.onBackend("auto-edit:update", (sid, active) => {
+      if (sid === this.sessionId) {
+        this.appHandle?.setAutoEditActive(active);
+      }
+    });
     this.onBackend("auto-compact", (sid, summaryText) => {
       if (sid === this.sessionId) {
         const fullText = `[Context Summary]
@@ -13982,7 +14022,7 @@ ${summaryText}`;
         this.appHandle?.addSummaryMessage(fullText, tokenCount > 0 ? tokenCount : undefined);
       }
     });
-    return new Promise(async (resolve5, reject) => {
+    return new Promise(async (resolve4, reject) => {
       try {
         this.renderer = await createCliRenderer({
           exitOnCtrlC: false,
@@ -14026,7 +14066,8 @@ ${summaryText}`;
           this.appHandle = handle;
           this.syncPlanModeStatus();
           this.syncProgress();
-          resolve5();
+          this.syncAutoEditStatus();
+          resolve4();
         },
         onSubmit: (text) => this.handleInput(text),
         onFileAttach: (filePath) => this.handleFileAttach(filePath),
@@ -14077,6 +14118,13 @@ ${summaryText}`;
         onToolMessage: (toolId, type, data) => {
           this.backend.getToolHandle?.(toolId)?.send(type, data);
         },
+        onGetToolDiffPreview: async (toolId) => {
+          const getPreview = this.backend.getToolDiffPreview;
+          if (typeof getPreview !== "function") {
+            throw new Error("当前 Backend 不支持 diff 预览");
+          }
+          return await getPreview.call(this.backend, toolId);
+        },
         onAddCommandPattern: (toolName, command, type) => {
           this.addCommandPattern(toolName, command, type);
         },
@@ -14120,6 +14168,8 @@ ${summaryText}`;
         supportsHeadlessTransition: this.supportsHeadlessTransition,
         onSummarize: () => this.handleSummarize(),
         onPlanCommand: (arg) => this.handlePlanCommand(arg),
+        onAutoEditCommand: (arg) => this.handleAutoEditCommand(arg),
+        onCallmeCommand: (arg) => this.handleCallmeCommand(arg),
         onListAgents: () => this.handleListAgents(),
         onSelectAgent: (name) => this.handleSelectAgent(name),
         onDream: () => this.handleDream(),
@@ -14182,15 +14232,15 @@ ${summaryText}`;
     } else {
       r.destroy();
     }
-    await new Promise((resolve5) => setTimeout(resolve5, 100));
+    await new Promise((resolve4) => setTimeout(resolve4, 100));
     if (process.platform === "win32" && options.headlessTransition) {
       clearWindowsScreenForHeadless();
       printHeadlessTransitionMessage();
     }
   }
   waitForExit() {
-    return new Promise((resolve5) => {
-      this.exitResolve = resolve5;
+    return new Promise((resolve4) => {
+      this.exitResolve = resolve4;
     });
   }
   handleListAgents() {
@@ -14244,7 +14294,7 @@ ${summaryText}`;
       if (!WsIPCClient) {
         throw new Error("remote-connect 扩展服务不可用，请确认 remote-connect 扩展已安装并启用");
       }
-      const { RemoteBackendHandle: RemoteBackendHandle2, createRemoteApiProxy: createRemoteApiProxy2 } = await Promise.resolve().then(() => (init_ipc2(), exports_ipc));
+      const { RemoteBackendHandle: RemoteBackendHandle2, createRemoteApiProxy: createRemoteApiProxy2 } = await Promise.resolve().then(() => (init_ipc(), exports_ipc));
       const wsClient = new WsIPCClient;
       const handshake = await wsClient.connect(url, token);
       let remoteBackend;
@@ -14486,6 +14536,7 @@ ${summaryText}`;
     this.appHandle?.setPlanModeActive(false);
     this.appHandle?.setProgress(null);
     this.clearRemoteExecSession(this.sessionId);
+    this.appHandle?.setAutoEditActive(false);
   }
   openToolDetail(toolId) {
     if (!toolId) {
@@ -14526,7 +14577,7 @@ ${summaryText}`;
     }
   }
   addCommandPattern(toolName, command, type) {
-    const pattern = generateCommandPattern(command);
+    const patterns = generateCommandPatterns(command);
     const key = type === "allow" ? "allowPatterns" : "denyPatterns";
     const policies = this.backend.getToolPolicies?.();
     if (!policies) {
@@ -14539,17 +14590,17 @@ ${summaryText}`;
     }
     const arr = policy[key];
     if (arr) {
-      if (!arr.includes(pattern))
-        arr.push(pattern);
+      for (const pattern of patterns) {
+        if (!arr.includes(pattern))
+          arr.push(pattern);
+      }
     } else {
-      policy[key] = [pattern];
+      policy[key] = [...patterns];
     }
     const oppositeKey = type === "allow" ? "denyPatterns" : "allowPatterns";
     const oppositeArr = policy[oppositeKey];
     if (oppositeArr) {
-      const idx = oppositeArr.indexOf(pattern);
-      if (idx !== -1)
-        oppositeArr.splice(idx, 1);
+      policy[oppositeKey] = oppositeArr.filter((item) => !patterns.includes(item));
     }
     const configManager = this.api?.configManager;
     if (configManager) {
@@ -14557,18 +14608,19 @@ ${summaryText}`;
         const raw = configManager.readEditableConfig();
         const tools = raw.tools ?? {};
         const toolSection = tools[toolName] ?? {};
-        const existing = Array.isArray(toolSection[key]) ? toolSection[key] : [];
-        if (!existing.includes(pattern)) {
-          existing.push(pattern);
+        const existing = Array.isArray(toolSection[key]) ? [...toolSection[key]] : [];
+        for (const pattern of patterns) {
+          if (!existing.includes(pattern)) {
+            existing.push(pattern);
+          }
         }
         const oppositeKey2 = type === "allow" ? "denyPatterns" : "allowPatterns";
-        const opposite = Array.isArray(toolSection[oppositeKey2]) ? toolSection[oppositeKey2] : [];
-        const oidx = opposite.indexOf(pattern);
-        if (oidx !== -1)
-          opposite.splice(oidx, 1);
         const updates = { [key]: existing };
-        if (oidx !== -1)
-          updates[oppositeKey2] = opposite;
+        if (Array.isArray(toolSection[oppositeKey2])) {
+          const opposite = toolSection[oppositeKey2].filter((item) => typeof item === "string" && !patterns.includes(item));
+          if (opposite.length !== toolSection[oppositeKey2].length)
+            updates[oppositeKey2] = opposite;
+        }
         configManager.updateEditableConfig({ tools: { [toolName]: updates } });
       } catch {}
     }
@@ -14712,6 +14764,7 @@ ${summaryText}`;
     const envRestorePromise = this.restoreRemoteExecEnvironmentForSession(id, true);
     this.syncPlanModeStatus();
     await this.syncProgress();
+    this.syncAutoEditStatus();
     const history = await this.backend.getHistory?.(id) ?? [];
     const progressArchives = (await this.loadProgressArchives(id)).filter((entry) => entry?.snapshot?.items?.length > 0).sort((a, b) => (a.afterHistoryIndex ?? 0) - (b.afterHistoryIndex ?? 0) || (a.archivedAt ?? 0) - (b.archivedAt ?? 0));
     let progressArchiveCursor = 0;
@@ -14950,11 +15003,17 @@ ${summaryText}`;
     }
   }
   isWorkspaceExtensionEnabled(raw, name) {
-    const extensions = raw?.system?.extensions;
-    if (!extensions || typeof extensions !== "object" || extensions.loadWorkspaceExtensions !== true)
+    const discovery = this.readWorkspaceExtensionDiscoveryConfig(raw);
+    if (!discovery.enabled)
       return false;
+    return discovery.allowlist.length === 0 || discovery.allowlist.includes(name);
+  }
+  readWorkspaceExtensionDiscoveryConfig(raw) {
+    const extensions = raw?.system?.extensions;
+    if (!extensions || typeof extensions !== "object")
+      return { enabled: false, allowlist: [] };
     const allowlist = Array.isArray(extensions.workspaceAllowlist) ? extensions.workspaceAllowlist.filter((item) => typeof item === "string" && item.trim().length > 0) : [];
-    return allowlist.length === 0 || allowlist.includes(name);
+    return { enabled: extensions.loadWorkspaceExtensions === true, allowlist };
   }
   updateWorkspaceExtensionDiscoveryConfig(name, enabled, packages) {
     const configManager = this.api?.configManager;
@@ -15025,65 +15084,7 @@ ${summaryText}`;
     configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, nextEntries));
   }
   async handleToggleExtension(name, desiredEnabled) {
-    const ext = this.api?.extensions;
-    const configManager = this.api?.configManager;
-    if (!ext || !configManager) {
-      return { ok: false, message: "扩展管理 API 不可用" };
-    }
-    try {
-      const raw = configManager.readEditableConfig();
-      const pluginEntries = [...this.readPluginEntries(raw)];
-      const existing = pluginEntries.find((p) => p.name === name);
-      const packages = ext.discoverAll?.() ?? ext.discover?.() ?? [];
-      const pkg = packages.find((item) => item.manifest.name === name);
-      const hasPlugin = pkg ? this.hasPluginContribution(pkg.manifest) : true;
-      const isWorkspace = pkg?.source === "workspace";
-      const active = this.api?.pluginManager?.listPlugins?.() ?? [];
-      const isActive = active.some((p) => p.name === name);
-      const shouldEnable = desiredEnabled ?? !isActive;
-      if (!shouldEnable) {
-        if (isActive)
-          await ext.deactivate(name);
-        if (isWorkspace) {
-          const workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, false, packages);
-          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
-        }
-        if (existing) {
-          existing.enabled = false;
-        } else if (hasPlugin) {
-          pluginEntries.push({ name, enabled: false });
-        }
-        configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries));
-        return { ok: true, message: `已禁用 "${name}"` };
-      } else {
-        let workspaceUpdate;
-        if (isWorkspace) {
-          workspaceUpdate = this.updateWorkspaceExtensionDiscoveryConfig(name, true, packages);
-          ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace);
-        }
-        let installedDeps = [];
-        if (hasPlugin) {
-          if (pkg?.rootDir) {
-            const depsResult = await ensureExtensionRuntimeDependencies(pkg.rootDir);
-            if (depsResult.installed)
-              installedDeps = depsResult.missingDependencies;
-          }
-          await ext.activate(name);
-        }
-        if (existing) {
-          existing.enabled = true;
-        } else if (hasPlugin) {
-          pluginEntries.push({ name, enabled: true });
-        }
-        if (hasPlugin)
-          configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, pluginEntries));
-        if (!hasPlugin)
-          return { ok: true, message: `已启用可选平台扩展 "${name}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。` };
-        return { ok: true, message: installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(", ")} 并启用 "${name}"` : `已启用 "${name}"` };
-      }
-    } catch (err) {
-      return { ok: false, message: `操作失败: ${err instanceof Error ? err.message : String(err)}` };
-    }
+    return handleConsoleToggleExtension(this.api, name, desiredEnabled);
   }
   async handleInstallGitExtension(target, scope = "agent") {
     const ext = this.api?.extensions;
@@ -15187,6 +15188,114 @@ ${summaryText}`;
       return ext?.defaultScope ?? undefined;
     return;
   }
+  readCallmeConfigFromEditable() {
+    const manager = this.api?.configManager;
+    const rawConfig = manager?.readEditableConfig?.() ?? this.api?.config ?? {};
+    const rawSystem = rawConfig.system && typeof rawConfig.system === "object" ? rawConfig.system : {};
+    const trailer = "Co-authored with Iris: https://github.com/Lianues/Iris";
+    try {
+      const parsedSystem = manager?.parseSystemConfig?.(rawSystem);
+      const callme = parsedSystem?.callme;
+      if (callme && typeof callme === "object") {
+        return { enabled: callme.enabled === true, trailer };
+      }
+    } catch {}
+    const rawCallme = rawSystem.callme;
+    if (typeof rawCallme === "boolean") {
+      return { enabled: rawCallme, trailer };
+    }
+    if (rawCallme && typeof rawCallme === "object" && !Array.isArray(rawCallme)) {
+      const record = rawCallme;
+      return { enabled: record.enabled === true, trailer };
+    }
+    return { enabled: false, trailer };
+  }
+  formatCallmeStatus(enabled, trailer) {
+    if (enabled) {
+      return `感谢开启 /callme 模式。以后我帮你执行 git commit 时，会在提交信息末尾带上：
+
+${trailer}
+
+再次输入 /callme 可关闭。`;
+    }
+    return `/callme 目前关闭。输入 /callme 后开启；开启后 Iris 代你执行 git commit 时会追加：
+
+${trailer}`;
+  }
+  async handleCallmeCommand(arg) {
+    const normalized = arg.trim().toLowerCase();
+    const statusOnly = normalized === "status" || normalized === "状态";
+    const toggle = !normalized;
+    const explicitEnable = ["on", "enable", "enabled", "true", "1", "开启", "打开"].includes(normalized);
+    const explicitDisable = ["off", "disable", "disabled", "false", "0", "关闭", "关"].includes(normalized);
+    const current = this.readCallmeConfigFromEditable();
+    if (statusOnly) {
+      return { ok: true, message: this.formatCallmeStatus(current.enabled, current.trailer) };
+    }
+    if (!toggle && !explicitEnable && !explicitDisable) {
+      return {
+        ok: false,
+        message: "用法：/callme 切换开关；/callme status 查看状态。"
+      };
+    }
+    const manager = this.api?.configManager;
+    if (!manager) {
+      return { ok: false, message: "当前运行环境不支持写入 /callme 设置。" };
+    }
+    const nextEnabled = toggle ? !current.enabled : explicitEnable;
+    const merged = manager.updateEditableConfig({ system: { callme: nextEnabled } });
+    const reload = await manager.applyRuntimeConfigReload(merged.mergedRaw);
+    if (!reload.success) {
+      return { ok: false, message: `已写入 /callme 设置，但热重载失败：${reload.error ?? "未知错误"}。重启后生效。` };
+    }
+    return { ok: true, message: nextEnabled ? this.formatCallmeStatus(true, current.trailer) : "已关闭 /callme 模式。之后 Iris 不会再自动给 git commit 添加链接署名；再次输入 /callme 可重新开启。" };
+  }
+  async handleAutoEditCommand(arg) {
+    const normalized = arg.trim().toLowerCase();
+    const backend = this.backend;
+    if (!backend.getAutoEditState || !backend.enableAutoEdit || !backend.disableAutoEdit || !backend.toggleAutoEdit) {
+      return { ok: false, message: "当前 Backend 不支持自动编辑。" };
+    }
+    const formatStatus = (active) => active ? "自动编辑已开启：安全的项目内结构化文件编辑将自动应用；敏感路径、项目外路径、delete_file、search_in_files.replace、shell/bash 写操作仍会走普通审批或被安全策略拦截。" : "自动编辑已关闭：文件编辑将恢复普通审批流程。";
+    const isActiveState = (state2) => state2?.active === true;
+    if (normalized === "status") {
+      const state2 = await backend.getAutoEditState(this.sessionId);
+      const active = isActiveState(state2) || backend.isAutoEditActive?.(this.sessionId) === true;
+      this.appHandle?.setAutoEditActive(active);
+      const planActive2 = this.getPlanModeService()?.isActive(this.sessionId) === true;
+      return {
+        ok: true,
+        message: `${formatStatus(active)}${active && planActive2 ? `
+当前处于 Plan Mode，自动编辑会暂停生效。` : ""}`
+      };
+    }
+    if (normalized === "on" || normalized === "enable") {
+      const state2 = await backend.enableAutoEdit(this.sessionId);
+      this.appHandle?.setAutoEditActive(isActiveState(state2));
+      const planActive2 = this.getPlanModeService()?.isActive(this.sessionId) === true;
+      return {
+        ok: true,
+        message: `${formatStatus(true)}${planActive2 ? `
+提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。` : ""}`
+      };
+    }
+    if (normalized === "off" || normalized === "disable") {
+      const state2 = await backend.disableAutoEdit(this.sessionId);
+      this.appHandle?.setAutoEditActive(isActiveState(state2));
+      return { ok: true, message: formatStatus(false) };
+    }
+    if (normalized && normalized !== "toggle") {
+      return { ok: false, message: "用法：/auto-edit 切换；/auto-edit on 开启；/auto-edit off 关闭；/auto-edit status 查看状态。" };
+    }
+    const state = await backend.toggleAutoEdit(this.sessionId);
+    this.appHandle?.setAutoEditActive(isActiveState(state));
+    const planActive = this.getPlanModeService()?.isActive(this.sessionId) === true;
+    return {
+      ok: true,
+      message: `${formatStatus(isActiveState(state))}${isActiveState(state) && planActive ? `
+提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。` : ""}`
+    };
+  }
   async handlePlanCommand(arg) {
     const service = this.api?.services?.get?.(PLAN_MODE_SERVICE_ID);
     if (!service) {
@@ -15284,14 +15393,14 @@ ${summaryText}`;
       this.appHandle?.addCommandMessage("已清空所有待发送附件");
       return;
     }
-    const fs6 = __require("fs");
-    const path6 = __require("path");
-    const resolved = path6.resolve(filePath);
-    if (!fs6.existsSync(resolved)) {
+    const fs5 = __require("fs");
+    const path5 = __require("path");
+    const resolved = path5.resolve(filePath);
+    if (!fs5.existsSync(resolved)) {
       this.appHandle?.addCommandMessage(`文件不存在: ${resolved}`);
       return;
     }
-    const stat = fs6.statSync(resolved);
+    const stat = fs5.statSync(resolved);
     if (!stat.isFile()) {
       this.appHandle?.addCommandMessage(`不是一个文件: ${resolved}`);
       return;
@@ -15301,11 +15410,11 @@ ${summaryText}`;
       this.appHandle?.addCommandMessage(`文件过大 (${(stat.size / 1024 / 1024).toFixed(1)}MB)，最大支持 20MB`);
       return;
     }
-    const ext = path6.extname(resolved).toLowerCase();
+    const ext = path5.extname(resolved).toLowerCase();
     const mimeType = this.detectMimeType(ext);
     const fileType = this.classifyFileType(mimeType);
-    const data = fs6.readFileSync(resolved).toString("base64");
-    const fileName = path6.basename(resolved);
+    const data = fs5.readFileSync(resolved).toString("base64");
+    const fileName = path5.basename(resolved);
     if (fileType === "image") {
       this._pendingImages.push({ mimeType, data, fileName });
     } else if (fileType === "audio") {
@@ -15430,22 +15539,22 @@ ${summaryText}`;
     this.appHandle?.openFileBrowser(dirPath, entries);
   }
   listDirectory(dirPath, showHidden = false) {
-    const fs6 = __require("fs");
-    const path6 = __require("path");
+    const fs5 = __require("fs");
+    const path5 = __require("path");
     try {
-      const items = fs6.readdirSync(dirPath);
+      const items = fs5.readdirSync(dirPath);
       const entries = [];
       for (const name of items) {
         if (!showHidden && name.startsWith("."))
           continue;
         try {
-          const fullPath = path6.join(dirPath, name);
-          const stat = fs6.statSync(fullPath);
-          const isDirectory = stat.isDirectory();
-          if (isDirectory) {
+          const fullPath = path5.join(dirPath, name);
+          const stat = fs5.statSync(fullPath);
+          const isDirectory2 = stat.isDirectory();
+          if (isDirectory2) {
             entries.push({ name, isDirectory: true });
           } else {
-            const ext = path6.extname(name).toLowerCase();
+            const ext = path5.extname(name).toLowerCase();
             const mimeType = this.detectMimeType(ext);
             const fileType = this.classifyFileType(mimeType);
             entries.push({ name, isDirectory: false, size: stat.size, fileType });
@@ -15464,19 +15573,19 @@ ${summaryText}`;
     }
   }
   handleFileBrowserSelect(dirPath, entry, showHidden) {
-    const path6 = __require("path");
+    const path5 = __require("path");
     if (entry.isDirectory) {
-      const newPath = path6.resolve(dirPath, entry.name);
+      const newPath = path5.resolve(dirPath, entry.name);
       const entries = this.listDirectory(newPath, showHidden);
       this.appHandle?.openFileBrowser(newPath, entries);
     } else {
-      const fullPath = path6.join(dirPath, entry.name);
+      const fullPath = path5.join(dirPath, entry.name);
       this.handleFileAttach(fullPath);
     }
   }
   handleFileBrowserGoUp(dirPath, showHidden) {
-    const path6 = __require("path");
-    const parentPath = path6.dirname(dirPath);
+    const path5 = __require("path");
+    const parentPath = path5.dirname(dirPath);
     if (parentPath === dirPath)
       return;
     const entries = this.listDirectory(parentPath, showHidden);

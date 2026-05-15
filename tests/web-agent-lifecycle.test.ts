@@ -158,4 +158,46 @@ describe('WebPlatform 多 Agent 生命周期适配', () => {
     expect(reloadHandler).not.toHaveBeenCalled();
     expect(platform.getAgentList().map(agent => agent.name)).toEqual(['master', 'worker']);
   });
+
+  it('milestone API 从 extension service 读取快照，而不是依赖旧 Backend 方法', async () => {
+    const snapshot = {
+      sessionId: 's-web',
+      items: [{ title: '接入 Web milestone', status: 'in_progress', createdAt: 1, updatedAt: 1 }],
+      stats: { total: 1, pending: 0, inProgress: 1, completed: 0, blocked: 0, cancelled: 0, open: 1 },
+      updatedAt: 1,
+    };
+    const service = { loadLatest: vi.fn(async () => snapshot) };
+    const api = { services: { get: vi.fn((id: string) => id === 'milestone:service' ? service : undefined) } };
+    const platform = new WebPlatform(createBackend(), baseConfig, { agentName: 'master', api: api as any });
+
+    const req = { method: 'GET', url: '/api/sessions/s-web/milestones', headers: { host: 'localhost' } } as any;
+    const res = {
+      statusCode: 0,
+      headers: undefined as Record<string, string> | undefined,
+      body: '',
+      writeHead(status: number, headers: Record<string, string>) { this.statusCode = status; this.headers = headers; },
+      end(body: string) { this.body = body; },
+    } as any;
+
+    const matched = await (platform as any).router.handle(req, res);
+
+    expect(matched).toBe(true);
+    expect(service.loadLatest).toHaveBeenCalledWith('s-web');
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ snapshot });
+  });
+
+  it('milestone service 更新会转发为 Web milestones_update 事件', () => {
+    let listener: ((sessionId: string, snapshot: unknown) => void) | undefined;
+    const service = { onDidUpdate: vi.fn((fn) => { listener = fn; return { dispose: vi.fn() }; }) };
+    const api = { services: { get: vi.fn((id: string) => id === 'milestone:service' ? service : undefined) } };
+    const platform = new WebPlatform(createBackend(), baseConfig, { agentName: 'master', api: api as any });
+    const writeSSE = vi.spyOn(platform as any, 'writeSSE').mockImplementation(() => undefined);
+
+    (platform as any).wireBackendEvents(createBackend(), 'master');
+    listener?.('s-web', { updatedAt: 2 });
+
+    expect(service.onDidUpdate).toHaveBeenCalledOnce();
+    expect(writeSSE).toHaveBeenCalledWith('s-web', { type: 'milestones_update', snapshot: { updatedAt: 2 } });
+  });
 });

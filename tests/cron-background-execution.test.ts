@@ -664,6 +664,17 @@ describe('投递门控 (shouldSkip)', () => {
     expect(result.reason).toContain('已禁用');
   });
 
+  it('调度器全局禁用时任务被跳过', () => {
+    const job = createTestJob({ enabled: true });
+    const config: SchedulerConfig = {
+      ...DEFAULT_SCHEDULER_CONFIG,
+      enabled: false,
+    };
+    const result = shouldSkip(job, config, new Map());
+    expect(result.skip).toBe(true);
+    expect(result.reason).toContain('调度器已禁用');
+  });
+
   it('启用的任务在无限制时通过', () => {
     const job = createTestJob();
     const result = shouldSkip(job, DEFAULT_SCHEDULER_CONFIG, new Map());

@@ -33,6 +33,7 @@ let schedulerServiceDisposable: Disposable | undefined;
 let lifecycleDisposables: Disposable[] = [];
 let backendWithDoneListener: { off?: (event: string, listener: (...args: any[]) => void) => void; removeListener?: (event: string, listener: (...args: any[]) => void) => void } | undefined;
 let backendDoneListener: ((sessionId: string) => void) | undefined;
+let lastCronConfigSignature = '';
 
 function trackDisposable(disposable: Disposable | undefined): void {
   if (disposable) lifecycleDisposables.push(disposable);
@@ -70,10 +71,33 @@ export default definePlugin({
     const mergedRaw = rawSection ?? {};
     const config = resolveConfig(mergedRaw);
     const bgConfig = resolveBackgroundConfig(mergedRaw?.backgroundExecution as Record<string, unknown> | undefined);
+    lastCronConfigSignature = stableStringify(mergedRaw);
+
+    // 运行中热重载：外部 CLI / Web / Console 修改 cron.yaml 后，IrisCore 的 ConfigWatcher
+    // 会触发 onConfigReload。这里同步更新调度器运行时配置，避免必须重启。
+    ctx.addHook({
+      name: 'cron:config-reload',
+      async onConfigReload({ rawMergedConfig }) {
+        const raw = ((rawMergedConfig as Record<string, unknown>).cron ?? {}) as Record<string, unknown>;
+        const nextSignature = stableStringify(raw);
+        if (nextSignature === lastCronConfigSignature) return;
+        lastCronConfigSignature = nextSignature;
+
+        const nextConfig = resolveConfig(raw);
+        const nextBackgroundConfig = resolveBackgroundConfig(raw.backgroundExecution as Record<string, unknown> | undefined);
+        if (!schedulerInstance) {
+          logger.info('cron.yaml 已变更，但调度器尚未初始化；将在下次启动时生效');
+          return;
+        }
+
+        schedulerInstance.updateConfig(nextConfig);
+        schedulerInstance.updateBackgroundConfig(nextBackgroundConfig);
+        logger.info('cron.yaml 已热重载');
+      },
+    });
 
     if (!config.enabled) {
-      logger.info('调度器未启用（config.enabled = false）');
-      return;
+      logger.info('调度器当前为禁用状态（config.enabled = false），仍初始化服务以支持运行中热启用；触发时会跳过任务。');
     }
 
     // 3. 注册 manage_scheduled_tasks 工具
@@ -495,4 +519,18 @@ function resolveBackgroundConfig(
       ? raw.retentionCount
       : DEFAULT_BACKGROUND_CONFIG.retentionCount,
   };
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortForStableStringify(value));
+}
+
+function sortForStableStringify(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortForStableStringify);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => [k, sortForStableStringify(v)]),
+  );
 }

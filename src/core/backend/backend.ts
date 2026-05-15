@@ -51,13 +51,17 @@ import { TurnLock } from '../turn-lock';
 import { StreamingToolExecutor } from '../../tools/streaming-executor';
 import type { CrossAgentTaskBoard, TaskRecord } from '../cross-agent-task-board';
 import { ToolExecutionHandle } from '../../tools/handle';
+import { buildToolDiffPreview } from '../../tools/diff-preview';
 
 import type { BackendConfig, ImageInput, DocumentInput, AudioInput, VideoInput, UndoScope, UndoOperationResult, RedoOperationResult, NotificationPayload } from './types';
 import { buildMinimalParts, estimateMultimodalTokens } from './media';
+import { maybeAddCallmeTrailerToGitCommit, type CallmeAttributionConfig } from '../../git/callme';
 import { prepareHistoryForLLM, preparePartsForLLM } from './history';
 import { callLLMStream } from './stream';
 import { UndoRedoManager } from './undo-redo';
 import { buildPluginHookConfig } from './plugins';
+import { AutoEditManager, buildAutoEditInstructions } from '../../auto-edit';
+import type { AutoEditSessionState } from '../../auto-edit';
 
 import { sessionContext, getSessionCwd, setSessionCwd, getRememberedCwd, getActiveSessionId, clearSessionCwd } from './session-context';
 import type { SessionExecutionContext } from './session-context';
@@ -106,6 +110,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private toolLoop: ToolLoop;
   private toolLoopConfig: ToolLoopConfig;
   private toolState: ToolStateManager;
+  private callmeConfig?: CallmeAttributionConfig;
+  private autoEdit = new AutoEditManager();
+  private isPlanModeActive?: (sessionId: string | undefined) => boolean;
 
   /** 每个 sessionId 的 AbortController，用于中止正在进行的 chat */
   private activeAbortControllers = new Map<string, AbortController>();
@@ -193,6 +200,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.configDir = config?.configDir;
     this.globalConfigDir = config?.globalConfigDir;
     this.rememberPlatformModel = config?.rememberPlatformModel ?? true;
+    this.callmeConfig = config?.callme;
+    this.isPlanModeActive = config?.isPlanModeActive;
     if (config?.skills) {
       this.skills = config.skills;
     }
@@ -244,6 +253,11 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       }
     }
   }
+
+  private buildSystemReminderPart(text: string): Part {
+    return { text: `<system-reminder>\n${text}\n</system-reminder>` };
+  }
+
 
 
   /**
@@ -415,6 +429,10 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     for (const handle of this.toolState.getHandlesBySession(sessionId)) {
       handle.abort();
     }
+
+    // Esc/停止应同时中止该会话发起的后台任务（异步 sub_agent / delegate）。
+    // 否则前台 turn 已停止，但后台任务仍会继续跑并在稍后推送通知。
+    this.taskBoard?.killAllBySourceSession(sessionId);
   }
 
   /** 清空指定会话 */
@@ -424,10 +442,15 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.lastSessionTokens.delete(sessionId);
     // 清空该会话在队列中的残留消息（如未处理的异步子代理通知）
     this.messageQueue.clearSession(sessionId);
+    // 中止该会话发起的后台任务（异步 sub_agent / delegate）。
+    this.taskBoard?.killAllBySourceSession(sessionId);
     // 清空该会话暂存的待合并通知
     this.pendingNotifications.delete(sessionId);
     // 清除该会话的 turn 锁记录
     this.turnLock.clear(sessionId);
+    // 清空会话级 Auto Edit 状态
+    this.autoEdit.clear(sessionId);
+    this.emit('auto-edit:update', sessionId, false);
 
     for (const hook of this.pluginHooks) {
       try {
@@ -596,7 +619,15 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       return { output: `已切换到: ${cwd}`, cwd };
     }
 
-    const result = spawnSync(trimmed, {
+    const shellKind = process.platform === 'win32' ? 'cmd' : 'bash';
+    let command = maybeAddCallmeTrailerToGitCommit(trimmed, shellKind, this.callmeConfig);
+    if (command !== trimmed) {
+      logger.info(`已按 /callme 配置为 /sh git commit 注入链接署名: ${trimmed.slice(0, 100)}`);
+    } else {
+      command = trimmed;
+    }
+
+    const result = spawnSync(command, {
       cwd: getSessionCwd(),
       encoding: 'utf-8',
       timeout: 30000,
@@ -788,9 +819,46 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     return this.toolState.getHandle(toolId);
   }
 
+  /** 生成指定工具调用的 diff 审批预览。 */
+  getToolDiffPreview(toolId: string): ReturnType<typeof buildToolDiffPreview> {
+    const handle = this.toolState.getHandle(toolId);
+    if (!handle) {
+      throw new Error(`未找到工具调用: ${toolId}`);
+    }
+    const invocation = handle.getSnapshot();
+    const cwd = invocation.sessionId ? getRememberedCwd(invocation.sessionId) : getSessionCwd();
+    return buildToolDiffPreview(invocation, { cwd });
+  }
+
   /** 获取指定会话的所有工具 Handle */
   getToolHandles(sessionId: string): ToolExecutionHandle[] {
     return this.toolState.getHandlesBySession(sessionId);
+  }
+
+  enableAutoEdit(sessionId: string): AutoEditSessionState {
+    const state = this.autoEdit.enable(sessionId);
+    this.emit('auto-edit:update', sessionId, state.active);
+    return state;
+  }
+
+  disableAutoEdit(sessionId: string): AutoEditSessionState {
+    const state = this.autoEdit.disable(sessionId);
+    this.emit('auto-edit:update', sessionId, state.active);
+    return state;
+  }
+
+  toggleAutoEdit(sessionId: string): AutoEditSessionState {
+    const state = this.autoEdit.toggle(sessionId);
+    this.emit('auto-edit:update', sessionId, state.active);
+    return state;
+  }
+
+  getAutoEditState(sessionId: string | undefined): AutoEditSessionState | null {
+    return this.autoEdit.getState(sessionId);
+  }
+
+  isAutoEditActive(sessionId: string | undefined): boolean {
+    return this.autoEdit.isActive(sessionId);
   }
 
   getToolsConfig(): ToolsConfig {
@@ -846,6 +914,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     toolsConfig?: ToolsConfig;
     systemPrompt?: string;
     currentLLMConfig?: LLMConfig;
+    callme?: CallmeAttributionConfig;
     skills?: SkillDefinition[];
   }): void {
     if (opts.stream !== undefined) this.stream = opts.stream;
@@ -853,7 +922,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     if (opts.toolsConfig !== undefined) this.toolLoopConfig.toolsConfig = opts.toolsConfig;
     if (opts.retryOnError !== undefined) this.toolLoopConfig.retryOnError = opts.retryOnError;
     if (opts.maxRetries !== undefined) this.toolLoopConfig.maxRetries = opts.maxRetries;
-    if (opts.systemPrompt !== undefined) this.prompt.setSystemPrompt(opts.systemPrompt);
+    if (opts.systemPrompt !== undefined) this.prompt.replaceSystemPromptText(opts.systemPrompt);
+    if ('callme' in opts) this.callmeConfig = opts.callme;
     if ('currentLLMConfig' in opts) this.currentLLMConfig = opts.currentLLMConfig;
     if ('skills' in opts) {
       this.skills = opts.skills ?? [];
@@ -1230,12 +1300,28 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const { sessionId, turnId, history, signal } = options;
     const startTime = Date.now();
 
-    // 1. 构建 per-request 额外上下文（模式系统提示词）
+    // 1. 构建 per-request 额外上下文。
+    // 模式提示仍作为 system part；动态运行时提醒（Auto Edit 等）
+    // 参考 Claude Code 的 <system-reminder> 做法，放到用户侧尾部，避免破坏 system prompt cache。
     const extraParts: Part[] = [];
+    const runtimeReminderParts: Part[] = [];
     const mode = this.resolveMode();
     if (mode?.systemPrompt) {
       extraParts.unshift({ text: mode.systemPrompt });
     }
+    const planModeActive = this.isPlanModeActive?.(sessionId) === true;
+    const autoEditActive = this.autoEdit.isActive(sessionId);
+    if (autoEditActive) {
+      runtimeReminderParts.push(this.buildSystemReminderPart(buildAutoEditInstructions(planModeActive)));
+    }
+    const runtimeApprovalContext = {
+      sessionId,
+      cwd: getSessionCwd(),
+      autoEditActive,
+      planModeActive,
+      isAutoEditActive: (sid: string | undefined) => this.autoEdit.isActive(sid),
+      isPlanModeActive: (sid: string | undefined) => this.isPlanModeActive?.(sid) === true,
+    };
 
     // 2. 构建 LLM 调用函数
     let lastCallTotalTokens = 0;
@@ -1253,6 +1339,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
           requestTools, this.toolState, this.toolLoopConfig.toolsConfig,
           callSignal, this.toolLoopConfig.beforeToolExec, this.toolLoopConfig.afterToolExec,
           (attachments) => { this.emit('attachments', sessionId, attachments); },
+          runtimeApprovalContext,
           sessionId,
         );
 
@@ -1292,6 +1379,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const result = await loop.run(history, callLLM, {
       sessionId,
       extraParts,
+      extraUserParts: runtimeReminderParts,
       // 流式模式下注入 StreamingToolExecutor。
       // callLLM 每次被调用时会创建新的 executor，这里通过 getter 获取最新的实例。
       get streamingToolExecutor() { return streamingExecutor; },
@@ -1301,6 +1389,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         this.emit('attachments', sessionId, attachments);
       },
       signal,
+      runtimeApprovalContext,
       onRetry: (attempt, maxRetries, error) => {
         this.emit('retry', sessionId, attempt, maxRetries, error);
       },

@@ -30,6 +30,9 @@ export class DiscordPlatform extends PlatformAdapter {
   private editTimers = new Map<string, ReturnType<typeof setTimeout>>(); // 流式编辑节流定时器
   private pairingStore: PairingStore | null = null;
   private pairingGuard: PairingGuard | null = null;
+  private backendListenersReady = false;
+  private clientListenersReady = false;
+  private started = false;
 
   constructor(backend: IrisBackendLike, config: DiscordConfig) {
     super();
@@ -53,68 +56,82 @@ export class DiscordPlatform extends PlatformAdapter {
   }
 
   async start(): Promise<void> {
-    // 非流式或回退消息：直接发送
-    this.backend.on('response', (sid: string, text: string) => {
-      if (!sid.startsWith('discord-')) return;
-      this.stopTyping(sid);
-      this.clearStreamState(sid);
-      this.pendingTexts.delete(sid);
-      this.sendToChannel(sid, text);
-    });
+    if (this.started) return;
 
-    // 流式模式：缓存文本 + 定期编辑消息实时展示
-    this.backend.on('assistant:content', (sid: string, content: Content) => {
-      if (!sid.startsWith('discord-')) return;
-      const text = extractText(content.parts ?? []);
-      if (!text) return;
-      this.pendingTexts.set(sid, text);
+    if (!this.backendListenersReady) {
+      this.backendListenersReady = true;
+      // 非流式或回退消息：直接发送
+      this.backend.on('response', (sid: string, text: string) => {
+        if (!sid.startsWith('discord-')) return;
+        this.stopTyping(sid);
+        this.clearStreamState(sid);
+        this.pendingTexts.delete(sid);
+        this.sendToChannel(sid, text);
+      });
 
-      if (this.backend.isStreamEnabled()) {
-        this.scheduleStreamEdit(sid);
-      }
-    });
+      // 流式模式：缓存文本 + 定期编辑消息实时展示
+      this.backend.on('assistant:content', (sid: string, content: Content) => {
+        if (!sid.startsWith('discord-')) return;
+        const text = extractText(content.parts ?? []);
+        if (!text) return;
+        this.pendingTexts.set(sid, text);
 
-    // 工具开始执行 → 当前 turn 文本已完整，定稿当前消息；下个 turn 将发新消息
-    this.backend.on('tool:execute', (sid: string) => {
-      if (!sid.startsWith('discord-')) return;
-      if (!this.backend.isStreamEnabled()) return;
-      const text = this.pendingTexts.get(sid);
-      if (!text) return;
-      this.pendingTexts.delete(sid);
-      // 定稿当前流式消息（finalizeStream 会清除 editTimers / streamMessages）
-      this.finalizeStream(sid, text);
-    });
+        if (this.backend.isStreamEnabled()) {
+          this.scheduleStreamEdit(sid);
+        }
+      });
 
-    this.backend.on('error', (sid: string, error: string) => {
-      if (!sid.startsWith('discord-')) return;
-      this.stopTyping(sid);
-      this.clearStreamState(sid);
-      this.pendingTexts.delete(sid);
-      this.sendToChannel(sid, `错误: ${error}`);
-    });
+      // 工具开始执行 → 当前 turn 文本已完整，定稿当前消息；下个 turn 将发新消息
+      this.backend.on('tool:execute', (sid: string) => {
+        if (!sid.startsWith('discord-')) return;
+        if (!this.backend.isStreamEnabled()) return;
+        const text = this.pendingTexts.get(sid);
+        if (!text) return;
+        this.pendingTexts.delete(sid);
+        // 定稿当前流式消息（finalizeStream 会清除 editTimers / streamMessages）
+        this.finalizeStream(sid, text);
+      });
 
-    this.backend.on('done', (sid: string) => {
-      if (!sid.startsWith('discord-')) return;
-      this.stopTyping(sid);
-      if (!this.backend.isStreamEnabled()) return;
+      this.backend.on('error', (sid: string, error: string) => {
+        if (!sid.startsWith('discord-')) return;
+        this.stopTyping(sid);
+        this.clearStreamState(sid);
+        this.pendingTexts.delete(sid);
+        this.sendToChannel(sid, `错误: ${error}`);
+      });
 
-      const text = this.pendingTexts.get(sid);
-      if (!text) return;
+      this.backend.on('done', (sid: string) => {
+        if (!sid.startsWith('discord-')) return;
+        this.stopTyping(sid);
+        if (!this.backend.isStreamEnabled()) return;
 
-      this.pendingTexts.delete(sid);
-      this.finalizeStream(sid, text);
-    });
+        const text = this.pendingTexts.get(sid);
+        if (!text) return;
 
-    this.client.on('ready', () => {
-      logger.info(`已连接 | Bot: ${this.client.user?.tag}`);
-      this.registerSlashCommands();
-    });
+        this.pendingTexts.delete(sid);
+        this.finalizeStream(sid, text);
+      });
+    }
 
-    this.client.on('messageCreate', (msg) => this.handleMessage(msg));
-    this.client.on('interactionCreate', (interaction) => this.handleSlashCommand(interaction));
+    if (!this.clientListenersReady) {
+      this.client.on('ready', () => {
+        logger.info(`已连接 | Bot: ${this.client.user?.tag}`);
+        this.registerSlashCommands();
+      });
 
-    await this.client.login(this.token);
-    logger.info('平台已启动');
+      this.client.on('messageCreate', (msg) => this.handleMessage(msg));
+      this.client.on('interactionCreate', (interaction) => this.handleSlashCommand(interaction));
+      this.clientListenersReady = true;
+    }
+
+    try {
+      await this.client.login(this.token);
+      this.started = true;
+      logger.info('平台已启动');
+    } catch (err) {
+      this.started = false;
+      throw err;
+    }
 
     // 首次使用：输出 Bootstrap 对码
     if (this.pairingGuard && this.pairingStore?.needsBootstrap()) {
@@ -213,8 +230,12 @@ export class DiscordPlatform extends PlatformAdapter {
   }
 
   async stop(): Promise<void> {
-    await this.client.destroy();
-    logger.info('平台已停止');
+    try {
+      await this.client.destroy();
+      logger.info('平台已停止');
+    } finally {
+      this.started = false;
+    }
   }
 
   // ============ 内部方法 ============

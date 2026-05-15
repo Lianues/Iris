@@ -49,11 +49,23 @@ import type {
 import { supportsConsoleDiffApprovalViewSetting } from './diff-approval';
 
 export const CONSOLE_LLM_PROVIDER_OPTIONS = [
+  'deepseek',
   'gemini',
   'openai-compatible',
   'openai-responses',
   'claude',
 ] as const;
+
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
+const DEEPSEEK_MODEL_IDS = ['deepseek-v4-flash', 'deepseek-v4-pro'] as const;
+
+function normalizeDeepSeekModelId(modelId: unknown): string {
+  const value = typeof modelId === 'string' ? modelId.trim() : '';
+  return DEEPSEEK_MODEL_IDS.includes(value as typeof DEEPSEEK_MODEL_IDS[number])
+    ? value
+    : DEEPSEEK_MODEL_IDS[0];
+}
+
 
 export const CONSOLE_MCP_TRANSPORT_OPTIONS = [
   'stdio',
@@ -63,6 +75,34 @@ export const CONSOLE_MCP_TRANSPORT_OPTIONS = [
 
 export type ConsoleLLMProvider = typeof CONSOLE_LLM_PROVIDER_OPTIONS[number];
 export type ConsoleMCPTransport = typeof CONSOLE_MCP_TRANSPORT_OPTIONS[number];
+
+const CONSOLE_LLM_PROVIDER_DEFAULTS: Record<ConsoleLLMProvider, Record<string, unknown>> = {
+  deepseek: {
+    model: 'deepseek-v4-flash',
+    baseUrl: DEEPSEEK_BASE_URL,
+    contextWindow: 1000000,
+  },
+  gemini: {
+    model: 'gemini-2.0-flash',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    contextWindow: 1048576,
+  },
+  'openai-compatible': {
+    model: 'gpt-4o',
+    baseUrl: 'https://api.openai.com/v1',
+    contextWindow: 128000,
+  },
+  'openai-responses': {
+    model: 'gpt-4o',
+    baseUrl: 'https://api.openai.com/v1',
+    contextWindow: 128000,
+  },
+  claude: {
+    model: 'claude-sonnet-4-6',
+    baseUrl: 'https://api.anthropic.com/v1',
+    contextWindow: 200000,
+  },
+};
 
 export interface ConsoleModelSettings {
   modelName: string;
@@ -146,20 +186,27 @@ function normalizeTransport(value: unknown): ConsoleMCPTransport {
 }
 
 function sanitizeServerName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_]/g, '_');
+  return name.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 export function createEmptyModel(
-  provider: ConsoleLLMProvider = 'gemini',
+  provider: ConsoleLLMProvider = CONSOLE_LLM_PROVIDER_OPTIONS[0],
   modelName: string = '',
   defaults: Record<string, Record<string, unknown>> = {},
 ): ConsoleModelSettings {
-  const providerDefaults = defaults[provider] ?? defaults.gemini ?? {};
+  const providerDefaults = defaults[provider]
+    ?? CONSOLE_LLM_PROVIDER_DEFAULTS[provider]
+    ?? defaults.gemini
+    ?? CONSOLE_LLM_PROVIDER_DEFAULTS.gemini
+    ?? {};
+
   return {
     modelName,
     provider,
     apiKey: '',
-    modelId: (providerDefaults.model as string) ?? '',
+    modelId: provider === 'deepseek'
+      ? normalizeDeepSeekModelId(providerDefaults.model)
+      : (providerDefaults.model as string) ?? '',
     contextWindow: typeof providerDefaults.contextWindow === 'number' ? providerDefaults.contextWindow : undefined,
     baseUrl: (providerDefaults.baseUrl as string) ?? '',
   };
@@ -170,19 +217,29 @@ export function applyModelProviderChange(
   nextProvider: ConsoleLLMProvider,
   defaults: Record<string, Record<string, unknown>> = {},
 ): ConsoleModelSettings {
-  const oldDefaults = defaults[model.provider] ?? {};
-  const newDefaults = defaults[nextProvider] ?? {};
+  const oldDefaults = defaults[model.provider]
+    ?? CONSOLE_LLM_PROVIDER_DEFAULTS[model.provider as ConsoleLLMProvider]
+    ?? {};
+  const newDefaults = defaults[nextProvider]
+    ?? CONSOLE_LLM_PROVIDER_DEFAULTS[nextProvider]
+    ?? {};
+  const baseUrl = nextProvider === 'deepseek'
+    ? DEEPSEEK_BASE_URL
+    : !model.baseUrl || model.baseUrl === oldDefaults.baseUrl
+      ? (newDefaults.baseUrl as string) ?? model.baseUrl
+      : model.baseUrl;
+  const modelId = nextProvider === 'deepseek'
+    ? normalizeDeepSeekModelId(newDefaults.model)
+    : !model.modelId || model.modelId === oldDefaults.model
+      ? (newDefaults.model as string) ?? model.modelId
+      : model.modelId;
 
   return {
     ...model,
     provider: nextProvider,
     apiKey: model.apiKey,
-    modelId: !model.modelId || model.modelId === oldDefaults.model
-      ? (newDefaults.model as string) ?? model.modelId
-      : model.modelId,
-    baseUrl: !model.baseUrl || model.baseUrl === oldDefaults.baseUrl
-      ? (newDefaults.baseUrl as string) ?? model.baseUrl
-      : model.baseUrl,
+    modelId,
+    baseUrl,
   };
 }
 
@@ -207,8 +264,8 @@ export function cloneConsoleSettingsSnapshot(snapshot: ConsoleSettingsSnapshot):
 function buildModelPayload(model: ConsoleModelSettings): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     provider: model.provider,
-    model: model.modelId,
-    baseUrl: model.baseUrl,
+    model: model.provider === 'deepseek' ? normalizeDeepSeekModelId(model.modelId) : model.modelId,
+    baseUrl: model.provider === 'deepseek' ? DEEPSEEK_BASE_URL : model.baseUrl,
     contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : null,
   };
   payload.apiKey = model.apiKey || null;
@@ -269,7 +326,7 @@ function validateSnapshot(snapshot: ConsoleSettingsSnapshot): string | null {
     }
 
     if (safeName !== trimmedName) {
-      return `MCP 服务器名称 "${trimmedName}" 仅支持字母、数字和下划线`;
+      return `MCP 服务器名称 "${trimmedName}" 仅支持字母、数字、下划线和连字符`;
     }
 
     if (names.has(trimmedName)) {
@@ -402,9 +459,9 @@ export class ConsoleSettingsController {
         originalModelName: model.modelName,
         provider: model.provider,
         apiKey: model.apiKey,
-        modelId: model.model,
+        modelId: model.provider === 'deepseek' ? normalizeDeepSeekModelId(model.model) : model.model,
         contextWindow: model.contextWindow,
-        baseUrl: model.baseUrl,
+        baseUrl: model.provider === 'deepseek' ? DEEPSEEK_BASE_URL : model.baseUrl,
       })),
       modelOriginalNames: (llm.models ?? []).map((model: any) => model.modelName),
       defaultModelName: llm.defaultModelName ?? '',

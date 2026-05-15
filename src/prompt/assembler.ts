@@ -16,6 +16,15 @@ export class PromptAssembler {
     this.systemParts = [{ text }];
   }
 
+  /**
+   * 仅替换基础系统提示词文本，保留后续通过 addSystemPart 注入的运行时片段。
+   * 用于配置热重载，避免覆盖 milestone / 插件等附加 system part。
+   */
+  replaceSystemPromptText(text: string): void {
+    if (this.systemParts.length === 0) this.systemParts = [{ text }];
+    else this.systemParts[0] = { text };
+  }
+
   /** 追加系统提示词片段 */
   addSystemPart(part: Part): void {
     this.systemParts.push(part);
@@ -50,10 +59,28 @@ export class PromptAssembler {
     toolDecls?: FunctionDeclaration[],
     overrides?: LLMRequest['generationConfig'],
     extraParts?: Part[],
+    extraUserParts?: Part[],
   ): LLMRequest {
+    const contents = history.map(({ role, parts }) => ({ role, parts }));
+
+    // 非持久化的请求尾部提醒（例如动态进度守卫）不要放入 system prompt，
+    // 否则会破坏 Claude system prompt cache。优先合并到最后一条 user
+    // content，避免部分 provider 不接受连续 user message。
+    if (extraUserParts && extraUserParts.length > 0) {
+      const last = contents[contents.length - 1];
+      if (last?.role === 'user') {
+        contents[contents.length - 1] = {
+          role: 'user',
+          parts: [...last.parts, ...extraUserParts],
+        };
+      } else {
+        contents.push({ role: 'user', parts: [...extraUserParts] });
+      }
+    }
+
     const request: LLMRequest = {
       // 剥离 usageMetadata（仅存储用，不发送给 LLM）
-      contents: history.map(({ role, parts }) => ({ role, parts })),
+      contents,
     };
 
     // 系统提示词（含可选的额外片段）
