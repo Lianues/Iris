@@ -52,6 +52,9 @@ var init_logger = __esm(() => {
 
 // src/terminal-compat.ts
 import { execFileSync } from "child_process";
+import * as fs3 from "fs";
+import * as os from "os";
+import * as path3 from "path";
 function detectTier() {
   if ((process.env.TERM ?? "").toLowerCase() === "dumb")
     return "basic";
@@ -92,6 +95,52 @@ function readClipboardText() {
     return read("pbpaste", []);
   }
   return read("wl-paste", ["-n"]) ?? read("xclip", ["-selection", "clipboard", "-out"]) ?? read("xsel", ["--clipboard", "--output"]);
+}
+function writeClipboardText(text) {
+  const timeout = 1500;
+  const write = (command, args) => {
+    try {
+      execFileSync(command, args, {
+        input: text,
+        windowsHide: true,
+        timeout
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
+  const writeWindowsViaPowerShellFile = (command) => {
+    const tempDir = fs3.mkdtempSync(path3.join(os.tmpdir(), "iris-clipboard-"));
+    const tempFile = path3.join(tempDir, "clipboard.txt");
+    try {
+      fs3.writeFileSync(tempFile, text, "utf8");
+      execFileSync(command, [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `Set-Clipboard -Value ([System.IO.File]::ReadAllText(${psQuote(tempFile)}, [System.Text.Encoding]::UTF8))`
+      ], {
+        windowsHide: true,
+        timeout
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      try {
+        fs3.rmSync(tempDir, { recursive: true, force: true });
+      } catch {}
+    }
+  };
+  if (process.platform === "win32") {
+    return writeWindowsViaPowerShellFile("powershell.exe") || writeWindowsViaPowerShellFile("powershell");
+  }
+  if (process.platform === "darwin") {
+    return write("pbcopy", []);
+  }
+  return write("wl-copy", []) || write("xclip", ["-selection", "clipboard", "-in"]) || write("xsel", ["--clipboard", "--input"]);
 }
 function normalizePastedSingleLine(text) {
   return text.replace(/[\r\n]/g, "").trim();
@@ -184,7 +233,7 @@ __export(exports_remote_wizard, {
   showConnectError: () => showConnectError
 });
 function showSelectionPhase(options) {
-  return new Promise((resolve5) => {
+  return new Promise((resolve4) => {
     const stdin = process.stdin;
     const stdout = process.stdout;
     const wasRaw = stdin.isRaw;
@@ -293,7 +342,7 @@ function showSelectionPhase(options) {
       const key = buf.toString("utf-8");
       if (key === "\x1B" || key === "\x03") {
         cleanup();
-        resolve5(null);
+        resolve4(null);
         return;
       }
       if (key === "\x1B[A") {
@@ -339,11 +388,11 @@ function showSelectionPhase(options) {
           return;
         cleanup();
         if (item.type === "saved") {
-          resolve5({ action: "connect-saved", name: item.name, url: item.url, hasToken: item.hasToken });
+          resolve4({ action: "connect-saved", name: item.name, url: item.url, hasToken: item.hasToken });
         } else if (item.type === "discovered") {
-          resolve5({ action: "connect-discovered", host: item.host, port: item.port, name: item.name });
+          resolve4({ action: "connect-discovered", host: item.host, port: item.port, name: item.name });
         } else {
-          resolve5({ action: "manual" });
+          resolve4({ action: "manual" });
         }
         return;
       }
@@ -353,7 +402,7 @@ function showSelectionPhase(options) {
   });
 }
 function showInputPhase(opts = {}) {
-  return new Promise((resolve5) => {
+  return new Promise((resolve4) => {
     const stdin = process.stdin;
     const stdout = process.stdout;
     let url = opts.prefillUrl || "ws://";
@@ -422,7 +471,7 @@ function showInputPhase(opts = {}) {
       const key = buf.toString("utf-8");
       if (key === "\x1B" || key === "\x03") {
         cleanup();
-        resolve5(null);
+        resolve4(null);
         return;
       }
       if (key === "\t") {
@@ -451,7 +500,7 @@ function showInputPhase(opts = {}) {
             return;
           }
           cleanup();
-          resolve5({ url: url.trim(), token: token.trim() });
+          resolve4({ url: url.trim(), token: token.trim() });
           return;
         }
         nextField();
@@ -492,7 +541,7 @@ function showInputPhase(opts = {}) {
   });
 }
 function showSavePrompt() {
-  return new Promise((resolve5) => {
+  return new Promise((resolve4) => {
     const stdin = process.stdin;
     const stdout = process.stdout;
     let name = "";
@@ -528,7 +577,7 @@ function showSavePrompt() {
       const key = buf.toString("utf-8");
       if (key === "\x1B" || key === "\x03") {
         cleanup();
-        resolve5(null);
+        resolve4(null);
         return;
       }
       if (key === "\r" || key === `
@@ -545,7 +594,7 @@ function showSavePrompt() {
           return;
         }
         cleanup();
-        resolve5(trimmed);
+        resolve4(trimmed);
         return;
       }
       if (key === "" || key === "\b") {
@@ -725,6 +774,7 @@ var init_protocol = __esm(() => {
     GET_ACTIVE_SESSION_ID: "backend.getActiveSessionId",
     GET_TOOL_HANDLE: "backend.getToolHandle",
     GET_TOOL_HANDLES: "backend.getToolHandles",
+    GET_TOOL_DIFF_PREVIEW: "backend.getToolDiffPreview",
     RUN_COMMAND: "backend.runCommand",
     RESET_CONFIG: "backend.resetConfigToDefaults",
     GET_AGENT_TASKS: "backend.getAgentTasks",
@@ -977,6 +1027,9 @@ var init_remote_backend_handle = __esm(() => {
     }
     getToolHandles(sessionId) {
       return Array.from(this.toolHandles.values()).filter((h) => h.sessionId === sessionId);
+    }
+    async getToolDiffPreview(toolId) {
+      return await this.callRemote(Methods.GET_TOOL_DIFF_PREVIEW, [toolId]);
     }
     async undo(sessionId, scope) {
       return await this.callRemote(Methods.UNDO, [sessionId, scope]) ?? null;
@@ -1355,6 +1408,9 @@ class BackendHandle {
   getToolHandle(toolId) {
     return this._backend.getToolHandle(toolId);
   }
+  getToolDiffPreview(toolId) {
+    return this._backend.getToolDiffPreview?.(toolId) ?? Promise.reject(new Error("getToolDiffPreview is not supported by this backend"));
+  }
   getToolHandles(sessionId) {
     return this._backend.getToolHandles(sessionId);
   }
@@ -1724,7 +1780,7 @@ function getCharacterCount(text) {
 }
 
 // src/App.tsx
-import { useCallback as useCallback11, useEffect as useEffect12, useMemo as useMemo8, useRef as useRef9, useState as useState15 } from "react";
+import { useCallback as useCallback11, useEffect as useEffect13, useMemo as useMemo8, useRef as useRef9, useState as useState16 } from "react";
 import { useRenderer } from "@opentui/react";
 
 // src/theme.ts
@@ -3117,7 +3173,7 @@ function isAutoEditToggleShortcut(key) {
 function isPrioritySubmitShortcut(key) {
   return key.ctrl && key.name === "s" || key.sequence === "\x13" || key.raw === "\x13";
 }
-function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled }) {
+function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef }) {
   const [inputState, inputActions] = useTextInput("");
   const [selectedIndex, setSelectedIndex] = useState4(0);
   const [queuePromptFrame, setQueuePromptFrame] = useState4(0);
@@ -3173,6 +3229,23 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
   useEffect4(() => {
     setCommandsDismissed(false);
   }, [commandQuery]);
+  useEffect4(() => {
+    if (!inputControllerRef)
+      return;
+    const controller = {
+      hasValue: () => value.length > 0,
+      clear: () => {
+        inputActions.setValue("");
+        setSelectedIndex(0);
+        setCommandsDismissed(false);
+      }
+    };
+    inputControllerRef.current = controller;
+    return () => {
+      if (inputControllerRef.current === controller)
+        inputControllerRef.current = null;
+    };
+  }, [inputControllerRef, inputActions, value]);
   const showCommands = commandQuery.length > 0 && !commandsDismissed;
   const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && value.startsWith(`${activeArgCommand.name} `);
   const filtered = useMemo3(() => {
@@ -3784,7 +3857,8 @@ function BottomPanel({
   pendingFiles,
   onRemoveFile,
   dynamicCommands,
-  supportsHeadlessTransition
+  supportsHeadlessTransition,
+  inputControllerRef
 }) {
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
   return /* @__PURE__ */ jsxDEV11("box", {
@@ -3838,7 +3912,8 @@ function BottomPanel({
             isRemote,
             dynamicCommands,
             supportsHeadlessTransition,
-            thinkingControlEnabled
+            thinkingControlEnabled,
+            inputControllerRef
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV11(StatusBar, {
             agentName,
@@ -5670,9 +5745,24 @@ function ChatMessageList({
   hasActiveTools,
   scrollBoxRef,
   queuedMessages,
-  milestoneSnapshot
+  copyMode,
+  milestoneSnapshot,
+  onCopySelectionStart,
+  onCopySelectionSnapshot
 }) {
   const { height: termHeight } = useTerminalDimensions5();
+  const captureSelectionSnapshot = (scrollBox) => {
+    const text = scrollBox?.ctx?.getSelection?.()?.getSelectedText?.() ?? "";
+    if (text.trim())
+      onCopySelectionSnapshot?.(text);
+  };
+  const scheduleSelectionSnapshot = (scrollBox, updateSelection = false) => {
+    setTimeout(() => {
+      if (updateSelection)
+        scrollBox?.ctx?.requestSelectionUpdate?.();
+      captureSelectionSnapshot(scrollBox);
+    }, 0);
+  };
   const scrollAccel = useMemo5(() => {
     const chatViewportHeight = Math.max(5, termHeight - 8);
     const step = Math.max(1, Math.round(chatViewportHeight / 5));
@@ -5710,6 +5800,18 @@ function ChatMessageList({
     stickyStart: "bottom",
     paddingRight: 1,
     scrollAcceleration: scrollAccel,
+    onMouseDown: copyMode ? function(_event) {
+      onCopySelectionStart?.();
+    } : undefined,
+    onMouseDrag: copyMode ? function() {
+      scheduleSelectionSnapshot(this);
+    } : undefined,
+    onMouseScroll: copyMode ? function() {
+      scheduleSelectionSnapshot(this, true);
+    } : undefined,
+    onMouseUp: copyMode ? function() {
+      scheduleSelectionSnapshot(this);
+    } : undefined,
     children: [
       messages.map((message, index) => {
         const isLastActive = index === activeAssistantIndex;
@@ -5778,720 +5880,85 @@ function ChatMessageList({
 }
 
 // src/components/DiffApprovalView.tsx
-import { useMemo as useMemo6 } from "react";
-import * as fs4 from "fs";
-import * as path4 from "path";
-
-// ../../packages/extension-sdk/dist/tool-utils.js
-import * as fs3 from "node:fs";
-import * as path3 from "node:path";
-function normalizeLineEndings(text) {
-  return text.replace(/\r\n/g, `
-`).replace(/\r/g, `
-`);
-}
-function sanitizeUnifiedDiffPatch(patch) {
-  const normalized = normalizeLineEndings(patch);
-  const lines = normalized.split(`
-`);
-  const out = [];
-  for (const line of lines) {
-    if (line.startsWith("```"))
-      continue;
-    if (line.startsWith("***")) {
-      if (line === "***" || line.startsWith("*** Begin Patch") || line.startsWith("*** End Patch") || line.startsWith("*** Update File:") || line.startsWith("*** Add File:") || line.startsWith("*** Delete File:") || line.startsWith("*** End of File")) {
-        continue;
-      }
-    }
-    out.push(line);
-  }
-  return out.join(`
-`);
-}
-function parseUnifiedDiff(patch) {
-  const normalized = sanitizeUnifiedDiffPatch(patch);
-  const lines = normalized.split(`
-`);
-  let oldFile;
-  let newFile;
-  const hunks = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.startsWith("diff --git ")) {
-      if (hunks.length > 0 || oldFile || newFile) {
-        throw new Error("Multi-file patch is not supported. Please split into one apply_diff call per file.");
-      }
-      i++;
-      continue;
-    }
-    if (line.startsWith("--- ")) {
-      if (oldFile && (hunks.length > 0 || newFile)) {
-        throw new Error("Multi-file patch is not supported.");
-      }
-      oldFile = line.slice(4).trim().split("\t")[0]?.trim() || "";
-      i++;
-      continue;
-    }
-    if (line.startsWith("+++ ")) {
-      if (newFile && hunks.length > 0) {
-        throw new Error("Multi-file patch is not supported.");
-      }
-      newFile = line.slice(4).trim().split("\t")[0]?.trim() || "";
-      i++;
-      continue;
-    }
-    if (line.startsWith("@@")) {
-      const header = line;
-      const m = header.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
-      if (!m) {
-        throw new Error(`Invalid hunk header: ${header}. ` + `Expected format: @@ -oldStart,oldCount +newStart,newCount @@`);
-      }
-      const oldStart = parseInt(m[1], 10);
-      const oldCount = m[2] ? parseInt(m[2], 10) : 1;
-      const newStart = parseInt(m[3], 10);
-      const newCount = m[4] ? parseInt(m[4], 10) : 1;
-      const hunkLines = [];
-      i++;
-      while (i < lines.length) {
-        const l = lines[i];
-        if (l.startsWith("@@") || l.startsWith("--- ") || l.startsWith("diff --git ") || l.startsWith("+++ "))
-          break;
-        if (l === "") {
-          i++;
-          continue;
-        }
-        if (l.startsWith("\\")) {
-          i++;
-          continue;
-        }
-        const prefix = l[0];
-        const content = l.length > 0 ? l.slice(1) : "";
-        if (prefix === " ") {
-          hunkLines.push({ type: "context", content, raw: l });
-        } else if (prefix === "+") {
-          hunkLines.push({ type: "add", content, raw: l });
-        } else if (prefix === "-") {
-          hunkLines.push({ type: "del", content, raw: l });
-        } else {
-          throw new Error(`Invalid hunk line prefix '${prefix}' in line: ${l}`);
-        }
-        i++;
-      }
-      hunks.push({ oldStart, oldLines: oldCount, newStart, newLines: newCount, header, lines: hunkLines });
-      continue;
-    }
-    i++;
-  }
-  if (hunks.length === 0) {
-    throw new Error("No hunks (@@ ... @@) found in patch.");
-  }
-  return { oldFile, newFile, hunks };
-}
-var DEFAULT_IGNORED_DIRS = new Set([
-  ".git",
-  "node_modules",
-  "dist",
-  "build",
-  ".next",
-  ".turbo",
-  ".limcode"
-]);
-var BINARY_DETECT_BYTES = 8 * 1024;
-function toPosix(p) {
-  return p.split(path3.sep).join("/");
-}
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function globToRegExp(glob) {
-  const g = toPosix(glob.trim());
-  let re = "^";
-  for (let i = 0;i < g.length; i++) {
-    const ch = g[i];
-    if (ch === "*") {
-      const next = g[i + 1];
-      if (next === "*") {
-        i++;
-        if (g[i + 1] === "/") {
-          i++;
-          re += "(?:.*\\/)?";
-        } else {
-          re += ".*";
-        }
-      } else {
-        re += "[^/]*";
-      }
-      continue;
-    }
-    if (ch === "?") {
-      re += "[^/]";
-      continue;
-    }
-    if ("\\.^$+()[]{}|".includes(ch)) {
-      re += "\\" + ch;
-    } else {
-      re += ch;
-    }
-  }
-  re += "$";
-  return new RegExp(re);
-}
-function shouldIgnoreByPath(relativePosixPath) {
-  const parts = relativePosixPath.split("/");
-  return parts.some((p) => DEFAULT_IGNORED_DIRS.has(p));
-}
-function isLikelyBinary(buf) {
-  const n = Math.min(buf.length, BINARY_DETECT_BYTES);
-  if (n === 0)
-    return false;
-  let suspicious = 0;
-  for (let i = 0;i < n; i++) {
-    const b = buf[i];
-    if (b === 0)
-      return true;
-    const isAllowedWhitespace = b === 9 || b === 10 || b === 13;
-    const isControl = b < 32 && !isAllowedWhitespace || b === 127;
-    if (isControl)
-      suspicious++;
-  }
-  const ratio = suspicious / n;
-  return ratio > 0.3;
-}
-function swapByteOrder16(buf) {
-  const len = buf.length - buf.length % 2;
-  const out = Buffer.allocUnsafe(len);
-  for (let i = 0;i < len; i += 2) {
-    out[i] = buf[i + 1];
-    out[i + 1] = buf[i];
-  }
-  return out;
-}
-function decodeText(buf) {
-  const hasCRLF = buf.includes(Buffer.from(`\r
-`));
-  if (buf.length >= 3 && buf[0] === 239 && buf[1] === 187 && buf[2] === 191) {
-    return {
-      text: buf.subarray(3).toString("utf8"),
-      encoding: "utf-8",
-      hasBom: true,
-      hasCRLF
-    };
-  }
-  if (buf.length >= 2 && buf[0] === 255 && buf[1] === 254) {
-    return {
-      text: buf.subarray(2).toString("utf16le"),
-      encoding: "utf-16le",
-      hasBom: true,
-      hasCRLF
-    };
-  }
-  if (buf.length >= 2 && buf[0] === 254 && buf[1] === 255) {
-    const swapped = swapByteOrder16(buf.subarray(2));
-    return {
-      text: swapped.toString("utf16le"),
-      encoding: "utf-16be",
-      hasBom: true,
-      hasCRLF
-    };
-  }
-  return {
-    text: buf.toString("utf8"),
-    encoding: "utf-8",
-    hasBom: false,
-    hasCRLF
-  };
-}
-function buildSearchRegex(query, isRegex) {
-  if (!query || !query.trim()) {
-    throw new Error("query 不能为空");
-  }
-  return isRegex ? new RegExp(query, "g") : new RegExp(escapeRegex(query), "g");
-}
-function walkFiles(rootAbs, onFile, shouldStop, relPosixDir = "") {
-  if (shouldStop())
-    return;
-  const dirAbs = relPosixDir ? path3.join(rootAbs, relPosixDir) : rootAbs;
-  const entries = fs3.readdirSync(dirAbs, { withFileTypes: true });
-  for (const ent of entries) {
-    if (shouldStop())
-      return;
-    const relPosix = relPosixDir ? `${relPosixDir}/${ent.name}` : ent.name;
-    if (ent.isDirectory()) {
-      if (DEFAULT_IGNORED_DIRS.has(ent.name))
-        continue;
-      if (shouldIgnoreByPath(relPosix))
-        continue;
-      walkFiles(rootAbs, onFile, shouldStop, relPosix);
-      continue;
-    }
-    if (ent.isFile()) {
-      if (shouldIgnoreByPath(relPosix))
-        continue;
-      onFile(path3.join(dirAbs, ent.name), relPosix);
-    }
-  }
-}
-function normalizeObjectArrayArg(args, options) {
-  const arrayValue = args[options.arrayKey];
-  if (Array.isArray(arrayValue) && arrayValue.length > 0) {
-    const normalized = arrayValue.filter(options.isEntry);
-    return normalized.length === arrayValue.length ? normalized : undefined;
-  }
-  if (options.isEntry(arrayValue)) {
-    return [arrayValue];
-  }
-  for (const key of options.singularKeys ?? []) {
-    const singularValue = args[key];
-    if (options.isEntry(singularValue)) {
-      return [singularValue];
-    }
-  }
-  if (options.isEntry(args)) {
-    return [args];
-  }
-  return;
-}
-function resolveProjectPath(inputPath, baseCwd) {
-  const cwd = baseCwd ?? process.cwd();
-  const resolved = path3.resolve(cwd, inputPath);
-  if (resolved !== cwd && !resolved.startsWith(cwd + path3.sep)) {
-    throw new Error(`路径超出项目目录: ${inputPath}`);
-  }
-  return resolved;
-}
-function isWriteEntry(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.path === "string" && typeof value.content === "string";
-}
-function normalizeWriteArgs(args) {
-  if (Array.isArray(args.files) && args.files.length > 0) {
-    const normalized = args.files.filter(isWriteEntry);
-    return normalized.length === args.files.length ? normalized : undefined;
-  }
-  if (isWriteEntry(args.files)) {
-    return [args.files];
-  }
-  if (isWriteEntry(args.file)) {
-    return [args.file];
-  }
-  if (isWriteEntry(args)) {
-    return [{
-      path: args.path,
-      content: args.content
-    }];
-  }
-  return;
-}
-function isInsertEntry(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.path === "string" && typeof value.line === "number" && typeof value.content === "string";
-}
-function normalizeInsertArgs(args) {
-  return normalizeObjectArrayArg(args, {
-    arrayKey: "files",
-    singularKeys: ["file"],
-    isEntry: isInsertEntry
-  });
-}
-function isDeleteCodeEntry(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.path === "string" && typeof value.start_line === "number" && typeof value.end_line === "number";
-}
-function normalizeDeleteCodeArgs(args) {
-  return normalizeObjectArrayArg(args, {
-    arrayKey: "files",
-    singularKeys: ["file"],
-    isEntry: isDeleteCodeEntry
-  });
-}
-
-// src/components/DiffApprovalView.tsx
+import { useEffect as useEffect8, useMemo as useMemo6, useState as useState8 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV31 } from "@opentui/react/jsx-dev-runtime";
-var DEFAULT_SEARCH_PATTERN = "**/*";
-var DEFAULT_SEARCH_MAX_FILES = 50;
-var DEFAULT_SEARCH_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
-function normalizeLineEndings2(text) {
-  return text.replace(/\r\n/g, `
-`).replace(/\r/g, `
-`);
+function normalizePreviewIndex(index, itemCount) {
+  return itemCount > 0 ? (index % itemCount + itemCount) % itemCount : 0;
 }
-function sanitizePatchText(patch) {
-  const lines = normalizeLineEndings2(patch).split(`
-`);
-  const out = [];
-  for (const line of lines) {
-    if (line.startsWith("```"))
-      continue;
-    if (line === "***" || line.startsWith("*** Begin Patch") || line.startsWith("*** End Patch") || line.startsWith("*** Update File:") || line.startsWith("*** Add File:") || line.startsWith("*** Delete File:") || line.startsWith("*** End of File"))
-      continue;
-    out.push(line);
-  }
-  return out.join(`
-`).trim();
-}
-function getSafePatch(value) {
-  if (typeof value === "string")
-    return value;
-  if (value == null)
-    return "";
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-function toDiffLinePrefix(type) {
-  if (type === "add")
-    return "+";
-  if (type === "del")
-    return "-";
-  return " ";
-}
-function buildDisplayDiff(filePath, patch) {
-  const cleaned = sanitizePatchText(patch);
-  if (!cleaned)
-    return "";
-  try {
-    const parsed = parseUnifiedDiff(cleaned);
-    const fallbackOld = `a/${filePath || "file"}`;
-    const fallbackNew = `b/${filePath || "file"}`;
-    const body = parsed.hunks.map((hunk) => {
-      const lines = hunk.lines.map((line) => `${toDiffLinePrefix(line.type)}${line.content}`);
-      const oldCount = hunk.lines.filter((l) => l.type === "context" || l.type === "del").length;
-      const newCount = hunk.lines.filter((l) => l.type === "context" || l.type === "add").length;
-      const header = `@@ -${hunk.oldStart},${oldCount} +${hunk.newStart},${newCount} @@`;
-      return [header, ...lines].join(`
-`);
-    }).join(`
-`);
-    return [`--- ${parsed.oldFile ?? fallbackOld}`, `+++ ${parsed.newFile ?? fallbackNew}`, body].filter(Boolean).join(`
-`);
-  } catch {
-    if (/^(diff --git |--- |\+\+\+ )/m.test(cleaned))
-      return cleaned;
-    if (/^@@/m.test(cleaned)) {
-      const p = filePath || "file";
-      return `--- a/${p}
-+++ b/${p}
-${cleaned}`;
-    }
-    return cleaned;
-  }
-}
-function inferFiletype(filePath) {
-  const ext = filePath.toLowerCase().match(/\.[^.\\/]+$/)?.[0] ?? "";
-  const map = {
-    ".ts": "typescript",
-    ".tsx": "typescript",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".mjs": "javascript",
-    ".cjs": "javascript",
-    ".json": "json",
-    ".md": "markdown",
-    ".markdown": "markdown",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".css": "css",
-    ".html": "html",
-    ".htm": "html",
-    ".py": "python",
-    ".sh": "bash",
-    ".rs": "rust",
-    ".go": "go",
-    ".java": "java",
-    ".sql": "sql"
-  };
-  return map[ext];
-}
-function normalizePositiveInteger(value, fallback) {
-  return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value > 0 ? value : fallback;
-}
-function toWholeFileDiffLines(text) {
-  if (!text)
-    return [];
-  const lines = normalizeLineEndings2(text).split(`
-`);
-  if (lines.length > 0 && lines[lines.length - 1] === "")
-    lines.pop();
-  return lines;
-}
-function buildWholeFileDiff(filePath, before, after, existed) {
-  if (before === after)
-    return "";
-  const beforeLines = toWholeFileDiffLines(before);
-  const afterLines = toWholeFileDiffLines(after);
-  const bodyLines = [
-    ...beforeLines.map((line) => `-${line}`),
-    ...afterLines.map((line) => `+${line}`)
-  ];
-  if (bodyLines.length === 0)
-    return "";
-  const oldFile = existed ? `a/${filePath}` : "/dev/null";
-  return [
-    `--- ${oldFile}`,
-    `+++ b/${filePath}`,
-    `@@ -${beforeLines.length > 0 ? 1 : 0},${beforeLines.length} +${afterLines.length > 0 ? 1 : 0},${afterLines.length} @@`,
-    ...bodyLines
-  ].join(`
-`);
-}
-function createMsg(id, filePath, label, message) {
-  return { id, filePath, label, filetype: inferFiletype(filePath), message };
-}
-function buildApplyDiffPreview(inv) {
-  const filePath = typeof inv.args.path === "string" ? inv.args.path : "";
-  const rawPatch = getSafePatch(inv.args.patch);
-  const displayDiff = buildDisplayDiff(filePath, rawPatch);
+function loadingPreview(invocation) {
   return {
-    title: "Diff 审批",
-    toolLabel: "apply_diff",
-    summary: [filePath ? `目标文件：${filePath}` : "目标文件：未提供"],
-    items: [displayDiff ? { id: `${inv.id}:apply_diff`, filePath, label: filePath || "补丁预览", diff: displayDiff, filetype: inferFiletype(filePath) } : createMsg(`${inv.id}:apply_diff.empty`, filePath, filePath || "补丁预览", "当前补丁为空，无法显示 diff。")]
-  };
-}
-function buildWriteFilePreview(inv) {
-  const fileList = normalizeWriteArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return {
-      title: "Diff 审批",
-      toolLabel: "write_file",
-      summary: ["参数不完整，无法生成 write_file 预览。"],
-      items: [createMsg(`${inv.id}:write_file.invalid`, "", "write_file", "files 参数无效。")]
-    };
-  }
-  const items = [];
-  let created = 0, modified = 0, unchanged = 0, errored = 0;
-  fileList.forEach((entry, i) => {
-    try {
-      const resolved = resolveProjectPath(entry.path);
-      let existed = false, before = "";
-      if (fs4.existsSync(resolved)) {
-        before = fs4.readFileSync(resolved, "utf-8");
-        existed = true;
-      }
-      if (existed && before === entry.content) {
-        unchanged++;
-        return;
-      }
-      const diff = buildWholeFileDiff(entry.path, before, entry.content, existed);
-      const action = existed ? "修改" : "新增";
-      items.push(diff ? { id: `${inv.id}:write_file:${i}`, filePath: entry.path, label: `${entry.path} ${ICONS.separator} ${action}`, diff, filetype: inferFiletype(entry.path) } : createMsg(`${inv.id}:write_file:${i}`, entry.path, `${entry.path} ${ICONS.separator} ${action}`, existed ? "内容变化特殊，无法显示 diff。" : "将创建空文件。"));
-      if (existed)
-        modified++;
-      else
-        created++;
-    } catch (err) {
-      errored++;
-      items.push(createMsg(`${inv.id}:write_file:${i}`, entry.path, `${entry.path} ${ICONS.separator} 预览失败`, err instanceof Error ? err.message : String(err)));
-    }
-  });
-  const summary = [`共 ${fileList.length} 个文件`, `新增 ${created}，修改 ${modified}，未变化 ${unchanged}`];
-  if (errored > 0)
-    summary.push(`${errored} 个文件无法生成预览`);
-  if (items.length === 0)
-    items.push(createMsg(`${inv.id}:write_file.empty`, "", "write_file", "本次 write_file 不会产生实际变更。"));
-  return { title: "Diff 审批", toolLabel: "write_file", summary, items };
-}
-function buildInsertCodePreview(inv) {
-  const fileList = normalizeInsertArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return {
-      title: "Diff 审批",
-      toolLabel: "insert_code",
-      summary: ["参数不完整，无法生成 insert_code 预览。"],
-      items: [createMsg(`${inv.id}:insert_code.invalid`, "", "insert_code", "files 参数无效。")]
-    };
-  }
-  const items = [];
-  let successCount = 0, errored = 0;
-  fileList.forEach((entry, i) => {
-    try {
-      const resolved = resolveProjectPath(entry.path);
-      const before = fs4.readFileSync(resolved, "utf-8");
-      const lines = before.split(`
-`);
-      const insertLines = entry.content.split(`
-`);
-      const idx = entry.line - 1;
-      const after = [...lines.slice(0, idx), ...insertLines, ...lines.slice(idx)].join(`
-`);
-      const diff = buildWholeFileDiff(entry.path, before, after, true);
-      items.push(diff ? { id: `${inv.id}:insert_code:${i}`, filePath: entry.path, label: `${entry.path} ${ICONS.separator} 第 ${entry.line} 行前插入 ${insertLines.length} 行`, diff, filetype: inferFiletype(entry.path) } : createMsg(`${inv.id}:insert_code:${i}`, entry.path, `${entry.path} ${ICONS.separator} 插入`, "无法显示 diff。"));
-      successCount++;
-    } catch (err) {
-      errored++;
-      items.push(createMsg(`${inv.id}:insert_code:${i}`, entry.path, `${entry.path} ${ICONS.separator} 预览失败`, err instanceof Error ? err.message : String(err)));
-    }
-  });
-  const summary = [`共 ${fileList.length} 个操作`, `可预览 ${successCount} 个`];
-  if (errored > 0)
-    summary.push(`${errored} 个操作无法生成预览`);
-  if (items.length === 0)
-    items.push(createMsg(`${inv.id}:insert_code.empty`, "", "insert_code", "无可预览的变更。"));
-  return { title: "Diff 审批", toolLabel: "insert_code", summary, items };
-}
-function buildDeleteCodePreview(inv) {
-  const fileList = normalizeDeleteCodeArgs(inv.args);
-  if (!fileList || fileList.length === 0) {
-    return {
-      title: "Diff 审批",
-      toolLabel: "delete_code",
-      summary: ["参数不完整，无法生成 delete_code 预览。"],
-      items: [createMsg(`${inv.id}:delete_code.invalid`, "", "delete_code", "files 参数无效。")]
-    };
-  }
-  const items = [];
-  let successCount = 0, errored = 0;
-  fileList.forEach((entry, i) => {
-    try {
-      const resolved = resolveProjectPath(entry.path);
-      const before = fs4.readFileSync(resolved, "utf-8");
-      const lines = before.split(`
-`);
-      const after = [...lines.slice(0, entry.start_line - 1), ...lines.slice(entry.end_line)].join(`
-`);
-      const deletedCount = entry.end_line - entry.start_line + 1;
-      const diff = buildWholeFileDiff(entry.path, before, after, true);
-      items.push(diff ? { id: `${inv.id}:delete_code:${i}`, filePath: entry.path, label: `${entry.path} ${ICONS.separator} 删除第 ${entry.start_line}-${entry.end_line} 行（${deletedCount} 行）`, diff, filetype: inferFiletype(entry.path) } : createMsg(`${inv.id}:delete_code:${i}`, entry.path, `${entry.path} ${ICONS.separator} 删除`, "无法显示 diff。"));
-      successCount++;
-    } catch (err) {
-      errored++;
-      items.push(createMsg(`${inv.id}:delete_code:${i}`, entry.path, `${entry.path} ${ICONS.separator} 预览失败`, err instanceof Error ? err.message : String(err)));
-    }
-  });
-  const summary = [`共 ${fileList.length} 个操作`, `可预览 ${successCount} 个`];
-  if (errored > 0)
-    summary.push(`${errored} 个操作无法生成预览`);
-  if (items.length === 0)
-    items.push(createMsg(`${inv.id}:delete_code.empty`, "", "delete_code", "无可预览的变更。"));
-  return { title: "Diff 审批", toolLabel: "delete_code", summary, items };
-}
-function buildSearchReplacePreview(inv) {
-  const inputPath = typeof inv.args.path === "string" ? inv.args.path : ".";
-  const pattern = typeof inv.args.pattern === "string" ? inv.args.pattern : DEFAULT_SEARCH_PATTERN;
-  const isRegex = inv.args.isRegex === true;
-  const query = String(inv.args.query ?? "");
-  const replace = inv.args.replace;
-  const maxFiles = normalizePositiveInteger(inv.args.maxFiles, DEFAULT_SEARCH_MAX_FILES);
-  const maxFileSizeBytes = normalizePositiveInteger(inv.args.maxFileSizeBytes, DEFAULT_SEARCH_MAX_FILE_SIZE_BYTES);
-  if (typeof replace !== "string") {
-    return {
-      title: "Diff 审批",
-      toolLabel: "search_in_files.replace",
-      summary: ["replace 参数缺失。"],
-      items: [createMsg(`${inv.id}:search_replace.invalid`, inputPath, "search_in_files.replace", "replace 模式下必须提供 replace 参数。")]
-    };
-  }
-  try {
-    const regex = buildSearchRegex(query, isRegex);
-    const rootAbs = resolveProjectPath(inputPath);
-    const stat = fs4.statSync(rootAbs);
-    const patternRe = globToRegExp(pattern);
-    const items = [];
-    let processedFiles = 0, changedFiles = 0, unchangedFiles = 0;
-    let skippedBinary = 0, skippedTooLarge = 0, totalReplacements = 0;
-    let truncated = false;
-    const shouldStop = () => processedFiles >= maxFiles;
-    const processFile = (fileAbs, relPosix) => {
-      if (shouldStop())
-        return;
-      if (stat.isDirectory() && !patternRe.test(relPosix))
-        return;
-      processedFiles++;
-      const displayPath = stat.isDirectory() ? toPosix(path4.join(inputPath, relPosix)) : toPosix(inputPath);
-      const buf = fs4.readFileSync(fileAbs);
-      if (buf.length > maxFileSizeBytes) {
-        skippedTooLarge++;
-        return;
-      }
-      if (isLikelyBinary(buf)) {
-        skippedBinary++;
-        return;
-      }
-      const decoded = decodeText(buf);
-      const countRegex = new RegExp(regex.source, regex.flags);
-      let replacements = 0;
-      for (;; ) {
-        const m = countRegex.exec(decoded.text);
-        if (!m)
-          break;
-        if (m[0].length === 0) {
-          countRegex.lastIndex++;
-          continue;
-        }
-        replacements++;
-      }
-      if (replacements === 0) {
-        unchangedFiles++;
-        return;
-      }
-      const replaceRegex = new RegExp(regex.source, regex.flags);
-      const newText = decoded.text.replace(replaceRegex, replace);
-      if (newText === decoded.text) {
-        unchangedFiles++;
-        return;
-      }
-      const diff = buildWholeFileDiff(displayPath, decoded.text, newText, true);
-      items.push(diff ? { id: `${inv.id}:search_replace:${displayPath}`, filePath: displayPath, label: `${displayPath} ${ICONS.separator} ${replacements} 处替换`, diff, filetype: inferFiletype(displayPath) } : createMsg(`${inv.id}:search_replace:${displayPath}`, displayPath, `${displayPath} ${ICONS.separator} ${replacements} 处替换`, "文件将变化，但无法显示 diff。"));
-      changedFiles++;
-      totalReplacements += replacements;
-    };
-    if (stat.isFile())
-      processFile(rootAbs, toPosix(path4.basename(rootAbs)));
-    else {
-      walkFiles(rootAbs, processFile, shouldStop);
-      if (processedFiles >= maxFiles)
-        truncated = true;
-    }
-    const summary = [
-      `路径 ${inputPath} ${ICONS.separator} pattern ${pattern}`,
-      `已处理 ${processedFiles} 个文件 ${ICONS.separator} 将变更 ${changedFiles} 个文件 ${ICONS.separator} 共 ${totalReplacements} 处替换`
-    ];
-    if (unchangedFiles > 0)
-      summary.push(`无实际变化 ${unchangedFiles} 个文件`);
-    if (skippedBinary > 0 || skippedTooLarge > 0)
-      summary.push(`跳过二进制 ${skippedBinary} 个 ${ICONS.separator} 跳过过大文件 ${skippedTooLarge} 个`);
-    if (truncated)
-      summary.push(`已达到 maxFiles=${maxFiles}，预览已截断`);
-    if (items.length === 0)
-      items.push(createMsg(`${inv.id}:search_replace.empty`, inputPath, "search_in_files.replace", "当前 replace 不会修改任何文件。"));
-    return { title: "Diff 审批", toolLabel: "search_in_files.replace", summary, items };
-  } catch (err) {
-    return {
-      title: "Diff 审批",
-      toolLabel: "search_in_files.replace",
-      summary: ["生成预览时发生错误。"],
-      items: [createMsg(`${inv.id}:search_replace.error`, inputPath, "search_in_files.replace", err instanceof Error ? err.message : String(err))]
-    };
-  }
-}
-function buildPreview(invocation) {
-  switch (invocation.toolName) {
-    case "apply_diff":
-      return buildApplyDiffPreview(invocation);
-    case "write_file":
-      return buildWriteFilePreview(invocation);
-    case "insert_code":
-      return buildInsertCodePreview(invocation);
-    case "delete_code":
-      return buildDeleteCodePreview(invocation);
-    case "search_in_files":
-      if ((invocation.args.mode ?? "search") === "replace") {
-        return buildSearchReplacePreview(invocation);
-      }
-      break;
-  }
-  return {
+    toolName: invocation.toolName,
     title: "Diff 审批",
     toolLabel: invocation.toolName,
-    summary: ["当前工具不支持 diff 审批预览。"],
-    items: [createMsg(`${invocation.id}:unsupported`, "", invocation.toolName, "当前工具不支持 diff 审批预览。")]
+    summary: ["正在加载 diff 预览…"],
+    items: []
   };
 }
-function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumbers, wrapMode, previewIndex = 0 }) {
-  const preview = useMemo6(() => buildPreview(invocation), [invocation]);
-  const normalizedPreviewIndex = preview.items.length > 0 ? (previewIndex % preview.items.length + preview.items.length) % preview.items.length : 0;
-  const currentItem = preview.items[normalizedPreviewIndex];
+function errorPreview(invocation, message) {
+  return {
+    toolName: invocation.toolName,
+    title: "Diff 审批",
+    toolLabel: invocation.toolName,
+    summary: ["生成预览失败。"],
+    items: [{
+      id: `${invocation.id}:preview.error`,
+      filePath: typeof invocation.args.path === "string" ? invocation.args.path : "",
+      label: invocation.toolName,
+      added: 0,
+      removed: 0,
+      message
+    }]
+  };
+}
+function DiffApprovalView({
+  invocation,
+  pendingCount,
+  choice,
+  view,
+  showLineNumbers,
+  wrapMode,
+  previewIndex = 0,
+  getPreview
+}) {
+  const [preview, setPreview] = useState8(() => loadingPreview(invocation));
+  const [loading, setLoading] = useState8(false);
+  useEffect8(() => {
+    let cancelled = false;
+    if (!getPreview) {
+      setLoading(false);
+      setPreview(errorPreview(invocation, "当前平台不支持 diff 预览。"));
+      return () => {
+        cancelled = true;
+      };
+    }
+    setLoading(true);
+    setPreview(loadingPreview(invocation));
+    Promise.resolve(getPreview(invocation.id)).then((nextPreview) => {
+      if (cancelled)
+        return;
+      setPreview(nextPreview);
+    }).catch((err) => {
+      if (cancelled)
+        return;
+      setPreview(errorPreview(invocation, err instanceof Error ? err.message : String(err)));
+    }).finally(() => {
+      if (!cancelled)
+        setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [getPreview, invocation.id]);
+  const items = preview.items ?? [];
+  const normalizedPreviewIndex = normalizePreviewIndex(previewIndex, items.length);
+  const currentItem = items[normalizedPreviewIndex];
+  const toolLabel = preview.toolLabel ?? preview.toolName ?? invocation.toolName;
+  const summaryLines = useMemo6(() => {
+    if (loading && preview.summary.length === 0)
+      return ["正在加载 diff 预览…"];
+    return preview.summary ?? [];
+  }, [loading, preview.summary]);
   return /* @__PURE__ */ jsxDEV31("box", {
     flexDirection: "column",
     width: "100%",
@@ -6512,20 +5979,24 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
               /* @__PURE__ */ jsxDEV31("span", {
                 fg: C.warn,
                 children: /* @__PURE__ */ jsxDEV31("strong", {
-                  children: preview.title
+                  children: preview.title || "Diff 审批"
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
               /* @__PURE__ */ jsxDEV31("span", {
                 fg: C.dim,
-                children: `  ${preview.toolLabel}`
+                children: `  ${toolLabel}`
               }, undefined, false, undefined, this),
               pendingCount > 1 ? /* @__PURE__ */ jsxDEV31("span", {
                 fg: C.dim,
                 children: `  (剩余 ${pendingCount - 1} 个)`
               }, undefined, false, undefined, this) : null,
-              preview.items.length > 1 ? /* @__PURE__ */ jsxDEV31("span", {
+              items.length > 1 ? /* @__PURE__ */ jsxDEV31("span", {
                 fg: C.dim,
-                children: `  (预览 ${normalizedPreviewIndex + 1}/${preview.items.length})`
+                children: `  (预览 ${normalizedPreviewIndex + 1}/${items.length})`
+              }, undefined, false, undefined, this) : null,
+              currentItem?.diff ? /* @__PURE__ */ jsxDEV31("span", {
+                fg: C.dim,
+                children: `  +${currentItem.added} -${currentItem.removed}`
               }, undefined, false, undefined, this) : null
             ]
           }, undefined, true, undefined, this),
@@ -6549,10 +6020,10 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
             fg: C.dim,
             children: currentItem.label
           }, undefined, false, undefined, this) : null,
-          preview.summary.map((line, index) => /* @__PURE__ */ jsxDEV31("text", {
+          summaryLines.map((line, index) => /* @__PURE__ */ jsxDEV31("text", {
             fg: C.dim,
             children: line
-          }, `${preview.toolLabel}.summary.${index}`, false, undefined, this))
+          }, `${toolLabel}.summary.${index}`, false, undefined, this))
         ]
       }, undefined, true, undefined, this),
       /* @__PURE__ */ jsxDEV31("scrollbox", {
@@ -6563,7 +6034,12 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
         borderColor: C.border,
         verticalScrollbarOptions: { visible: true },
         horizontalScrollbarOptions: { visible: false },
-        children: currentItem?.diff ? /* @__PURE__ */ jsxDEV31("diff", {
+        children: loading ? /* @__PURE__ */ jsxDEV31("text", {
+          fg: C.dim,
+          paddingX: 1,
+          paddingY: 1,
+          children: "加载 diff 预览中…"
+        }, undefined, false, undefined, this) : currentItem?.diff ? /* @__PURE__ */ jsxDEV31("diff", {
           diff: currentItem.diff,
           view,
           filetype: currentItem.filetype,
@@ -6585,7 +6061,7 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
           fg: currentItem?.message ? C.textSec : C.dim,
           paddingX: 1,
           paddingY: 1,
-          children: currentItem?.message ?? "当前补丁为空，无法显示 diff。"
+          children: currentItem?.message ?? "当前没有可显示的 diff。"
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
       /* @__PURE__ */ jsxDEV31("box", {
@@ -6620,7 +6096,7 @@ function DiffApprovalView({ invocation, pendingCount, choice, view, showLineNumb
           /* @__PURE__ */ jsxDEV31("text", {
             fg: C.dim,
             children: [
-              preview.items.length > 1 ? `${ICONS.arrowUp} / ${ICONS.arrowDown} 切换文件　` : "",
+              items.length > 1 ? `${ICONS.arrowUp} / ${ICONS.arrowDown} 切换文件　` : "",
               `Tab / ${ICONS.arrowLeft} / ${ICONS.arrowRight} 切换　Enter 确认　Y 批准　N 拒绝　V 切换视图　L 切换行号　W 切换换行　Esc 中断本次生成`
             ]
           }, undefined, true, undefined, this)
@@ -6821,7 +6297,7 @@ function LogoScreen() {
 }
 
 // src/components/ToolDetailView.tsx
-import { useState as useState8, useCallback as useCallback3 } from "react";
+import { useState as useState9, useCallback as useCallback3 } from "react";
 import { useKeyboard as useKeyboard3 } from "@opentui/react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV35 } from "@opentui/react/jsx-dev-runtime";
@@ -6888,8 +6364,8 @@ function childArgsSummary(toolName, args) {
     case "insert_code": {
       if (Array.isArray(args.files) && args.files.length > 0) {
         const first = args.files[0];
-        const path5 = typeof first === "object" && first ? String(first.path || "") : "";
-        return args.files.length > 1 ? `${path5} +${args.files.length - 1}` : path5;
+        const path4 = typeof first === "object" && first ? String(first.path || "") : "";
+        return args.files.length > 1 ? `${path4} +${args.files.length - 1}` : path4;
       }
       return String(args.path || "");
     }
@@ -6934,7 +6410,7 @@ function Divider({ label }) {
 function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort }) {
   const { invocation, output, children } = data;
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
-  const [selectedIdx, setSelectedIdx] = useState8(0);
+  const [selectedIdx, setSelectedIdx] = useState9(0);
   const isFinal = TERMINAL_STATUSES2.has(status);
   const isExecuting = status === "executing";
   const DetailRenderer = getToolDetailRenderer(toolName);
@@ -7761,8 +7237,8 @@ function argsSummary(toolName, args) {
     case "insert_code": {
       if (Array.isArray(args.files) && args.files.length > 0) {
         const first = args.files[0];
-        const path5 = typeof first === "object" && first ? String(first.path || "") : "";
-        return args.files.length > 1 ? `${path5} +${args.files.length - 1}` : path5;
+        const path4 = typeof first === "object" && first ? String(first.path || "") : "";
+        return args.files.length > 1 ? `${path4} +${args.files.length - 1}` : path4;
       }
       return String(args.path || "");
     }
@@ -8504,7 +7980,7 @@ function ExtensionListView({
 }
 
 // src/components/SettingsView.tsx
-import { useCallback as useCallback4, useEffect as useEffect8, useMemo as useMemo7, useState as useState9 } from "react";
+import { useCallback as useCallback4, useEffect as useEffect9, useMemo as useMemo7, useState as useState10 } from "react";
 import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions8 } from "@opentui/react";
 init_terminal_compat();
 
@@ -9126,19 +8602,19 @@ var BUILTIN_SECTIONS = [
 ];
 function SettingsView({ initialSection = "general", onBack, onLoad, onSave, pluginTabs }) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions8();
-  const [loading, setLoading] = useState9(true);
-  const [saving, setSaving] = useState9(false);
-  const [draft, setDraft] = useState9(null);
-  const [baseline, setBaseline] = useState9(null);
-  const [selectedRowId, setSelectedRowId] = useState9("");
-  const [navFocused, setNavFocused] = useState9(true);
-  const [editor, setEditor] = useState9(null);
-  const [editorValue, setEditorValue] = useState9("");
-  const [statusText, setStatusText] = useState9("");
-  const [statusKind, setStatusKind] = useState9("info");
-  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState9(false);
-  const [pluginDraft, setPluginDraft] = useState9({});
-  const [pluginBaseline, setPluginBaseline] = useState9({});
+  const [loading, setLoading] = useState10(true);
+  const [saving, setSaving] = useState10(false);
+  const [draft, setDraft] = useState10(null);
+  const [baseline, setBaseline] = useState10(null);
+  const [selectedRowId, setSelectedRowId] = useState10("");
+  const [navFocused, setNavFocused] = useState10(true);
+  const [editor, setEditor] = useState10(null);
+  const [editorValue, setEditorValue] = useState10("");
+  const [statusText, setStatusText] = useState10("");
+  const [statusKind, setStatusKind] = useState10("info");
+  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState10(false);
+  const [pluginDraft, setPluginDraft] = useState10({});
+  const [pluginBaseline, setPluginBaseline] = useState10({});
   const sections = useMemo7(() => {
     const pluginSections = (pluginTabs ?? []).map((tab, i) => ({
       id: tab.id,
@@ -9227,7 +8703,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
   }, [selectableRows, selectedRowId]);
   const sectionSelectableRows = useMemo7(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
   const selectedSectionIndex = useMemo7(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
-  useEffect8(() => {
+  useEffect9(() => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -9269,7 +8745,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
       cancelled = true;
     };
   }, [onLoad, setStatus, pluginTabs]);
-  useEffect8(() => {
+  useEffect9(() => {
     if (rows.length === 0)
       return;
     if (selectedRowId && rows.some((row) => row.id === selectedRowId && row.target))
@@ -10058,7 +9534,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
 }
 
 // src/hooks/use-app-handle.ts
-import { useCallback as useCallback5, useEffect as useEffect9, useRef as useRef6, useState as useState10 } from "react";
+import { useCallback as useCallback5, useEffect as useEffect10, useRef as useRef6, useState as useState11 } from "react";
 
 // src/message-utils.ts
 var msgIdCounter = 0;
@@ -10183,30 +9659,30 @@ function clearRedo(stack) {
 
 // src/hooks/use-app-handle.ts
 function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef }) {
-  const [messages, setMessages] = useState10([]);
-  const [streamingParts, setStreamingParts] = useState10([]);
-  const [isStreaming, setIsStreaming] = useState10(false);
-  const [isGenerating, setIsGenerating] = useState10(false);
-  const [generatingLabel, setGeneratingLabelState] = useState10();
-  const [contextTokens, setContextTokens] = useState10(0);
-  const [retryInfo, setRetryInfo] = useState10(null);
-  const [pendingApprovals, setPendingApprovals] = useState10([]);
-  const [pendingApplies, setPendingApplies] = useState10([]);
-  const [planModeActive, setPlanModeActive] = useState10(false);
-  const [autoEditActive, setAutoEditActive] = useState10(false);
-  const [milestoneSnapshot, setMilestoneSnapshot] = useState10(null);
+  const [messages, setMessages] = useState11([]);
+  const [streamingParts, setStreamingParts] = useState11([]);
+  const [isStreaming, setIsStreaming] = useState11(false);
+  const [isGenerating, setIsGenerating] = useState11(false);
+  const [generatingLabel, setGeneratingLabelState] = useState11();
+  const [contextTokens, setContextTokens] = useState11(0);
+  const [retryInfo, setRetryInfo] = useState11(null);
+  const [pendingApprovals, setPendingApprovals] = useState11([]);
+  const [pendingApplies, setPendingApplies] = useState11([]);
+  const [planModeActive, setPlanModeActive] = useState11(false);
+  const [autoEditActive, setAutoEditActive] = useState11(false);
+  const [milestoneSnapshot, setMilestoneSnapshot] = useState11(null);
   const milestoneSnapshotRef = useRef6(null);
   const archivedMilestoneUpdatedAtRef = useRef6(null);
-  const [toolInvocations, setToolInvocationsState] = useState10([]);
-  const [backgroundTaskCount, setBackgroundTaskCount] = useState10(0);
-  const [delegateTaskCount, setDelegateTaskCount] = useState10(0);
+  const [toolInvocations, setToolInvocationsState] = useState11([]);
+  const [backgroundTaskCount, setBackgroundTaskCount] = useState11(0);
+  const [delegateTaskCount, setDelegateTaskCount] = useState11(0);
   const backgroundTaskTokenMapRef = useRef6(new Map);
-  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState10(0);
+  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState11(0);
   const spinnerFrameRef = useRef6(0);
-  const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState10(0);
-  const [toolDetailData, setToolDetailData] = useState10(null);
-  const [toolDetailStack, setToolDetailStack] = useState10([]);
-  const [toolListItems, setToolListItems] = useState10([]);
+  const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState11(0);
+  const [toolDetailData, setToolDetailData] = useState11(null);
+  const [toolDetailStack, setToolDetailStack] = useState11([]);
+  const [toolListItems, setToolListItems] = useState11([]);
   const streamPartsRef = useRef6([]);
   const toolInvocationsRef = useRef6([]);
   const throttleTimerRef = useRef6(null);
@@ -10219,13 +9695,13 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
     setPendingApprovals([]);
     setPendingApplies([]);
   }, []);
-  useEffect9(() => {
+  useEffect10(() => {
     return () => {
       if (throttleTimerRef.current)
         clearTimeout(throttleTimerRef.current);
     };
   }, []);
-  useEffect9(() => {
+  useEffect10(() => {
     const isCompletedMilestoneSnapshot = (snapshot) => {
       return !!snapshot && snapshot.items.length > 0 && snapshot.stats.open === 0;
     };
@@ -10607,8 +10083,8 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
       setPendingFiles(files) {
         setPendingFilesRef.current?.(files);
       },
-      openFileBrowser(path5, entries) {
-        openFileBrowserRef.current?.(path5, entries);
+      openFileBrowser(path4, entries) {
+        openFileBrowserRef.current?.(path4, entries);
       },
       fileBrowserSelect(dirPath, entry, showHidden) {
         fileBrowserCallbackRef.current?.select(dirPath, entry, showHidden);
@@ -10670,6 +10146,7 @@ function useAppKeyboard({
   setCopyMode,
   copyMode,
   chatScrollBoxRef,
+  promptInputControllerRef,
   pendingConfirm,
   confirmChoice,
   setPendingConfirm,
@@ -10817,6 +10294,13 @@ function useAppKeyboard({
   });
   useKeyboard5((key) => {
     if (key.ctrl && key.name === "c") {
+      if (viewMode === "chat" && !pendingConfirm && !askQuestionActive && pendingApprovals.length === 0 && pendingApplies.length === 0 && promptInputControllerRef?.current?.hasValue()) {
+        promptInputControllerRef.current.clear();
+        exitConfirm.clearExitConfirm();
+        key.preventDefault?.();
+        key.stopPropagation?.();
+        return;
+      }
       if (exitConfirm.exitConfirmArmed) {
         exitConfirm.clearExitConfirm();
         onExit();
@@ -11687,19 +11171,19 @@ function useAppKeyboard({
 }
 
 // src/hooks/use-approval.ts
-import { useCallback as useCallback6, useEffect as useEffect10, useState as useState11 } from "react";
+import { useCallback as useCallback6, useEffect as useEffect11, useState as useState12 } from "react";
 function useApproval(pendingApprovals, pendingApplies) {
-  const [approvalChoice, setApprovalChoice] = useState11("approve");
-  const [approvalPage, setApprovalPage] = useState11("basic");
-  const [diffView, setDiffView] = useState11("unified");
-  const [showLineNumbers, setShowLineNumbers] = useState11(true);
-  const [wrapMode, setWrapMode] = useState11("word");
-  const [previewIndex, setPreviewIndex] = useState11(0);
-  useEffect10(() => {
+  const [approvalChoice, setApprovalChoice] = useState12("approve");
+  const [approvalPage, setApprovalPage] = useState12("basic");
+  const [diffView, setDiffView] = useState12("unified");
+  const [showLineNumbers, setShowLineNumbers] = useState12(true);
+  const [wrapMode, setWrapMode] = useState12("word");
+  const [previewIndex, setPreviewIndex] = useState12(0);
+  useEffect11(() => {
     setApprovalChoice("approve");
     setApprovalPage("basic");
   }, [pendingApprovals[0]?.id]);
-  useEffect10(() => {
+  useEffect11(() => {
     setApprovalChoice("approve");
     setDiffView("unified");
     setShowLineNumbers(true);
@@ -12240,9 +11724,9 @@ function useCommandDispatch({
 }
 
 // src/hooks/use-exit-confirm.ts
-import { useCallback as useCallback8, useEffect as useEffect11, useRef as useRef7, useState as useState12 } from "react";
+import { useCallback as useCallback8, useEffect as useEffect12, useRef as useRef7, useState as useState13 } from "react";
 function useExitConfirm({ timeoutMs = 1500 } = {}) {
-  const [exitConfirmArmed, setExitConfirmArmed] = useState12(false);
+  const [exitConfirmArmed, setExitConfirmArmed] = useState13(false);
   const exitConfirmTimerRef = useRef7(null);
   const clearExitConfirm = useCallback8(() => {
     if (exitConfirmTimerRef.current) {
@@ -12260,7 +11744,7 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
       setExitConfirmArmed(false);
     }, timeoutMs);
   }, [timeoutMs]);
-  useEffect11(() => {
+  useEffect12(() => {
     return () => {
       if (exitConfirmTimerRef.current)
         clearTimeout(exitConfirmTimerRef.current);
@@ -12274,10 +11758,10 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
 }
 
 // src/hooks/use-message-queue.ts
-import { useCallback as useCallback9, useRef as useRef8, useState as useState13 } from "react";
+import { useCallback as useCallback9, useRef as useRef8, useState as useState14 } from "react";
 var queueIdCounter = 0;
 function useMessageQueue() {
-  const [queue, setQueue] = useState13([]);
+  const [queue, setQueue] = useState14([]);
   const queueRef = useRef8([]);
   const sync = useCallback9((next) => {
     queueRef.current = next;
@@ -12372,13 +11856,13 @@ function useMessageQueue() {
 }
 
 // src/hooks/use-model-state.ts
-import { useCallback as useCallback10, useState as useState14 } from "react";
+import { useCallback as useCallback10, useState as useState15 } from "react";
 function useModelState({ modelId, modelName, contextWindow, modelProvider, thinkingControlEnabled }) {
-  const [currentModelId, setCurrentModelId] = useState14(modelId);
-  const [currentModelName, setCurrentModelName] = useState14(modelName);
-  const [currentContextWindow, setCurrentContextWindow] = useState14(contextWindow);
-  const [currentModelProvider, setCurrentModelProvider] = useState14(modelProvider);
-  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState14(thinkingControlEnabled);
+  const [currentModelId, setCurrentModelId] = useState15(modelId);
+  const [currentModelName, setCurrentModelName] = useState15(modelName);
+  const [currentContextWindow, setCurrentContextWindow] = useState15(contextWindow);
+  const [currentModelProvider, setCurrentModelProvider] = useState15(modelProvider);
+  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState15(thinkingControlEnabled);
   const updateModel = useCallback10((result) => {
     if (result.modelId)
       setCurrentModelId(result.modelId);
@@ -12402,6 +11886,7 @@ function useModelState({ modelId, modelName, contextWindow, modelProvider, think
 }
 
 // src/App.tsx
+init_terminal_compat();
 import { jsxDEV as jsxDEV43 } from "@opentui/react/jsx-dev-runtime";
 var PROVIDER_LEVELS = {
   deepseek: ["not-set", "none", "high", "max"],
@@ -12415,6 +11900,54 @@ function getProviderThinkingLevels(provider) {
   if (!provider)
     return DEFAULT_LEVELS;
   return PROVIDER_LEVELS[provider] ?? DEFAULT_LEVELS;
+}
+function normalizeSelectionText(text) {
+  return text.replace(/\r\n/g, `
+`).replace(/\r/g, `
+`);
+}
+function findLineOverlap(left, right) {
+  const max = Math.min(left.length, right.length);
+  for (let size = max;size > 0; size--) {
+    let matches = true;
+    for (let i = 0;i < size; i++) {
+      if (left[left.length - size + i] !== right[i]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches)
+      return size;
+  }
+  return 0;
+}
+function mergeSelectionText(previous, next) {
+  const a = normalizeSelectionText(previous).trimEnd();
+  const b = normalizeSelectionText(next).trimEnd();
+  if (!a)
+    return b;
+  if (!b)
+    return a;
+  if (a.includes(b))
+    return a;
+  if (b.includes(a))
+    return b;
+  const aLines = a.split(`
+`);
+  const bLines = b.split(`
+`);
+  const appendOverlap = findLineOverlap(aLines, bLines);
+  if (appendOverlap > 0) {
+    return [...aLines, ...bLines.slice(appendOverlap)].join(`
+`);
+  }
+  const prependOverlap = findLineOverlap(bLines, aLines);
+  if (prependOverlap > 0) {
+    return [...bLines, ...aLines.slice(prependOverlap)].join(`
+`);
+  }
+  return `${a}
+${b}`;
 }
 function App({
   onReady,
@@ -12433,6 +11966,7 @@ function App({
   onToolApproval,
   onToolApply,
   onToolMessage,
+  onGetToolDiffPreview,
   onAddCommandPattern,
   onAbort,
   onToolAbort,
@@ -12483,54 +12017,54 @@ function App({
   initWarningsColor,
   initWarningsIcon
 }) {
-  const [viewMode, setViewMode] = useState15("chat");
-  const [sessionList, setSessionList] = useState15([]);
-  const [selectedIndex, setSelectedIndex] = useState15(0);
-  const [settingsInitialSection, setSettingsInitialSection] = useState15("general");
-  const [modelList, setModelList] = useState15([]);
-  const [defaultModelName, setDefaultModelName] = useState15("");
-  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState15(null);
-  const [sessionStatusMessage, setSessionStatusMessage] = useState15(null);
-  const [sessionStatusIsError, setSessionStatusIsError] = useState15(false);
-  const [agentList, setAgentList] = useState15([]);
-  const [copyMode, setCopyMode] = useState15(false);
-  const [pendingConfirm, setPendingConfirm] = useState15(null);
-  const [confirmChoice, setConfirmChoice] = useState15("confirm");
+  const [viewMode, setViewMode] = useState16("chat");
+  const [sessionList, setSessionList] = useState16([]);
+  const [selectedIndex, setSelectedIndex] = useState16(0);
+  const [settingsInitialSection, setSettingsInitialSection] = useState16("general");
+  const [modelList, setModelList] = useState16([]);
+  const [defaultModelName, setDefaultModelName] = useState16("");
+  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState16(null);
+  const [sessionStatusMessage, setSessionStatusMessage] = useState16(null);
+  const [sessionStatusIsError, setSessionStatusIsError] = useState16(false);
+  const [agentList, setAgentList] = useState16([]);
+  const [copyMode, setCopyMode] = useState16(false);
+  const [pendingConfirm, setPendingConfirm] = useState16(null);
+  const [confirmChoice, setConfirmChoice] = useState16("confirm");
   const initialLevels = getProviderThinkingLevels(modelProvider);
   const initialMaxLevel = initialLevels[initialLevels.length - 1];
-  const [thinkingEffort, setThinkingEffort] = useState15(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
-  const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState15(0);
-  const [modelStatusMessage, setModelStatusMessage] = useState15(null);
-  const [modelStatusIsError, setModelStatusIsError] = useState15(false);
-  const [modelEditingField, setModelEditingField] = useState15(null);
-  const [modelEditTargetName, setModelEditTargetName] = useState15(null);
-  const [memoryList, setMemoryList] = useState15([]);
-  const [memoryFilter, setMemoryFilter] = useState15("all");
-  const [memoryExpandedId, setMemoryExpandedId] = useState15(null);
-  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState15(null);
-  const [extensionList, setExtensionList] = useState15([]);
-  const [extensionTogglingName, setExtensionTogglingName] = useState15(null);
-  const [extensionStatusMessage, setExtensionStatusMessage] = useState15(null);
-  const [extensionStatusIsError, setExtensionStatusIsError] = useState15(false);
-  const [extensionGitInputMode, setExtensionGitInputMode] = useState15(false);
-  const [extensionScopePickMode, setExtensionScopePickMode] = useState15(false);
-  const [extensionInstallScope, setExtensionInstallScope] = useState15("agent");
-  const [extensionPendingDeleteName, setExtensionPendingDeleteName] = useState15(null);
-  const [extensionPendingUpdateName, setExtensionPendingUpdateName] = useState15(null);
-  const [extensionBusy, setExtensionBusy] = useState15(false);
-  const [pendingFiles, setPendingFiles] = useState15([]);
-  const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState15(pluginSettingsTabs ?? []);
-  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState15(() => getSlashCommands());
-  useEffect12(() => {
+  const [thinkingEffort, setThinkingEffort] = useState16(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
+  const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState16(0);
+  const [modelStatusMessage, setModelStatusMessage] = useState16(null);
+  const [modelStatusIsError, setModelStatusIsError] = useState16(false);
+  const [modelEditingField, setModelEditingField] = useState16(null);
+  const [modelEditTargetName, setModelEditTargetName] = useState16(null);
+  const [memoryList, setMemoryList] = useState16([]);
+  const [memoryFilter, setMemoryFilter] = useState16("all");
+  const [memoryExpandedId, setMemoryExpandedId] = useState16(null);
+  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState16(null);
+  const [extensionList, setExtensionList] = useState16([]);
+  const [extensionTogglingName, setExtensionTogglingName] = useState16(null);
+  const [extensionStatusMessage, setExtensionStatusMessage] = useState16(null);
+  const [extensionStatusIsError, setExtensionStatusIsError] = useState16(false);
+  const [extensionGitInputMode, setExtensionGitInputMode] = useState16(false);
+  const [extensionScopePickMode, setExtensionScopePickMode] = useState16(false);
+  const [extensionInstallScope, setExtensionInstallScope] = useState16("agent");
+  const [extensionPendingDeleteName, setExtensionPendingDeleteName] = useState16(null);
+  const [extensionPendingUpdateName, setExtensionPendingUpdateName] = useState16(null);
+  const [extensionBusy, setExtensionBusy] = useState16(false);
+  const [pendingFiles, setPendingFiles] = useState16([]);
+  const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState16(pluginSettingsTabs ?? []);
+  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState16(() => getSlashCommands());
+  useEffect13(() => {
     setRuntimePluginSettingsTabs(pluginSettingsTabs ?? []);
   }, [pluginSettingsTabs]);
-  useEffect12(() => {
+  useEffect13(() => {
     const disposable = onSlashCommandsChanged(() => setRuntimeSlashCommands(getSlashCommands()));
     setRuntimeSlashCommands(getSlashCommands());
     return () => disposable.dispose();
   }, []);
-  const [fileBrowserPath, setFileBrowserPath] = useState15("");
-  const [fileBrowserEntries, setFileBrowserEntries] = useState15([]);
+  const [fileBrowserPath, setFileBrowserPath] = useState16("");
+  const [fileBrowserEntries, setFileBrowserEntries] = useState16([]);
   const disabledExtensionNames = useMemo8(() => new Set(extensionList.filter((item) => (item.originalStatus ?? item.status) === "disabled").map((item) => item.name)), [extensionList]);
   const activePluginSettingsTabs = useMemo8(() => runtimePluginSettingsTabs.filter((tab) => !disabledExtensionNames.has(tab.id)), [runtimePluginSettingsTabs, disabledExtensionNames]);
   const dynamicCommands = useMemo8(() => {
@@ -12538,16 +12072,26 @@ function App({
     return [...pluginCommands, ...runtimeSlashCommands];
   }, [activePluginSettingsTabs, runtimeSlashCommands]);
   const canOpenLoverSettings = dynamicCommands.some((command) => command.name === "/lover");
+  const copySelectionBufferRef = useRef9("");
+  const resetCopySelectionBuffer = useCallback11(() => {
+    copySelectionBufferRef.current = "";
+  }, []);
+  const captureCopySelectionSnapshot = useCallback11((text) => {
+    if (!copyMode || !text.trim())
+      return;
+    copySelectionBufferRef.current = mergeSelectionText(copySelectionBufferRef.current, text);
+  }, [copyMode]);
   const refreshPluginSettingsTabs = useCallback11(() => {
     setRuntimePluginSettingsTabs(onListPluginSettingsTabs?.() ?? pluginSettingsTabs ?? []);
   }, [onListPluginSettingsTabs, pluginSettingsTabs]);
-  const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState15(false);
-  const [queueEditingId, setQueueEditingId] = useState15(null);
+  const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState16(false);
+  const [queueEditingId, setQueueEditingId] = useState16(null);
   const [queueEditState, queueEditActions] = useTextInput("");
   const [modelEditState, modelEditActions] = useTextInput("");
   const [extensionGitInputState, extensionGitInputActions] = useTextInput("");
   const renderer = useRenderer();
   const undoRedoRef = useRef9(createUndoRedoStack());
+  const promptInputControllerRef = useRef9(null);
   const chatScrollBoxRef = useRef9(null);
   const messageQueue = useMessageQueue();
   const drainCallbackRef = useRef9(null);
@@ -12560,8 +12104,8 @@ function App({
   const setPendingFilesRef = useRef9(null);
   setPendingFilesRef.current = setPendingFiles;
   const openFileBrowserRef = useRef9(null);
-  openFileBrowserRef.current = (path5, entries) => {
-    setFileBrowserPath(path5);
+  openFileBrowserRef.current = (path4, entries) => {
+    setFileBrowserPath(path4);
     setFileBrowserEntries(entries);
     setSelectedIndex(0);
     setViewMode("file-browser");
@@ -12604,7 +12148,7 @@ function App({
       return newLevel;
     });
   }, [onThinkingEffortChange, modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (modelState.currentThinkingControlEnabled === false)
       return;
     const levels = getProviderThinkingLevels(modelState.currentModelProvider);
@@ -12616,7 +12160,7 @@ function App({
       return maxLevel;
     });
   }, [modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (thinkingControlEnabled !== false && initialMaxLevel !== "not-set") {
       onThinkingEffortChange?.(initialMaxLevel);
     }
@@ -12680,13 +12224,33 @@ function App({
     queueClear: messageQueue.clear,
     queueSize: messageQueue.size
   });
-  useEffect12(() => {
+  useEffect13(() => {
     if (!renderer)
       return;
-    renderer.useMouse = !copyMode;
+    renderer.useMouse = true;
+  }, [renderer]);
+  useEffect13(() => {
+    if (!renderer)
+      return;
+    const handleSelection = (selection) => {
+      if (!copyMode)
+        return;
+      const finalText = selection?.getSelectedText?.() ?? "";
+      const text = mergeSelectionText(copySelectionBufferRef.current, finalText);
+      copySelectionBufferRef.current = "";
+      if (!text.trim())
+        return;
+      const copied = writeClipboardText(text) || renderer.copyToClipboardOSC52?.(text) === true;
+      if (!copied)
+        return;
+    };
+    renderer.on?.("selection", handleSelection);
+    return () => {
+      renderer.off?.("selection", handleSelection);
+    };
   }, [renderer, copyMode]);
   const prevViewModeRef = useRef9(viewMode);
-  useEffect12(() => {
+  useEffect13(() => {
     const prev = prevViewModeRef.current;
     prevViewModeRef.current = viewMode;
     if (prev === "queue-list" && viewMode === "chat" && !appState.isGenerating && messageQueue.size > 0) {
@@ -12696,7 +12260,7 @@ function App({
       }
     }
   }, [viewMode, appState.isGenerating, messageQueue, onSubmit]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (viewMode === "model-list")
       return;
     setModelStatusMessage(null);
@@ -12705,21 +12269,21 @@ function App({
     setModelEditTargetName(null);
     modelEditActions.setValue("");
   }, [viewMode]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (viewMode === "session-list")
       return;
     setSessionPendingDeleteId(null);
     setSessionStatusMessage(null);
     setSessionStatusIsError(false);
   }, [viewMode]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (appState.toolDetailData && viewMode !== "tool-detail") {
       setViewMode("tool-detail");
     } else if (!appState.toolDetailData && viewMode === "tool-detail") {
       setViewMode("chat");
     }
   }, [appState.toolDetailData, viewMode]);
-  useEffect12(() => {
+  useEffect13(() => {
     if (appState.toolListItems.length > 0 && viewMode !== "tool-list" && viewMode !== "tool-detail") {
       setSelectedIndex(0);
       setViewMode("tool-list");
@@ -12732,6 +12296,7 @@ function App({
     setCopyMode,
     copyMode,
     chatScrollBoxRef,
+    promptInputControllerRef,
     pendingConfirm,
     confirmChoice,
     setPendingConfirm,
@@ -12934,7 +12499,8 @@ function App({
       view: approval.diffView,
       showLineNumbers: approval.showLineNumbers,
       wrapMode: approval.wrapMode,
-      previewIndex: approval.previewIndex
+      previewIndex: approval.previewIndex,
+      getPreview: onGetToolDiffPreview
     }, undefined, false, undefined, this);
   }
   if (viewMode === "tool-list") {
@@ -12981,7 +12547,10 @@ function App({
         hasActiveTools: appState.toolInvocations.some((t) => t.status === "executing" || t.status === "queued"),
         scrollBoxRef: chatScrollBoxRef,
         queuedMessages: messageQueue.queue,
-        milestoneSnapshot: appState.milestoneSnapshot
+        milestoneSnapshot: appState.milestoneSnapshot,
+        copyMode,
+        onCopySelectionStart: resetCopySelectionBuffer,
+        onCopySelectionSnapshot: captureCopySelectionSnapshot
       }, undefined, false, undefined, this) : null,
       /* @__PURE__ */ jsxDEV43(BottomPanel, {
         hasMessages,
@@ -13019,15 +12588,16 @@ function App({
         pendingFiles,
         onRemoveFile: handleRemoveFile,
         dynamicCommands,
-        supportsHeadlessTransition
+        supportsHeadlessTransition,
+        inputControllerRef: promptInputControllerRef
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
 }
 
 // src/opentui-runtime.ts
-import * as fs5 from "node:fs";
-import * as path5 from "node:path";
+import * as fs4 from "node:fs";
+import * as path4 from "node:path";
 import { addDefaultParsers, clearEnvCache } from "@opentui/core";
 var OPENTUI_RUNTIME_DIR_NAME = "opentui";
 var REQUIRED_ASSET_FILES = [
@@ -13057,36 +12627,36 @@ function resolveBundledRuntimeDir(isCompiledBinary) {
   const searchDirs = [];
   const pkgDir = process.env.__IRIS_PKG_DIR;
   if (pkgDir) {
-    searchDirs.push(path5.join(pkgDir, "bin"));
+    searchDirs.push(path4.join(pkgDir, "bin"));
     try {
-      const nodeModulesDir = path5.join(pkgDir, "node_modules");
-      if (fs5.existsSync(nodeModulesDir)) {
-        for (const entry of fs5.readdirSync(nodeModulesDir)) {
+      const nodeModulesDir = path4.join(pkgDir, "node_modules");
+      if (fs4.existsSync(nodeModulesDir)) {
+        for (const entry of fs4.readdirSync(nodeModulesDir)) {
           if (entry.startsWith("irises-")) {
-            searchDirs.push(path5.join(nodeModulesDir, entry, "bin"));
+            searchDirs.push(path4.join(nodeModulesDir, entry, "bin"));
           }
         }
       }
     } catch {}
   }
   try {
-    const execDir = path5.dirname(fs5.realpathSync(process.execPath));
+    const execDir = path4.dirname(fs4.realpathSync(process.execPath));
     searchDirs.push(execDir);
-    searchDirs.push(path5.resolve(execDir, ".."));
+    searchDirs.push(path4.resolve(execDir, ".."));
   } catch {}
   for (const dir of searchDirs) {
-    const candidate = path5.join(dir, OPENTUI_RUNTIME_DIR_NAME);
-    if (fs5.existsSync(path5.join(candidate, "parser.worker.js"))) {
+    const candidate = path4.join(dir, OPENTUI_RUNTIME_DIR_NAME);
+    if (fs4.existsSync(path4.join(candidate, "parser.worker.js"))) {
       return candidate;
     }
   }
   return null;
 }
 function hasBundledAssets(assetsRoot) {
-  return REQUIRED_ASSET_FILES.every((relativePath) => fs5.existsSync(path5.join(assetsRoot, relativePath)));
+  return REQUIRED_ASSET_FILES.every((relativePath) => fs4.existsSync(path4.join(assetsRoot, relativePath)));
 }
 function createBundledParsers(assetsRoot) {
-  const asset = (...segments) => path5.join(assetsRoot, ...segments);
+  const asset = (...segments) => path4.join(assetsRoot, ...segments);
   return [
     {
       filetype: "javascript",
@@ -13150,7 +12720,7 @@ function configureBundledOpenTuiTreeSitter(isCompiledBinary) {
   if (configured)
     return;
   const runtimeDir = resolveBundledRuntimeDir(isCompiledBinary);
-  const workerPath = process.env.OTUI_TREE_SITTER_WORKER_PATH?.trim() || (runtimeDir ? path5.join(runtimeDir, "parser.worker.js") : "");
+  const workerPath = process.env.OTUI_TREE_SITTER_WORKER_PATH?.trim() || (runtimeDir ? path4.join(runtimeDir, "parser.worker.js") : "");
   if (!workerPath) {
     if (isCompiledBinary) {
       warnRuntimeIssue("未找到 OpenTUI tree-sitter worker，Markdown 标题和加粗高亮可能不可用。");
@@ -13161,7 +12731,7 @@ function configureBundledOpenTuiTreeSitter(isCompiledBinary) {
   process.env.OTUI_TREE_SITTER_WORKER_PATH = workerPath;
   clearEnvCache();
   if (runtimeDir) {
-    const assetsRoot = path5.join(runtimeDir, "assets");
+    const assetsRoot = path4.join(runtimeDir, "assets");
     if (hasBundledAssets(assetsRoot)) {
       addDefaultParsers(createBundledParsers(assetsRoot));
     } else {
@@ -14058,7 +13628,7 @@ ${summaryText}`;
         this.appHandle?.addSummaryMessage(fullText, tokenCount > 0 ? tokenCount : undefined);
       }
     });
-    return new Promise(async (resolve5, reject) => {
+    return new Promise(async (resolve4, reject) => {
       try {
         this.renderer = await createCliRenderer({
           exitOnCtrlC: false,
@@ -14103,7 +13673,7 @@ ${summaryText}`;
           this.syncPlanModeStatus();
           this.syncAutoEditStatus();
           this.syncMilestones();
-          resolve5();
+          resolve4();
         },
         onSubmit: (text) => this.handleInput(text),
         onFileAttach: (filePath) => this.handleFileAttach(filePath),
@@ -14150,6 +13720,13 @@ ${summaryText}`;
         },
         onToolMessage: (toolId, type, data) => {
           this.backend.getToolHandle?.(toolId)?.send(type, data);
+        },
+        onGetToolDiffPreview: async (toolId) => {
+          const getPreview = this.backend.getToolDiffPreview;
+          if (typeof getPreview !== "function") {
+            throw new Error("当前 Backend 不支持 diff 预览");
+          }
+          return await getPreview.call(this.backend, toolId);
         },
         onAddCommandPattern: (toolName, command, type) => {
           this.addCommandPattern(toolName, command, type);
@@ -14258,15 +13835,15 @@ ${summaryText}`;
     } else {
       r.destroy();
     }
-    await new Promise((resolve5) => setTimeout(resolve5, 100));
+    await new Promise((resolve4) => setTimeout(resolve4, 100));
     if (process.platform === "win32" && options.headlessTransition) {
       clearWindowsScreenForHeadless();
       printHeadlessTransitionMessage();
     }
   }
   waitForExit() {
-    return new Promise((resolve5) => {
-      this.exitResolve = resolve5;
+    return new Promise((resolve4) => {
+      this.exitResolve = resolve4;
     });
   }
   handleListAgents() {
@@ -15380,14 +14957,14 @@ ${summaryText}`;
       this.appHandle?.addCommandMessage("已清空所有待发送附件");
       return;
     }
-    const fs6 = __require("fs");
-    const path6 = __require("path");
-    const resolved = path6.resolve(filePath);
-    if (!fs6.existsSync(resolved)) {
+    const fs5 = __require("fs");
+    const path5 = __require("path");
+    const resolved = path5.resolve(filePath);
+    if (!fs5.existsSync(resolved)) {
       this.appHandle?.addCommandMessage(`文件不存在: ${resolved}`);
       return;
     }
-    const stat = fs6.statSync(resolved);
+    const stat = fs5.statSync(resolved);
     if (!stat.isFile()) {
       this.appHandle?.addCommandMessage(`不是一个文件: ${resolved}`);
       return;
@@ -15397,11 +14974,11 @@ ${summaryText}`;
       this.appHandle?.addCommandMessage(`文件过大 (${(stat.size / 1024 / 1024).toFixed(1)}MB)，最大支持 20MB`);
       return;
     }
-    const ext = path6.extname(resolved).toLowerCase();
+    const ext = path5.extname(resolved).toLowerCase();
     const mimeType = this.detectMimeType(ext);
     const fileType = this.classifyFileType(mimeType);
-    const data = fs6.readFileSync(resolved).toString("base64");
-    const fileName = path6.basename(resolved);
+    const data = fs5.readFileSync(resolved).toString("base64");
+    const fileName = path5.basename(resolved);
     if (fileType === "image") {
       this._pendingImages.push({ mimeType, data, fileName });
     } else if (fileType === "audio") {
@@ -15526,22 +15103,22 @@ ${summaryText}`;
     this.appHandle?.openFileBrowser(dirPath, entries);
   }
   listDirectory(dirPath, showHidden = false) {
-    const fs6 = __require("fs");
-    const path6 = __require("path");
+    const fs5 = __require("fs");
+    const path5 = __require("path");
     try {
-      const items = fs6.readdirSync(dirPath);
+      const items = fs5.readdirSync(dirPath);
       const entries = [];
       for (const name of items) {
         if (!showHidden && name.startsWith("."))
           continue;
         try {
-          const fullPath = path6.join(dirPath, name);
-          const stat = fs6.statSync(fullPath);
+          const fullPath = path5.join(dirPath, name);
+          const stat = fs5.statSync(fullPath);
           const isDirectory2 = stat.isDirectory();
           if (isDirectory2) {
             entries.push({ name, isDirectory: true });
           } else {
-            const ext = path6.extname(name).toLowerCase();
+            const ext = path5.extname(name).toLowerCase();
             const mimeType = this.detectMimeType(ext);
             const fileType = this.classifyFileType(mimeType);
             entries.push({ name, isDirectory: false, size: stat.size, fileType });
@@ -15560,19 +15137,19 @@ ${summaryText}`;
     }
   }
   handleFileBrowserSelect(dirPath, entry, showHidden) {
-    const path6 = __require("path");
+    const path5 = __require("path");
     if (entry.isDirectory) {
-      const newPath = path6.resolve(dirPath, entry.name);
+      const newPath = path5.resolve(dirPath, entry.name);
       const entries = this.listDirectory(newPath, showHidden);
       this.appHandle?.openFileBrowser(newPath, entries);
     } else {
-      const fullPath = path6.join(dirPath, entry.name);
+      const fullPath = path5.join(dirPath, entry.name);
       this.handleFileAttach(fullPath);
     }
   }
   handleFileBrowserGoUp(dirPath, showHidden) {
-    const path6 = __require("path");
-    const parentPath = path6.dirname(dirPath);
+    const path5 = __require("path");
+    const parentPath = path5.dirname(dirPath);
     if (parentPath === dirPath)
       return;
     const entries = this.listDirectory(parentPath, showHidden);

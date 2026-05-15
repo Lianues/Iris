@@ -12,6 +12,7 @@ import { appendCommandMessage } from '../message-utils';
 import type { QueuedMessage } from './use-message-queue';
 import { filterMemories, nextFilter, type MemoryItem, type MemoryFilter } from '../components/MemoryListView';
 import { normalizePastedSingleLine, readClipboardText } from '../terminal-compat';
+import type { PromptInputController } from '../components/InputBar';
 
 type SetState<T> = Dispatch<SetStateAction<T>>;
 
@@ -41,6 +42,8 @@ interface UseAppKeyboardOptions {
   copyMode: boolean;
   /** 聊天消息 scrollbox 的 ref，用于复制模式下的键盘滚动 */
   chatScrollBoxRef: MutableRefObject<any>;
+  /** 底部正文输入框控制器；用于输入框有内容时 Ctrl+C 只清空输入 */
+  promptInputControllerRef?: MutableRefObject<PromptInputController | null>;
   pendingConfirm: PendingConfirm | null;
   confirmChoice: ConfirmChoice;
   setPendingConfirm: SetState<PendingConfirm | null>;
@@ -186,6 +189,7 @@ export function useAppKeyboard({
   setCopyMode,
   copyMode,
   chatScrollBoxRef,
+  promptInputControllerRef,
   pendingConfirm,
   confirmChoice,
   setPendingConfirm,
@@ -343,6 +347,18 @@ export function useAppKeyboard({
 
   useKeyboard((key) => {
     if (key.ctrl && key.name === 'c') {
+      if (viewMode === 'chat'
+        && !pendingConfirm
+        && !askQuestionActive
+        && pendingApprovals.length === 0
+        && pendingApplies.length === 0
+        && promptInputControllerRef?.current?.hasValue()) {
+        promptInputControllerRef.current.clear();
+        exitConfirm.clearExitConfirm();
+        key.preventDefault?.();
+        key.stopPropagation?.();
+        return;
+      }
       if (exitConfirm.exitConfirmArmed) {
         exitConfirm.clearExitConfirm();
         onExit();
@@ -1283,9 +1299,8 @@ export function useAppKeyboard({
     }
 
     // ── F6 复制模式：拦截方向键/翻页键，手动滚动聊天消息列表 ──
-    // useMouse=false 时终端可能将鼠标滚轮转为方向键序列，
-    // 这些键会被输入框消费。此处在全局层拦截并手动滚动 scrollbox，
-    // 同时 preventDefault 阻止事件传递到输入框。
+    // 鼠标拖选由 OpenTUI selection 处理；这里保留键盘滚动能力，
+    // 同时 preventDefault 阻止方向键/翻页键传递到输入框。
     if (copyMode) {
       const sb = chatScrollBoxRef?.current;
       if (sb && (key.name === 'up' || key.name === 'down' || key.name === 'pageup' || key.name === 'pagedown')) {

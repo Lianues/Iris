@@ -38,6 +38,8 @@ import { useModelState } from './hooks/use-model-state';
 import { useTextInput } from './hooks/use-text-input';
 import { createUndoRedoStack, type UndoRedoStack } from './undo-redo';
 import { getSlashCommands, onSlashCommandsChanged } from './slash-command-service';
+import { writeClipboardText } from './terminal-compat';
+import type { PromptInputController } from './components/InputBar';
 
 // ── Provider 级别映射 ──────────────────────────────────────
 const PROVIDER_LEVELS: Record<string, ThinkingEffortLevel[]> = {
@@ -52,6 +54,54 @@ const DEFAULT_LEVELS: ThinkingEffortLevel[] = ['not-set', 'low', 'medium', 'high
 function getProviderThinkingLevels(provider?: string): ThinkingEffortLevel[] {
   if (!provider) return DEFAULT_LEVELS;
   return PROVIDER_LEVELS[provider] ?? DEFAULT_LEVELS;
+}
+
+function normalizeSelectionText(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+function findLineOverlap(left: string[], right: string[]): number {
+  const max = Math.min(left.length, right.length);
+  for (let size = max; size > 0; size--) {
+    let matches = true;
+    for (let i = 0; i < size; i++) {
+      if (left[left.length - size + i] !== right[i]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return size;
+  }
+  return 0;
+}
+
+/**
+ * F6 应用内复制模式中，拖选 + 滚轮会产生多个“当前可见选区”快照。
+ * 这里按行做前后缀重叠合并，尽量把滚动经过的内容拼成一个连续文本，
+ * 同时避免每次滚轮都把同一屏内容重复追加。
+ */
+function mergeSelectionText(previous: string, next: string): string {
+  const a = normalizeSelectionText(previous).trimEnd();
+  const b = normalizeSelectionText(next).trimEnd();
+  if (!a) return b;
+  if (!b) return a;
+  if (a.includes(b)) return a;
+  if (b.includes(a)) return b;
+
+  const aLines = a.split('\n');
+  const bLines = b.split('\n');
+
+  const appendOverlap = findLineOverlap(aLines, bLines);
+  if (appendOverlap > 0) {
+    return [...aLines, ...bLines.slice(appendOverlap)].join('\n');
+  }
+
+  const prependOverlap = findLineOverlap(bLines, aLines);
+  if (prependOverlap > 0) {
+    return [...bLines, ...aLines.slice(prependOverlap)].join('\n');
+  }
+
+  return `${a}\n${b}`;
 }
 
 export type { AppHandle } from './hooks/use-app-handle';
@@ -208,6 +258,15 @@ export function App({
 
   const canOpenLoverSettings = dynamicCommands.some((command) => command.name === '/lover');
 
+  const copySelectionBufferRef = useRef('');
+  const resetCopySelectionBuffer = useCallback(() => {
+    copySelectionBufferRef.current = '';
+  }, []);
+  const captureCopySelectionSnapshot = useCallback((text: string) => {
+    if (!copyMode || !text.trim()) return;
+    copySelectionBufferRef.current = mergeSelectionText(copySelectionBufferRef.current, text);
+  }, [copyMode]);
+
   const refreshPluginSettingsTabs = useCallback(() => {
     setRuntimePluginSettingsTabs(onListPluginSettingsTabs?.() ?? pluginSettingsTabs ?? []);
   }, [onListPluginSettingsTabs, pluginSettingsTabs]);
@@ -222,6 +281,7 @@ export function App({
 
   const renderer = useRenderer();
   const undoRedoRef = useRef<UndoRedoStack>(createUndoRedoStack());
+  const promptInputControllerRef = useRef<PromptInputController | null>(null);
 
   // ── 聊天滚动区域 ref（供 F6 复制模式键盘滚动使用）──
   const chatScrollBoxRef = useRef<any>(null);
@@ -387,7 +447,24 @@ export function App({
 
   useEffect(() => {
     if (!renderer) return;
-    renderer.useMouse = !copyMode;
+    // F6 复制模式改为应用内选择：保留鼠标事件，拖选时由 OpenTUI 维护选择范围，
+    // 这样滚轮/边缘自动滚动仍能作用于聊天 scrollbox。
+    renderer.useMouse = true;
+  }, [renderer]);
+
+  useEffect(() => {
+    if (!renderer) return;
+    const handleSelection = (selection: { getSelectedText?: () => string } | null) => {
+      if (!copyMode) return;
+      const finalText = selection?.getSelectedText?.() ?? '';
+      const text = mergeSelectionText(copySelectionBufferRef.current, finalText);
+      copySelectionBufferRef.current = '';
+      if (!text.trim()) return;
+      const copied = writeClipboardText(text) || renderer.copyToClipboardOSC52?.(text) === true;
+      if (!copied) return;
+    };
+    renderer.on?.('selection', handleSelection);
+    return () => { renderer.off?.('selection', handleSelection); };
   }, [renderer, copyMode]);
 
   // 离开 queue-list 视图时：如果当前空闲且队列非空，自动发送队首消息恢复排流。
@@ -448,6 +525,7 @@ export function App({
     setCopyMode,
     copyMode,
     chatScrollBoxRef,
+    promptInputControllerRef,
     pendingConfirm,
     confirmChoice,
     setPendingConfirm,
@@ -717,6 +795,9 @@ export function App({
           scrollBoxRef={chatScrollBoxRef}
           queuedMessages={messageQueue.queue}
           milestoneSnapshot={appState.milestoneSnapshot}
+          copyMode={copyMode}
+          onCopySelectionStart={resetCopySelectionBuffer}
+          onCopySelectionSnapshot={captureCopySelectionSnapshot}
         />
       ) : null}
 
@@ -757,6 +838,7 @@ export function App({
         onRemoveFile={handleRemoveFile}
         dynamicCommands={dynamicCommands}
         supportsHeadlessTransition={supportsHeadlessTransition}
+        inputControllerRef={promptInputControllerRef}
       />
     </box>
   );

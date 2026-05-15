@@ -27,8 +27,14 @@ interface ChatMessageListProps {
   scrollBoxRef?: MutableRefObject<any>;
   /** 已提交但正在等待当前回复完成后发送的本地队列消息，用 user 样式即时预览 */
   queuedMessages?: QueuedMessage[];
+  /** F6 应用内复制模式：拖选时允许滚轮扩展选择范围 */
+  copyMode?: boolean;
   /** 当前会话 milestone/task 清单快照 */
   milestoneSnapshot?: MilestoneSnapshotLike | null;
+  /** F6 复制模式下，开始新一轮拖选时清空跨滚动快照 */
+  onCopySelectionStart?: () => void;
+  /** F6 复制模式下，拖选/滚轮过程中记录当前可见选区快照 */
+  onCopySelectionSnapshot?: (text: string) => void;
 }
 
 export function ChatMessageList({
@@ -44,9 +50,24 @@ export function ChatMessageList({
   hasActiveTools,
   scrollBoxRef,
   queuedMessages,
+  copyMode,
   milestoneSnapshot,
+  onCopySelectionStart,
+  onCopySelectionSnapshot,
 }: ChatMessageListProps) {
   const { height: termHeight } = useTerminalDimensions();
+
+  const captureSelectionSnapshot = (scrollBox: any) => {
+    const text = scrollBox?.ctx?.getSelection?.()?.getSelectedText?.() ?? '';
+    if (text.trim()) onCopySelectionSnapshot?.(text);
+  };
+
+  const scheduleSelectionSnapshot = (scrollBox: any, updateSelection = false) => {
+    setTimeout(() => {
+      if (updateSelection) scrollBox?.ctx?.requestSelectionUpdate?.();
+      captureSelectionSnapshot(scrollBox);
+    }, 0);
+  };
 
   // 让鼠标滚轮灵敏度与 F6 复制模式保持一致。
   // F6 复制模式下 useMouse=false，终端将滚轮转换为方向键，
@@ -91,7 +112,26 @@ export function ChatMessageList({
   })), [queuedMessages]);
 
   return (
-    <scrollbox ref={scrollBoxRef} flexGrow={1} stickyScroll stickyStart="bottom" paddingRight={1} scrollAcceleration={scrollAccel}>
+    <scrollbox
+      ref={scrollBoxRef}
+      flexGrow={1}
+      stickyScroll
+      stickyStart="bottom"
+      paddingRight={1}
+      scrollAcceleration={scrollAccel}
+      onMouseDown={copyMode ? function (_event: any) {
+        onCopySelectionStart?.();
+      } : undefined}
+      onMouseDrag={copyMode ? function (this: any) {
+        scheduleSelectionSnapshot(this);
+      } : undefined}
+      onMouseScroll={copyMode ? function (this: any) {
+        scheduleSelectionSnapshot(this, true);
+      } : undefined}
+      onMouseUp={copyMode ? function (this: any) {
+        scheduleSelectionSnapshot(this);
+      } : undefined}
+    >
       {messages.map((message, index) => {
         const isLastActive = index === activeAssistantIndex;
         const liveParts = isLastActive && streamingParts.length > 0 ? streamingParts : undefined;

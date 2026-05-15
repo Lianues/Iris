@@ -11,6 +11,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { MutableRefObject } from 'react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import { COMMANDS, type Command, type CommandArgSuggestion, getCommandInput, isExactCommandValue } from '../input-commands';
 import { useTextInput } from '../hooks/use-text-input';
@@ -26,6 +27,11 @@ export interface PendingFile {
   path: string;
   fileType: 'image' | 'document' | 'audio' | 'video';
   mimeType: string;
+}
+
+export interface PromptInputController {
+  hasValue(): boolean;
+  clear(): void;
 }
 
 const FILE_TYPE_ICONS: Record<string, string> = {
@@ -62,6 +68,7 @@ interface InputBarProps {
   isRemote?: boolean;
   dynamicCommands?: Command[];
   supportsHeadlessTransition?: boolean;
+  inputControllerRef?: MutableRefObject<PromptInputController | null>;
 }
 
 function isPrioritySubmitShortcut(key: any): boolean {
@@ -70,7 +77,7 @@ function isPrioritySubmitShortcut(key: any): boolean {
     || key.raw === '\x13';
 }
 
-export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled }: InputBarProps) {
+export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [queuePromptFrame, setQueuePromptFrame] = useState(0);
@@ -148,6 +155,22 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
 
   // 输入内容变化时重新打开面板
   useEffect(() => { setCommandsDismissed(false); }, [commandQuery]);
+
+  useEffect(() => {
+    if (!inputControllerRef) return;
+    const controller: PromptInputController = {
+      hasValue: () => value.length > 0,
+      clear: () => {
+        inputActions.setValue('');
+        setSelectedIndex(0);
+        setCommandsDismissed(false);
+      },
+    };
+    inputControllerRef.current = controller;
+    return () => {
+      if (inputControllerRef.current === controller) inputControllerRef.current = null;
+    };
+  }, [inputControllerRef, inputActions, value]);
 
   const showCommands = commandQuery.length > 0 && !commandsDismissed;
   const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && value.startsWith(`${activeArgCommand.name} `);

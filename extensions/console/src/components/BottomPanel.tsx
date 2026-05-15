@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 import React from 'react';
+import type { MutableRefObject } from 'react';
 import type { ToolInvocation } from 'irises-extension-sdk';
 import type { ApprovalChoice, ConfirmChoice, PendingConfirm, ThinkingEffortLevel } from '../app-types';
 import type { ApprovalPage } from '../hooks/use-approval';
@@ -9,7 +10,7 @@ import { ConfirmBar } from './ConfirmBar';
 import { AskQuestionFirstPanel } from './AskQuestionFirstPanel';
 import { PlanApprovalBar } from './PlanApprovalBar';
 import { HintBar } from './HintBar';
-import { InputBar, type PendingFile } from './InputBar';
+import { InputBar, type PendingFile, type PromptInputController } from './InputBar';
 import type { Command } from '../input-commands';
 import { StatusBar } from './StatusBar';
 import { ThinkingIndicator } from './ThinkingIndicator';
@@ -66,6 +67,7 @@ interface BottomPanelProps {
   onRemoveFile: (index: number) => void;
   dynamicCommands?: Command[];
   supportsHeadlessTransition?: boolean;
+  inputControllerRef?: MutableRefObject<PromptInputController | null>;
 }
 
 export function BottomPanel({
@@ -105,6 +107,7 @@ export function BottomPanel({
   onRemoveFile,
   dynamicCommands,
   supportsHeadlessTransition,
+  inputControllerRef,
 }: BottomPanelProps) {
   // 输入框仅在审批/确认对话框期间完全禁用
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
@@ -148,6 +151,7 @@ export function BottomPanel({
             dynamicCommands={dynamicCommands}
             supportsHeadlessTransition={supportsHeadlessTransition}
             thinkingControlEnabled={thinkingControlEnabled}
+            inputControllerRef={inputControllerRef}
           />
           <StatusBar
             agentName={agentName}
