@@ -1948,6 +1948,7 @@ init_terminal_compat();
 
 // src/hooks/use-text-input.ts
 import { useState, useCallback } from "react";
+var MAX_UNDO_HISTORY = 100;
 function wordBoundaryLeft(text, pos) {
   if (pos <= 0)
     return 0;
@@ -1969,7 +1970,57 @@ function wordBoundaryRight(text, pos) {
     i++;
   return i;
 }
+function snapshotOf(state) {
+  return { value: state.value, cursor: state.cursor };
+}
+function withCursor(state, cursor) {
+  const nextCursor = Math.max(0, Math.min(cursor, state.value.length));
+  return nextCursor === state.cursor ? state : { ...state, cursor: nextCursor };
+}
+function resetHistory(value, cursor) {
+  return { value, cursor: Math.max(0, Math.min(cursor, value.length)), undoStack: [], redoStack: [] };
+}
+function withUndoHistory(previous, next) {
+  if (previous.value === next.value && previous.cursor === next.cursor)
+    return previous;
+  return {
+    value: next.value,
+    cursor: Math.max(0, Math.min(next.cursor, next.value.length)),
+    undoStack: [...previous.undoStack ?? [], snapshotOf(previous)].slice(-MAX_UNDO_HISTORY),
+    redoStack: []
+  };
+}
+function undoTextInput(state) {
+  const undoStack = state.undoStack ?? [];
+  if (undoStack.length === 0)
+    return state;
+  const previous = undoStack[undoStack.length - 1];
+  return {
+    ...previous,
+    undoStack: undoStack.slice(0, -1),
+    redoStack: [...state.redoStack ?? [], snapshotOf(state)].slice(-MAX_UNDO_HISTORY)
+  };
+}
+function redoTextInput(state) {
+  const redoStack = state.redoStack ?? [];
+  if (redoStack.length === 0)
+    return state;
+  const next = redoStack[redoStack.length - 1];
+  return {
+    ...next,
+    undoStack: [...state.undoStack ?? [], snapshotOf(state)].slice(-MAX_UNDO_HISTORY),
+    redoStack: redoStack.slice(0, -1)
+  };
+}
+function isUndoShortcut(key) {
+  return key.ctrl === true && key.name === "z" && key.shift !== true || key.sequence === "\x1A";
+}
+function isRedoShortcut(key) {
+  return key.ctrl === true && key.name === "y" || key.ctrl === true && key.shift === true && key.name === "z" || key.sequence === "\x19";
+}
 function isTextInputKeyHandled(key) {
+  if (isUndoShortcut(key) || isRedoShortcut(key))
+    return true;
   if (key.name === "left" || key.name === "right" || key.name === "home" || key.name === "end")
     return true;
   if (key.name === "backspace" || key.name === "delete")
@@ -1980,73 +2031,80 @@ function isTextInputKeyHandled(key) {
     return true;
   return false;
 }
-function useTextInput(initialValue = "") {
-  const [state, setState] = useState({
-    value: initialValue,
-    cursor: initialValue.length
+function applyTextInputKey(state, key) {
+  const { value, cursor } = state;
+  if (isRedoShortcut(key))
+    return redoTextInput(state);
+  if (isUndoShortcut(key))
+    return undoTextInput(state);
+  if (key.name === "left" && !key.ctrl && !key.meta) {
+    return withCursor(state, cursor - 1);
+  }
+  if (key.name === "right" && !key.ctrl && !key.meta) {
+    return withCursor(state, cursor + 1);
+  }
+  if (key.name === "left" && (key.ctrl || key.meta)) {
+    return withCursor(state, wordBoundaryLeft(value, cursor));
+  }
+  if (key.name === "right" && (key.ctrl || key.meta)) {
+    return withCursor(state, wordBoundaryRight(value, cursor));
+  }
+  if (key.name === "home" || key.name === "a" && key.ctrl) {
+    return withCursor(state, 0);
+  }
+  if (key.name === "end" || key.name === "e" && key.ctrl) {
+    return withCursor(state, value.length);
+  }
+  if (key.name === "backspace") {
+    if (cursor === 0)
+      return state;
+    if (key.ctrl || key.meta) {
+      const to = wordBoundaryLeft(value, cursor);
+      return withUndoHistory(state, { value: value.slice(0, to) + value.slice(cursor), cursor: to });
+    }
+    return withUndoHistory(state, { value: value.slice(0, cursor - 1) + value.slice(cursor), cursor: cursor - 1 });
+  }
+  if (key.name === "delete" || key.name === "d" && key.ctrl) {
+    if (cursor >= value.length)
+      return state;
+    return withUndoHistory(state, { value: value.slice(0, cursor) + value.slice(cursor + 1), cursor });
+  }
+  if (key.name === "u" && key.ctrl) {
+    return withUndoHistory(state, { value: value.slice(cursor), cursor: 0 });
+  }
+  if (key.name === "k" && key.ctrl) {
+    return withUndoHistory(state, { value: value.slice(0, cursor), cursor });
+  }
+  if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
+    return withUndoHistory(state, { value: value.slice(0, cursor) + key.sequence + value.slice(cursor), cursor: cursor + 1 });
+  }
+  return state;
+}
+function insertTextInputValue(state, text) {
+  if (!text)
+    return state;
+  return withUndoHistory(state, {
+    value: state.value.slice(0, state.cursor) + text + state.value.slice(state.cursor),
+    cursor: state.cursor + text.length
   });
+}
+function useTextInput(initialValue = "") {
+  const [state, setState] = useState(() => resetHistory(initialValue, initialValue.length));
   const handleKey = useCallback((key) => {
     if (!isTextInputKeyHandled(key))
       return false;
     key.preventDefault?.();
-    setState((s) => {
-      const { value, cursor } = s;
-      if (key.name === "left" && !key.ctrl && !key.meta) {
-        return { value, cursor: Math.max(0, cursor - 1) };
-      }
-      if (key.name === "right" && !key.ctrl && !key.meta) {
-        return { value, cursor: Math.min(value.length, cursor + 1) };
-      }
-      if (key.name === "left" && (key.ctrl || key.meta)) {
-        return { value, cursor: wordBoundaryLeft(value, cursor) };
-      }
-      if (key.name === "right" && (key.ctrl || key.meta)) {
-        return { value, cursor: wordBoundaryRight(value, cursor) };
-      }
-      if (key.name === "home" || key.name === "a" && key.ctrl) {
-        return { value, cursor: 0 };
-      }
-      if (key.name === "end" || key.name === "e" && key.ctrl) {
-        return { value, cursor: value.length };
-      }
-      if (key.name === "backspace") {
-        if (cursor === 0)
-          return s;
-        if (key.ctrl || key.meta) {
-          const to = wordBoundaryLeft(value, cursor);
-          return { value: value.slice(0, to) + value.slice(cursor), cursor: to };
-        }
-        return { value: value.slice(0, cursor - 1) + value.slice(cursor), cursor: cursor - 1 };
-      }
-      if (key.name === "delete" || key.name === "d" && key.ctrl) {
-        if (cursor >= value.length)
-          return s;
-        return { value: value.slice(0, cursor) + value.slice(cursor + 1), cursor };
-      }
-      if (key.name === "u" && key.ctrl) {
-        return { value: value.slice(cursor), cursor: 0 };
-      }
-      if (key.name === "k" && key.ctrl) {
-        return { value: value.slice(0, cursor), cursor };
-      }
-      if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-        return { value: value.slice(0, cursor) + key.sequence + value.slice(cursor), cursor: cursor + 1 };
-      }
-      return s;
-    });
+    setState((current) => applyTextInputKey(current, key));
     return true;
   }, []);
   const insert = useCallback((text) => {
-    setState((s) => ({
-      value: s.value.slice(0, s.cursor) + text + s.value.slice(s.cursor),
-      cursor: s.cursor + text.length
-    }));
+    setState((current) => insertTextInputValue(current, text));
   }, []);
   const setValue = useCallback((value) => {
-    setState({ value, cursor: value.length });
+    setState(resetHistory(value, value.length));
   }, []);
   const set = useCallback((value, cursor) => {
-    setState({ value, cursor: Math.min(cursor, value.length) });
+    setState(resetHistory(value, cursor));
   }, []);
   return [state, { handleKey, insert, setValue, set }];
 }
