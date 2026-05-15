@@ -186,8 +186,13 @@ describe('auto edit scheduler integration', () => {
     );
 
     expect(handlerCalled).toBe(true);
-    expect(toolState.get(invocation.id)?.status).toBe('success');
+    const completed = toolState.get(invocation.id);
+    expect(completed?.status).toBe('success');
     expect(response.functionResponse.response).toEqual({ result: { ok: true, path: 'src/a.ts' } });
+    const stateResult = completed?.result as any;
+    expect(stateResult.__ui.diffPreview.items[0].diff).toContain('+hello');
+    expect(Object.keys(stateResult)).not.toContain('__ui');
+    expect(Object.keys(stateResult)).not.toContain('__response');
   });
 
   it('Auto Edit 运行时提示放在 user-side system-reminder，避免污染 system prompt cache', async () => {

@@ -9,6 +9,7 @@
 import React from 'react';
 import { ICONS } from '../terminal-compat';
 import { ToolRendererProps } from './default.js';
+import { CompactDiffPreview, extractResultDiffPreview } from './diff-preview.js';
 
 interface DeleteCodeResult {
   path?: string;
@@ -21,6 +22,7 @@ interface DeleteCodeResult {
 
 export function DeleteCodeRenderer({ result }: ToolRendererProps) {
   const r = (result || {}) as DeleteCodeResult;
+  const preview = extractResultDiffPreview(result);
 
   if (!r.path) {
     return <text fg="#888"><em>{` ${ICONS.resultArrow}`} deleted 0 lines</em></text>;
@@ -35,8 +37,11 @@ export function DeleteCodeRenderer({ result }: ToolRendererProps) {
     ? `:${r.start_line}-${r.end_line}`
     : '';
   return (
-    <text fg="#888">
-      <em>{` ${ICONS.resultArrow}`} <span fg="#f47067">-{deleted}</span> lines ({r.path}{range})</em>
-    </text>
+    <box flexDirection="column">
+      <text fg="#888">
+        <em>{` ${ICONS.resultArrow}`} <span fg="#f47067">-{deleted}</span> lines ({r.path}{range})</em>
+      </text>
+      <CompactDiffPreview preview={preview} />
+    </box>
   );
 }

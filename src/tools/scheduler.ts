@@ -21,12 +21,13 @@ import type { ToolParameterSchema } from './coerce-args';
 import { validateToolArgs } from './validate-args';
 import { FunctionCallPart, FunctionResponsePart, InlineDataPart, TERMINAL_TOOL_STATUSES } from '../types';
 import { agentContext, createLogger } from '../logger';
-import type { ToolAttachment, ToolExecutionContext } from '../types';
+import type { ToolAttachment, ToolExecutionContext, ToolInvocation } from '../types';
 import { ToolPolicyConfig, ToolsConfig } from '../config';
 import type { BeforeToolExecInterceptor, AfterToolExecInterceptor } from '../extension';
 import { evaluateAutoEditApproval } from '../auto-edit/evaluate';
 import type { RuntimeApprovalContext } from '../auto-edit/types';
 import type { ToolExecutionHandle } from './handle';
+import { buildToolDiffPreview } from './diff-preview';
 
 const logger = createLogger('ToolScheduler');
 
@@ -271,6 +272,117 @@ function isParallelCall(call: FunctionCallPart, registry: ToolRegistry): boolean
   }
 
   return tool.parallel === true;
+}
+
+type CapturedToolDiffPreview = ReturnType<typeof buildToolDiffPreview>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isDiffPreviewSupportedTool(toolName: string, args: Record<string, unknown>): boolean {
+  if (
+    toolName === 'apply_diff' ||
+    toolName === 'write_file' ||
+    toolName === 'insert_code' ||
+    toolName === 'delete_code'
+  ) {
+    return true;
+  }
+  if (toolName === 'search_in_files') {
+    return ((args.mode as string | undefined) ?? 'search') === 'replace';
+  }
+  return false;
+}
+
+function captureDiffPreviewForDisplay(
+  toolName: string,
+  args: Record<string, unknown>,
+  toolState?: ToolStateManager,
+  invocationId?: string,
+  runtimeApprovalContext?: RuntimeApprovalContext,
+): CapturedToolDiffPreview | undefined {
+  if (!toolState || !invocationId || !isDiffPreviewSupportedTool(toolName, args)) return undefined;
+
+  const now = Date.now();
+  const currentInvocation = toolState.get(invocationId);
+  const invocation: ToolInvocation = {
+    id: invocationId ?? `preview_${now}`,
+    toolName,
+    args,
+    status: currentInvocation?.status ?? 'executing',
+    createdAt: currentInvocation?.createdAt ?? now,
+    updatedAt: currentInvocation?.updatedAt ?? now,
+    sessionId: currentInvocation?.sessionId ?? runtimeApprovalContext?.sessionId,
+  };
+  const cwd = runtimeApprovalContext?.cwd ?? process.cwd();
+
+  try {
+    return buildToolDiffPreview(invocation, { cwd });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    logger.warn(`生成工具 diff 展示预览失败，跳过终态 diff: ${toolName}: ${errorMsg}`);
+    return undefined;
+  }
+}
+
+function hasDisplayableDiffPreview(preview: CapturedToolDiffPreview | undefined): preview is CapturedToolDiffPreview {
+  return !!preview && Array.isArray(preview.items) && preview.items.some(item => Boolean(item.diff || item.message));
+}
+
+function cloneResultForToolResponse(result: Record<string, unknown>): Record<string, unknown> {
+  const clone = { ...result };
+  delete clone.__ui;
+  delete clone.__response;
+  return clone;
+}
+
+function defineHiddenProperty(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: false,
+    configurable: true,
+  });
+}
+
+/**
+ * 把执行前捕获到的 diff 预览以非枚举元数据挂到 ToolState 结果上，供 TUI 渲染；
+ * 同时通过非枚举 __response 保持给 LLM 的 functionResponse 仍是原始轻量结果，
+ * 且不会污染 Web 展开 JSON / 历史序列化。
+ */
+function attachDiffPreviewToResult(
+  result: unknown,
+  preview: CapturedToolDiffPreview | undefined,
+): unknown {
+  if (!hasDisplayableDiffPreview(preview)) return result;
+  const uiPreview = { diffPreview: preview };
+
+  if (isRecord(result)) {
+    const existingUi = isRecord(result.__ui) ? result.__ui : {};
+    const hasExistingResponse = '__response' in result;
+    const existingResponse = result.__response;
+    const withUi: Record<string, unknown> = { ...result };
+    defineHiddenProperty(withUi, '__ui', {
+      ...existingUi,
+      ...uiPreview,
+    });
+
+    // 如果工具/插件已经提供了 rich-result 响应，不覆盖它，只补 UI 元数据。
+    if (hasExistingResponse) {
+      defineHiddenProperty(withUi, '__response', existingResponse);
+      return withUi;
+    }
+
+    defineHiddenProperty(withUi, '__response', { result: cloneResultForToolResponse(result) });
+    return withUi;
+  }
+
+  const wrapped: Record<string, unknown> = {
+    value: result,
+  };
+  defineHiddenProperty(wrapped, '__ui', uiPreview);
+  defineHiddenProperty(wrapped, '__response', { result });
+  return wrapped;
 }
 
 // ============ 分批 ============
@@ -716,6 +828,13 @@ async function executeSingle(
     }
   }
 
+  // Claude Code 在自动批准编辑类工具时仍会在终态消息中展示结构化 diff。
+  // Iris 的 autoApproveDiff / Auto Edit 会跳过执行前审批页，因此这里在真正
+  // 修改文件之前捕获一份 session-aware diff 预览，稍后仅挂到 UI 状态结果上。
+  const displayDiffPreview = captureDiffPreviewForDisplay(
+    toolName, effectiveArgs, toolState, invocationId, runtimeApprovalContext,
+  );
+
     // 创建工具执行上下文：带节流的进度上报 + 中止信号 + Handle 能力。
     // 仅在有 ToolStateManager 和 invocationId 时创建 reportProgress（CLI 等场景跳过）。
     let progressCtx: ReturnType<typeof createThrottledReportProgress> | undefined;
@@ -820,6 +939,10 @@ async function executeSingle(
         const errorMsg = err instanceof Error ? err.message : String(err);
         logger.warn(`插件 onAfterToolExec 执行失败，已忽略: ${toolName}: ${errorMsg}`);
       }
+    }
+
+    if (displayDiffPreview) {
+      result = attachDiffPreviewToResult(result, displayDiffPreview);
     }
 
     // MCP 结果识别：优先检查 afterToolExec 后的 result，回退到原始 rawResult。
@@ -1004,18 +1127,6 @@ function shouldShowDiffPreview(
   policy: ToolPolicyConfig,
 ): boolean {
   if (policy.showApprovalView !== true) return false;
-  const toolName = call.functionCall.name;
-  if (
-    toolName === 'apply_diff' ||
-    toolName === 'write_file' ||
-    toolName === 'insert_code' ||
-    toolName === 'delete_code'
-  ) {
-    return true;
-  }
-  if (toolName === 'search_in_files') {
-    const args = (call.functionCall.args ?? {}) as Record<string, unknown>;
-    return ((args.mode as string | undefined) ?? 'search') === 'replace';
-  }
-  return false;
+  const args = (call.functionCall.args ?? {}) as Record<string, unknown>;
+  return isDiffPreviewSupportedTool(call.functionCall.name, args);
 }

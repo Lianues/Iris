@@ -9,6 +9,7 @@
 import React from 'react';
 import { ICONS } from '../terminal-compat';
 import { ToolRendererProps } from './default.js';
+import { CompactDiffPreview, extractResultDiffPreview } from './diff-preview.js';
 
 interface InsertCodeResult {
   path?: string;
@@ -20,6 +21,7 @@ interface InsertCodeResult {
 
 export function InsertCodeRenderer({ result }: ToolRendererProps) {
   const r = (result || {}) as InsertCodeResult;
+  const preview = extractResultDiffPreview(result);
 
   if (!r.path) {
     return <text fg="#888"><em>{` ${ICONS.resultArrow}`} inserted 0 lines</em></text>;
@@ -32,8 +34,11 @@ export function InsertCodeRenderer({ result }: ToolRendererProps) {
   const inserted = r.insertedLines ?? 0;
   const pos = r.line != null ? ` at L${r.line}` : '';
   return (
-    <text fg="#888">
-      <em>{` ${ICONS.resultArrow}`} <span fg="#57ab5a">+{inserted}</span> lines{pos} ({r.path})</em>
-    </text>
+    <box flexDirection="column">
+      <text fg="#888">
+        <em>{` ${ICONS.resultArrow}`} <span fg="#57ab5a">+{inserted}</span> lines{pos} ({r.path})</em>
+      </text>
+      <CompactDiffPreview preview={preview} />
+    </box>
   );
 }

@@ -10,6 +10,7 @@
 import React from 'react';
 import { ICONS } from '../terminal-compat';
 import { ToolRendererProps } from './default.js';
+import { CompactDiffPreview, extractResultDiffPreview } from './diff-preview.js';
 
 interface SearchInFilesResult {
   mode?: 'search' | 'replace';
@@ -32,6 +33,7 @@ function truncStr(s: string, max: number): string {
 
 export function SearchInFilesRenderer({ args, result }: ToolRendererProps) {
   const r = (result || {}) as SearchInFilesResult;
+  const preview = extractResultDiffPreview(result);
 
   if (r.mode === 'replace') {
     const total = r.totalReplacements ?? 0;
@@ -49,14 +51,17 @@ export function SearchInFilesRenderer({ args, result }: ToolRendererProps) {
       : files;
 
     return (
-      <text fg="#888">
-        <em>
-          {` ${ICONS.resultArrow} `}
-          <span fg="#d2a8ff">{total}</span> replacements in{' '}
-          <span fg="#d2a8ff">{changedFiles}</span>/{files} files
-          {transform}{suffix}
-        </em>
-      </text>
+      <box flexDirection="column">
+        <text fg="#888">
+          <em>
+            {` ${ICONS.resultArrow} `}
+            <span fg="#d2a8ff">{total}</span> replacements in{' '}
+            <span fg="#d2a8ff">{changedFiles}</span>/{files} files
+            {transform}{suffix}
+          </em>
+        </text>
+        <CompactDiffPreview preview={preview} />
+      </box>
     );
   }
 

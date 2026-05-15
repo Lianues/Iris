@@ -10,6 +10,7 @@
 import React from 'react';
 import { ICONS } from '../terminal-compat';
 import { ToolRendererProps } from './default.js';
+import { CompactDiffPreview, extractResultDiffPreview } from './diff-preview.js';
 
 interface WriteFileResult {
   path?: string;
@@ -34,21 +35,25 @@ export function WriteFileRenderer({ args, result }: ToolRendererProps) {
   const fg = r.success === false ? '#ff0000' : '#888';
   const lines = countLines((args || {}).content);
   const hasLines = lines > 0 && action !== 'unchanged';
+  const preview = extractResultDiffPreview(result);
 
   if (!r.path) {
     return <text fg="#888"><em>{` ${ICONS.resultArrow}`} wrote 0 files</em></text>;
   }
 
   return (
-    <text fg={fg}>
-      <em>
-        {` ${ICONS.resultArrow} `}
-        {hasLines && (action === 'created'
-          ? <span fg="#57ab5a">+{lines}</span>
-          : <span fg="#d2a8ff">~{lines}</span>)}
-        {hasLines ? ' lines, ' : ''}
-        {action} ({r.path})
-      </em>
-    </text>
+    <box flexDirection="column">
+      <text fg={fg}>
+        <em>
+          {` ${ICONS.resultArrow} `}
+          {hasLines && (action === 'created'
+            ? <span fg="#57ab5a">+{lines}</span>
+            : <span fg="#d2a8ff">~{lines}</span>)}
+          {hasLines ? ' lines, ' : ''}
+          {action} ({r.path})
+        </em>
+      </text>
+      <CompactDiffPreview preview={preview} />
+    </box>
   );
 }
