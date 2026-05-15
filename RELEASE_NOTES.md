@@ -1,13 +1,13 @@
-# Iris v1.0.23 Release Notes
+# Iris v1.0.25 Release Notes
 
-* 去除不必要的内置扩展
-* 修复进程无法自适应调整布局问题
-* 修复单字母快捷键导致tui自动滚动等问题
-* 优化服务器工具环境显示和交互等逻辑
-* 优化里程碑的显示和交互
-* 优化斜杠面板布局问题
-* 修复总结上下文只能非流的问题
-* 优化总结上下文的默认提示词
-* 重构milestone为内嵌扩展
-* 优化传输工具定义
-* 把全局变量管理工具也拆分为扩展，方便配置
+* 合并 dev 分支的新功能与修复
+* 新增 Auto Edit 自动编辑能力，支持安全结构化文件编辑自动应用
+* 新增 DeepSeek Provider 与模型配置体验优化
+* 新增 F6 应用内复制模式，并支持输入框 Ctrl+C 智能清空
+* 新增文本输入 Ctrl+Z 撤销、Ctrl+Y / Ctrl+Shift+Z 重做
+* 统一 diff 预览由后端生成，改善 remote/session cwd 场景下的 diff 展示
+* 修复 Web milestone 进度服务集成，确保 Web 端进度读取和实时更新走 milestone extension service
+* 保留并完善 milestone / variables 扩展化架构
+* 新增 /callme git attribution 开关
+* 新增 config / mcp / models / cron CLI 能力与相关测试
+* 优化 shell 命令记忆规则、Plan Mode 提示词和扩展启停生命周期
