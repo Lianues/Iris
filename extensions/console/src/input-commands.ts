@@ -36,6 +36,7 @@ export const COMMANDS: Command[] = [
   { name: '/reset-config', description: '重置配置为默认值' },
   { name: '/compact',  description: '压缩上下文（总结历史消息）' },
   { name: '/plan',     description: '进入或查看当前 Agent 会话的 Plan Mode' },
+  { name: '/commit',   description: '参考当前 git diff 创建详细提交', acceptsArgs: true },
   {
     name: '/auto-edit',
     description: '切换当前会话自动编辑（安全编辑自动应用）',

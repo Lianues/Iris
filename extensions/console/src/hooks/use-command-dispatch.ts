@@ -14,6 +14,7 @@ import { clearRedo, performRedo, performUndo, type UndoRedoStack } from '../undo
 import type { UseModelStateReturn } from './use-model-state';
 import type { MemoryItem, MemoryFilter } from '../components/MemoryListView';
 import { canHandleSlashCommand, dispatchSlashCommand } from '../slash-command-service';
+import { buildGitCommitPrompt, isGitPorcelainEmpty } from '../commit-command';
 
 type SetMessages = Dispatch<SetStateAction<ChatMessage[]>>;
 type SetMemoryList = Dispatch<SetStateAction<MemoryItem[]>>;
@@ -89,6 +90,18 @@ interface UseCommandDispatchOptions {
 function resetRedo(undoRedoRef: MutableRefObject<UndoRedoStack>, onClearRedoStack: () => void) {
   clearRedo(undoRedoRef.current);
   onClearRedoStack();
+}
+
+function runOptionalCommand(
+  onRunCommand: (cmd: string) => { output: string; cwd: string },
+  command: string,
+  fallback: string,
+): string {
+  try {
+    return onRunCommand(command).output || fallback;
+  } catch (err) {
+    return `${fallback}: ${err instanceof Error ? err.message : String(err)}`;
+  }
 }
 
 export function useCommandDispatch({
@@ -397,6 +410,43 @@ export function useCommandDispatch({
       }).catch((err: any) => {
         appendCommandMessage(setMessages, `Context compression failed: ${err.message ?? err}`, { isError: true });
       });
+      return;
+    }
+
+    if (text === '/commit' || text.startsWith('/commit ')) {
+      resetRedo(undoRedoRef, onClearRedoStack);
+      const extraInstruction = text.slice('/commit'.length).trim();
+      const messageOptions = { label: 'commit' as const, beforeActiveAssistant: isGenerating };
+
+      try {
+        const repoCheck = onRunCommand('git rev-parse --is-inside-work-tree').output.trim();
+        if (repoCheck !== 'true') {
+          appendCommandMessage(setMessages, '当前目录不是 Git 工作区，无法创建 commit。', { ...messageOptions, isError: true });
+          return;
+        }
+
+        const porcelain = onRunCommand('git status --porcelain').output;
+        if (isGitPorcelainEmpty(porcelain)) {
+          appendCommandMessage(setMessages, '当前没有可提交的变更。', messageOptions);
+          return;
+        }
+
+        const statusShort = runOptionalCommand(
+          onRunCommand,
+          'git status --short --branch',
+          porcelain,
+        );
+        const recentCommits = runOptionalCommand(
+          onRunCommand,
+          'git log --oneline -10',
+          '(no recent commits or git log unavailable)',
+        );
+        const prompt = buildGitCommitPrompt({ statusShort, recentCommits, extraInstruction });
+        appendCommandMessage(setMessages, '已准备 git commit 上下文，交给模型检查 diff 并创建提交。', messageOptions);
+        onSubmit(prompt);
+      } catch (err) {
+        appendCommandMessage(setMessages, `准备 commit 失败: ${err instanceof Error ? err.message : String(err)}`, { ...messageOptions, isError: true });
+      }
       return;
     }
 
