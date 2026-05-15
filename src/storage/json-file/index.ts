@@ -71,13 +71,15 @@ export class JsonFileStorage extends StorageProvider {
   }
 
   async clearHistory(sessionId: string): Promise<void> {
-    await this.withLock(sessionId, async () => {
-      try {
-        await fs.unlink(this.historyPath(sessionId));
-      } catch { /* 文件不存在则忽略 */ }
-      try {
-        await fs.unlink(this.metaPath(sessionId));
-      } catch { /* 文件不存在则忽略 */ }
+    await this.withMetaUpdateLock(sessionId, async () => {
+      await this.withLock(sessionId, async () => {
+        try {
+          await fs.unlink(this.historyPath(sessionId));
+        } catch { /* 文件不存在则忽略 */ }
+        try {
+          await fs.unlink(this.metaPath(sessionId));
+        } catch { /* 文件不存在则忽略 */ }
+      });
     });
   }
 

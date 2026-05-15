@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { Backend } from '../src/core/backend/backend.js';
 import { SessionMilestoneManager } from '../extensions/milestone/src/session.js';
 import { StorageProvider, type SessionMeta } from '../src/storage/base.js';
+import { CrossAgentTaskBoard } from '../src/core/cross-agent-task-board.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { ToolStateManager } from '../src/tools/state.js';
 import { PromptAssembler } from '../src/prompt/assembler.js';
 import type { Content, LLMRequest } from '../src/types/index.js';
-import { createMilestoneServiceForApi } from '../extensions/milestone/src/index.js';
+import { createMilestoneServiceForApi, createMilestoneToolsForApi, MILESTONE_EXTENSION_SERVICE_ID } from '../extensions/milestone/src/index.js';
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -27,8 +28,10 @@ class InMemoryStorage extends StorageProvider {
   }
 
   async clearHistory(sessionId: string): Promise<void> {
-    this.histories.delete(sessionId);
-    this.metas.delete(sessionId);
+    await this.withMetaUpdateLock(sessionId, async () => {
+      this.histories.delete(sessionId);
+      this.metas.delete(sessionId);
+    });
   }
 
   async updateLastMessage(sessionId: string, updater: (content: Content) => Content): Promise<void> {
@@ -248,6 +251,87 @@ describe('Backend milestone persistence', () => {
     expect(getPersisted(await storage.getMeta('s1'))?.ui?.expanded).toBe(false);
   });
 
+  it('连续 milestone 更新最终持久化为最新快照，并保留 meta 其他字段', async () => {
+    const storage = new InMemoryStorage();
+    const service = createMilestoneService(storage);
+    await storage.saveMeta({
+      id: 's1',
+      title: '连续更新测试',
+      cwd: '/tmp/old',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+      platforms: ['console'],
+      remoteExecEnvironment: 'server-a',
+      extensionState: { other: { keep: true } },
+    } as SessionMeta);
+
+    service.update('s1', [{ title: '旧快照', status: 'pending' }], { replaceAll: true });
+    const latest = service.update('s1', [{ title: '新快照', status: 'completed' }], { replaceAll: true });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const meta = await storage.getMeta('s1');
+    expect(getPersisted(meta)?.latest?.updatedAt).toBe(latest.updatedAt);
+    expect(getPersisted(meta)?.latest?.items[0].title).toBe('新快照');
+    expect(meta?.platforms).toEqual(['console']);
+    expect((meta as any)?.remoteExecEnvironment).toBe('server-a');
+    expect(meta?.extensionState?.other).toEqual({ keep: true });
+  });
+
+  it('不同 milestone service 使用相同 sessionId 时内存与持久化互相隔离', async () => {
+    const storageA = new InMemoryStorage();
+    const storageB = new InMemoryStorage();
+    await storageA.saveMeta({ id: 'same-session', title: 'A', cwd: process.cwd(), createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z' });
+    await storageB.saveMeta({ id: 'same-session', title: 'B', cwd: process.cwd(), createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z' });
+    const serviceA = createMilestoneService(storageA);
+    const serviceB = createMilestoneService(storageB);
+
+    serviceA.update('same-session', [{ title: 'Agent A 任务', status: 'in_progress' }], { replaceAll: true });
+    serviceB.update('same-session', [{ title: 'Agent B 任务', status: 'completed' }], { replaceAll: true });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(serviceA.getSnapshot('same-session').items[0].title).toBe('Agent A 任务');
+    expect(serviceB.getSnapshot('same-session').items[0].title).toBe('Agent B 任务');
+    expect(getPersisted(await storageA.getMeta('same-session'))?.latest?.items[0].title).toBe('Agent A 任务');
+    expect(getPersisted(await storageB.getMeta('same-session'))?.latest?.items[0].title).toBe('Agent B 任务');
+  });
+
+  it('delegated task 中的 milestone 更新路由到 source Agent service/storage', async () => {
+    const sourceStorage = new InMemoryStorage();
+    const targetStorage = new InMemoryStorage();
+    await sourceStorage.saveMeta({ id: 'source-session', title: 'source', cwd: process.cwd(), createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z' });
+
+    const sourceApi: any = { storage: sourceStorage, agentName: 'master' };
+    const targetApi: any = { storage: targetStorage, agentName: 'worker' };
+    const sourceService = createMilestoneServiceForApi(sourceApi);
+    const targetService = createMilestoneServiceForApi(targetApi);
+    sourceApi.services = { get: (id: string) => id === MILESTONE_EXTENSION_SERVICE_ID ? sourceService : undefined };
+    targetApi.services = { get: (id: string) => id === MILESTONE_EXTENSION_SERVICE_ID ? targetService : undefined };
+    targetApi.backend = { getActiveSessionId: () => 'cross-agent:master:task-1' };
+    targetApi.agentNetwork = { getPeerAPI: (name: string) => name === 'master' ? sourceApi : undefined };
+    const taskBoard = new CrossAgentTaskBoard();
+    targetApi.taskBoard = taskBoard;
+    taskBoard.register({
+      taskId: 'task-1',
+      sourceAgent: 'master',
+      sourceSessionId: 'source-session',
+      targetAgent: 'worker',
+      type: 'delegate',
+      description: 'delegate milestone route test',
+    });
+    const [updateTool] = createMilestoneToolsForApi(targetApi);
+
+    await updateTool.handler({
+      replaceAll: true,
+      items: [{ title: '写回 source', status: 'completed' }],
+    }, { sessionId: 'cross-agent:master:task-1' } as any);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(sourceService.getSnapshot('source-session').items[0].title).toBe('写回 source');
+    expect(targetService.getSnapshot('source-session').items).toHaveLength(0);
+    expect(getPersisted(await sourceStorage.getMeta('source-session'))?.latest?.items[0].title).toBe('写回 source');
+    expect(await targetStorage.getMeta('source-session')).toBeNull();
+  });
+
   it('完成态 milestone 会把最新展开状态强制恢复为展开', async () => {
     const storage = new InMemoryStorage();
     const service = createMilestoneService(storage);
@@ -298,6 +382,7 @@ describe('Backend milestone persistence', () => {
     const storage = new InMemoryStorage();
     const milestoneManager = new SessionMilestoneManager();
     const backend = createBackend(storage, milestoneManager);
+    const service = createMilestoneService(storage);
 
     await storage.saveMeta({
       id: 's1',
@@ -306,7 +391,7 @@ describe('Backend milestone persistence', () => {
       createdAt: '2024-01-01T00:00:00.000Z',
       updatedAt: '2024-01-01T00:00:00.000Z',
     });
-    milestoneManager.update('s1', [
+    service.update('s1', [
       { title: '待清空 milestone', status: 'in_progress' },
     ], { replaceAll: true });
 

@@ -1508,7 +1508,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       const now = new Date().toISOString();
       const cwd = getSessionCwd();
 
-      if (isNewSession) {
+      const buildInitialMeta = (): SessionMeta => {
         const hasDocuments = userParts.some(p =>
           (isTextPart(p) && p.text?.startsWith('[Document: ')) ||
           (isInlineDataPart(p) && isDocumentMimeType(p.inlineData.mimeType))
@@ -1530,7 +1530,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         }, '').trim();
         const fallbackTitle = hasImages ? '图片消息' : (hasDocuments ? '文档消息' : '新对话');
         const title = titleText.slice(0, 100) || fallbackTitle;
-        const meta: SessionMeta = {
+        return {
           id: sessionId,
           title,
           cwd,
@@ -1538,24 +1538,24 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
           updatedAt: now,
           platforms: platformName ? [platformName] : [],
         };
-        await this.storage.saveMeta(meta);
-      } else {
-        const meta = await this.storage.getMeta(sessionId);
-        if (meta) {
-          meta.updatedAt = now;
-          if (meta.cwd !== cwd) {
-            meta.cwd = cwd;
+      };
+
+      await this.storage.updateMeta(sessionId, (current) => {
+        const meta = current ?? (isNewSession ? buildInitialMeta() : undefined);
+        if (!meta) return undefined;
+        meta.updatedAt = now;
+        if (!meta.createdAt) meta.createdAt = now;
+        if (!meta.title) meta.title = buildInitialMeta().title;
+        if (meta.cwd !== cwd) meta.cwd = cwd;
+        if (platformName) {
+          const platforms = meta.platforms ?? [];
+          if (!platforms.includes(platformName)) {
+            platforms.push(platformName);
           }
-          if (platformName) {
-            const platforms = meta.platforms ?? [];
-            if (!platforms.includes(platformName)) {
-              platforms.push(platformName);
-            }
-            meta.platforms = platforms;
-          }
-          await this.storage.saveMeta(meta);
+          meta.platforms = platforms;
         }
-      }
+        return meta;
+      });
     });
 
   }

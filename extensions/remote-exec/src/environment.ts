@@ -246,9 +246,17 @@ export class EnvironmentManager {
 
       if (options.persist !== false) {
         try {
-          const meta = await this.api.storage.getMeta?.(sid);
+          const meta = this.api.storage.updateMeta
+            ? await this.api.storage.updateMeta(sid, (current) => {
+              if (!current) return undefined;
+              (current as any).remoteExecEnvironment = target;
+              return current;
+            })
+            : await this.api.storage.getMeta?.(sid);
           if (meta) {
-            if (this.api.storage.saveMeta) {
+            if (this.api.storage.updateMeta) {
+              persisted = true;
+            } else if (this.api.storage.saveMeta) {
               (meta as any).remoteExecEnvironment = target;
               await this.api.storage.saveMeta(meta);
               persisted = true;

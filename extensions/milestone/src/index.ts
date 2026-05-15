@@ -21,9 +21,6 @@ const EXTENSION_STATE_KEY = 'milestone';
 export const MILESTONE_EXTENSION_SERVICE_ID = 'milestone:service';
 const CONSOLE_PROGRESS_SERVICE_ID = 'console:progress';
 
-const manager = new SessionMilestoneManager();
-const updateListeners = new Set<(sessionId: string, snapshot: MilestoneSnapshot) => void>();
-
 export interface MilestoneExtensionService {
   update(sessionId: string, updates: MilestoneUpdateInput[], options?: { replaceAll?: boolean }): MilestoneSnapshot;
   getSnapshot(sessionId: string): MilestoneSnapshot;
@@ -54,9 +51,11 @@ interface PersistedMilestoneState {
   ui?: MilestoneUiState;
 }
 
-function emitUpdate(sessionId: string, snapshot: MilestoneSnapshot): void {
-  for (const listener of updateListeners) listener(sessionId, snapshot);
-}
+type SessionMetaWithExtensionState = { extensionState?: Record<string, unknown> };
+type PersistedMilestoneStateUpdater = (
+  state: PersistedMilestoneState,
+  meta: SessionMetaWithExtensionState,
+) => PersistedMilestoneState | undefined | Promise<PersistedMilestoneState | undefined>;
 
 function getExtensionState(meta: { extensionState?: Record<string, unknown> } | null | undefined): PersistedMilestoneState {
   const raw = meta?.extensionState?.[EXTENSION_STATE_KEY];
@@ -139,19 +138,49 @@ function upsertArchive(state: PersistedMilestoneState, snapshot: MilestoneSnapsh
 }
 
 async function persistSnapshot(api: IrisAPI, snapshot: MilestoneSnapshot): Promise<void> {
-  const meta = await api.storage.getMeta?.(snapshot.sessionId);
-  if (!meta) return;
-  const state = getExtensionState(meta);
-  state.latest = snapshot.items.length > 0 ? snapshot : undefined;
-  const existingUi = normalizeUiState(state.ui);
-  if (isArchivable(snapshot)) {
-    upsertArchive(state, snapshot, await getHistoryLengthSafe(api, snapshot.sessionId));
-    state.ui = createUiState(true, snapshot.updatedAt);
-  } else if (snapshot.items.length > 0 && !existingUi) {
-    state.ui = createUiState(true, snapshot.updatedAt);
+  await updatePersistedMilestoneState(api, snapshot.sessionId, async (state) => {
+    state.latest = snapshot.items.length > 0 ? snapshot : undefined;
+    const existingUi = normalizeUiState(state.ui);
+    if (isArchivable(snapshot)) {
+      upsertArchive(state, snapshot, await getHistoryLengthSafe(api, snapshot.sessionId));
+      state.ui = createUiState(true, snapshot.updatedAt);
+    } else if (snapshot.items.length > 0 && !existingUi) {
+      state.ui = createUiState(true, snapshot.updatedAt);
+    }
+    return state;
+  });
+}
+
+async function updatePersistedMilestoneState(
+  api: IrisAPI,
+  sessionId: string,
+  updater: PersistedMilestoneStateUpdater,
+): Promise<PersistedMilestoneState | undefined> {
+  let updatedState: PersistedMilestoneState | undefined;
+
+  if (api.storage.updateMeta) {
+    await api.storage.updateMeta(sessionId, async (current) => {
+      if (!current) return undefined;
+      const meta = current as SessionMetaWithExtensionState;
+      const state = { ...getExtensionState(meta) };
+      const next = await updater(state, meta);
+      if (!next) return undefined;
+      updatedState = next;
+      setExtensionState(meta, next);
+      return current;
+    });
+    return updatedState;
   }
-  setExtensionState(meta, state);
-  await api.storage.saveMeta?.(meta);
+
+  const meta = await api.storage.getMeta?.(sessionId) as SessionMetaWithExtensionState | null | undefined;
+  if (!meta) return undefined;
+  const state = { ...getExtensionState(meta) };
+  const next = await updater(state, meta);
+  if (!next) return undefined;
+  updatedState = next;
+  setExtensionState(meta, next);
+  await api.storage.saveMeta?.(meta as any);
+  return updatedState;
 }
 
 const MILESTONE_TOOL_SYNC_IGNORED = new Set([
@@ -192,7 +221,18 @@ function getMilestones(api: IrisAPI): MilestoneExtensionService {
   return service;
 }
 
+function tryGetMilestones(api: IrisAPI | undefined): MilestoneExtensionService | undefined {
+  if (!api?.services?.get) return undefined;
+  return api.services.get<MilestoneExtensionService>(MILESTONE_EXTENSION_SERVICE_ID);
+}
+
 export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionService {
+  const manager = new SessionMilestoneManager();
+  const updateListeners = new Set<(sessionId: string, snapshot: MilestoneSnapshot) => void>();
+  const emitUpdate = (sessionId: string, snapshot: MilestoneSnapshot): void => {
+    for (const listener of updateListeners) listener(sessionId, snapshot);
+  };
+
   const service: MilestoneExtensionService = {
     update(sessionId, updates, options) {
       const snapshot = manager.update(sessionId, updates as any, options);
@@ -237,12 +277,15 @@ export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionSe
       const archives = normalizeArchives(state.archives, sessionId);
       const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
       if (isArchivable(latest) && !archives.some(entry => entry.snapshot.updatedAt === latest!.updatedAt)) {
-        upsertArchive(state, latest!, await getHistoryLengthSafe(api, sessionId));
-        if (meta) {
-          setExtensionState(meta, state);
-          await api.storage.saveMeta?.(meta);
-        }
-        return normalizeArchives(state.archives, sessionId);
+        const updated = await updatePersistedMilestoneState(api, sessionId, async (currentState) => {
+          const currentArchives = normalizeArchives(currentState.archives, sessionId);
+          const currentLatest = normalizeMilestoneSnapshot(currentState.latest, sessionId);
+          if (isArchivable(currentLatest) && !currentArchives.some(entry => entry.snapshot.updatedAt === currentLatest!.updatedAt)) {
+            upsertArchive(currentState, currentLatest!, await getHistoryLengthSafe(api, sessionId));
+          }
+          return currentState;
+        });
+        return normalizeArchives(updated?.archives, sessionId);
       }
       return archives;
     },
@@ -251,12 +294,10 @@ export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionSe
       return normalizeUiState(getExtensionState(meta).ui);
     },
     async setUiState(sessionId, uiState) {
-      const meta = await api.storage.getMeta?.(sessionId);
-      if (!meta) return;
-      const state = getExtensionState(meta);
-      state.ui = createUiState(uiState.expanded, uiState.snapshotUpdatedAt);
-      setExtensionState(meta, state);
-      await api.storage.saveMeta?.(meta);
+      await updatePersistedMilestoneState(api, sessionId, (state) => {
+        state.ui = createUiState(uiState.expanded, uiState.snapshotUpdatedAt);
+        return state;
+      });
     },
     onDidUpdate(listener) {
       updateListeners.add(listener);
@@ -305,18 +346,37 @@ function parseCrossAgentTaskId(sessionId: string): string | undefined {
   return parts.slice(2).join(':') || undefined;
 }
 
-function resolveExecutionSessionId(api: IrisAPI, context?: ToolExecutionContext): string {
-  const rawSessionId = getSessionId(api, context);
+interface ResolvedMilestoneTarget {
+  api: IrisAPI;
+  sessionId: string;
+  service: MilestoneExtensionService;
+}
+
+function resolveMilestoneTarget(api: IrisAPI, rawSessionId: string): ResolvedMilestoneTarget {
   const crossAgentTaskId = parseCrossAgentTaskId(rawSessionId);
+  let targetApi = api;
+  let sessionId = rawSessionId;
 
   if (crossAgentTaskId && api.taskBoard?.get) {
     const task = api.taskBoard.get(crossAgentTaskId);
     if (task?.type === 'delegate') {
-      return task.sourceSessionId;
+      sessionId = task.sourceSessionId;
+      if (task.sourceAgent && task.sourceAgent !== api.agentName) {
+        const peerApi = api.agentNetwork?.getPeerAPI?.(task.sourceAgent) as IrisAPI | undefined;
+        if (tryGetMilestones(peerApi)) {
+          targetApi = peerApi!;
+        } else {
+          logger.warn(`无法将 delegate milestone 路由到 source Agent "${task.sourceAgent}"，回退到当前 Agent`);
+        }
+      }
     }
   }
 
-  return rawSessionId;
+  return { api: targetApi, sessionId, service: getMilestones(targetApi) };
+}
+
+function resolveMilestoneTargetFromContext(api: IrisAPI, context?: ToolExecutionContext): ResolvedMilestoneTarget {
+  return resolveMilestoneTarget(api, getSessionId(api, context));
 }
 
 function formatSummary(snapshot: MilestoneSnapshot): string {
@@ -454,8 +514,7 @@ function createUpdateMilestonesTool(api: IrisAPI): ToolDefinition {
       },
     },
     handler: async (args, context) => {
-      const service = getMilestones(api);
-      const sessionId = resolveExecutionSessionId(api, context);
+      const { service, sessionId } = resolveMilestoneTargetFromContext(api, context);
       const items = normalizeToolItems(args.items);
       const snapshot = service.update(sessionId, items, { replaceAll: args.replaceAll === true });
       const toolSnapshot = stripMetadataForToolResult(snapshot);
@@ -474,8 +533,7 @@ function createListMilestonesTool(api: IrisAPI): ToolDefinition {
       parameters: { type: 'object', properties: {} },
     },
     handler: async (_args, context) => {
-      const service = getMilestones(api);
-      const sessionId = resolveExecutionSessionId(api, context);
+      const { service, sessionId } = resolveMilestoneTargetFromContext(api, context);
       const snapshot = service.getSnapshot(sessionId);
       const toolSnapshot = stripMetadataForToolResult(snapshot);
       return { ok: true, summary: formatSummary(toolSnapshot), snapshot: toolSnapshot };
@@ -494,10 +552,11 @@ function wrapExitPlanMode(api: IrisAPI, ctx: PluginContext): void {
       const approvedPlan = typeof record?.approvedPlan === 'string' ? record.approvedPlan : undefined;
       const planFilePath = typeof record?.planFilePath === 'string' ? record.planFilePath : undefined;
       if (record?.approved === true && approvedPlan) {
-        const sessionId = context?.sessionId ?? api.backend.getActiveSessionId?.();
-        if (sessionId) {
+        const rawSessionId = context?.sessionId ?? api.backend.getActiveSessionId?.();
+        if (rawSessionId) {
           const items = buildMilestonesFromApprovedPlan(approvedPlan, { planFilePath });
-          getMilestones(api).update(sessionId, items, { replaceAll: true });
+          const { service, sessionId } = resolveMilestoneTarget(api, rawSessionId);
+          service.update(sessionId, items, { replaceAll: true });
         }
       }
     } catch (err) {
@@ -509,15 +568,6 @@ function wrapExitPlanMode(api: IrisAPI, ctx: PluginContext): void {
   ctx.trackDisposable({ dispose: () => { if (exitPlanTool.handler === wrapped) exitPlanTool.handler = original; } });
 }
 
-function resolveExecutionSessionIdForTool(api: IrisAPI, rawSessionId: string): string {
-  const crossAgentTaskId = parseCrossAgentTaskId(rawSessionId);
-  if (crossAgentTaskId && api.taskBoard?.get) {
-    const task = api.taskBoard.get(crossAgentTaskId);
-    if (task?.type === 'delegate') return task.sourceSessionId;
-  }
-  return rawSessionId;
-}
-
 function observeToolFailures(api: IrisAPI, ctx: PluginContext): void {
   const listener = (_sessionId: string, handle: ToolExecutionHandleLike) => {
     const initial = handle.getSnapshot();
@@ -527,9 +577,8 @@ function observeToolFailures(api: IrisAPI, ctx: PluginContext): void {
     const done = (_result?: unknown, error?: string) => {
       const snapshot = handle.getSnapshot();
       if (snapshot.status !== 'error') return;
-      const service = getMilestones(api);
+      const { service, sessionId } = resolveMilestoneTarget(api, snapshot.sessionId ?? _sessionId);
       if (!service?.noteActiveToolFailure) return;
-      const sessionId = resolveExecutionSessionIdForTool(api, snapshot.sessionId ?? _sessionId);
       service.noteActiveToolFailure(sessionId, {
         toolId: snapshot.id,
         toolName: snapshot.toolName,

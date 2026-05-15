@@ -31,7 +31,14 @@ export interface SessionMeta {
   extensionState?: Record<string, unknown>;
 }
 
+export type SessionMetaUpdater = (
+  current: SessionMeta | null,
+) => SessionMeta | null | undefined | Promise<SessionMeta | null | undefined>;
+
 export abstract class StorageProvider {
+  /** per-session meta 写锁，保护 read-modify-write 型元数据更新。 */
+  private metaUpdateLocks = new Map<string, Promise<void>>();
+
   /** 获取指定会话的全部历史消息 */
   abstract getHistory(sessionId: string): Promise<Content[]>;
 
@@ -55,6 +62,50 @@ export abstract class StorageProvider {
 
   /** 保存会话元数据 */
   abstract saveMeta(meta: SessionMeta): Promise<void>;
+
+  /**
+   * 原子更新会话元数据。
+   *
+   * 所有需要 read-modify-write 的调用方应优先使用此方法，避免多个扩展
+   * 分别 getMeta() 后 saveMeta() 导致 extensionState / updatedAt 等字段互相覆盖。
+   *
+   * updater 返回：
+   * - SessionMeta：写回该 meta；
+   * - undefined/null：不写回，返回当前 meta。
+   */
+  async updateMeta(sessionId: string, updater: SessionMetaUpdater): Promise<SessionMeta | null> {
+    let result: SessionMeta | null = null;
+    await this.withMetaUpdateLock(sessionId, async () => {
+      const existing = await this.getMeta(sessionId);
+      const next = await updater(existing ? this.cloneMeta(existing) : null);
+      if (next) {
+        await this.saveMeta(next);
+        result = this.cloneMeta(next);
+      } else {
+        result = existing ? this.cloneMeta(existing) : null;
+      }
+    });
+    return result;
+  }
+
+  /** 供存储实现将 clearHistory 等元数据删除操作纳入同一把 meta 锁。 */
+  protected async withMetaUpdateLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.metaUpdateLocks.get(sessionId) ?? Promise.resolve();
+    let result!: T;
+    const current = previous.catch(() => undefined).then(async () => {
+      result = await fn();
+    });
+    const settled = current.then(() => undefined, () => undefined);
+    this.metaUpdateLocks.set(sessionId, settled);
+    try {
+      await current;
+      return result;
+    } finally {
+      if (this.metaUpdateLocks.get(sessionId) === settled) {
+        this.metaUpdateLocks.delete(sessionId);
+      }
+    }
+  }
 
   /** 获取所有会话的元数据列表，按更新时间降序 */
   abstract listSessionMetas(): Promise<SessionMeta[]>;
@@ -97,5 +148,9 @@ export abstract class StorageProvider {
       }
     }
     return normalized;
+  }
+
+  protected cloneMeta(meta: SessionMeta): SessionMeta {
+    return JSON.parse(JSON.stringify(meta)) as SessionMeta;
   }
 }

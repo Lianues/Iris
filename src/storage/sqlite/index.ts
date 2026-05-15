@@ -104,8 +104,10 @@ export class SqliteStorage extends StorageProvider {
   }
 
   async clearHistory(sessionId: string): Promise<void> {
-    this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
-    this.db.prepare('DELETE FROM session_meta WHERE session_id = ?').run(sessionId);
+    await this.withMetaUpdateLock(sessionId, async () => {
+      this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
+      this.db.prepare('DELETE FROM session_meta WHERE session_id = ?').run(sessionId);
+    });
   }
 
   async listSessions(): Promise<string[]> {
