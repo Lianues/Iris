@@ -28,23 +28,6 @@ import { loadGlobalConfig, loadAgentConfig } from '../config';
 import type { GlobalConfigResult } from '../config';
 import type { AgentDefinition } from '../agents';
 import { hostEvents } from './host-events';
-import type { MCPConfig } from '../config/types';
-
-export function mcpConfigEqual(a?: MCPConfig, b?: MCPConfig): boolean {
-  return stableStringify(a ?? null) === stableStringify(b ?? null);
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => a.localeCompare(b));
-    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
 
 export class IrisHost {
   /** 所有活跃的 Core 实例 */

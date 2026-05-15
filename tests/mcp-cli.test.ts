@@ -70,6 +70,41 @@ describe('iris mcp CLI', () => {
     });
   });
 
+  it('does not warn when a stdio executable path ends with /mcp', async () => {
+    const dataDir = createTempDataDir();
+    const warnings: string[] = [];
+
+    const result = await runMcpCli([
+      'add',
+      'local-mcp',
+      '/usr/local/bin/mcp',
+    ], { dataDir, stderr: (message) => warnings.push(message) });
+
+    expect(result.ok).toBe(true);
+    expect(warnings).toEqual([]);
+    const config = readYaml(path.join(dataDir, 'configs', 'mcp.yaml'));
+    expect(config.servers['local-mcp']).toMatchObject({
+      transport: 'stdio',
+      command: '/usr/local/bin/mcp',
+      enabled: true,
+    });
+  });
+
+  it('rejects local paths for explicit HTTP transport even if they end with /mcp', async () => {
+    const dataDir = createTempDataDir();
+
+    const result = await runMcpCli([
+      'add',
+      '--transport', 'http',
+      'local-mcp',
+      '/usr/local/bin/mcp',
+    ], { dataDir });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('需要 http(s) URL');
+    expect(fs.existsSync(path.join(dataDir, 'configs', 'mcp.yaml'))).toBe(false);
+  });
+
   it('removes and toggles MCP servers', async () => {
     const dataDir = createTempDataDir();
     await runMcpCli(['add', '--transport', 'http', 'exa', 'https://mcp.exa.ai/mcp'], { dataDir });

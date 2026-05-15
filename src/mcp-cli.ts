@@ -147,7 +147,8 @@ function runAdd(args: string[], runOptions: McpCliRunOptions): McpCliResult {
   const timeout = addOptions.timeout ?? 30000;
   validateTimeout(timeout, name);
 
-  const looksLikeUrl = isUrlLike(commandOrUrl);
+  const hasHttpUrl = isHttpUrl(commandOrUrl);
+  const looksLikeUrl = hasHttpUrl || isUrlLike(commandOrUrl);
   if (transport === 'stdio' && !addOptions.transportExplicit && looksLikeUrl) {
     runOptions.stderr?.(
       `Warning: "${commandOrUrl}" 看起来像 URL，但未指定 --transport，将按 stdio 命令保存。` +
@@ -167,7 +168,7 @@ function runAdd(args: string[], runOptions: McpCliRunOptions): McpCliResult {
       enabled: true,
     };
   } else {
-    if (!looksLikeUrl) {
+    if (!hasHttpUrl) {
       throw new Error(`MCP 服务器 "${name}" 使用 ${transport} 传输时需要 http(s) URL。`);
     }
     entry = {
@@ -465,8 +466,46 @@ function validateTimeout(timeout: number, name: string): void {
   }
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function isUrlLike(value: string): boolean {
-  return /^https?:\/\//i.test(value) || value.endsWith('/mcp') || value.endsWith('/sse');
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (isLocalPathLike(trimmed)) return false;
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(trimmed)) return false;
+
+  try {
+    const url = new URL(`http://${trimmed}`);
+    const pathname = url.pathname.replace(/\/+$/, '').toLowerCase();
+    if (!pathname.endsWith('/mcp') && !pathname.endsWith('/sse')) return false;
+    return isLikelyNetworkHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isLocalPathLike(value: string): boolean {
+  return value.startsWith('/')
+    || value.startsWith('\\')
+    || value.startsWith('./')
+    || value.startsWith('../')
+    || value.startsWith('~/')
+    || /^[A-Za-z]:[\\/]/.test(value);
+}
+
+function isLikelyNetworkHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === 'localhost'
+    || normalized.includes('.')
+    || normalized.includes(':')
+    || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized);
 }
 
 function getRuntimeDataDir(options: McpCliRunOptions): string {
