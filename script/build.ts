@@ -351,6 +351,93 @@ async function buildEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[
   }
 }
 
+interface DistributionPruneStats {
+  files: number
+  dirs: number
+  bytes: number
+}
+
+const distributionPruneDirNames = new Set([
+  "test",
+  "tests",
+  "__tests__",
+  "coverage",
+  "doc",
+  "docs",
+  "example",
+  "examples",
+])
+
+const distributionPruneLockfiles = new Set([
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "bun.lock",
+  "bun.lockb",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+])
+
+function isWithinDirectory(candidatePath: string, parentDir: string): boolean {
+  const relative = path.relative(parentDir, candidatePath)
+  return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+}
+
+function getDirectorySize(dir: string): number {
+  let total = 0
+  if (!fs.existsSync(dir)) return total
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      total += getDirectorySize(fullPath)
+    } else if (entry.isFile()) {
+      total += fs.statSync(fullPath).size
+    }
+  }
+  return total
+}
+
+function pruneDistributionArtifacts(targetDir: string): DistributionPruneStats {
+  const stats: DistributionPruneStats = { files: 0, dirs: 0, bytes: 0 }
+  const nodeModulesDir = path.join(targetDir, "node_modules")
+
+  function removeFile(filePath: string): void {
+    stats.bytes += fs.statSync(filePath).size
+    fs.rmSync(filePath, { force: true })
+    stats.files++
+  }
+
+  function removeDirectory(dirPath: string): void {
+    stats.bytes += getDirectorySize(dirPath)
+    fs.rmSync(dirPath, { recursive: true, force: true })
+    stats.dirs++
+  }
+
+  function visit(dir: string): void {
+    if (!fs.existsSync(dir)) return
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name)
+      const inNodeModules = fs.existsSync(nodeModulesDir) && isWithinDirectory(fullPath, nodeModulesDir)
+
+      if (entry.isDirectory()) {
+        if (inNodeModules && distributionPruneDirNames.has(entry.name)) {
+          removeDirectory(fullPath)
+          continue
+        }
+        visit(fullPath)
+      } else if (entry.isFile()) {
+        const isSourceMap = entry.name.endsWith(".map")
+        const isDeclarationFile = entry.name.endsWith(".d.ts")
+        if (distributionPruneLockfiles.has(entry.name) || (inNodeModules && (isSourceMap || isDeclarationFile))) {
+          removeFile(fullPath)
+        }
+      }
+    }
+  }
+
+  visit(targetDir)
+  return stats
+}
+
 function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targetRootDir: string): void {
   if (extensions.length === 0) return
   fs.mkdirSync(targetRootDir, { recursive: true })
@@ -371,9 +458,12 @@ function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targ
       recursive: true,
       dereference: true,
       filter: (src) => {
-        const name = path.basename(src)
-        if (name === "src" || name === "web-ui") return false
-        if (name === "node_modules" && !hasExternals) return false
+        const relativePath = path.relative(extension.sourceDir, src).replace(/\\/g, "/")
+        const isTopLevelSrc = relativePath === "src" || relativePath.startsWith("src/")
+        const isTopLevelWebUi = relativePath === "web-ui" || relativePath.startsWith("web-ui/")
+        const isTopLevelNodeModules = relativePath === "node_modules" || relativePath.startsWith("node_modules/")
+        if (isTopLevelSrc || isTopLevelWebUi) return false
+        if (isTopLevelNodeModules && !hasExternals) return false
         return true
       },
     })
@@ -424,6 +514,12 @@ function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targ
           if (stderr) console.warn(`  ⚠ prune warning for ${extension.name}: ${stderr}`)
         }
       }
+    }
+    const pruneStats = pruneDistributionArtifacts(targetDir)
+    if (pruneStats.files > 0 || pruneStats.dirs > 0) {
+      console.log(
+        `  ✓ distribution artifacts pruned: ${pruneStats.files} files, ${pruneStats.dirs} dirs, ${Math.round(pruneStats.bytes / 1024 / 1024 * 100) / 100} MB`,
+      )
     }
     console.log(`  ✓ extension copied: extensions/${extension.name}`)
   }

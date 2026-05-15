@@ -135,6 +135,11 @@ jobs:
         if: matrix.cross != true
         run: bun run script/build.ts --single
 
+      - name: Validate package artifacts
+        run: |
+          npx tsx script/validate-native-assets.ts dist/bin/iris-${{ matrix.platform }}-${{ matrix.arch }}
+          npx tsx script/check-package-size.ts --fail-mb 125 dist/bin/iris-${{ matrix.platform }}-${{ matrix.arch }}
+
       - name: Archive (Linux/macOS)
         if: matrix.platform != 'windows'
         run: |
