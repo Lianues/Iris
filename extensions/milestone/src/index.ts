@@ -229,13 +229,65 @@ function tryGetMilestones(api: IrisAPI | undefined): MilestoneExtensionService |
 export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionService {
   const manager = new SessionMilestoneManager();
   const updateListeners = new Set<(sessionId: string, snapshot: MilestoneSnapshot) => void>();
+  const pendingArchiveReanchors = new Map<string, Set<number>>();
+
+  const queueArchiveReanchor = (snapshot: MilestoneSnapshot): void => {
+    if (!isArchivable(snapshot)) return;
+    const updatedAt = typeof snapshot.updatedAt === 'number' && Number.isFinite(snapshot.updatedAt)
+      ? snapshot.updatedAt
+      : 0;
+    if (updatedAt <= 0) return;
+    const existing = pendingArchiveReanchors.get(snapshot.sessionId);
+    if (existing) {
+      existing.add(updatedAt);
+      return;
+    }
+    pendingArchiveReanchors.set(snapshot.sessionId, new Set([updatedAt]));
+  };
+
+  const flushPendingArchiveReanchors = async (sessionId: string): Promise<void> => {
+    const pending = pendingArchiveReanchors.get(sessionId);
+    if (!pending || pending.size === 0) return;
+    // update_milestones 可能在 tool round 中途就把 completed snapshot 写进 meta，
+    // 此时 afterHistoryIndex 往往只锚到 functionCall / functionResponse 附近。
+    // 等整轮 turn 完成后再用最终 history.length 回填，才能稳定落到 assistant 结尾之后。
+    pendingArchiveReanchors.delete(sessionId);
+    const anchorIndex = await getHistoryLengthSafe(api, sessionId);
+    await updatePersistedMilestoneState(api, sessionId, async (state) => {
+      const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
+      let changed = false;
+      for (const updatedAt of pending) {
+        const archive = normalizeArchives(state.archives, sessionId).find(entry => entry.snapshot.updatedAt === updatedAt);
+        if (archive) {
+          const before = normalizeArchives(state.archives, sessionId).find(entry => entry.snapshot.updatedAt === updatedAt)?.afterHistoryIndex ?? 0;
+          upsertArchive(state, archive.snapshot, anchorIndex);
+          const after = normalizeArchives(state.archives, sessionId).find(entry => entry.snapshot.updatedAt === updatedAt)?.afterHistoryIndex ?? 0;
+          if (after > before) changed = true;
+          continue;
+        }
+        if (isArchivable(latest) && latest.updatedAt === updatedAt) {
+          upsertArchive(state, latest, anchorIndex);
+          changed = true;
+        }
+      }
+      return changed ? state : undefined;
+    });
+  };
+
   const emitUpdate = (sessionId: string, snapshot: MilestoneSnapshot): void => {
     for (const listener of updateListeners) listener(sessionId, snapshot);
   };
 
+  if (api.backend?.on) {
+    api.backend.on('done', (sessionId: string) => {
+      void flushPendingArchiveReanchors(sessionId).catch((err) => logger.warn('刷新 milestone 历史锚点失败:', err));
+    });
+  }
+
   const service: MilestoneExtensionService = {
     update(sessionId, updates, options) {
       const snapshot = manager.update(sessionId, updates as any, options);
+      queueArchiveReanchor(snapshot);
       void persistSnapshot(api, snapshot).catch((err) => logger.warn('保存进度状态失败:', err));
       emitUpdate(snapshot.sessionId, snapshot);
       return snapshot;
@@ -245,6 +297,7 @@ export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionSe
     },
     clear(sessionId) {
       const snapshot = manager.clear(sessionId);
+      pendingArchiveReanchors.delete(sessionId);
       void persistSnapshot(api, snapshot).catch((err) => logger.warn('清理进度状态失败:', err));
       emitUpdate(snapshot.sessionId, snapshot);
       return snapshot;
@@ -252,6 +305,7 @@ export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionSe
     noteActiveToolFailure(sessionId, input) {
       const snapshot = manager.noteActiveToolFailure(sessionId, input);
       if (snapshot) {
+        queueArchiveReanchor(snapshot);
         void persistSnapshot(api, snapshot).catch((err) => logger.warn('保存工具错误进度状态失败:', err));
         emitUpdate(snapshot.sessionId, snapshot);
       }

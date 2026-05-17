@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { Backend } from '../src/core/backend/backend.js';
 import { SessionMilestoneManager } from '../extensions/milestone/src/session.js';
 import { StorageProvider, type SessionMeta } from '../src/storage/base.js';
@@ -230,6 +231,42 @@ describe('Backend milestone persistence', () => {
     expect(getPersisted(meta)?.archives?.[0].afterHistoryIndex).toBe(1);
     expect(getPersisted(meta)?.ui?.expanded).toBe(true);
     expect(getPersisted(meta)?.ui?.snapshotUpdatedAt).toBe(snapshot.updatedAt);
+  });
+
+  it('完成态 milestone 会在 turn 结束后把归档位置重锚定到整轮末尾', async () => {
+    const storage = new InMemoryStorage();
+    const backend = new EventEmitter() as any;
+    const service = createMilestoneServiceForApi({ storage, backend } as any);
+
+    await storage.saveMeta({
+      id: 's1',
+      title: '归档重锚测试',
+      cwd: process.cwd(),
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    });
+
+    await storage.addMessage('s1', { role: 'user', parts: [{ text: '开始' }] });
+    await storage.addMessage('s1', { role: 'model', parts: [{ functionCall: { name: 'update_milestones', args: {}, callId: 'call-1' } }] as any });
+
+    const snapshot = service.update('s1', [
+      { title: '完成一组任务', status: 'completed' },
+    ], { replaceAll: true });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(getPersisted(await storage.getMeta('s1'))?.archives?.[0].afterHistoryIndex).toBe(2);
+
+    await storage.addMessage('s1', { role: 'user', parts: [{ functionResponse: { name: 'update_milestones', callId: 'call-1', response: { result: { ok: true } } } }] as any });
+    await storage.addMessage('s1', { role: 'model', parts: [{ text: '已完成' }] });
+
+    backend.emit('done', 's1', 12, 'turn-1');
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const meta = await storage.getMeta('s1');
+    expect(getPersisted(meta)?.latest?.updatedAt).toBe(snapshot.updatedAt);
+    expect(getPersisted(meta)?.archives).toHaveLength(1);
+    expect(getPersisted(meta)?.archives?.[0].snapshot.updatedAt).toBe(snapshot.updatedAt);
+    expect(getPersisted(meta)?.archives?.[0].afterHistoryIndex).toBe(4);
   });
 
   it('可在 session meta 中保存并读取最新 milestone 展开状态', async () => {
