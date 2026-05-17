@@ -1,15 +1,12 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { checkAutoEditPathSafety, evaluateAutoEditApproval } from '../src/auto-edit/index.js';
-import { Backend } from '../src/core/backend/backend.js';
-import { PromptAssembler } from '../src/prompt/assembler.js';
-import { StorageProvider, type SessionMeta } from '../src/storage/base.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { ToolStateManager } from '../src/tools/state.js';
 import { executeSingleTool } from '../src/tools/scheduler.js';
-import type { Content, FunctionCallPart, LLMRequest } from '../src/types/index.js';
+import type { FunctionCallPart } from '../src/types/index.js';
 import type { ToolsConfig } from '../src/config/types.js';
 
 function makeTempDir(): string {
@@ -18,59 +15,6 @@ function makeTempDir(): string {
 
 function fc(name: string, args: Record<string, unknown> = {}, callId?: string): FunctionCallPart {
   return { functionCall: { name, args, callId: callId ?? `call_${name}_${Date.now()}` } };
-}
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-class InMemoryStorage extends StorageProvider {
-  private histories = new Map<string, Content[]>();
-  private metas = new Map<string, SessionMeta>();
-
-  async getHistory(sessionId: string): Promise<Content[]> {
-    return clone(this.histories.get(sessionId) ?? []);
-  }
-
-  async addMessage(sessionId: string, content: Content): Promise<void> {
-    const history = this.histories.get(sessionId) ?? [];
-    history.push(clone(content));
-    this.histories.set(sessionId, history);
-  }
-
-  async clearHistory(sessionId: string): Promise<void> {
-    this.histories.delete(sessionId);
-    this.metas.delete(sessionId);
-  }
-
-  async updateLastMessage(sessionId: string, updater: (content: Content) => Content): Promise<void> {
-    const history = this.histories.get(sessionId) ?? [];
-    if (history.length === 0) return;
-    history[history.length - 1] = clone(updater(clone(history[history.length - 1])));
-    this.histories.set(sessionId, history);
-  }
-
-  async truncateHistory(sessionId: string, keepCount: number): Promise<void> {
-    const history = this.histories.get(sessionId) ?? [];
-    this.histories.set(sessionId, history.slice(0, keepCount));
-  }
-
-  async listSessions(): Promise<string[]> {
-    return [...this.histories.keys()];
-  }
-
-  async getMeta(sessionId: string): Promise<SessionMeta | null> {
-    const meta = this.metas.get(sessionId);
-    return meta ? clone(meta) : null;
-  }
-
-  async saveMeta(meta: SessionMeta): Promise<void> {
-    this.metas.set(meta.id, clone(meta));
-  }
-
-  async listSessionMetas(): Promise<SessionMeta[]> {
-    return [...this.metas.values()].map(meta => clone(meta));
-  }
 }
 
 describe('auto edit safety', () => {
@@ -193,52 +137,5 @@ describe('auto edit scheduler integration', () => {
     expect(stateResult.__ui.diffPreview.items[0].diff).toContain('+hello');
     expect(Object.keys(stateResult)).not.toContain('__ui');
     expect(Object.keys(stateResult)).not.toContain('__response');
-  });
-
-  it('Auto Edit 运行时提示作为 system part 发送，不追加到 user 内容尾部', async () => {
-    const requests: LLMRequest[] = [];
-    const router = {
-      chat: vi.fn(async (request: LLMRequest) => {
-        requests.push(request);
-        return {
-          content: {
-            role: 'model' as const,
-            parts: [{ text: 'ok' }],
-            createdAt: Date.now(),
-          },
-          usageMetadata: { totalTokenCount: 12 },
-        };
-      }),
-      getCurrentModelName: vi.fn(() => 'mock-model'),
-      getModelInfo: vi.fn(() => ({})),
-      getCurrentConfig: vi.fn(() => ({})),
-    } as any;
-
-    const prompt = new PromptAssembler();
-    prompt.setSystemPrompt('stable system prompt');
-    const backend = new Backend(
-      router,
-      new InMemoryStorage(),
-      new ToolRegistry(),
-      new ToolStateManager(),
-      prompt,
-      { stream: false, maxToolRounds: 5, toolsConfig: { permissions: {} } },
-    );
-    backend.on('error', () => {});
-    backend.enableAutoEdit('s-cache');
-
-    await backend.chat('s-cache', '请改一个文件');
-
-    const request = requests[0];
-    const systemText = request.systemInstruction?.parts.map((part: any) => part.text ?? '').join('\n') ?? '';
-    const contextText = request.contents
-      .flatMap(content => content.parts)
-      .map((part: any) => part.text ?? '')
-      .join('\n');
-
-    expect(systemText).toContain('stable system prompt');
-    expect(systemText).toContain('<system-reminder>');
-    expect(systemText).toContain('Auto Edit 已启用');
-    expect(contextText).not.toContain('Auto Edit 已启用');
   });
 });

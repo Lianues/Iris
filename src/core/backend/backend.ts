@@ -60,8 +60,8 @@ import { prepareHistoryForLLM, preparePartsForLLM } from './history';
 import { callLLMStream } from './stream';
 import { UndoRedoManager } from './undo-redo';
 import { buildPluginHookConfig } from './plugins';
-import { AutoEditManager, buildAutoEditInstructions } from '../../auto-edit';
 import type { AutoEditSessionState } from '../../auto-edit';
+import { AutoEditManager } from '../../auto-edit';
 
 import { sessionContext, getSessionCwd, setSessionCwd, getRememberedCwd, getActiveSessionId, clearSessionCwd } from './session-context';
 import type { SessionExecutionContext } from './session-context';
@@ -252,10 +252,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         this.metaUpdateLocks.delete(sessionId);
       }
     }
-  }
-
-  private buildSystemReminderPart(text: string): Part {
-    return { text: `<system-reminder>\n${text}\n</system-reminder>` };
   }
 
 
@@ -1300,8 +1296,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const { sessionId, turnId, history, signal } = options;
     const startTime = Date.now();
 
-    // 1. 构建 per-request 额外上下文。
-    // 模式提示和运行时提醒（Auto Edit 等）统一作为 system part 发送。
+    // 1. 构建 per-request 额外上下文（例如 mode system prompt）。
     const extraParts: Part[] = [];
     const mode = this.resolveMode();
     if (mode?.systemPrompt) {
@@ -1309,9 +1304,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     }
     const planModeActive = this.isPlanModeActive?.(sessionId) === true;
     const autoEditActive = this.autoEdit.isActive(sessionId);
-    if (autoEditActive) {
-      extraParts.push(this.buildSystemReminderPart(buildAutoEditInstructions(planModeActive)));
-    }
     const runtimeApprovalContext = {
       sessionId,
       cwd: getSessionCwd(),
