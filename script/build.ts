@@ -438,7 +438,46 @@ function pruneDistributionArtifacts(targetDir: string): DistributionPruneStats {
   return stats
 }
 
-function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targetRootDir: string): void {
+function removeInstallLockfiles(targetDir: string): void {
+  for (const fileName of distributionPruneLockfiles) {
+    const fullPath = path.join(targetDir, fileName)
+    if (fs.existsSync(fullPath)) {
+      fs.rmSync(fullPath, { force: true })
+    }
+  }
+}
+
+function hasInstallableRuntimeDependencies(targetDir: string): boolean {
+  const packageJsonPath = path.join(targetDir, "package.json")
+  if (!fs.existsSync(packageJsonPath)) return false
+  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
+    dependencies?: Record<string, string>
+    optionalDependencies?: Record<string, string>
+  }
+  return [pkg.dependencies, pkg.optionalDependencies].some((deps) => !!deps && Object.keys(deps).length > 0)
+}
+
+function installExternalDependenciesForTarget(targetDir: string, target: Target, extension: EmbeddedExtensionBuildTarget): void {
+  if (!hasInstallableRuntimeDependencies(targetDir)) return
+
+  removeInstallLockfiles(targetDir)
+  fs.rmSync(path.join(targetDir, "node_modules"), { recursive: true, force: true })
+
+  console.log(`  ⚙ installing external deps for ${extension.name} (${target.os}-${target.arch})`)
+  const installResult = Bun.spawnSync(
+    ["npm", "install", "--omit=dev", "--no-audit", "--no-fund", "--package-lock=false", `--os=${target.os}`, `--cpu=${target.arch}`],
+    {
+      cwd: targetDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  )
+  if (installResult.exitCode !== 0) {
+    const stderr = new TextDecoder().decode(installResult.stderr).trim()
+    throw new Error(`安装 ${extension.name} 的目标平台依赖失败 (${target.os}-${target.arch})${stderr ? `: ${stderr}` : ''}`)
+  }
+}
+
+function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targetRootDir: string, target: Target): void {
   if (extensions.length === 0) return
   fs.mkdirSync(targetRootDir, { recursive: true })
 
@@ -453,7 +492,6 @@ function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targ
   for (const extension of extensions) {
     const targetDir = path.join(targetRootDir, extension.name)
     fs.rmSync(targetDir, { recursive: true, force: true })
-    const hasExternals = extension.external.length > 0
     fs.cpSync(extension.sourceDir, targetDir, {
       recursive: true,
       dereference: true,
@@ -462,17 +500,17 @@ function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targ
         const isTopLevelSrc = relativePath === "src" || relativePath.startsWith("src/")
         const isTopLevelWebUi = relativePath === "web-ui" || relativePath.startsWith("web-ui/")
         const isTopLevelNodeModules = relativePath === "node_modules" || relativePath.startsWith("node_modules/")
+        // 不直接复制源码目录里的 node_modules：
+        // - 同平台跨架构构建（如 macOS arm64 -> darwin-x64）会把宿主机原生包错误带入目标产物
+        // - 目标产物的 external 依赖改为按 target.os/target.arch 重新安装，确保拿到正确的 optional native packages
         if (isTopLevelSrc || isTopLevelWebUi) return false
-        if (isTopLevelNodeModules && !hasExternals) return false
+        if (isTopLevelNodeModules) return false
         return true
       },
     })
-    // 修剪目标目录中的 devDependencies，而不是源码目录。
-    // 扩展的 dist/index.mjs 已由 Bun 打包完成，非 external 的依赖全部内联；
-    // node_modules 只需保留 external 包及其传递依赖。
-    // npm prune --omit=dev 可清除 TypeScript、@types 等数百 MB 的开发依赖，
-    // 避免打爆 npm 包体积限制（128 MB）。
-    const targetNodeModules = path.join(targetDir, "node_modules")
+    // 目标目录中的依赖声明需要按 external 裁剪；随后针对目标平台/架构重新安装。
+    // 这样可避免 cross-compile 时把宿主机架构（例如 darwin-arm64）的原生 optional package
+    // 直接拷进另一个目标（例如 darwin-x64）。
     const targetPkgPath = path.join(targetDir, "package.json")
     if (fs.existsSync(targetPkgPath)) {
       // 修复目标目录中 package.json 的依赖声明。
@@ -503,18 +541,9 @@ function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targ
       if (pkgModified) {
         fs.writeFileSync(targetPkgPath, JSON.stringify(targetPkg, null, 2) + "\n")
       }
-      // 仅当存在 node_modules 时才需要 prune（去掉 devDependencies 占用空间）
-      if (fs.existsSync(targetNodeModules)) {
-        const pruneResult = Bun.spawnSync(
-          ["npm", "prune", "--omit=dev", "--no-audit", "--no-fund"],
-          { cwd: targetDir, stdio: ["ignore", "pipe", "pipe"] },
-        )
-        if (pruneResult.exitCode !== 0) {
-          const stderr = new TextDecoder().decode(pruneResult.stderr).trim()
-          if (stderr) console.warn(`  ⚠ prune warning for ${extension.name}: ${stderr}`)
-        }
-      }
     }
+
+    installExternalDependenciesForTarget(targetDir, target, extension)
     const pruneStats = pruneDistributionArtifacts(targetDir)
     if (pruneStats.files > 0 || pruneStats.dirs > 0) {
       console.log(
@@ -576,7 +605,7 @@ for (const target of targets) {
     console.log("  ✓ iris-onboard built")
 
     copyDirectoryIfExists(path.join(rootDir, "data"), path.join(outDir, "data"), "data/")
-    copyEmbeddedExtensions(embeddedExtensions, path.join(outDir, "extensions"))
+    copyEmbeddedExtensions(embeddedExtensions, path.join(outDir, "extensions"), target)
     copyDirectoryIfExists(webUiDistDir, path.join(outDir, "web-ui", "dist"), "web-ui/dist")
     copyDirectoryIfExists(opentuiRuntimeStagingDir, path.join(outDir, "bin", "opentui"), "bin/opentui")
 
