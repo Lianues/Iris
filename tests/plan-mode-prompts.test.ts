@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPlanModeExitReminder, buildPlanModeInstructions } from '../src/plan-mode/prompts';
+import { buildPlanModeAvailabilityInstructions, buildPlanModeInstructions } from '../src/plan-mode/prompts';
 
 describe('Plan Mode prompts', () => {
   it('active instructions stay cache-friendly by avoiding session-specific state', () => {
@@ -17,12 +17,11 @@ describe('Plan Mode prompts', () => {
     expect(instructions).not.toContain('不存在或为空');
   });
 
-  it('exit reminder avoids embedding the dynamic plan file path', () => {
-    const reminder = buildPlanModeExitReminder();
+  it('availability instructions remain generic and reusable after exiting Plan Mode', () => {
+    const reminder = buildPlanModeAvailabilityInstructions();
 
-    expect(reminder).toContain('已退出 Plan Mode');
-    expect(reminder).toContain('用户已经批准当前 Agent 当前 session 的计划');
-    expect(reminder).not.toContain('计划文件：');
+    expect(reminder).toContain('Plan Mode 可用');
+    expect(reminder).toContain('EnterPlanMode');
     expect(reminder).not.toContain('.iris');
     expect(reminder).not.toContain('plans');
   });

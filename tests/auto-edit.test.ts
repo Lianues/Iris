@@ -195,7 +195,7 @@ describe('auto edit scheduler integration', () => {
     expect(Object.keys(stateResult)).not.toContain('__response');
   });
 
-  it('Auto Edit 运行时提示放在 user-side system-reminder，避免污染 system prompt cache', async () => {
+  it('Auto Edit 运行时提示作为 system part 发送，不追加到 user 内容尾部', async () => {
     const requests: LLMRequest[] = [];
     const router = {
       chat: vi.fn(async (request: LLMRequest) => {
@@ -237,8 +237,8 @@ describe('auto edit scheduler integration', () => {
       .join('\n');
 
     expect(systemText).toContain('stable system prompt');
-    expect(systemText).not.toContain('Auto Edit');
-    expect(contextText).toContain('<system-reminder>');
-    expect(contextText).toContain('Auto Edit 已启用');
+    expect(systemText).toContain('<system-reminder>');
+    expect(systemText).toContain('Auto Edit 已启用');
+    expect(contextText).not.toContain('Auto Edit 已启用');
   });
 });

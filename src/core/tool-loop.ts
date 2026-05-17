@@ -78,8 +78,6 @@ export interface ToolLoopResult {
 export interface ToolLoopRunOptions {
   /** 额外系统提示词片段（per-request） */
   extraParts?: Part[];
-  /** 额外用户侧尾部提示片段（per-request，不写入历史） */
-  extraUserParts?: Part[];
   /** 新消息追加到历史时的回调（用于实时持久化） */
   onMessageAppend?: (content: Content) => Promise<void>;
   /** 一轮模型输出完成后的回调（在插件 afterLLMCall 之后、写入历史之前） */
@@ -209,7 +207,7 @@ export class ToolLoop {
       // 所有已注册工具的声明均传给 LLM，未配置 policy 的工具执行时默认需审批。
       const declarations = this.tools.getDeclarations();
       let request = this.prompt.assemble(
-        history, declarations, undefined, options?.extraParts, options?.extraUserParts,
+        history, declarations, undefined, options?.extraParts,
       );
 
       // 插件钩子：LLM 请求前拦截

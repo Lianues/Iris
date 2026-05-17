@@ -1301,10 +1301,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const startTime = Date.now();
 
     // 1. 构建 per-request 额外上下文。
-    // 模式提示仍作为 system part；动态运行时提醒（Auto Edit 等）
-    // 参考 Claude Code 的 <system-reminder> 做法，放到用户侧尾部，避免破坏 system prompt cache。
+    // 模式提示和运行时提醒（Auto Edit 等）统一作为 system part 发送。
     const extraParts: Part[] = [];
-    const runtimeReminderParts: Part[] = [];
     const mode = this.resolveMode();
     if (mode?.systemPrompt) {
       extraParts.unshift({ text: mode.systemPrompt });
@@ -1312,7 +1310,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const planModeActive = this.isPlanModeActive?.(sessionId) === true;
     const autoEditActive = this.autoEdit.isActive(sessionId);
     if (autoEditActive) {
-      runtimeReminderParts.push(this.buildSystemReminderPart(buildAutoEditInstructions(planModeActive)));
+      extraParts.push(this.buildSystemReminderPart(buildAutoEditInstructions(planModeActive)));
     }
     const runtimeApprovalContext = {
       sessionId,
@@ -1379,7 +1377,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const result = await loop.run(history, callLLM, {
       sessionId,
       extraParts,
-      extraUserParts: runtimeReminderParts,
       // 流式模式下注入 StreamingToolExecutor。
       // callLLM 每次被调用时会创建新的 executor，这里通过 getter 获取最新的实例。
       get streamingToolExecutor() { return streamingExecutor; },

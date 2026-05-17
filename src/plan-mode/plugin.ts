@@ -2,7 +2,7 @@ import type { IrisPlugin, LLMRequest, ToolDefinition } from 'irises-extension-sd
 import { getActiveSessionId } from '../core/backend/session-context';
 import { agentContext } from '../logger';
 import { PlanModeManager } from './manager';
-import { buildPlanModeAvailabilityInstructions, buildPlanModeExitReminder, buildPlanModeInstructions } from './prompts';
+import { buildPlanModeAvailabilityInstructions, buildPlanModeInstructions } from './prompts';
 import { filterToolDeclarationsForPlanMode, isAllowedPlanModeTool } from './guard';
 import { PLAN_MODE_SERVICE_ID, type PlanApprovalProgress } from './types';
 
@@ -203,13 +203,6 @@ export const planModePlugin: IrisPlugin = {
               functionDeclarations: filterToolDeclarationsForPlanMode(tool.functionDeclarations),
             })).filter((tool) => tool.functionDeclarations.length > 0);
           }
-          return { request };
-        }
-
-        const reminderState = manager.consumeExitReminder(sessionId);
-        if (reminderState) {
-          const parts = ensureSystemParts(request);
-          parts.push({ text: buildPlanModeExitReminder() });
           return { request };
         }
 
