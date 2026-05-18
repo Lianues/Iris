@@ -9,12 +9,13 @@
  */
 
 import React from 'react';
+import { useTerminalDimensions } from '@opentui/react';
 import type { ToolDiffPreviewItemLike, ToolDiffPreviewResponseLike } from 'irises-extension-sdk';
 import { BORDER_CHARS, ICONS } from '../terminal-compat';
+import { getTextWidth, splitGraphemes } from '../text-layout';
 
 const DEFAULT_MAX_ITEMS = 3;
 const DEFAULT_MAX_LINES = 80;
-const MAX_LINE_CHARS = 180;
 
 type DiffLineKind = 'file' | 'hunk' | 'add' | 'del' | 'ctx' | 'meta' | 'message';
 
@@ -96,11 +97,25 @@ function isUnifiedFileHeader(line: string): boolean {
   return /^(---|\+\+\+)\s+(a\/|b\/|\/dev\/null)/.test(line);
 }
 
-function truncateLine(line: string, max = MAX_LINE_CHARS): string {
-  if (line.length <= max) return line;
-  const head = Math.max(20, Math.floor(max * 0.72));
-  const tail = Math.max(8, Math.floor(max * 0.16));
-  return `${line.slice(0, head)} ${ICONS.ellipsis} ${line.slice(-tail)}`;
+function wrapToWidth(text: string, maxWidth: number): string[] {
+  if (maxWidth <= 0) return [''];
+  if (!text) return [''];
+  const rows: string[] = [];
+  let width = 0;
+  let result = '';
+  for (const grapheme of splitGraphemes(text)) {
+    const nextWidth = getTextWidth(grapheme);
+    if (result && width + nextWidth > maxWidth) {
+      rows.push(result);
+      result = grapheme;
+      width = nextWidth;
+    } else {
+      result += grapheme;
+      width += nextWidth;
+    }
+  }
+  rows.push(result || '');
+  return rows;
 }
 
 function parseHunkHeader(header: string): { oldStart: number; newStart: number } | undefined {
@@ -112,6 +127,11 @@ function parseHunkHeader(header: string): { oldStart: number; newStart: number }
   };
 }
 
+function extractDisplayHunkHeader(header: string): string {
+  const m = header.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
+  return m ? m[0] : header;
+}
+
 function formatLineNumber(value: number | undefined, width: number): string {
   if (width <= 0) return '';
   if (value === undefined || !Number.isFinite(value)) {
@@ -121,19 +141,18 @@ function formatLineNumber(value: number | undefined, width: number): string {
 }
 
 function classifyDiffLine(rawLine: string, hunkIndex?: number, hunkStatus?: HunkStatus): RenderLine {
-  const line = truncateLine(rawLine);
   const displayLine = rawLine.startsWith('@@') && hunkStatus?.correctedHeader
-    ? truncateLine(hunkStatus.correctedHeader)
-    : line;
+    ? extractDisplayHunkHeader(hunkStatus.correctedHeader)
+    : rawLine.startsWith('@@') ? extractDisplayHunkHeader(rawLine) : rawLine;
   if (displayLine.startsWith('@@')) {
     return {
       kind: 'hunk', text: displayLine, hunkIndex, hunkStatus,
     };
   }
-  if (line.startsWith('+') && !isUnifiedFileHeader(rawLine)) return { kind: 'add', text: line };
-  if (line.startsWith('-') && !isUnifiedFileHeader(rawLine)) return { kind: 'del', text: line };
-  if (line.startsWith(' ')) return { kind: 'ctx', text: line };
-  return { kind: 'meta', text: line };
+  if (rawLine.startsWith('+') && !isUnifiedFileHeader(rawLine)) return { kind: 'add', text: rawLine };
+  if (rawLine.startsWith('-') && !isUnifiedFileHeader(rawLine)) return { kind: 'del', text: rawLine };
+  if (rawLine.startsWith(' ')) return { kind: 'ctx', text: rawLine };
+  return { kind: 'meta', text: rawLine };
 }
 
 function formatStats(item: ToolDiffPreviewItemLike): string {
@@ -166,10 +185,6 @@ function collectRenderLines(
   let hunkCounter = 0;
 
   const pushLine = (line: RenderLine): boolean => {
-    if (lines.length >= maxLines) {
-      hiddenLines++;
-      return false;
-    }
     lines.push(line);
     return true;
   };
@@ -219,14 +234,9 @@ function collectRenderLines(
           }
         }
 
-        if (!pushLine({ ...classifyDiffLine(rawLine, currentHunkIndex, hunkStatus), oldLineNumber, newLineNumber })) {
-          hiddenLines += diffLines.slice(i + 1)
-            .filter(line => line.length > 0 && !isUnifiedFileHeader(line))
-            .length;
-          break;
-        }
+        pushLine({ ...classifyDiffLine(rawLine, currentHunkIndex, hunkStatus), oldLineNumber, newLineNumber });
         if (rawLine.startsWith('@@') && hunkStatus?.fallbackMessage) {
-          pushLine({ kind: 'message', text: `fallback: ${truncateLine(hunkStatus.fallbackMessage)}` });
+          pushLine({ kind: 'message', text: `fallback: ${hunkStatus.fallbackMessage}` });
         }
       }
     } else if (item.message) {
@@ -260,6 +270,7 @@ export function CompactDiffPreview({
   maxLines = DEFAULT_MAX_LINES,
   hunkStatuses = [],
 }: CompactDiffPreviewProps) {
+  const { width: terminalWidth } = useTerminalDimensions();
   if (!preview || !Array.isArray(preview.items) || preview.items.length === 0) return null;
 
   const { lines, hiddenLines, hiddenItems } = collectRenderLines(preview, maxItems, maxLines, hunkStatuses);
@@ -271,30 +282,78 @@ export function CompactDiffPreview({
     return Math.max(max, oldWidth, newWidth);
   }, 0);
 
+  const safeTerminalWidth = Math.max(20, terminalWidth || 80);
+  const standaloneLineWidth = Math.max(12, safeTerminalWidth - 2);
+  const lineNumberColumnsWidth = lineNumberWidth > 0 ? getTextWidth(`${' '.repeat(lineNumberWidth)} ${' '.repeat(lineNumberWidth)}`) : 0;
+  const separatorText = ` ${BORDER_CHARS.vertical} `;
+  const separatorWidth = getTextWidth(separatorText);
+  const prefixWidth = lineNumberColumnsWidth + separatorWidth;
+  const availableTextWidth = Math.max(12, safeTerminalWidth - prefixWidth - 6);
+
+  type WrappedRenderRow = {
+    key: string;
+    kind: DiffLineKind;
+    text: string;
+    hunkStatus?: HunkStatus;
+    showGutter: boolean;
+    oldLineNumber?: number;
+    newLineNumber?: number;
+  };
+
+  const rows: WrappedRenderRow[] = [];
+  let clippedRows = 0;
+  for (const [index, line] of lines.entries()) {
+    const renderText = line.kind === 'hunk' && line.hunkStatus?.success !== undefined
+      ? `${line.hunkStatus.success ? '✓' : '✗'} ${line.text}`
+      : line.text;
+
+    const wrappedSegments = wrapToWidth(
+      renderText,
+      line.kind === 'file' || line.kind === 'hunk' || line.kind === 'message' ? standaloneLineWidth : availableTextWidth,
+    );
+    for (let segmentIndex = 0; segmentIndex < wrappedSegments.length; segmentIndex++) {
+      if (rows.length >= maxLines) {
+        clippedRows += wrappedSegments.length - segmentIndex;
+        break;
+      }
+      rows.push({
+        key: `diff-preview.${index}.${segmentIndex}`,
+        kind: line.kind,
+        text: wrappedSegments[segmentIndex],
+        hunkStatus: line.hunkStatus,
+        showGutter: line.kind === 'ctx' || line.kind === 'add' || line.kind === 'del',
+        oldLineNumber: segmentIndex === 0 ? line.oldLineNumber : undefined,
+        newLineNumber: segmentIndex === 0 ? line.newLineNumber : undefined,
+      });
+    }
+    if (rows.length >= maxLines) break;
+  }
+
+  if (rows.length === 0) return null;
+
   return (
     <box flexDirection="column">
-      {lines.map((line, index) => (
-        <text key={`diff-preview.${index}`}>
-          {line.kind === 'hunk' && line.hunkStatus?.success !== undefined ? (
-            <>
-              <span fg={getLineColor(line.kind, line.hunkStatus)}>{`  ${line.hunkStatus.success ? '✓' : '✗'} `}</span>
-              <span fg={getLineColor(line.kind, line.hunkStatus)}>{line.text}</span>
-            </>
-          ) : (
-            <>
-              {lineNumberWidth > 0 ? (
-                <span fg="#6b7280">{`  ${formatLineNumber(line.oldLineNumber, lineNumberWidth)} ${formatLineNumber(line.newLineNumber, lineNumberWidth)} ${BORDER_CHARS.vertical} `}</span>
-              ) : (
-                <span fg="#6b7280">{'  '}</span>
-              )}
-              <span fg={getLineColor(line.kind, line.hunkStatus)}>{line.text}</span>
-            </>
+      {rows.map((row) => (
+        <text key={row.key} wrapMode="none">
+          {row.showGutter ? (() => {
+            const oldNum = lineNumberWidth > 0 ? formatLineNumber(row.oldLineNumber, lineNumberWidth) : '';
+            const newNum = lineNumberWidth > 0 ? formatLineNumber(row.newLineNumber, lineNumberWidth) : '';
+            const numberColumns = lineNumberWidth > 0 ? `${oldNum} ${newNum}` : '';
+            return (
+              <>
+                {lineNumberWidth > 0 ? <span fg="#6b7280">{numberColumns}</span> : null}
+                <span fg="#6b7280">{separatorText}</span>
+                <span fg={getLineColor(row.kind, row.hunkStatus)}>{row.text}</span>
+              </>
+            );
+          })() : (
+            <span fg={getLineColor(row.kind, row.hunkStatus)}>{row.text}</span>
           )}
         </text>
       ))}
-      {(hiddenLines > 0 || hiddenItems > 0) ? (
+      {(hiddenLines > 0 || hiddenItems > 0 || clippedRows > 0) ? (
         <text>
-          <span fg="#6b7280"><em>{`  ${ICONS.ellipsis} 已截断${hiddenItems > 0 ? ` ${hiddenItems} 个文件` : ''}${hiddenLines > 0 ? ` ${hiddenLines} 行` : ''}`}</em></span>
+          <span fg="#6b7280"><em>{`${ICONS.ellipsis} 已截断${hiddenItems > 0 ? ` ${hiddenItems} 个文件` : ''}${hiddenLines + clippedRows > 0 ? ` ${hiddenLines + clippedRows} 行` : ''}`}</em></span>
         </text>
       ) : null}
     </box>

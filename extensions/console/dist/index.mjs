@@ -3055,7 +3055,7 @@ function hardTruncate(text, maxWidth) {
   }
   return result + ICONS.ellipsis;
 }
-function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, autoEditActive }) {
+function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost }) {
   const cwd = process.cwd();
   const hasQueue = (queueSize ?? 0) > 0;
   const escAction = isGenerating ? "esc 中断生成" : hasRunningBackgroundTasks ? "esc 中断任务" : "ctrl+j 换行";
@@ -3064,7 +3064,6 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
     hintStr = "再次按 ctrl+c 退出";
   } else {
     const parts = [];
-    parts.push("ctrl+e 自动编辑");
     parts.push(escAction);
     parts.push("ctrl+t 工具详情");
     if (isGenerating && hasQueue) {
@@ -3112,11 +3111,6 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
         children: /* @__PURE__ */ jsxDEV7("text", {
           fg: C.dim,
           children: [
-            /* @__PURE__ */ jsxDEV7("span", {
-              fg: autoEditActive ? C.autoEdit : C.dim,
-              children: "ctrl+e 自动编辑"
-            }, undefined, false, undefined, this),
-            `  ${ICONS.separator}  `,
             escAction,
             `  ${ICONS.separator}  ctrl+t 工具详情`,
             isGenerating && hasQueue ? /* @__PURE__ */ jsxDEV7(Fragment3, {
@@ -3238,9 +3232,6 @@ function buildSuggestionWindow(items, selectedIndex, maxRows) {
 }
 function isPlanModeToggleShortcut(key) {
   return key.shift && key.name === "tab" || key.name === "backtab" || key.name === "shift-tab" || key.sequence === "\x1B[Z";
-}
-function isAutoEditToggleShortcut(key) {
-  return key.ctrl && key.name === "e";
 }
 function isPrioritySubmitShortcut(key) {
   return key.ctrl && key.name === "s" || key.sequence === "\x13" || key.raw === "\x13";
@@ -3371,10 +3362,6 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       rapidKeyCountRef.current = 0;
     }
     if (isPlanModeToggleShortcut(key)) {
-      key.preventDefault?.();
-      return;
-    }
-    if (isAutoEditToggleShortcut(key)) {
       key.preventDefault?.();
       return;
     }
@@ -3992,7 +3979,6 @@ function BottomPanel({
   exitConfirmArmed,
   backgroundTaskCount,
   planModeActive,
-  autoEditActive,
   delegateTaskCount,
   backgroundTaskTokens,
   backgroundTaskSpinnerFrame,
@@ -4088,8 +4074,7 @@ function BottomPanel({
         queueSize,
         copyMode,
         exitConfirmArmed,
-        remoteHost,
-        autoEditActive
+        remoteHost
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -4172,7 +4157,7 @@ function AgentListView({ agents, selectedIndex, currentAgentName }) {
 
 // src/components/ChatMessageList.tsx
 import { useMemo as useMemo5 } from "react";
-import { useTerminalDimensions as useTerminalDimensions5 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions6 } from "@opentui/react";
 
 // src/components/GeneratingTimer.tsx
 import { useState as useState6, useEffect as useEffect6, useRef as useRef4 } from "react";
@@ -4272,7 +4257,7 @@ function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
 
 // src/components/MessageItem.tsx
 import React8, { useEffect as useEffect7, useRef as useRef5, useState as useState7 } from "react";
-import { useTerminalDimensions as useTerminalDimensions4 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions5 } from "@opentui/react";
 
 // src/tool-renderers/default.tsx
 init_terminal_compat();
@@ -4422,10 +4407,10 @@ init_terminal_compat();
 
 // src/tool-renderers/diff-preview.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV18 } from "@opentui/react/jsx-dev-runtime";
+import { useTerminalDimensions as useTerminalDimensions4 } from "@opentui/react";
+import { jsxDEV as jsxDEV18, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
 var DEFAULT_MAX_ITEMS = 3;
 var DEFAULT_MAX_LINES = 80;
-var MAX_LINE_CHARS = 180;
 function isRecord(value) {
   return value != null && typeof value === "object" && !Array.isArray(value);
 }
@@ -4464,24 +4449,66 @@ function normalizeDiffText(diff) {
 function isUnifiedFileHeader(line) {
   return /^(---|\+\+\+)\s+(a\/|b\/|\/dev\/null)/.test(line);
 }
-function truncateLine(line, max = MAX_LINE_CHARS) {
-  if (line.length <= max)
-    return line;
-  const head = Math.max(20, Math.floor(max * 0.72));
-  const tail = Math.max(8, Math.floor(max * 0.16));
-  return `${line.slice(0, head)} ${ICONS.ellipsis} ${line.slice(-tail)}`;
+function wrapToWidth(text, maxWidth) {
+  if (maxWidth <= 0)
+    return [""];
+  if (!text)
+    return [""];
+  const rows = [];
+  let width = 0;
+  let result = "";
+  for (const grapheme of splitGraphemes(text)) {
+    const nextWidth = getTextWidth(grapheme);
+    if (result && width + nextWidth > maxWidth) {
+      rows.push(result);
+      result = grapheme;
+      width = nextWidth;
+    } else {
+      result += grapheme;
+      width += nextWidth;
+    }
+  }
+  rows.push(result || "");
+  return rows;
 }
-function classifyDiffLine(rawLine) {
-  const line = truncateLine(rawLine);
-  if (line.startsWith("@@"))
-    return { kind: "hunk", text: line };
-  if (line.startsWith("+") && !isUnifiedFileHeader(rawLine))
-    return { kind: "add", text: line };
-  if (line.startsWith("-") && !isUnifiedFileHeader(rawLine))
-    return { kind: "del", text: line };
-  if (line.startsWith(" "))
-    return { kind: "ctx", text: line };
-  return { kind: "meta", text: line };
+function parseHunkHeader(header) {
+  const m = header.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
+  if (!m)
+    return;
+  return {
+    oldStart: Number.parseInt(m[1], 10),
+    newStart: Number.parseInt(m[3], 10)
+  };
+}
+function extractDisplayHunkHeader(header) {
+  const m = header.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
+  return m ? m[0] : header;
+}
+function formatLineNumber(value, width) {
+  if (width <= 0)
+    return "";
+  if (value === undefined || !Number.isFinite(value)) {
+    return " ".repeat(width);
+  }
+  return String(value).padStart(width, " ");
+}
+function classifyDiffLine(rawLine, hunkIndex, hunkStatus) {
+  const displayLine = rawLine.startsWith("@@") && hunkStatus?.correctedHeader ? extractDisplayHunkHeader(hunkStatus.correctedHeader) : rawLine.startsWith("@@") ? extractDisplayHunkHeader(rawLine) : rawLine;
+  if (displayLine.startsWith("@@")) {
+    return {
+      kind: "hunk",
+      text: displayLine,
+      hunkIndex,
+      hunkStatus
+    };
+  }
+  if (rawLine.startsWith("+") && !isUnifiedFileHeader(rawLine))
+    return { kind: "add", text: rawLine };
+  if (rawLine.startsWith("-") && !isUnifiedFileHeader(rawLine))
+    return { kind: "del", text: rawLine };
+  if (rawLine.startsWith(" "))
+    return { kind: "ctx", text: rawLine };
+  return { kind: "meta", text: rawLine };
 }
 function formatStats(item) {
   const parts = [];
@@ -4497,16 +4524,15 @@ function estimateRenderableLines(item) {
   return normalizeDiffText(item.diff).split(`
 `).filter((line) => line.length > 0 && !isUnifiedFileHeader(line)).length;
 }
-function collectRenderLines(preview, maxItems, maxLines) {
+function collectRenderLines(preview, maxItems, maxLines, hunkStatuses) {
   const lines = [];
   let hiddenLines = 0;
   let hiddenItems = 0;
   let renderedItems = 0;
+  let currentOldLine;
+  let currentNewLine;
+  let hunkCounter = 0;
   const pushLine = (line) => {
-    if (lines.length >= maxLines) {
-      hiddenLines++;
-      return false;
-    }
     lines.push(line);
     return true;
   };
@@ -4528,9 +4554,32 @@ function collectRenderLines(preview, maxItems, maxLines) {
         const rawLine = diffLines[i];
         if (rawLine.length === 0 || isUnifiedFileHeader(rawLine))
           continue;
-        if (!pushLine(classifyDiffLine(rawLine))) {
-          hiddenLines += diffLines.slice(i + 1).filter((line) => line.length > 0 && !isUnifiedFileHeader(line)).length;
-          break;
+        const currentHunkIndex = rawLine.startsWith("@@") ? hunkCounter++ : undefined;
+        const hunkStatus = currentHunkIndex !== undefined ? hunkStatuses[currentHunkIndex] : undefined;
+        if (rawLine.startsWith("@@")) {
+          const parsedHeader = parseHunkHeader(hunkStatus?.correctedHeader ?? rawLine);
+          currentOldLine = parsedHeader?.oldStart;
+          currentNewLine = parsedHeader?.newStart;
+        }
+        let oldLineNumber;
+        let newLineNumber;
+        if (!rawLine.startsWith("@@")) {
+          if (rawLine.startsWith(" ")) {
+            oldLineNumber = currentOldLine;
+            newLineNumber = currentNewLine;
+            currentOldLine = currentOldLine !== undefined ? currentOldLine + 1 : undefined;
+            currentNewLine = currentNewLine !== undefined ? currentNewLine + 1 : undefined;
+          } else if (rawLine.startsWith("-")) {
+            oldLineNumber = currentOldLine;
+            currentOldLine = currentOldLine !== undefined ? currentOldLine + 1 : undefined;
+          } else if (rawLine.startsWith("+")) {
+            newLineNumber = currentNewLine;
+            currentNewLine = currentNewLine !== undefined ? currentNewLine + 1 : undefined;
+          }
+        }
+        pushLine({ ...classifyDiffLine(rawLine, currentHunkIndex, hunkStatus), oldLineNumber, newLineNumber });
+        if (rawLine.startsWith("@@") && hunkStatus?.fallbackMessage) {
+          pushLine({ kind: "message", text: `fallback: ${hunkStatus.fallbackMessage}` });
         }
       }
     } else if (item.message) {
@@ -4539,11 +4588,15 @@ function collectRenderLines(preview, maxItems, maxLines) {
   }
   return { lines, hiddenLines, hiddenItems };
 }
-function getLineColor(kind) {
+function getLineColor(kind, hunkStatus) {
   switch (kind) {
     case "file":
       return "#9ca3af";
     case "hunk":
+      if (hunkStatus?.success === true)
+        return "#57ab5a";
+      if (hunkStatus?.success === false)
+        return "#f47067";
       return "#79c0ff";
     case "add":
       return "#57ab5a";
@@ -4561,27 +4614,87 @@ function getLineColor(kind) {
 function CompactDiffPreview({
   preview,
   maxItems = DEFAULT_MAX_ITEMS,
-  maxLines = DEFAULT_MAX_LINES
+  maxLines = DEFAULT_MAX_LINES,
+  hunkStatuses = []
 }) {
+  const { width: terminalWidth } = useTerminalDimensions4();
   if (!preview || !Array.isArray(preview.items) || preview.items.length === 0)
     return null;
-  const { lines, hiddenLines, hiddenItems } = collectRenderLines(preview, maxItems, maxLines);
+  const { lines, hiddenLines, hiddenItems } = collectRenderLines(preview, maxItems, maxLines, hunkStatuses);
   if (lines.length === 0)
+    return null;
+  const lineNumberWidth = lines.reduce((max, line) => {
+    const oldWidth = line.oldLineNumber !== undefined ? String(line.oldLineNumber).length : 0;
+    const newWidth = line.newLineNumber !== undefined ? String(line.newLineNumber).length : 0;
+    return Math.max(max, oldWidth, newWidth);
+  }, 0);
+  const safeTerminalWidth = Math.max(20, terminalWidth || 80);
+  const standaloneLineWidth = Math.max(12, safeTerminalWidth - 2);
+  const lineNumberColumnsWidth = lineNumberWidth > 0 ? getTextWidth(`${" ".repeat(lineNumberWidth)} ${" ".repeat(lineNumberWidth)}`) : 0;
+  const separatorText = ` ${BORDER_CHARS.vertical} `;
+  const separatorWidth = getTextWidth(separatorText);
+  const prefixWidth = lineNumberColumnsWidth + separatorWidth;
+  const availableTextWidth = Math.max(12, safeTerminalWidth - prefixWidth - 6);
+  const rows = [];
+  let clippedRows = 0;
+  for (const [index, line] of lines.entries()) {
+    const renderText = line.kind === "hunk" && line.hunkStatus?.success !== undefined ? `${line.hunkStatus.success ? "✓" : "✗"} ${line.text}` : line.text;
+    const wrappedSegments = wrapToWidth(renderText, line.kind === "file" || line.kind === "hunk" || line.kind === "message" ? standaloneLineWidth : availableTextWidth);
+    for (let segmentIndex = 0;segmentIndex < wrappedSegments.length; segmentIndex++) {
+      if (rows.length >= maxLines) {
+        clippedRows += wrappedSegments.length - segmentIndex;
+        break;
+      }
+      rows.push({
+        key: `diff-preview.${index}.${segmentIndex}`,
+        kind: line.kind,
+        text: wrappedSegments[segmentIndex],
+        hunkStatus: line.hunkStatus,
+        showGutter: line.kind === "ctx" || line.kind === "add" || line.kind === "del",
+        oldLineNumber: segmentIndex === 0 ? line.oldLineNumber : undefined,
+        newLineNumber: segmentIndex === 0 ? line.newLineNumber : undefined
+      });
+    }
+    if (rows.length >= maxLines)
+      break;
+  }
+  if (rows.length === 0)
     return null;
   return /* @__PURE__ */ jsxDEV18("box", {
     flexDirection: "column",
     children: [
-      lines.map((line, index) => /* @__PURE__ */ jsxDEV18("text", {
-        children: /* @__PURE__ */ jsxDEV18("span", {
-          fg: getLineColor(line.kind),
-          children: `  ${line.text}`
+      rows.map((row) => /* @__PURE__ */ jsxDEV18("text", {
+        wrapMode: "none",
+        children: row.showGutter ? (() => {
+          const oldNum = lineNumberWidth > 0 ? formatLineNumber(row.oldLineNumber, lineNumberWidth) : "";
+          const newNum = lineNumberWidth > 0 ? formatLineNumber(row.newLineNumber, lineNumberWidth) : "";
+          const numberColumns = lineNumberWidth > 0 ? `${oldNum} ${newNum}` : "";
+          return /* @__PURE__ */ jsxDEV18(Fragment5, {
+            children: [
+              lineNumberWidth > 0 ? /* @__PURE__ */ jsxDEV18("span", {
+                fg: "#6b7280",
+                children: numberColumns
+              }, undefined, false, undefined, this) : null,
+              /* @__PURE__ */ jsxDEV18("span", {
+                fg: "#6b7280",
+                children: separatorText
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsxDEV18("span", {
+                fg: getLineColor(row.kind, row.hunkStatus),
+                children: row.text
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this);
+        })() : /* @__PURE__ */ jsxDEV18("span", {
+          fg: getLineColor(row.kind, row.hunkStatus),
+          children: row.text
         }, undefined, false, undefined, this)
-      }, `diff-preview.${index}`, false, undefined, this)),
-      hiddenLines > 0 || hiddenItems > 0 ? /* @__PURE__ */ jsxDEV18("text", {
+      }, row.key, false, undefined, this)),
+      hiddenLines > 0 || hiddenItems > 0 || clippedRows > 0 ? /* @__PURE__ */ jsxDEV18("text", {
         children: /* @__PURE__ */ jsxDEV18("span", {
           fg: "#6b7280",
           children: /* @__PURE__ */ jsxDEV18("em", {
-            children: `  ${ICONS.ellipsis} 已截断${hiddenItems > 0 ? ` ${hiddenItems} 个文件` : ""}${hiddenLines > 0 ? ` ${hiddenLines} 行` : ""}`
+            children: `${ICONS.ellipsis} 已截断${hiddenItems > 0 ? ` ${hiddenItems} 个文件` : ""}${hiddenLines + clippedRows > 0 ? ` ${hiddenLines + clippedRows} 行` : ""}`
           }, undefined, false, undefined, this)
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this) : null
@@ -4613,6 +4726,7 @@ function ApplyDiffRenderer({ args, result }) {
   const isError = (r.failed ?? 0) > 0;
   const { added, deleted } = countPatchLines(args?.patch);
   const path4 = r.path ?? (typeof args?.path === "string" ? args.path : "");
+  const hunkResults = Array.isArray(r.results) ? r.results : [];
   const hasStats = added > 0 || deleted > 0;
   const preview = extractResultDiffPreview(result) ?? createInlineDiffPreview({ toolName: "apply_diff", filePath: path4, diff: args?.patch, added, removed: deleted });
   return /* @__PURE__ */ jsxDEV19("box", {
@@ -4649,7 +4763,13 @@ function ApplyDiffRenderer({ args, result }) {
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
       /* @__PURE__ */ jsxDEV19(CompactDiffPreview, {
-        preview
+        preview,
+        hunkStatuses: hunkResults.map((hunk) => ({
+          success: hunk.success,
+          error: undefined,
+          correctedHeader: hunk.fallback?.correctedHeader ?? hunk.appliedHeader,
+          fallbackMessage: hunk.fallback?.message
+        }))
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -5324,7 +5444,7 @@ function ToolCall({ invocation }) {
 // src/components/ProgressListView.tsx
 import { useMemo as useMemo4 } from "react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV28, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV28, Fragment as Fragment6 } from "@opentui/react/jsx-dev-runtime";
 var PROGRESS_PANEL_MAX_ITEMS = 8;
 function compareProgressItems(a, b) {
   return a.createdAt - b.createdAt || a.title.localeCompare(b.title);
@@ -5501,7 +5621,7 @@ function ProgressListView({
             " 受阻"
           ]
         }, undefined, true, undefined, this) : null,
-        effectiveCollapsed ? /* @__PURE__ */ jsxDEV28(Fragment5, {
+        effectiveCollapsed ? /* @__PURE__ */ jsxDEV28(Fragment6, {
           children: [
             /* @__PURE__ */ jsxDEV28("span", {
               fg: C.dim,
@@ -5732,7 +5852,7 @@ function NotificationPayloadBlock({ payload }) {
   }, undefined, false, undefined, this);
 }
 var MessageItem = React8.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal }) {
-  const { width: rawTermWidth } = useTerminalDimensions4();
+  const { width: rawTermWidth } = useTerminalDimensions5();
   const termWidth = rawTermWidth - 1;
   const [thoughtsExpanded, setThoughtsExpanded] = useState7(false);
   const prevSignalRef = useRef5(thoughtsToggleSignal);
@@ -6078,7 +6198,7 @@ function ChatMessageList({
   onCopySelectionStart,
   onCopySelectionSnapshot
 }) {
-  const { height: termHeight } = useTerminalDimensions5();
+  const { height: termHeight } = useTerminalDimensions6();
   const captureSelectionSnapshot = (scrollBox) => {
     const text = scrollBox?.ctx?.getSelection?.()?.getSelectedText?.() ?? "";
     if (text.trim())
@@ -7149,7 +7269,7 @@ function FooterBar({ isFinal, hasAbort, hasChildren }) {
 
 // src/components/ModelListView.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV36, Fragment as Fragment6 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV36, Fragment as Fragment7 } from "@opentui/react/jsx-dev-runtime";
 function formatContextWindow(tokens) {
   if (tokens == null || tokens <= 0)
     return "";
@@ -7204,7 +7324,7 @@ function ModelListView({
             fg: C.primary,
             children: `切换模型 (${count})`
           }, undefined, false, undefined, this),
-          editingField ? /* @__PURE__ */ jsxDEV36(Fragment6, {
+          editingField ? /* @__PURE__ */ jsxDEV36(Fragment7, {
             children: [
               /* @__PURE__ */ jsxDEV36("text", {
                 fg: C.dim,
@@ -7215,7 +7335,7 @@ function ModelListView({
                 children: editingField === "contextWindow" ? "留空可清除上下文窗口配置" : "编辑模型别名（会同步更新 /model 使用名称）"
               }, undefined, false, undefined, this)
             ]
-          }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV36(Fragment6, {
+          }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV36(Fragment7, {
             children: [
               /* @__PURE__ */ jsxDEV36("text", {
                 fg: C.dim,
@@ -7708,7 +7828,7 @@ function ToolListView({ tools, selectedIndex }) {
 }
 
 // src/components/SessionListView.tsx
-import { useTerminalDimensions as useTerminalDimensions6 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions7 } from "@opentui/react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV39 } from "@opentui/react/jsx-dev-runtime";
 function clamp(value, min, max) {
@@ -7747,7 +7867,7 @@ function buildSeparator(totalWidth) {
 }
 var ROWS_PER_ITEM = 3;
 function SessionListView({ sessions, selectedIndex, pendingDeleteId, statusMessage, statusIsError }) {
-  const { height: terminalHeight, width: terminalWidth } = useTerminalDimensions6();
+  const { height: terminalHeight, width: terminalWidth } = useTerminalDimensions7();
   const rowWidth = Math.max(20, terminalWidth || 80);
   const safeSelectedIndex = sessions.length > 0 ? clamp(selectedIndex, 0, sessions.length - 1) : 0;
   const reservedRows = 4 + (statusMessage ? 1 : 0);
@@ -7994,9 +8114,9 @@ function formatAge(unixSec) {
 }
 
 // src/components/ExtensionListView.tsx
-import { useTerminalDimensions as useTerminalDimensions7 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions8 } from "@opentui/react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV41, Fragment as Fragment7 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV41, Fragment as Fragment8 } from "@opentui/react/jsx-dev-runtime";
 var STATUS_LABELS = {
   active: { label: "active", color: "#2ecc71" },
   disabled: { label: "disabled", color: "#e74c3c" },
@@ -8039,7 +8159,7 @@ function GitInputFrame({
   cursor,
   cursorVisible
 }) {
-  const { width: terminalWidth } = useTerminalDimensions7();
+  const { width: terminalWidth } = useTerminalDimensions8();
   const safeTerminalWidth = Math.max(20, terminalWidth || 80);
   const frameWidth = Math.max(12, Math.min(88, safeTerminalWidth - 8));
   const innerWidth = Math.max(12, frameWidth - 4);
@@ -8083,7 +8203,7 @@ function GitInputFrame({
         }, `git-input-line-${lineIndex}`, true, undefined, this);
         if (!value) {
           const placeholderPart = line;
-          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment7, {
+          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment8, {
             children: [
               lineIndex === 0 && renderCursorChar(" ", cursorVisible),
               /* @__PURE__ */ jsxDEV41("span", {
@@ -8095,7 +8215,7 @@ function GitInputFrame({
         }
         if (safeCursor >= start && safeCursor < end) {
           const local = safeCursor - start;
-          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment7, {
+          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment8, {
             children: [
               /* @__PURE__ */ jsxDEV41("span", {
                 fg: C.text,
@@ -8110,7 +8230,7 @@ function GitInputFrame({
           }, undefined, true, undefined, this), line.length);
         }
         if (safeCursor === end && lineIndex === lines.length - 1) {
-          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment7, {
+          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment8, {
             children: [
               /* @__PURE__ */ jsxDEV41("span", {
                 fg: C.text,
@@ -8317,7 +8437,7 @@ function ExtensionListView({
 
 // src/components/SettingsView.tsx
 import { useCallback as useCallback4, useEffect as useEffect9, useMemo as useMemo7, useState as useState10 } from "react";
-import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions8 } from "@opentui/react";
+import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions9 } from "@opentui/react";
 init_terminal_compat();
 
 // src/diff-approval.ts
@@ -8937,7 +9057,7 @@ var BUILTIN_SECTIONS = [
   { id: "mcp", label: "MCP 服务", icon: "03" }
 ];
 function SettingsView({ initialSection = "general", onBack, onLoad, onSave, pluginTabs }) {
-  const { width: termWidth, height: termHeight } = useTerminalDimensions8();
+  const { width: termWidth, height: termHeight } = useTerminalDimensions9();
   const [loading, setLoading] = useState10(true);
   const [saving, setSaving] = useState10(false);
   const [draft, setDraft] = useState10(null);
@@ -10520,9 +10640,6 @@ function altScrollKeyName(key) {
       return;
   }
 }
-function isAutoEditToggleShortcut2(key) {
-  return key.ctrl && key.name === "e";
-}
 function useAppKeyboard({
   viewMode,
   setViewMode,
@@ -10728,13 +10845,6 @@ function useAppKeyboard({
       onPlanCommand?.("").then((result) => {
         appendCommandMessage(setMessages, result.message, result.ok ? { label: "plan", beforeActiveAssistant: isGenerating } : { label: "plan", isError: true, beforeActiveAssistant: isGenerating });
       }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "plan", isError: true, beforeActiveAssistant: isGenerating }));
-      return;
-    }
-    if (isAutoEditToggleShortcut2(key) && (viewMode === "chat" || viewMode === "tool-list" || viewMode === "tool-detail") && pendingApprovals.length === 0 && pendingApplies.length === 0 && !pendingConfirm && !askQuestionActive) {
-      key.preventDefault?.();
-      onAutoEditCommand?.("").then((result) => {
-        appendCommandMessage(setMessages, result.message, result.ok ? { label: "自动编辑", beforeActiveAssistant: isGenerating } : { label: "自动编辑", isError: true, beforeActiveAssistant: isGenerating });
-      }).catch((err) => appendCommandMessage(setMessages, `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "自动编辑", isError: true, beforeActiveAssistant: isGenerating }));
       return;
     }
     if (key.name === "t" && key.ctrl) {
@@ -13233,7 +13343,6 @@ function App({
         exitConfirmArmed: exitConfirm.exitConfirmArmed,
         backgroundTaskCount: appState.backgroundTaskCount,
         planModeActive: appState.planModeActive,
-        autoEditActive: appState.autoEditActive,
         delegateTaskCount: appState.delegateTaskCount,
         backgroundTaskTokens: appState.backgroundTaskTokens,
         backgroundTaskSpinnerFrame: appState.backgroundTaskSpinnerFrame,
