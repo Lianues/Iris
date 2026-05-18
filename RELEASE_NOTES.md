@@ -1,4 +1,4 @@
-# Iris v1.0.28 Release Notes
+# Iris v1.0.27 Release Notes
 
 * Console：移除 Auto Edit 的 `Ctrl+E` 快捷键及相关提示，减少与终端/输入区快捷键的冲突。
 * Apply Diff / Console：为 `apply_diff` 的 hunk header 增加显式标记，并优化紧凑 diff 预览的布局、换行与截断显示。
