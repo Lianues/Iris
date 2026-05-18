@@ -218,4 +218,51 @@ describe('Console /extension toggle integration', () => {
     });
   });
 
+  it('启用远程 available extension 时应下载安装、安装依赖、激活并写入 plugins.yaml', async () => {
+    const extensionName = 'remote-console-demo';
+    const targetDir = '/tmp/remote-console-demo';
+    let raw: Record<string, any> = { plugins: { plugins: [] } };
+    const updateEditableConfig = vi.fn((updates: Record<string, unknown>) => {
+      raw = { ...raw, ...structuredClone(updates) };
+      return { mergedRaw: structuredClone(raw) };
+    });
+    const installRemote = vi.fn(async (requestedPath: string) => ({
+      name: extensionName,
+      version: '1.2.3',
+      targetDir,
+      requestedPath,
+    }));
+    const activate = vi.fn(async (_entry: unknown) => undefined);
+    ensureDepsMock.mockResolvedValueOnce({ installed: true, missingDependencies: ['left-pad'] } as any);
+
+    const api = {
+      configManager: {
+        readEditableConfig: () => structuredClone(raw),
+        updateEditableConfig,
+      },
+      extensions: {
+        discoverAll: () => [],
+        discover: () => [
+          {
+            manifest: { name: extensionName, version: '1.2.3', plugin: { entry: 'index.mjs' } } as any,
+            source: 'agent-installed',
+            rootDir: targetDir,
+          },
+        ],
+        getRemoteRequestPath: (name: string) => name === extensionName ? 'community/remote-console-demo' : undefined,
+        installRemote,
+        activate,
+      },
+      pluginManager: { listPlugins: () => [] },
+    };
+
+    const result = await handleConsoleToggleExtension(api, extensionName, true);
+
+    expect(installRemote).toHaveBeenCalledWith('community/remote-console-demo');
+    expect(ensureDepsMock).toHaveBeenCalledWith(targetDir);
+    expect(activate).toHaveBeenCalledWith({ name: extensionName, type: 'local', enabled: true });
+    expect(raw.plugins.plugins).toEqual([{ name: extensionName, type: 'local', enabled: true }]);
+    expect(result).toEqual({ ok: true, message: `已安装依赖 left-pad，已下载安装并启用远程插件 "${extensionName}@1.2.3"` });
+  });
+
 });

@@ -7,6 +7,8 @@ interface ConsoleToggleApiLike {
     setWorkspaceDiscovery?: (workspace: { enabled: boolean; allowlist?: string[] }) => void;
     activate?: (entry: string | PluginEntryLike) => Promise<void> | void;
     deactivate?: (name: string) => Promise<void> | void;
+    installRemote?: (requestedPath: string) => Promise<{ name?: string; version?: string; targetDir?: string }>;
+    getRemoteRequestPath?: (name: string) => string | undefined;
   };
   configManager?: {
     readEditableConfig(): Record<string, any>;
@@ -21,6 +23,7 @@ interface ExtensionPackageLike {
   manifest: { name: string; entry?: string; plugin?: any; platforms?: any[] };
   source?: string;
   rootDir?: string;
+  requestedPath?: string;
 }
 
 interface PluginEntryLike {
@@ -123,6 +126,8 @@ export async function handleConsoleToggleExtension(
     const pkg = packages.find((item) => item.manifest.name === name);
     const hasPlugin = pkg ? hasConsolePluginContribution(pkg.manifest) : true;
     const isWorkspace = pkg?.source === 'workspace';
+    const remoteRequestPath = ext.getRemoteRequestPath?.(name) ?? (pkg?.source === 'remote' ? pkg.requestedPath ?? name : undefined);
+    const isRemote = !!remoteRequestPath && pkg?.source !== 'workspace' && pkg?.source !== 'installed' && pkg?.source !== 'agent-installed' && pkg?.source !== 'embedded';
 
     const active = api?.pluginManager?.listPlugins?.() ?? [];
     const isActive = active.some((p: any) => p.name === name);
@@ -144,6 +149,45 @@ export async function handleConsoleToggleExtension(
     }
 
     let installedDeps: string[] = [];
+
+    if (isRemote) {
+      if (!ext.installRemote) {
+        return { ok: false, message: '远程 extension 安装 API 不可用' };
+      }
+
+      const installed = await ext.installRemote(remoteRequestPath!);
+      const installedName = typeof installed?.name === 'string' && installed.name.trim()
+        ? installed.name.trim()
+        : name;
+
+      if (installed?.targetDir) {
+        const depsResult = await ensureExtensionRuntimeDependencies(installed.targetDir);
+        if (depsResult.installed) installedDeps = depsResult.missingDependencies;
+      }
+
+      const refreshedPackages: ExtensionPackageLike[] = ext.discover?.() ?? ext.discoverAll?.() ?? [];
+      const installedPkg = refreshedPackages.find((item) => item.manifest.name === installedName);
+      const installedHasPlugin = installedPkg ? hasConsolePluginContribution(installedPkg.manifest) : hasPlugin;
+
+      if (installedHasPlugin) {
+        await ext.activate?.({ name: installedName, type: 'local', enabled: true });
+        const existingInstalledEntry = pluginEntries.find(p => p.name === installedName);
+        if (existingInstalledEntry) {
+          existingInstalledEntry.enabled = true;
+        } else {
+          pluginEntries.push({ name: installedName, type: 'local', enabled: true });
+        }
+        configManager.updateEditableConfig(buildConsolePluginsConfigUpdate(raw, pluginEntries) as any);
+      }
+
+      const versionText = installed?.version ? `@${installed.version}` : '';
+      const depsText = installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(', ')}，` : '';
+      if (!installedHasPlugin) {
+        return { ok: true, message: `${depsText}已下载安装远程平台扩展 "${installedName}${versionText}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。` };
+      }
+      return { ok: true, message: `${depsText}已下载安装并启用远程插件 "${installedName}${versionText}"` };
+    }
+
     if (pkg?.rootDir) {
       const depsResult = await ensureExtensionRuntimeDependencies(pkg.rootDir);
       if (depsResult.installed) installedDeps = depsResult.missingDependencies;

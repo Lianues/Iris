@@ -17,6 +17,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { extensionsDir, workspaceExtensionsDir } from '../paths';
 
 export async function tryExtensionCommand(command: string, args: string[]): Promise<boolean> {
@@ -42,7 +43,7 @@ export async function tryExtensionCommand(command: string, args: string[]): Prom
         if (!cmdDef?.entry) continue;
 
         const modulePath = path.join(baseDir, entry, cmdDef.entry);
-        const mod = await import(modulePath);
+        const mod = await import(pathToFileURL(modulePath).href);
         const fn = mod[cmdDef.export || 'default'];
         if (typeof fn === 'function') {
           await fn(args);

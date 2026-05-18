@@ -241,7 +241,7 @@ export function discoverLocalExtensions(opts?: ExtensionDiscoveryOptions): Exten
   const allowlistSet = allowlist.length > 0 ? new Set(allowlist) : undefined;
   const embeddedNames = loadEmbeddedExtensionNames();
 
-  for (const searchDir of getExtensionSearchDirectories()) {
+  for (const searchDir of getExtensionSearchDirectories(opts)) {
     const entries = fs.readdirSync(searchDir.dir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;

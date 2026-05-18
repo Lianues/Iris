@@ -36,7 +36,11 @@ import {
   type ConfigManagerLike,
 } from 'irises-extension-sdk';
 import type { IPCClientLike } from 'irises-extension-sdk/ipc';
-import { ensureExtensionRuntimeDependencies, readGitInstallMetadata } from 'irises-extension-sdk/utils';
+import {
+  fetchRemoteIndex,
+  fetchRemoteManifest,
+  readGitInstallMetadata,
+} from 'irises-extension-sdk/utils';
 import { estimateTokenCount } from 'tokenx';
 import { App, AppHandle, MessageMeta } from './App';
 import { MessagePart } from './components/MessageItem';
@@ -624,6 +628,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private _pendingDocuments: import('irises-extension-sdk').DocumentInput[] = [];
   private _pendingAudio: import('irises-extension-sdk').AudioInput[] = [];
   private _pendingVideo: import('irises-extension-sdk').VideoInput[] = [];
+  /** Console /extension 列表中远程可安装项的 name → requestedPath 映射。 */
+  private remoteExtensionRequestPaths = new Map<string, string>();
   constructor(backend: IrisBackendLike, options: ConsolePlatformOptions) {
     super();
     this.backend = backend;
@@ -1158,7 +1164,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onListMemories: () => this.handleListMemories(),
         onDeleteMemory: (id: number) => this.handleDeleteMemory(id),
         onListExtensions: () => this.handleListExtensions(),
-        onToggleExtension: (name: string) => this.handleToggleExtension(name),
+        onToggleExtension: (name: string, enabled?: boolean) => this.handleToggleExtension(name, enabled),
         onInstallGitExtension: (target: string, scope?: 'global' | 'agent') => this.handleInstallGitExtension(target, scope),
         onDeleteExtension: (name: string) => this.handleDeleteExtension(name),
         onPreviewUpdateExtension: (name: string) => this.handlePreviewUpdateExtension(name),
@@ -2141,6 +2147,60 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     }
   }
 
+  private hasRemoteInstallApi(): boolean {
+    return typeof (this.api as any)?.extensions?.installRemote === 'function';
+  }
+
+  private async loadRemoteExtensionItems(localNames: Set<string>): Promise<any[]> {
+    this.remoteExtensionRequestPaths.clear();
+
+    if (!this.hasRemoteInstallApi()) return [];
+
+    try {
+      const remoteIndex = await fetchRemoteIndex();
+      const remoteEntries = (await Promise.allSettled(
+        remoteIndex.map(async (requestedPath) => {
+          const manifest = await fetchRemoteManifest(requestedPath);
+          return { requestedPath, manifest };
+        }),
+      ))
+        .filter((item): item is PromiseFulfilledResult<{ requestedPath: string; manifest: Record<string, any> }> => item.status === 'fulfilled')
+        .map((item) => item.value);
+
+      if (remoteIndex.length > 0 && remoteEntries.length === 0) {
+        throw new Error('远程 extension manifest 全部读取失败');
+      }
+
+      const seenRemoteNames = new Set<string>();
+      const results: any[] = [];
+      for (const entry of remoteEntries) {
+        const name = typeof entry.manifest.name === 'string' ? entry.manifest.name.trim() : '';
+        const version = typeof entry.manifest.version === 'string' ? entry.manifest.version.trim() : '';
+        if (!name || !version) continue;
+        if (localNames.has(name) || seenRemoteNames.has(name)) continue;
+        seenRemoteNames.add(name);
+        this.remoteExtensionRequestPaths.set(name, entry.requestedPath);
+
+        const hasPlatforms = Array.isArray(entry.manifest.platforms) && entry.manifest.platforms.length > 0;
+        const hasPlugin = !!entry.manifest.plugin || !!entry.manifest.entry || !hasPlatforms;
+        results.push({
+          name,
+          version,
+          description: typeof entry.manifest.description === 'string' ? entry.manifest.description : '',
+          status: 'available',
+          originalStatus: 'available',
+          hasPlugin,
+          source: 'remote',
+          requestedPath: entry.requestedPath,
+        });
+      }
+      return results;
+    } catch (err) {
+      console.warn('[ConsolePlatform] 远程 extension 列表读取失败:', err);
+      return [];
+    }
+  }
+
   private async handleListExtensions(): Promise<any[]> {
     const ext = (this.api as any)?.extensions;
     const configManager = this.api?.configManager;
@@ -2162,7 +2222,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
       const allPackages: Array<{ manifest: { name: string; version: string; description?: string; entry?: string; plugin?: any; platforms?: any[] }; source: string; rootDir: string }> = ext.discoverAll?.() ?? packages;
 
-      return allPackages.map(pkg => {
+      const localItems = allPackages.map(pkg => {
         const name = pkg.manifest.name;
         const hasPlatforms = Array.isArray(pkg.manifest.platforms) && pkg.manifest.platforms.length > 0;
         const hasPlugin = !!pkg.manifest.plugin || !!pkg.manifest.entry || !hasPlatforms;
@@ -2201,7 +2261,10 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
           gitCommit: gitMetadata?.commit,
           gitSubdir: gitMetadata?.subdir,
         };
-      }).sort((a, b) => {
+      });
+
+      const remoteItems = await this.loadRemoteExtensionItems(new Set(localItems.map(item => item.name)));
+      return [...localItems, ...remoteItems].sort((a, b) => {
         const groupA = a.hasPlugin ? 0 : 1;
         const groupB = b.hasPlugin ? 0 : 1;
         return groupA === groupB ? a.name.localeCompare(b.name) : groupA - groupB;
@@ -2307,7 +2370,14 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   }
 
   private async handleToggleExtension(name: string, desiredEnabled?: boolean): Promise<{ ok: boolean; message: string }> {
-    return handleConsoleToggleExtension(this.api as any, name, desiredEnabled);
+    const api = this.api as any;
+    const extensions = api?.extensions
+      ? {
+          ...api.extensions,
+          getRemoteRequestPath: (extensionName: string) => this.remoteExtensionRequestPaths.get(extensionName),
+        }
+      : undefined;
+    return handleConsoleToggleExtension({ ...api, extensions }, name, desiredEnabled);
   }
 
 

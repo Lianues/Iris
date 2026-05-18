@@ -448,6 +448,10 @@ export function createExtensionHandlers(installDir: string) {
           .filter((r): r is PromiseFulfilledResult<{ requestedPath: string; manifest: ExtensionManifestLike; files: string[] }> => r.status === 'fulfilled')
           .map((r) => r.value);
 
+        if (remoteIndex.length > 0 && remoteEntries.length === 0) {
+          throw new Error('远程 extension manifest 全部读取失败');
+        }
+
         const installedMap = new Map(loadInstalledExtensions().map((e) => [e.name, e]));
         const embeddedMap = new Map(loadEmbeddedExtensions(installDir).map((e) => [e.name, e]));
         const results: ExtensionSummaryDTO[] = [];

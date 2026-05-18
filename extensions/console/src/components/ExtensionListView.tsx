@@ -14,6 +14,8 @@ export interface ExtensionItem {
   originalStatus?: 'active' | 'disabled' | 'available' | 'platform';
   hasPlugin: boolean;
   source: string;
+  /** 远程仓库路径（source='remote' 时用于安装）。 */
+  requestedPath?: string;
   installSource?: 'git' | string;
   gitUrl?: string;
   gitRef?: string;
@@ -37,6 +39,7 @@ const SOURCE_BADGES: Record<string, { label: string; color: string }> = {
   'agent-installed': { label: 'A', color: '#ff7675' }, // Agent installed
   embedded:          { label: 'E', color: '#a29bfe' }, // Embedded
   workspace:         { label: 'W', color: '#fdcb6e' }, // Workspace dev
+  remote:            { label: 'R', color: '#00cec9' }, // Remote catalog
 };
 
 const GIT_INPUT_PLACEHOLDER = 'https://github.com/user/repo.git#main:extensions/demo';

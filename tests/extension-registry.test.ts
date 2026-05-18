@@ -3,6 +3,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 // PluginManager 已从 src/plugins/ 迁移到 src/extension/，更新导入路径
@@ -132,6 +133,31 @@ describe('extension registry', () => {
 
     const platform = await registry.create(extension.platformName, {} as any);
     expect((platform as { name: string }).name).toBe(extension.platformName);
+  });
+
+  it('支持从 agentExtensionsDir 发现 agent 专属 extension', () => {
+    const agentExtensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-agent-extension-'));
+    createdDirs.push(agentExtensionsDir);
+
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const name = `agent-extension-${suffix}`;
+    const rootDir = path.join(agentExtensionsDir, name);
+    fs.mkdirSync(rootDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(rootDir, 'manifest.json'),
+      JSON.stringify({
+        name,
+        version: '0.1.0',
+        plugin: { entry: 'index.mjs' },
+      }, null, 2),
+      'utf-8',
+    );
+    fs.writeFileSync(path.join(rootDir, 'index.mjs'), 'export default {};\n', 'utf-8');
+
+    const packages = discoverLocalExtensions({ agentExtensionsDir, workspace: { enabled: false, allowlist: [] } });
+    const found = packages.find((item) => item.manifest.name === name);
+    expect(found?.rootDir).toBe(rootDir);
+    expect(found?.source).toBe('agent-installed');
   });
 
   it('被标记为 disabled 的 extension 不应再被发现、加载或注册平台', () => {
