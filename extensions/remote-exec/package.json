@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../../script/prepare-extension-sdk.mjs && bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --packages=bundle && bun ../../script/validate-extension-bundle.ts --file ./dist/index.mjs --extension remote-exec"
+    "build": "node ../../script/prepare-extension-sdk.mjs && node -e \"require('fs').rmSync('./dist', { recursive: true, force: true })\" && bun build ./src/index.ts --outdir ./dist --entry-naming index.mjs --target=node --format=esm --packages=bundle && bun ../../script/validate-extension-bundle.ts --file ./dist/index.mjs --extension remote-exec"
   },
   "dependencies": {
     "irises-extension-sdk": "file:../../packages/extension-sdk",

@@ -11702,9 +11702,14 @@ var require_utils = __commonJS((exports, module) => {
   };
 });
 
+// node_modules/ssh2/lib/protocol/crypto/build/Release/sshcrypto.node
+var require_sshcrypto = __commonJS((exports, module) => {
+  module.exports = __require("./sshcrypto-nz4yty39.node");
+});
+
 // node_modules/ssh2/lib/protocol/crypto/poly1305.js
 var require_poly1305 = __commonJS((exports, module) => {
-  var __dirname = "D:\\code\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib\\protocol\\crypto", __filename = "D:\\code\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib\\protocol\\crypto\\poly1305.js";
+  var __dirname = "/root/Iris/extensions/remote-exec/node_modules/ssh2/lib/protocol/crypto", __filename = "/root/Iris/extensions/remote-exec/node_modules/ssh2/lib/protocol/crypto/poly1305.js";
   var createPoly1305 = function() {
     var _scriptDir = typeof document !== "undefined" && document.currentScript ? document.currentScript.src : undefined;
     if (typeof __filename !== "undefined")
@@ -12188,7 +12193,7 @@ var require_crypto = __commonJS((exports, module) => {
   var ChaChaPolyDecipher;
   var GenericDecipher;
   try {
-    binding = (()=>{throw new Error("Cannot require module "+"./crypto/build/Release/sshcrypto.node");})();
+    binding = require_sshcrypto();
     ({
       AESGCMCipher,
       ChaChaPolyCipher,
@@ -14477,7 +14482,7 @@ ${formatted}-----END ${type} KEY-----`;
 
 // node_modules/ssh2/lib/agent.js
 var require_agent = __commonJS((exports, module) => {
-  var __dirname = "D:\\code\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib";
+  var __dirname = "/root/Iris/extensions/remote-exec/node_modules/ssh2/lib";
   var { Socket } = __require("net");
   var { Duplex } = __require("stream");
   var { resolve } = __require("path");
@@ -25786,7 +25791,7 @@ var require_lib2 = __commonJS((exports, module) => {
     }
   };
 });
-// ../../packages/extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -25818,7 +25823,7 @@ function createExtensionLogger(extensionName, tag) {
   };
 }
 
-// ../../packages/extension-sdk/dist/plugin/context.js
+// node_modules/irises-extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -29405,7 +29410,7 @@ minimatch.Minimatch = Minimatch;
 minimatch.escape = escape;
 minimatch.unescape = unescape;
 
-// ../../packages/extension-sdk/dist/tool-utils.js
+// node_modules/irises-extension-sdk/dist/tool-utils.js
 import * as path3 from "node:path";
 function normalizeLineEndings(text) {
   return text.replace(/\r\n/g, `
@@ -30660,6 +30665,160 @@ async function listSearchCandidates(ctx, include, effectiveExclude) {
   const files = await listAllFiles(ctx, ".", "**/*");
   return files.filter((f) => matchesSearchGlob(f.rel, include, effectiveExclude));
 }
+function expandSimpleBraceOnce(pattern) {
+  const start = pattern.indexOf("{");
+  if (start < 0)
+    return [pattern];
+  const end = pattern.indexOf("}", start + 1);
+  if (end < 0)
+    return [pattern];
+  const inner = pattern.slice(start + 1, end);
+  if (!inner || inner.includes("{") || inner.includes("}"))
+    return [pattern];
+  const parts = inner.split(",").map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0)
+    return [pattern];
+  return parts.map((part) => pattern.slice(0, start) + part + pattern.slice(end + 1));
+}
+function extractStaticSearchRoot(pattern) {
+  const body = pattern.startsWith("!") ? pattern.slice(1) : pattern;
+  const globIndex = body.search(/[*?{[\]!(+@]/);
+  if (globIndex < 0) {
+    return body || ".";
+  }
+  const prefix = body.slice(0, globIndex);
+  const slash = prefix.lastIndexOf("/");
+  return slash >= 0 ? prefix.slice(0, slash) || "." : ".";
+}
+function getRemoteSearchRoots(include) {
+  const roots = include.flatMap(expandSimpleBraceOnce).filter((pattern) => !pattern.startsWith("!")).map(extractStaticSearchRoot).map((root) => root.replace(/^\.\//, "").replace(/\/$/, "") || ".").sort((a, b) => a.length - b.length || a.localeCompare(b));
+  const deduped = [];
+  for (const root of roots) {
+    if (deduped.some((parent) => parent === "." || root === parent || root.startsWith(`${parent}/`)))
+      continue;
+    deduped.push(root);
+  }
+  return deduped.length > 0 ? deduped : ["."];
+}
+function canPrefilterRegexWithGrepE(query) {
+  if (!query || query.includes(`
+`) || query.includes("\r"))
+    return false;
+  const unsafe = [
+    /\(\?/,
+    /\\[dDsSwWbBpPkK]/,
+    /\\[nrtfv0xuUc]/,
+    /\[\[:/,
+    /(\*|\+|\?|\})\?/
+  ];
+  return !unsafe.some((re) => re.test(query));
+}
+async function grepSearchMatchesRemote(ctx, include, effectiveExclude, query, grepMode, maxResults, contextLines, maxFileSizeBytes) {
+  if (!query || query.includes(`
+`) || query.includes("\r"))
+    return;
+  const roots = getRemoteSearchRoots(include);
+  const rootArray = roots.map((root) => shQuote(root)).join(" ");
+  const prunes = DEFAULT_IGNORED_DIRS2.map((d) => `-name ${shQuote(d)}`).join(" -o ");
+  const flag = grepMode === "literal" ? "-F" : "-E";
+  const remoteLimit = Math.min(Math.max(maxResults * 200, maxResults), 5000);
+  const modeValue = grepMode === "literal" ? "literal" : "regex";
+  const preflight = grepMode === "regex-ere" ? `grep -E -e "$QUERY" </dev/null >/dev/null 2>/dev/null; st=$?; [ "$st" -gt 1 ] && exit 2` : "";
+  const script = `set +e
+QUERY=${shQuote(query)}
+MODE=${shQuote(modeValue)}
+MAX_RESULTS=${remoteLimit}
+CONTEXT_LINES=${contextLines}
+MAX_FILE_SIZE=${maxFileSizeBytes}
+MAX_LINE_CHARS=${LIMITS.search_in_files.maxLineDisplayChars}
+${preflight}
+out="$(mktemp)" || exit 2
+trap 'rm -f "$out"' EXIT
+files_searched=0
+skipped_too_large=0
+truncated=0
+count=0
+process_file() {
+  file="$1"
+  [ -f "$file" ] || return 0
+  size="$(stat -c %s -- "$file" 2>/dev/null || wc -c < "$file" 2>/dev/null || printf '0')"
+  case "$size" in ''|*[!0-9]*) size=0 ;; esac
+  if [ "$size" -gt "$MAX_FILE_SIZE" ]; then
+    skipped_too_large=$((skipped_too_large + 1))
+    return 0
+  fi
+  files_searched=$((files_searched + 1))
+  while IFS= read -r hit; do
+    line_no="\${hit%%:*}"
+    text="\${hit#*:}"
+    case "$line_no" in ''|*[!0-9]*) continue ;; esac
+    awk_out="$(awk -v mode="$MODE" -v q="$QUERY" -v line="$text" 'BEGIN {
+  if (mode == "literal") {
+    c = index(line, q);
+    if (c <= 0) exit;
+    print c " " q;
+  } else if (match(line, q)) {
+    if (RLENGTH <= 0) exit;
+    print RSTART " " substr(line, RSTART, RLENGTH);
+  }
+}')"
+    col="\${awk_out%% *}"
+    matched="\${awk_out#* }"
+    [ "$col" != "$awk_out" ] || continue
+    [ -n "$col" ] || continue
+    start=$((line_no - CONTEXT_LINES)); [ "$start" -lt 1 ] && start=1
+    end=$((line_no + CONTEXT_LINES))
+    context="$(awk -v start="$start" -v end="$end" -v max="$MAX_LINE_CHARS" 'NR >= start && NR <= end {
+      line = $0; len = length(line);
+      if (len > max) {
+        head = int(max * 0.75); tail = int(max * 0.15);
+        line = substr(line, 1, head) " ... [" len " chars] ... " substr(line, len - tail + 1);
+      }
+      printf "%d: %s\\n", NR, line;
+    }' "$file")"
+    rel="\${file#./}"
+    printf '%s\\0%s\\0%s\\0%s\\0%s\\0' "$rel" "$line_no" "$col" "$matched" "$context" >> "$out"
+    count=$((count + 1))
+    if [ "$count" -ge "$MAX_RESULTS" ]; then
+      truncated=1
+      return 1
+    fi
+  done < <(grep -nI ${flag} -e "$QUERY" -- "$file" 2>/dev/null)
+  return 0
+}
+for root in ${rootArray}; do
+  [ "$truncated" -eq 1 ] && break
+  if [ -f "$root" ]; then
+    process_file "$root" || true
+  elif [ -d "$root" ]; then
+    while IFS= read -r -d '' file; do
+      process_file "$file" || true
+      [ "$truncated" -eq 1 ] && break
+    done < <(find "$root" \\( ${prunes} \\) -prune -o -type f -print0 2>/dev/null)
+  fi
+done
+{ printf 'S\\0%s\\0%s\\0%s\\0' "$files_searched" "$skipped_too_large" "$truncated"; cat "$out"; } | base64 | tr -d '\\n\\r'`;
+  const r = await execBash(ctx, script);
+  if ((r.exitCode ?? 0) > 1 || r.timedOut)
+    return;
+  if (!r.stdout.trim())
+    return { records: [], filesSearched: 0, skippedTooLarge: 0, truncated: false };
+  const fields = decodeNulListFromBase642(r.stdout);
+  if (fields.shift() !== "S")
+    return;
+  const filesSearched = Number.parseInt(fields.shift() ?? "0", 10) || 0;
+  const skippedTooLarge = Number.parseInt(fields.shift() ?? "0", 10) || 0;
+  const truncated = (fields.shift() ?? "0") === "1";
+  const records = [];
+  for (let i = 0;i + 4 < fields.length; i += 5) {
+    const line = Number.parseInt(fields[i + 1], 10);
+    const column = Number.parseInt(fields[i + 2], 10);
+    if (!Number.isFinite(line) || !Number.isFinite(column))
+      continue;
+    records.push({ file: fields[i], line, column, match: fields[i + 3], context: fields[i + 4] });
+  }
+  return { records, filesSearched, skippedTooLarge, truncated };
+}
 var tSearchInFiles = async (args, ctx) => {
   const modeArg = args.mode ?? "search";
   if (modeArg !== "search" && modeArg !== "replace")
@@ -30672,12 +30831,35 @@ var tSearchInFiles = async (args, ctx) => {
   const contextLines = clampPositiveInteger(args.contextLines, LIMITS.search_in_files.contextLines, LIMITS.search_in_files.contextLines);
   const maxFileSizeBytes = clampPositiveInteger(args.maxFileSizeBytes, LIMITS.search_in_files.maxFileSizeBytes, LIMITS.search_in_files.maxFileSizeBytes);
   const regex = buildSearchRegex(query, regexMode);
-  const candidates = await listSearchCandidates(ctx, include, effectiveExclude);
-  const emptyMatchWarning = candidates.length === 0 ? '没有文件匹配 include/exclude glob。请检查 include，例如 ["src/**/*", "tests/**/*"] 或 ["{src,tests}/**/*"]。' : undefined;
   if (modeArg === "search") {
+    const grepMode = !regexMode ? "literal" : canPrefilterRegexWithGrepE(query) ? "regex-ere" : undefined;
+    if (grepMode) {
+      const remoteGrep = await grepSearchMatchesRemote(ctx, include, effectiveExclude, query, grepMode, maxResults, contextLines, maxFileSizeBytes);
+      if (remoteGrep) {
+        const results3 = [];
+        for (const record of remoteGrep.records) {
+          if (!matchesSearchGlob(record.file, include, effectiveExclude))
+            continue;
+          results3.push({
+            file: record.file,
+            line: record.line,
+            column: record.column,
+            match: truncateLine(record.match, LIMITS.search_in_files.maxMatchDisplayChars),
+            context: record.context
+          });
+          if (results3.length >= maxResults)
+            break;
+        }
+        const truncated3 = remoteGrep.truncated || results3.length >= maxResults || remoteGrep.records.length > results3.length;
+        const warning = remoteGrep.filesSearched === 0 ? '没有文件匹配 include/exclude glob。请检查 include，例如 ["src/**/*", "tests/**/*"] 或 ["{src,tests}/**/*"]。' : undefined;
+        return { mode: modeArg, query, regex: regexMode, include, exclude, effectiveExclude, results: results3, count: results3.length, truncated: truncated3, filesMatched: remoteGrep.filesSearched, filesSearched: remoteGrep.filesSearched, skippedBinary: 0, skippedTooLarge: remoteGrep.skippedTooLarge, remoteSearch: "grep", ...warning ? { warning } : {} };
+      }
+    }
+    const candidates2 = await listSearchCandidates(ctx, include, effectiveExclude);
+    const emptyMatchWarning2 = candidates2.length === 0 ? '没有文件匹配 include/exclude glob。请检查 include，例如 ["src/**/*", "tests/**/*"] 或 ["{src,tests}/**/*"]。' : undefined;
     const results2 = [];
     let filesSearched = 0, skippedBinary = 0, skippedTooLarge = 0, truncated2 = false;
-    for (const f of candidates) {
+    for (const f of candidates2) {
       if (results2.length >= maxResults) {
         truncated2 = true;
         break;
@@ -30718,11 +30900,13 @@ var tSearchInFiles = async (args, ctx) => {
         }
       }
     }
-    return { mode: modeArg, query, regex: regexMode, include, exclude, effectiveExclude, results: results2, count: results2.length, truncated: truncated2, filesMatched: candidates.length, filesSearched, skippedBinary, skippedTooLarge, ...emptyMatchWarning ? { warning: emptyMatchWarning } : {} };
+    return { mode: modeArg, query, regex: regexMode, include, exclude, effectiveExclude, results: results2, count: results2.length, truncated: truncated2, filesMatched: candidates2.length, filesSearched, skippedBinary, skippedTooLarge, ...emptyMatchWarning2 ? { warning: emptyMatchWarning2 } : {} };
   }
   const replace = args.replace;
   if (typeof replace !== "string")
     throw new Error("replace 模式下必须提供 replace 参数");
+  const candidates = await listSearchCandidates(ctx, include, effectiveExclude);
+  const emptyMatchWarning = candidates.length === 0 ? '没有文件匹配 include/exclude glob。请检查 include，例如 ["src/**/*", "tests/**/*"] 或 ["{src,tests}/**/*"]。' : undefined;
   const results = [];
   let processedFiles = 0, totalReplacements = 0;
   const truncated = candidates.length > maxFiles;

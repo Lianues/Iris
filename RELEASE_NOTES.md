@@ -1,5 +1,7 @@
 # Iris v1.0.28 Release Notes
 
+* Read File：`read_file` 改为基于文件字节内容检测文本/二进制，移除扩展名白名单判断，避免无扩展名二进制文件被误读，也支持更多真实文本文件。
+* Read File：新增编码检测与解码兜底，支持 UTF-8/UTF-16/UTF-32、GBK/GB18030、Big5、Shift-JIS 等文本，并在结果中返回 `encoding` 信息。
 * Search：`search_in_files` 全面切换为 glob-first 接口，使用 `include` / `exclude` 数组描述搜索范围，不再接受旧的 `path` / `pattern` / `isRegex` 参数。
 * Search：引入 `fast-glob` 支持常见复杂 glob 语法，例如 `{src,tests}/**/*`、`**/*.{ts,tsx}` 与 extglob，让 AI 更容易生成符合编程习惯的搜索调用。
 * Search：搜索和替换结果新增 `filesMatched`、`effectiveExclude` 与空匹配 `warning`，区分“没有命中内容”和“没有匹配到文件”。
