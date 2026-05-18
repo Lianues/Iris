@@ -251,7 +251,6 @@ function getLineColor(kind: DiffLineKind, hunkStatus?: HunkStatus): string {
   switch (kind) {
     case 'file': return '#9ca3af';
     case 'hunk':
-      if (hunkStatus?.success === true) return '#57ab5a';
       if (hunkStatus?.success === false) return '#f47067';
       return '#79c0ff';
     case 'add': return '#57ab5a';

@@ -116,6 +116,72 @@ async function getHistoryLengthSafe(api: IrisAPI, sessionId: string): Promise<nu
   catch { return 0; }
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function isToolResponseOnlyMessage(message: unknown): boolean {
+  const record = asRecord(message);
+  if (record?.role !== 'user') return false;
+  const parts = Array.isArray(record.parts) ? record.parts : [];
+  return parts.length > 0 && parts.every(part => !!asRecord(part)?.functionResponse);
+}
+
+function isOrdinaryUserMessage(message: unknown): boolean {
+  const record = asRecord(message);
+  return record?.role === 'user' && !isToolResponseOnlyMessage(message);
+}
+
+function findTurnEndHistoryIndex(history: unknown[], responseIndex: number): number {
+  for (let i = responseIndex + 1; i < history.length; i++) {
+    if (isOrdinaryUserMessage(history[i])) return i;
+  }
+  return history.length;
+}
+
+function extractMilestoneSnapshotFromFunctionResponse(part: unknown, sessionId: string): MilestoneSnapshot | undefined {
+  const functionResponse = asRecord(asRecord(part)?.functionResponse);
+  if (functionResponse?.name !== 'update_milestones') return undefined;
+  const response = asRecord(functionResponse.response);
+  const result = asRecord(response?.result);
+  const rawSnapshot = result?.snapshot ?? response?.snapshot;
+  const snapshot = normalizeMilestoneSnapshot(rawSnapshot, sessionId);
+  return isArchivable(snapshot) ? snapshot : undefined;
+}
+
+interface HistoryArchiveCandidate {
+  snapshot: MilestoneSnapshot;
+  afterHistoryIndex: number;
+}
+
+function collectHistoryArchiveCandidates(history: unknown[], sessionId: string): HistoryArchiveCandidate[] {
+  const candidates = new Map<number, HistoryArchiveCandidate>();
+  for (let i = 0; i < history.length; i++) {
+    const parts = Array.isArray(asRecord(history[i])?.parts) ? asRecord(history[i])!.parts as unknown[] : [];
+    for (const part of parts) {
+      const snapshot = extractMilestoneSnapshotFromFunctionResponse(part, sessionId);
+      if (!snapshot || typeof snapshot.updatedAt !== 'number' || !Number.isFinite(snapshot.updatedAt)) continue;
+      const afterHistoryIndex = findTurnEndHistoryIndex(history, i);
+      const existing = candidates.get(snapshot.updatedAt);
+      if (!existing || afterHistoryIndex > existing.afterHistoryIndex) {
+        candidates.set(snapshot.updatedAt, { snapshot, afterHistoryIndex });
+      }
+    }
+  }
+  return Array.from(candidates.values()).sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.snapshot.updatedAt - b.snapshot.updatedAt);
+}
+
+async function getHistoryArchiveCandidatesSafe(api: IrisAPI, sessionId: string): Promise<{ historyLength: number; candidates: HistoryArchiveCandidate[] }> {
+  try {
+    const history = await api.storage.getHistory(sessionId) as unknown[];
+    return { historyLength: history.length, candidates: collectHistoryArchiveCandidates(history, sessionId) };
+  } catch {
+    return { historyLength: 0, candidates: [] };
+  }
+}
+
 function upsertArchive(state: PersistedMilestoneState, snapshot: MilestoneSnapshot, afterHistoryIndex: number): void {
   if (!isArchivable(snapshot)) return;
   const archives = normalizeArchives(state.archives, snapshot.sessionId);
@@ -135,6 +201,51 @@ function upsertArchive(state: PersistedMilestoneState, snapshot: MilestoneSnapsh
     archives.push({ id: archiveId, snapshot, archivedAt: snapshot.updatedAt || Date.now(), afterHistoryIndex: safeIndex });
   }
   state.archives = archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
+}
+
+async function reconcilePersistedMilestoneArchives(api: IrisAPI, sessionId: string): Promise<PersistedMilestoneState | undefined> {
+  const { historyLength, candidates } = await getHistoryArchiveCandidatesSafe(api, sessionId);
+  const candidateByUpdatedAt = new Map(candidates.map(candidate => [candidate.snapshot.updatedAt, candidate]));
+
+  return updatePersistedMilestoneState(api, sessionId, (state) => {
+    let changed = false;
+
+    const upsertIfNeeded = (snapshot: MilestoneSnapshot, afterHistoryIndex: number): void => {
+      const before = normalizeArchives(state.archives, sessionId).find(entry => entry.snapshot.updatedAt === snapshot.updatedAt)?.afterHistoryIndex;
+      if (before != null && before >= afterHistoryIndex) return;
+      upsertArchive(state, snapshot, afterHistoryIndex);
+      changed = true;
+    };
+
+    // 兜底 1：从历史里的 update_milestones functionResponse 反推归档位置。
+    // 这能修正「归档已存在但 afterHistoryIndex 过早」的情况，也能在 archive 缺失时补齐。
+    for (const candidate of candidates) {
+      upsertIfNeeded(candidate.snapshot, candidate.afterHistoryIndex);
+    }
+
+    const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
+    if (isArchivable(latest)) {
+      const candidate = candidateByUpdatedAt.get(latest.updatedAt);
+      upsertIfNeeded(latest, candidate?.afterHistoryIndex ?? historyLength);
+      const ui = normalizeUiState(state.ui);
+      if (!ui || ui.snapshotUpdatedAt !== latest.updatedAt || ui.expanded !== true) {
+        state.ui = createUiState(true, latest.updatedAt);
+        changed = true;
+      }
+    } else if (!latest && candidates.length > 0) {
+      // 兜底 2：如果异常发生在 latest 落盘前，但工具响应已进入历史，
+      // 从历史中最新的 completed snapshot 恢复 latest，避免重载后进度状态丢失。
+      const recovered = [...candidates].sort((a, b) => a.snapshot.updatedAt - b.snapshot.updatedAt || a.afterHistoryIndex - b.afterHistoryIndex).at(-1)!;
+      state.latest = recovered.snapshot;
+      const ui = normalizeUiState(state.ui);
+      if (!ui || ui.snapshotUpdatedAt !== recovered.snapshot.updatedAt || ui.expanded !== true) {
+        state.ui = createUiState(true, recovered.snapshot.updatedAt);
+      }
+      changed = true;
+    }
+
+    return changed ? state : undefined;
+  });
 }
 
 async function persistSnapshot(api: IrisAPI, snapshot: MilestoneSnapshot): Promise<void> {
@@ -315,6 +426,11 @@ export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionSe
       const meta = await api.storage.getMeta?.(sessionId);
       const state = getExtensionState(meta);
       const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
+      if (!latest) {
+        const reconciled = await reconcilePersistedMilestoneArchives(api, sessionId);
+        const recoveredLatest = normalizeMilestoneSnapshot(reconciled?.latest, sessionId);
+        if (recoveredLatest) manager.hydrate(recoveredLatest);
+      }
       if (latest) {
         const current = manager.getSnapshot(sessionId);
         const storageUpdatedAt = typeof latest.updatedAt === 'number' ? latest.updatedAt : 0;
@@ -326,22 +442,11 @@ export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionSe
       return manager.getSnapshot(sessionId);
     },
     async loadArchives(sessionId) {
+      const updated = await reconcilePersistedMilestoneArchives(api, sessionId);
+      if (updated) return normalizeArchives(updated.archives, sessionId);
       const meta = await api.storage.getMeta?.(sessionId);
       const state = getExtensionState(meta);
-      const archives = normalizeArchives(state.archives, sessionId);
-      const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
-      if (isArchivable(latest) && !archives.some(entry => entry.snapshot.updatedAt === latest!.updatedAt)) {
-        const updated = await updatePersistedMilestoneState(api, sessionId, async (currentState) => {
-          const currentArchives = normalizeArchives(currentState.archives, sessionId);
-          const currentLatest = normalizeMilestoneSnapshot(currentState.latest, sessionId);
-          if (isArchivable(currentLatest) && !currentArchives.some(entry => entry.snapshot.updatedAt === currentLatest!.updatedAt)) {
-            upsertArchive(currentState, currentLatest!, await getHistoryLengthSafe(api, sessionId));
-          }
-          return currentState;
-        });
-        return normalizeArchives(updated?.archives, sessionId);
-      }
-      return archives;
+      return normalizeArchives(state.archives, sessionId);
     },
     async loadUiState(sessionId) {
       const meta = await api.storage.getMeta?.(sessionId);

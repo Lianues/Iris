@@ -269,6 +269,87 @@ describe('Backend milestone persistence', () => {
     expect(getPersisted(meta)?.archives?.[0].afterHistoryIndex).toBe(4);
   });
 
+  it('loadArchives 会根据工具响应修正过早的 milestone 归档位置', async () => {
+    const storage = new InMemoryStorage();
+    const manager = new SessionMilestoneManager();
+    const inProgressSnapshot = manager.update('s1', [
+      { title: '演示里程碑', status: 'in_progress' },
+    ], { replaceAll: true });
+    const completedSnapshot = manager.update('s1', [
+      { title: '演示里程碑', status: 'completed' },
+    ], { replaceAll: true });
+
+    await storage.saveMeta({
+      id: 's1',
+      title: '错位归档测试',
+      cwd: process.cwd(),
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+      extensionState: {
+        milestone: {
+          latest: completedSnapshot,
+          archives: [{
+            id: `s1:${completedSnapshot.updatedAt}`,
+            snapshot: completedSnapshot,
+            archivedAt: completedSnapshot.updatedAt,
+            afterHistoryIndex: 6,
+          }],
+        },
+      },
+    });
+
+    await storage.addMessage('s1', { role: 'user', parts: [{ text: '输出一个里程碑，并再勾选完成他' }] }); // 1
+    await storage.addMessage('s1', { role: 'user', parts: [{ text: '继续' }] }); // 2
+    await storage.addMessage('s1', { role: 'model', parts: [{ functionCall: { name: 'list_milestones', args: {}, callId: 'list-1' } }] as any }); // 3
+    await storage.addMessage('s1', { role: 'user', parts: [{ functionResponse: { name: 'list_milestones', callId: 'list-1', response: { result: { ok: true } } } }] as any }); // 4
+    await storage.addMessage('s1', { role: 'model', parts: [{ text: '先创建：' }, { functionCall: { name: 'update_milestones', args: {}, callId: 'create-1' } }] as any }); // 5
+    await storage.addMessage('s1', { role: 'user', parts: [{ functionResponse: { name: 'update_milestones', callId: 'create-1', response: { result: { ok: true, snapshot: inProgressSnapshot } } } }] as any }); // 6
+    await storage.addMessage('s1', { role: 'model', parts: [{ text: '现在勾选完成：' }, { functionCall: { name: 'update_milestones', args: {}, callId: 'done-1' } }] as any }); // 7
+    await storage.addMessage('s1', { role: 'user', parts: [{ functionResponse: { name: 'update_milestones', callId: 'done-1', response: { result: { ok: true, snapshot: completedSnapshot } } } }] as any }); // 8
+    await storage.addMessage('s1', { role: 'model', parts: [{ text: '完成！流程演示如下。' }] }); // 9
+    await storage.addMessage('s1', { role: 'user', parts: [{ text: '你好' }] }); // 10，下一个普通 user 属于新 turn
+    await storage.addMessage('s1', { role: 'model', parts: [{ text: '你好！' }] }); // 11
+
+    const service = createMilestoneService(storage);
+    const archives = await service.loadArchives('s1');
+
+    expect(archives).toHaveLength(1);
+    expect(archives[0].snapshot.updatedAt).toBe(completedSnapshot.updatedAt);
+    expect(archives[0].afterHistoryIndex).toBe(9);
+    expect(getPersisted(await storage.getMeta('s1'))?.archives?.[0].afterHistoryIndex).toBe(9);
+  });
+
+  it('loadLatest/loadArchives 可从历史工具响应恢复未落盘的完成态 milestone', async () => {
+    const storage = new InMemoryStorage();
+    const manager = new SessionMilestoneManager();
+    const completedSnapshot = manager.update('s1', [
+      { title: '历史中恢复的里程碑', status: 'completed' },
+    ], { replaceAll: true });
+
+    await storage.saveMeta({
+      id: 's1',
+      title: '历史恢复测试',
+      cwd: process.cwd(),
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+      extensionState: { milestone: {} },
+    });
+    await storage.addMessage('s1', { role: 'user', parts: [{ text: '开始' }] }); // 1
+    await storage.addMessage('s1', { role: 'model', parts: [{ functionCall: { name: 'update_milestones', args: {}, callId: 'done-1' } }] as any }); // 2
+    await storage.addMessage('s1', { role: 'user', parts: [{ functionResponse: { name: 'update_milestones', callId: 'done-1', response: { result: { ok: true, snapshot: completedSnapshot } } } }] as any }); // 3
+    await storage.addMessage('s1', { role: 'model', parts: [{ text: '已完成' }] }); // 4
+
+    const service = createMilestoneService(storage);
+    const latest = await service.loadLatest('s1');
+    const archives = await service.loadArchives('s1');
+
+    expect(latest?.items[0].title).toBe('历史中恢复的里程碑');
+    expect(archives).toHaveLength(1);
+    expect(archives[0].snapshot.updatedAt).toBe(completedSnapshot.updatedAt);
+    expect(archives[0].afterHistoryIndex).toBe(4);
+    expect(getPersisted(await storage.getMeta('s1'))?.latest?.updatedAt).toBe(completedSnapshot.updatedAt);
+  });
+
   it('可在 session meta 中保存并读取最新 milestone 展开状态', async () => {
     const storage = new InMemoryStorage();
     const service = createMilestoneService(storage);

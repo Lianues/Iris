@@ -331,6 +331,62 @@ async function getHistoryLengthSafe(api, sessionId) {
     return 0;
   }
 }
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
+}
+function isToolResponseOnlyMessage(message) {
+  const record = asRecord(message);
+  if (record?.role !== "user")
+    return false;
+  const parts = Array.isArray(record.parts) ? record.parts : [];
+  return parts.length > 0 && parts.every((part) => !!asRecord(part)?.functionResponse);
+}
+function isOrdinaryUserMessage(message) {
+  const record = asRecord(message);
+  return record?.role === "user" && !isToolResponseOnlyMessage(message);
+}
+function findTurnEndHistoryIndex(history, responseIndex) {
+  for (let i = responseIndex + 1;i < history.length; i++) {
+    if (isOrdinaryUserMessage(history[i]))
+      return i;
+  }
+  return history.length;
+}
+function extractMilestoneSnapshotFromFunctionResponse(part, sessionId) {
+  const functionResponse = asRecord(asRecord(part)?.functionResponse);
+  if (functionResponse?.name !== "update_milestones")
+    return;
+  const response = asRecord(functionResponse.response);
+  const result = asRecord(response?.result);
+  const rawSnapshot = result?.snapshot ?? response?.snapshot;
+  const snapshot = normalizeMilestoneSnapshot(rawSnapshot, sessionId);
+  return isArchivable(snapshot) ? snapshot : undefined;
+}
+function collectHistoryArchiveCandidates(history, sessionId) {
+  const candidates = new Map;
+  for (let i = 0;i < history.length; i++) {
+    const parts = Array.isArray(asRecord(history[i])?.parts) ? asRecord(history[i]).parts : [];
+    for (const part of parts) {
+      const snapshot = extractMilestoneSnapshotFromFunctionResponse(part, sessionId);
+      if (!snapshot || typeof snapshot.updatedAt !== "number" || !Number.isFinite(snapshot.updatedAt))
+        continue;
+      const afterHistoryIndex = findTurnEndHistoryIndex(history, i);
+      const existing = candidates.get(snapshot.updatedAt);
+      if (!existing || afterHistoryIndex > existing.afterHistoryIndex) {
+        candidates.set(snapshot.updatedAt, { snapshot, afterHistoryIndex });
+      }
+    }
+  }
+  return Array.from(candidates.values()).sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.snapshot.updatedAt - b.snapshot.updatedAt);
+}
+async function getHistoryArchiveCandidatesSafe(api, sessionId) {
+  try {
+    const history = await api.storage.getHistory(sessionId);
+    return { historyLength: history.length, candidates: collectHistoryArchiveCandidates(history, sessionId) };
+  } catch {
+    return { historyLength: 0, candidates: [] };
+  }
+}
 function upsertArchive(state, snapshot, afterHistoryIndex) {
   if (!isArchivable(snapshot))
     return;
@@ -351,6 +407,42 @@ function upsertArchive(state, snapshot, afterHistoryIndex) {
     archives.push({ id: archiveId, snapshot, archivedAt: snapshot.updatedAt || Date.now(), afterHistoryIndex: safeIndex });
   }
   state.archives = archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
+}
+async function reconcilePersistedMilestoneArchives(api, sessionId) {
+  const { historyLength, candidates } = await getHistoryArchiveCandidatesSafe(api, sessionId);
+  const candidateByUpdatedAt = new Map(candidates.map((candidate) => [candidate.snapshot.updatedAt, candidate]));
+  return updatePersistedMilestoneState(api, sessionId, (state) => {
+    let changed = false;
+    const upsertIfNeeded = (snapshot, afterHistoryIndex) => {
+      const before = normalizeArchives(state.archives, sessionId).find((entry) => entry.snapshot.updatedAt === snapshot.updatedAt)?.afterHistoryIndex;
+      if (before != null && before >= afterHistoryIndex)
+        return;
+      upsertArchive(state, snapshot, afterHistoryIndex);
+      changed = true;
+    };
+    for (const candidate of candidates) {
+      upsertIfNeeded(candidate.snapshot, candidate.afterHistoryIndex);
+    }
+    const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
+    if (isArchivable(latest)) {
+      const candidate = candidateByUpdatedAt.get(latest.updatedAt);
+      upsertIfNeeded(latest, candidate?.afterHistoryIndex ?? historyLength);
+      const ui = normalizeUiState(state.ui);
+      if (!ui || ui.snapshotUpdatedAt !== latest.updatedAt || ui.expanded !== true) {
+        state.ui = createUiState(true, latest.updatedAt);
+        changed = true;
+      }
+    } else if (!latest && candidates.length > 0) {
+      const recovered = [...candidates].sort((a, b) => a.snapshot.updatedAt - b.snapshot.updatedAt || a.afterHistoryIndex - b.afterHistoryIndex).at(-1);
+      state.latest = recovered.snapshot;
+      const ui = normalizeUiState(state.ui);
+      if (!ui || ui.snapshotUpdatedAt !== recovered.snapshot.updatedAt || ui.expanded !== true) {
+        state.ui = createUiState(true, recovered.snapshot.updatedAt);
+      }
+      changed = true;
+    }
+    return changed ? state : undefined;
+  });
 }
 async function persistSnapshot(api, snapshot) {
   await updatePersistedMilestoneState(api, snapshot.sessionId, async (state) => {
@@ -516,6 +608,12 @@ function createMilestoneServiceForApi(api) {
       const meta = await api.storage.getMeta?.(sessionId);
       const state = getExtensionState(meta);
       const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
+      if (!latest) {
+        const reconciled = await reconcilePersistedMilestoneArchives(api, sessionId);
+        const recoveredLatest = normalizeMilestoneSnapshot(reconciled?.latest, sessionId);
+        if (recoveredLatest)
+          manager.hydrate(recoveredLatest);
+      }
       if (latest) {
         const current = manager.getSnapshot(sessionId);
         const storageUpdatedAt = typeof latest.updatedAt === "number" ? latest.updatedAt : 0;
@@ -527,22 +625,12 @@ function createMilestoneServiceForApi(api) {
       return manager.getSnapshot(sessionId);
     },
     async loadArchives(sessionId) {
+      const updated = await reconcilePersistedMilestoneArchives(api, sessionId);
+      if (updated)
+        return normalizeArchives(updated.archives, sessionId);
       const meta = await api.storage.getMeta?.(sessionId);
       const state = getExtensionState(meta);
-      const archives = normalizeArchives(state.archives, sessionId);
-      const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
-      if (isArchivable(latest) && !archives.some((entry) => entry.snapshot.updatedAt === latest.updatedAt)) {
-        const updated = await updatePersistedMilestoneState(api, sessionId, async (currentState) => {
-          const currentArchives = normalizeArchives(currentState.archives, sessionId);
-          const currentLatest = normalizeMilestoneSnapshot(currentState.latest, sessionId);
-          if (isArchivable(currentLatest) && !currentArchives.some((entry) => entry.snapshot.updatedAt === currentLatest.updatedAt)) {
-            upsertArchive(currentState, currentLatest, await getHistoryLengthSafe(api, sessionId));
-          }
-          return currentState;
-        });
-        return normalizeArchives(updated?.archives, sessionId);
-      }
-      return archives;
+      return normalizeArchives(state.archives, sessionId);
     },
     async loadUiState(sessionId) {
       const meta = await api.storage.getMeta?.(sessionId);
