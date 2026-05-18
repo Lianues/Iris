@@ -18,9 +18,16 @@ const MAX_LINE_CHARS = 180;
 
 type DiffLineKind = 'file' | 'hunk' | 'add' | 'del' | 'ctx' | 'meta' | 'message';
 
+interface HunkStatus {
+  success?: boolean;
+  error?: string;
+}
+
 interface RenderLine {
   kind: DiffLineKind;
   text: string;
+  hunkIndex?: number;
+  hunkStatus?: HunkStatus;
 }
 
 interface ResultWithUiPreview {
@@ -33,6 +40,7 @@ interface CompactDiffPreviewProps {
   preview?: ToolDiffPreviewResponseLike;
   maxItems?: number;
   maxLines?: number;
+  hunkStatuses?: HunkStatus[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -91,9 +99,13 @@ function truncateLine(line: string, max = MAX_LINE_CHARS): string {
   return `${line.slice(0, head)} ${ICONS.ellipsis} ${line.slice(-tail)}`;
 }
 
-function classifyDiffLine(rawLine: string): RenderLine {
+function classifyDiffLine(rawLine: string, hunkIndex?: number, hunkStatus?: HunkStatus): RenderLine {
   const line = truncateLine(rawLine);
-  if (line.startsWith('@@')) return { kind: 'hunk', text: line };
+  if (line.startsWith('@@')) {
+    return {
+      kind: 'hunk', text: line, hunkIndex, hunkStatus,
+    };
+  }
   if (line.startsWith('+') && !isUnifiedFileHeader(rawLine)) return { kind: 'add', text: line };
   if (line.startsWith('-') && !isUnifiedFileHeader(rawLine)) return { kind: 'del', text: line };
   if (line.startsWith(' ')) return { kind: 'ctx', text: line };
@@ -119,11 +131,13 @@ function collectRenderLines(
   preview: ToolDiffPreviewResponseLike,
   maxItems: number,
   maxLines: number,
+  hunkStatuses: HunkStatus[],
 ): { lines: RenderLine[]; hiddenLines: number; hiddenItems: number } {
   const lines: RenderLine[] = [];
   let hiddenLines = 0;
   let hiddenItems = 0;
   let renderedItems = 0;
+  let hunkCounter = 0;
 
   const pushLine = (line: RenderLine): boolean => {
     if (lines.length >= maxLines) {
@@ -152,7 +166,9 @@ function collectRenderLines(
       for (let i = 0; i < diffLines.length; i++) {
         const rawLine = diffLines[i];
         if (rawLine.length === 0 || isUnifiedFileHeader(rawLine)) continue;
-        if (!pushLine(classifyDiffLine(rawLine))) {
+        const currentHunkIndex = rawLine.startsWith('@@') ? hunkCounter++ : undefined;
+        const hunkStatus = currentHunkIndex !== undefined ? hunkStatuses[currentHunkIndex] : undefined;
+        if (!pushLine(classifyDiffLine(rawLine, currentHunkIndex, hunkStatus))) {
           hiddenLines += diffLines.slice(i + 1)
             .filter(line => line.length > 0 && !isUnifiedFileHeader(line))
             .length;
@@ -167,10 +183,13 @@ function collectRenderLines(
   return { lines, hiddenLines, hiddenItems };
 }
 
-function getLineColor(kind: DiffLineKind): string {
+function getLineColor(kind: DiffLineKind, hunkStatus?: HunkStatus): string {
   switch (kind) {
     case 'file': return '#9ca3af';
-    case 'hunk': return '#79c0ff';
+    case 'hunk':
+      if (hunkStatus?.success === true) return '#57ab5a';
+      if (hunkStatus?.success === false) return '#f47067';
+      return '#79c0ff';
     case 'add': return '#57ab5a';
     case 'del': return '#f47067';
     case 'ctx': return '#8b949e';
@@ -185,17 +204,25 @@ export function CompactDiffPreview({
   preview,
   maxItems = DEFAULT_MAX_ITEMS,
   maxLines = DEFAULT_MAX_LINES,
+  hunkStatuses = [],
 }: CompactDiffPreviewProps) {
   if (!preview || !Array.isArray(preview.items) || preview.items.length === 0) return null;
 
-  const { lines, hiddenLines, hiddenItems } = collectRenderLines(preview, maxItems, maxLines);
+  const { lines, hiddenLines, hiddenItems } = collectRenderLines(preview, maxItems, maxLines, hunkStatuses);
   if (lines.length === 0) return null;
 
   return (
     <box flexDirection="column">
       {lines.map((line, index) => (
         <text key={`diff-preview.${index}`}>
-          <span fg={getLineColor(line.kind)}>{`  ${line.text}`}</span>
+          {line.kind === 'hunk' && line.hunkStatus?.success !== undefined ? (
+            <>
+              <span fg={getLineColor(line.kind, line.hunkStatus)}>{`  ${line.hunkStatus.success ? '✓' : '✗'} `}</span>
+              <span fg={getLineColor(line.kind, line.hunkStatus)}>{line.text}</span>
+            </>
+          ) : (
+            <span fg={getLineColor(line.kind, line.hunkStatus)}>{`  ${line.text}`}</span>
+          )}
         </text>
       ))}
       {(hiddenLines > 0 || hiddenItems > 0) ? (

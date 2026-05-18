@@ -16,6 +16,10 @@ interface ApplyDiffResult {
   totalHunks?: number;
   applied?: number;
   failed?: number;
+  results?: Array<{
+    index?: number;
+    success?: boolean;
+  }>;
 }
 
 /**
@@ -41,6 +45,7 @@ export function ApplyDiffRenderer({ args, result }: ToolRendererProps) {
   const { added, deleted } = countPatchLines(args?.patch);
   const path = r.path ?? (typeof args?.path === 'string' ? args.path : '');
 
+  const hunkResults = Array.isArray(r.results) ? r.results : [];
   const hasStats = added > 0 || deleted > 0;
   const preview = extractResultDiffPreview(result)
     ?? createInlineDiffPreview({ toolName: 'apply_diff', filePath: path, diff: args?.patch, added, removed: deleted });
@@ -59,7 +64,7 @@ export function ApplyDiffRenderer({ args, result }: ToolRendererProps) {
           {path ? ` (${path})` : ''}
         </em>
       </text>
-      <CompactDiffPreview preview={preview} />
+      <CompactDiffPreview preview={preview} hunkStatuses={hunkResults} />
     </box>
   );
 }
