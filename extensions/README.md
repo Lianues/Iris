@@ -72,6 +72,10 @@ extension 开发应遵守下面几条：
 - extension 使用到的第三方库，必须写到 extension 自己的 `package.json`。
 - extension 的锁文件也应放在 extension 自己目录，例如 `extensions/telegram/package-lock.json`。
 - 如果 extension 单独放在外部仓库，应在那个仓库里维护 `package-lock.json` / `bun.lock` / `pnpm-lock.yaml`。
+- 发行包里通过 `script/build.ts` 复制到 `extensions/<name>/dist/index.mjs` 的入口，默认应尽量做成**自包含 bundle**。
+- `embedded.json` 里的 `external` 只适合确实无法安全内联的依赖（例如 `sharp` 这类 native 包）。
+- 对 `@modelcontextprotocol/sdk` 这类纯 JS / ESM 包，不要保留 external：Bun `--compile` 产物在运行时通过 `file://` 动态加载 extension 时，
+  可能无法稳定解析 external 包及其转译后的子依赖，导致安装版出现“明明 node_modules 存在但 still cannot find module/package”的问题。
 - 正式分发给用户安装的 extension，必须已经包含可运行入口，例如 `dist/index.mjs`。
 - 只包含 `src/` 源码、缺少可运行入口的包，不属于可直接安装的发行包。
 

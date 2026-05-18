@@ -5,8 +5,7 @@
       "external": ["sharp","libreoffice-convert"]
     },
     {
-      "name": "mcp",
-      "external": ["@modelcontextprotocol/sdk", "dereference-json-schema"]
+      "name": "mcp"
     },
     {
       "name": "cron"
