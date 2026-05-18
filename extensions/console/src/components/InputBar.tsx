@@ -66,10 +66,6 @@ function isPlanModeToggleShortcut(key: any): boolean {
     || key.sequence === '\x1b[Z';
 }
 
-function isAutoEditToggleShortcut(key: any): boolean {
-  return key.ctrl && key.name === 'e';
-}
-
 interface InputBarProps {
   disabled: boolean;
   isGenerating: boolean;
@@ -264,12 +260,6 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
 
     // Shift+Tab 是全局 Plan Mode 切换快捷键，输入框不应插入 Tab 或消费该按键。
     if (isPlanModeToggleShortcut(key)) {
-      key.preventDefault?.();
-      return;
-    }
-
-    // Ctrl+E 是全局自动编辑切换快捷键，输入框不应把它当作“移动到行尾”。
-    if (isAutoEditToggleShortcut(key)) {
       key.preventDefault?.();
       return;
     }

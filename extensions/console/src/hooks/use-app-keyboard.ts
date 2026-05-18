@@ -219,10 +219,6 @@ function altScrollKeyName(key: any): 'up' | 'down' | 'pageup' | 'pagedown' | und
   }
 }
 
-function isAutoEditToggleShortcut(key: any): boolean {
-  return key.ctrl && key.name === 'e';
-}
-
 export function useAppKeyboard({
   viewMode,
   setViewMode,
@@ -469,24 +465,6 @@ export function useAppKeyboard({
       void onPlanCommand?.('').then((result) => {
         appendCommandMessage(setMessages, result.message, result.ok ? { label: 'plan', beforeActiveAssistant: isGenerating } : { label: 'plan', isError: true, beforeActiveAssistant: isGenerating });
       }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: 'plan', isError: true, beforeActiveAssistant: isGenerating }));
-      return;
-    }
-
-    // Ctrl+E：切换当前 Agent/session 的自动编辑。
-    // 生成期间允许切换，使后续工具调用能立刻按最新审批档位执行；
-    // 审批/确认/AskQuestion 等交互面板接管键盘时不抢占。
-    if (
-      isAutoEditToggleShortcut(key)
-      && (viewMode === 'chat' || viewMode === 'tool-list' || viewMode === 'tool-detail')
-      && pendingApprovals.length === 0
-      && pendingApplies.length === 0
-      && !pendingConfirm
-      && !askQuestionActive
-    ) {
-      key.preventDefault?.();
-      void onAutoEditCommand?.('').then((result) => {
-        appendCommandMessage(setMessages, result.message, result.ok ? { label: '自动编辑', beforeActiveAssistant: isGenerating } : { label: '自动编辑', isError: true, beforeActiveAssistant: isGenerating });
-      }).catch((err) => appendCommandMessage(setMessages, `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: '自动编辑', isError: true, beforeActiveAssistant: isGenerating }));
       return;
     }
 

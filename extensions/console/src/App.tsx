@@ -892,7 +892,6 @@ export function App({
         exitConfirmArmed={exitConfirm.exitConfirmArmed}
         backgroundTaskCount={appState.backgroundTaskCount}
         planModeActive={appState.planModeActive}
-        autoEditActive={appState.autoEditActive}
         delegateTaskCount={appState.delegateTaskCount}
         backgroundTaskTokens={appState.backgroundTaskTokens}
         backgroundTaskSpinnerFrame={appState.backgroundTaskSpinnerFrame}
