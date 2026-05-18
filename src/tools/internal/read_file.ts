@@ -5,41 +5,198 @@
  * 返回带行号的格式化文本。仅支持文本类型文件。
  */
 
+import { TextDecoder } from 'node:util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as chardet from 'chardet';
+import { isBinaryFile } from 'isbinaryfile';
 import { ToolDefinition } from '../../types';
 import { normalizeObjectArrayArg, resolveProjectPath } from '../utils';
 import { getToolLimits } from '../tool-limits';
 
-/** 支持的文本文件扩展名 */
-const TEXT_EXTENSIONS = new Set([
-  '.txt', '.md', '.markdown',
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
-  '.json', '.jsonc', '.json5',
-  '.html', '.htm', '.css', '.scss', '.less',
-  '.py', '.rb', '.go', '.rs', '.java', '.c', '.cpp', '.h', '.hpp', '.cs',
-  '.sh', '.bash', '.zsh', '.bat', '.cmd', '.ps1',
-  '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf',
- '.xml', '.svg',
-  '.csv', '.tsv', '.log',
-  '.gitignore', '.dockerignore', '.editorconfig',
-  '.sql', '.vue', '.svelte', '.astro',
-  '',
+interface EncodingMatch {
+  encoding: string;
+  confidence: number;
+}
+
+interface DecodedText {
+  text: string;
+  encoding: string;
+}
+
+const TEXT_DECODER_ALIASES: Record<string, string> = {
+  'ascii': 'utf-8',
+  'utf-8': 'utf-8',
+  'utf8': 'utf-8',
+  'utf-16 le': 'utf-16le',
+  'utf-16le': 'utf-16le',
+  'utf-16-le': 'utf-16le',
+  'utf-16 be': 'utf-16be',
+  'utf-16be': 'utf-16be',
+  'utf-16-be': 'utf-16be',
+  'utf-32 le': 'utf-32le',
+  'utf-32le': 'utf-32le',
+  'utf-32-le': 'utf-32le',
+  'utf-32 be': 'utf-32be',
+  'utf-32be': 'utf-32be',
+  'utf-32-be': 'utf-32be',
+  'shift-jis': 'shift_jis',
+  'shift_jis': 'shift_jis',
+  'sjis': 'shift_jis',
+  'big5': 'big5',
+  'euc-jp': 'euc-jp',
+  'euc_jp': 'euc-jp',
+  'euc-kr': 'euc-kr',
+  'euc_kr': 'euc-kr',
+  'gb18030': 'gb18030',
+  'gb2312': 'gb18030',
+  'gbk': 'gb18030',
+  'iso-8859-1': 'iso-8859-1',
+  'iso-8859-2': 'iso-8859-2',
+  'iso-8859-5': 'iso-8859-5',
+  'iso-8859-6': 'iso-8859-6',
+  'iso-8859-7': 'iso-8859-7',
+  'iso-8859-8': 'iso-8859-8',
+  'iso-8859-9': 'iso-8859-9',
+  'windows-1250': 'windows-1250',
+  'windows-1251': 'windows-1251',
+  'windows-1252': 'windows-1252',
+  'windows-1253': 'windows-1253',
+  'windows-1254': 'windows-1254',
+  'windows-1255': 'windows-1255',
+  'windows-1256': 'windows-1256',
+  'koi8-r': 'koi8-r',
+};
+
+/**
+ * isbinaryfile@5 对非 UTF-8 多字节文本偏保守，可能把 GBK/Big5/SJIS 文本判为二进制。
+ * 这些编码在 chardet 高置信命中且解码结果仍像文本时允许兜底放行。
+ */
+const RESCUABLE_TEXT_ENCODINGS = new Set([
+  'utf-16le', 'utf-16be', 'utf-32le', 'utf-32be',
+  'gb18030', 'big5', 'shift_jis', 'euc-jp', 'euc-kr',
 ]);
 
-/** 无扩展名但是文本的已知文件名 */
-const TEXT_FILENAMES = new Set([
-  'Makefile', 'Dockerfile', 'Vagrantfile', 'Gemfile', 'Rakefile',
-  'LICENSE', 'CHANGELOG', 'README',
-  '.gitignore', '.dockerignore', '.editorconfig', '.prettierrc', '.eslintrc',
-]);
+function normalizeEncodingName(name: string | null | undefined): string | undefined {
+  if (!name) return undefined;
+  const key = name.trim().toLowerCase().replace(/_/g, '-').replace(/\s+/g, ' ');
+  return TEXT_DECODER_ALIASES[key] ?? TEXT_DECODER_ALIASES[key.replace(/ /g, '-')];
+}
 
-function isTextFile(filePath: string): boolean {
-  const ext = path.extname(filePath).toLowerCase();
-  if (TEXT_EXTENSIONS.has(ext)) return true;
-  const basename = path.basename(filePath);
-  if (basename.startsWith('.env')) return true;
-  return TEXT_FILENAMES.has(basename);
+function getBestEncodingMatch(buffer: Buffer): EncodingMatch | undefined {
+  try {
+    const [best] = chardet.analyse(buffer);
+    const encoding = normalizeEncodingName(best?.name);
+    if (!best || !encoding) return undefined;
+    return {
+      encoding,
+      confidence: best.confidence,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function detectBomEncoding(buffer: Buffer): { encoding: string; offset: number } | undefined {
+  if (buffer.length >= 4) {
+    if (buffer[0] === 0xff && buffer[1] === 0xfe && buffer[2] === 0x00 && buffer[3] === 0x00) {
+      return { encoding: 'utf-32le', offset: 4 };
+    }
+    if (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0xfe && buffer[3] === 0xff) {
+      return { encoding: 'utf-32be', offset: 4 };
+    }
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    return { encoding: 'utf-8', offset: 3 };
+  }
+  if (buffer.length >= 2) {
+    if (buffer[0] === 0xff && buffer[1] === 0xfe) return { encoding: 'utf-16le', offset: 2 };
+    if (buffer[0] === 0xfe && buffer[1] === 0xff) return { encoding: 'utf-16be', offset: 2 };
+  }
+  return undefined;
+}
+
+function decodeUtf32(buffer: Buffer, littleEndian: boolean, offset: number): string {
+  const chars: string[] = [];
+  for (let i = offset; i + 3 < buffer.length; i += 4) {
+    const codePoint = littleEndian
+      ? ((buffer[i] ?? 0) | ((buffer[i + 1] ?? 0) << 8) | ((buffer[i + 2] ?? 0) << 16) | ((buffer[i + 3] ?? 0) << 24)) >>> 0
+      : (((buffer[i] ?? 0) << 24) | ((buffer[i + 1] ?? 0) << 16) | ((buffer[i + 2] ?? 0) << 8) | (buffer[i + 3] ?? 0)) >>> 0;
+    try {
+      chars.push(String.fromCodePoint(codePoint));
+    } catch {
+      chars.push('\uFFFD');
+    }
+  }
+  return chars.join('');
+}
+
+function decodeBuffer(buffer: Buffer): DecodedText {
+  const bom = detectBomEncoding(buffer);
+  const encoding = bom?.encoding ?? getBestEncodingMatch(buffer)?.encoding ?? 'utf-8';
+  const offset = bom?.offset ?? 0;
+
+  if (encoding === 'utf-32le' || encoding === 'utf-32be') {
+    return {
+      text: decodeUtf32(buffer, encoding === 'utf-32le', offset),
+      encoding,
+    };
+  }
+
+  try {
+    return {
+      text: new TextDecoder(encoding, { fatal: false }).decode(buffer.subarray(offset)),
+      encoding,
+    };
+  } catch {
+    return {
+      text: new TextDecoder('utf-8', { fatal: false }).decode(buffer.subarray(offset)),
+      encoding: 'utf-8',
+    };
+  }
+}
+
+function looksLikeDecodedText(text: string): boolean {
+  if (text.length === 0) return true;
+
+  let controlChars = 0;
+  let replacementChars = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code === 0xfffd) replacementChars++;
+
+    const allowedControl = code === 0x09  // tab
+      || code === 0x0a                    // LF
+      || code === 0x0d                    // CR
+      || code === 0x0c                    // FF
+      || code === 0x1b;                   // ESC（日志/终端输出常见）
+    if (!allowedControl && ((code < 0x20) || (code >= 0x7f && code <= 0x9f))) {
+      controlChars++;
+    }
+  }
+
+  return replacementChars / text.length <= 0.01
+    && controlChars / text.length <= 0.01;
+}
+
+function canRescueAsEncodedText(buffer: Buffer, decoded: DecodedText): boolean {
+  const match = getBestEncodingMatch(buffer);
+  if (!match || match.confidence < 50) return false;
+  if (!RESCUABLE_TEXT_ENCODINGS.has(match.encoding)) return false;
+  if (!looksLikeDecodedText(decoded.text)) return false;
+
+  // 不依赖文件名/后缀维护列表；只有内容编码检测足够确定时才兜底放行。
+  return match.confidence >= 80;
+}
+
+async function decodeReadableText(buffer: Buffer, filePath: string): Promise<DecodedText> {
+  const decoded = decodeBuffer(buffer);
+  const binary = await isBinaryFile(buffer, buffer.length);
+  if (!binary || canRescueAsEncodedText(buffer, decoded)) {
+    return decoded;
+  }
+
+  throw new Error(`文件看起来是二进制文件，拒绝按文本读取: ${path.extname(filePath) || '(无扩展名)'}`);
 }
 
 function formatWithLineNumbers(content: string, startLine: number): string {
@@ -61,7 +218,8 @@ interface ReadResult {
   path: string;
   success: boolean;
   type?: 'text';
-  content?:string;
+  content?: string;
+  encoding?: string;
   lineCount?: number;
   totalLines?: number;
   startLine?: number;
@@ -82,6 +240,7 @@ export const readFile: ToolDefinition = {
     name: 'read_file',
     description: [
       '读取一个或多个文本文件的内容。',
+      '按文件内容判断文本/二进制，不依赖扩展名白名单。',
       '返回带行号的格式化文本。',
       '每个文件可单独指定 startLine 和 endLine（行号从 1 开始）。',
       '参数 files 必须是数组，即使只读一个文件。',
@@ -133,19 +292,19 @@ export const readFile: ToolDefinition = {
       try {
         const resolved = resolveProjectPath(fileReq.path);
 
-        if (!isTextFile(fileReq.path)) {
-          throw new Error(`不支持的文件类型: ${path.extname(fileReq.path) || '(无扩展名)'}`);
-        }
-
         // 文件大小检查
         const stat = await fs.stat(resolved);
+        if (!stat.isFile()) {
+          throw new Error('路径不是文件');
+        }
         if (stat.size > limits.maxFileSizeBytes) {
           throw new Error(
             `文件过大 (${stat.size} bytes > ${limits.maxFileSizeBytes} bytes)，请使用 startLine/endLine 分段读取`,
           );
         }
 
-        const raw = await fs.readFile(resolved, 'utf-8');
+        const buffer = await fs.readFile(resolved);
+        const { text: raw, encoding } = await decodeReadableText(buffer, fileReq.path);
         const allLines = raw.split('\n');
         const totalLines = allLines.length;
 
@@ -174,6 +333,7 @@ export const readFile: ToolDefinition = {
           path: fileReq.path,
           success: true,
           type: 'text',
+          encoding,
           content: formatted,
           lineCount: sliced.length,
         };
