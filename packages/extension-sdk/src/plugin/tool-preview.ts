@@ -20,6 +20,17 @@ export type InsertEntryLike = InsertEntry;
 /** @deprecated 请直接使用 DeleteCodeEntry */
 export type DeleteCodeEntryLike = DeleteCodeEntry;
 
+export interface SearchGlobArgsLike {
+  include: string[];
+  exclude: string[];
+  effectiveExclude: string[];
+}
+
+export interface SearchFileMatchLike {
+  fileAbs: string;
+  relPosix: string;
+}
+
 export interface ToolPreviewUtilsLike {
   parseUnifiedDiff(patch: string): ParsedUnifiedDiffLike;
   normalizeWriteArgs(args: Record<string, unknown>): WriteEntryLike[] | undefined;
@@ -32,6 +43,8 @@ export interface ToolPreviewUtilsLike {
   globToRegExp(glob: string): RegExp;
   isLikelyBinary(buf: Buffer): boolean;
   toPosix(p: string): string;
+  normalizeSearchGlobArgs(args: Record<string, unknown>): SearchGlobArgsLike;
+  collectSearchFiles(rootAbs: string, include: string[], effectiveExclude: string[]): SearchFileMatchLike[];
 }
 
 export interface ToolDiffPreviewItemLike {

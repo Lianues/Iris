@@ -9,6 +9,7 @@
  */
 
 import path from 'node:path';
+import { minimatch } from 'minimatch';
 import {
   applySearchReplaceBestEffort,
   applyUnifiedDiffBestEffort,
@@ -542,6 +543,76 @@ function findLineIndex(starts: number[], offset: number): number { let lo = 0, h
 function truncateLine(line: string, max: number): string { if (line.length <= max) return line; const head = Math.floor(max * 0.75), tail = Math.floor(max * 0.15); return line.slice(0, head) + ` ... [${line.length} chars] ... ` + line.slice(-tail); }
 function buildContext(lines: string[], lineNum: number, ctxLines: number, maxChars: number): string { const start = Math.max(1, lineNum - ctxLines), end = Math.min(lines.length, lineNum + ctxLines); const out: string[] = []; for (let ln = start; ln <= end; ln++) out.push(`${ln}: ${truncateLine(lines[ln - 1] ?? '', maxChars)}`); return out.join('\n'); }
 
+const DEFAULT_SEARCH_INCLUDE = ['**/*'];
+const DEFAULT_SEARCH_EXCLUDE = [
+  '**/.git/**',
+  '**/node_modules/**',
+  '**/dist/**',
+  '**/build/**',
+  '**/.next/**',
+  '**/.turbo/**',
+  '**/.limcode/**',
+];
+
+function normalizeRemoteGlobPattern(raw: string, field: 'include' | 'exclude', allowNegation: boolean): string {
+  const trimmed = raw.trim();
+  if (!trimmed) throw new Error(`${field} 中不能包含空 glob`);
+  const negated = trimmed.startsWith('!');
+  if (negated && !allowNegation) throw new Error(`${field} 不支持 ! 否定模式；请把排除规则放到 exclude 数组中`);
+  const bodyRaw = negated ? trimmed.slice(1).trim() : trimmed;
+  if (!bodyRaw) throw new Error(`${field} 中不能包含空 glob`);
+  const body = bodyRaw.replace(/\\/g, '/');
+  if (path.posix.isAbsolute(body) || /^[A-Za-z]:[\\/]/.test(bodyRaw)) throw new Error(`${field} 只接受相对于远端工作目录的 glob: ${raw}`);
+  if (body.split('/').some(part => part === '..')) throw new Error(`${field} 不允许包含 .. 路径段: ${raw}`);
+  return negated ? `!${body}` : body;
+}
+
+function normalizeRemoteGlobList(value: unknown, field: 'include' | 'exclude', fallback: string[], allowNegation: boolean): string[] {
+  if (value === undefined) return [...fallback];
+  if (!Array.isArray(value)) throw new Error(`${field} 参数必须是字符串数组`);
+  const normalized = value.map((item) => {
+    if (typeof item !== 'string') throw new Error(`${field} 参数必须是字符串数组`);
+    return normalizeRemoteGlobPattern(item, field, allowNegation);
+  });
+  if (field === 'include' && normalized.length === 0) throw new Error('include 参数必须是非空字符串数组');
+  return Array.from(new Set(normalized));
+}
+
+function assertNoLegacySearchArgs(args: Record<string, unknown>): void {
+  const legacyKeys = ['path', 'pattern', 'isRegex'].filter(key => args[key] !== undefined);
+  if (legacyKeys.length > 0) {
+    throw new Error(`search_in_files 已切换为 include/exclude glob 结构，不再支持旧参数: ${legacyKeys.join(', ')}。请使用 include: ["src/**/*", "tests/**/*"]，regex: true。`);
+  }
+}
+
+function normalizeRemoteSearchGlobArgs(args: Record<string, unknown>): { include: string[]; exclude: string[]; effectiveExclude: string[] } {
+  assertNoLegacySearchArgs(args);
+  const include = normalizeRemoteGlobList(args.include, 'include', DEFAULT_SEARCH_INCLUDE, true);
+  const exclude = normalizeRemoteGlobList(args.exclude, 'exclude', [], false);
+  return { include, exclude, effectiveExclude: Array.from(new Set([...DEFAULT_SEARCH_EXCLUDE, ...exclude])) };
+}
+
+function matchesIncludeGlob(rel: string, include: string[]): boolean {
+  let matched = false;
+  for (const pattern of include) {
+    if (pattern.startsWith('!')) {
+      if (minimatch(rel, pattern.slice(1), { dot: true })) matched = false;
+    } else if (minimatch(rel, pattern, { dot: true })) {
+      matched = true;
+    }
+  }
+  return matched;
+}
+
+function matchesSearchGlob(rel: string, include: string[], effectiveExclude: string[]): boolean {
+  return matchesIncludeGlob(rel, include) && !effectiveExclude.some(pattern => minimatch(rel, pattern, { dot: true }));
+}
+
+async function listSearchCandidates(ctx: TranslatorContext, include: string[], effectiveExclude: string[]): Promise<Array<{ rel: string; display: string; toolPath: string }>> {
+  const files = await listAllFiles(ctx, '.', '**/*');
+  return files.filter(f => matchesSearchGlob(f.rel, include, effectiveExclude));
+}
+
 function canPrefilterRegexWithGrepE(query: string): boolean {
   // 只对 POSIX ERE 与 JS RegExp 基本一致的保守子集启用 grep -E 预筛。
   // 复杂 JS 特性会跳过预筛，避免 false negative。
@@ -600,26 +671,16 @@ const tSearchInFiles: ToolTranslator = async (args, ctx) => {
   const modeArg = ((args.mode as 'search' | 'replace' | undefined) ?? 'search');
   if (modeArg !== 'search' && modeArg !== 'replace') throw new Error(`mode 参数无效: ${String(args.mode)}`);
   const query = String(args.query ?? '');
-  const inputPath = (args.path as string | undefined) ?? '.';
-  const pattern = (args.pattern as string | undefined) ?? '**/*';
-  const isRegex = (args.isRegex as boolean | undefined) ?? false;
+  const { include, exclude, effectiveExclude } = normalizeRemoteSearchGlobArgs(args);
+  const regexMode = (args.regex as boolean | undefined) ?? false;
   const maxResults = clampPositiveInteger(args.maxResults, LIMITS.search_in_files.maxResults, LIMITS.search_in_files.maxResults);
   const maxFiles = clampPositiveInteger(args.maxFiles, LIMITS.search_in_files.maxFiles, LIMITS.search_in_files.maxFiles);
   const contextLines = clampPositiveInteger(args.contextLines, LIMITS.search_in_files.contextLines, LIMITS.search_in_files.contextLines);
   const maxFileSizeBytes = clampPositiveInteger(args.maxFileSizeBytes, LIMITS.search_in_files.maxFileSizeBytes, LIMITS.search_in_files.maxFileSizeBytes);
-  const regex = buildSearchRegex(query, isRegex);
+  const regex = buildSearchRegex(query, regexMode);
 
-  let candidates: Array<{ rel: string; display: string; toolPath: string }>;
-  if (!isRegex) {
-    // 字面量：远端 grep -F 预筛，失败才回退全量候选。
-    candidates = await grepCandidateFiles(ctx, inputPath, pattern, query, 'literal') ?? await listAllFiles(ctx, inputPath, pattern);
-  } else if (canPrefilterRegexWithGrepE(query)) {
-    // 安全正则子集：远端 grep -E 预筛；最终匹配/替换仍用 JS RegExp 保证语义一致。
-    candidates = await grepCandidateFiles(ctx, inputPath, pattern, query, 'regex-ere') ?? await listAllFiles(ctx, inputPath, pattern);
-  } else {
-    // 复杂 JS 正则：不能用 grep 预筛，否则可能 false negative。
-    candidates = await listAllFiles(ctx, inputPath, pattern);
-  }
+  const candidates = await listSearchCandidates(ctx, include, effectiveExclude);
+  const emptyMatchWarning = candidates.length === 0 ? '没有文件匹配 include/exclude glob。请检查 include，例如 ["src/**/*", "tests/**/*"] 或 ["{src,tests}/**/*"]。' : undefined;
 
   if (modeArg === 'search') {
     const results: any[] = [];
@@ -645,15 +706,15 @@ const tSearchInFiles: ToolTranslator = async (args, ctx) => {
         if (results.length >= maxResults) { truncated = true; break; }
       }
     }
-    return { mode: modeArg, query, isRegex, path: inputPath, pattern, results, count: results.length, truncated, filesSearched, skippedBinary, skippedTooLarge };
+    return { mode: modeArg, query, regex: regexMode, include, exclude, effectiveExclude, results, count: results.length, truncated, filesMatched: candidates.length, filesSearched, skippedBinary, skippedTooLarge, ...(emptyMatchWarning ? { warning: emptyMatchWarning } : {}) };
   }
 
   const replace = args.replace;
   if (typeof replace !== 'string') throw new Error('replace 模式下必须提供 replace 参数');
   const results: any[] = [];
-  let processedFiles = 0, totalReplacements = 0, truncated = false;
-  for (const f of candidates) {
-    if (processedFiles >= maxFiles) { truncated = true; break; }
+  let processedFiles = 0, totalReplacements = 0;
+  const truncated = candidates.length > maxFiles;
+  for (const f of candidates.slice(0, maxFiles)) {
     processedFiles++;
     const buf = await readRemoteBuffer(ctx, f.toolPath);
     if (buf.length > maxFileSizeBytes) { results.push({ file: f.display, replacements: 0, changed: false, skipped: true, reason: `file too large (> ${maxFileSizeBytes} bytes)` }); continue; }
@@ -668,7 +729,7 @@ const tSearchInFiles: ToolTranslator = async (args, ctx) => {
     if (changed) await writeRemoteBuffer(ctx, f.toolPath, encodeText(newText, decoded.encoding, decoded.hasBom, decoded.hasCRLF));
     results.push({ file: f.display, replacements, changed }); totalReplacements += replacements;
   }
-  return { mode: modeArg, query, replace, isRegex, path: inputPath, pattern, results, processedFiles, totalReplacements, truncated };
+  return { mode: modeArg, query, replace, regex: regexMode, include, exclude, effectiveExclude, results, filesMatched: candidates.length, processedFiles, totalReplacements, truncated, ...(emptyMatchWarning ? { warning: emptyMatchWarning } : {}) };
 };
 
 // ─────────────────────────── insert_code / delete_code / apply_diff ───────────────────────────

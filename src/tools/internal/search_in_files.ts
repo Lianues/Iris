@@ -5,8 +5,8 @@
  * 适配 Iris 当前的 Node.js 运行环境。
  *
  * 能力范围：
- * - 在目录或单文件中搜索
- * - 支持 glob 形式的文件匹配（基础通配：*、?、**）
+ * - 使用 include/exclude glob 列表描述搜索范围
+ * - 支持常见 glob 语法（*, ?, **, {a,b}, *.{ts,tsx}, extglob 等）
  * - 支持正则表达式搜索与替换
  * - 支持限制最大结果数与最大处理文件数
  * - 自动跳过疑似二进制文件与过大文件
@@ -14,18 +14,36 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import fg from 'fast-glob';
 import { ToolDefinition } from '../../types';
 import { resolveProjectPath } from '../utils';
 import { getToolLimits } from '../tool-limits';
 import {
-  toPosix, globToRegExp, isLikelyBinary, decodeText, buildSearchRegex, walkFiles,
+  isLikelyBinary, decodeText, buildSearchRegex,
   type TextEncoding,
 } from 'irises-extension-sdk/tool-utils';
 
-export { toPosix, globToRegExp, isLikelyBinary, decodeText, buildSearchRegex, walkFiles, DEFAULT_IGNORED_DIRS } from 'irises-extension-sdk/tool-utils';
+export {
+  toPosix,
+  globToRegExp,
+  isLikelyBinary,
+  decodeText,
+  buildSearchRegex,
+  walkFiles,
+  DEFAULT_IGNORED_DIRS,
+} from 'irises-extension-sdk/tool-utils';
 export type { TextEncoding, DetectedText } from 'irises-extension-sdk/tool-utils';
 
-const DEFAULT_PATTERN = '**/*';
+const DEFAULT_INCLUDE = ['**/*'];
+const DEFAULT_EXCLUDE = [
+  '**/.git/**',
+  '**/node_modules/**',
+  '**/dist/**',
+  '**/build/**',
+  '**/.next/**',
+  '**/.turbo/**',
+  '**/.limcode/**',
+];
 
 interface SearchMatch {
   file: string;
@@ -44,6 +62,20 @@ interface ReplaceFileResult {
 }
 
 type ToolMode = 'search' | 'replace';
+
+export interface SearchGlobArgs {
+  /** 用户提供的 include glob；未提供时为默认全项目匹配 */
+  include: string[];
+  /** 用户提供的 exclude glob，不含默认排除项 */
+  exclude: string[];
+  /** 实际传给 glob 库的 ignore 列表：默认排除项 + 用户 exclude */
+  effectiveExclude: string[];
+}
+
+export interface SearchFileMatch {
+  fileAbs: string;
+  relPosix: string;
+}
 
 function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && Number.isInteger(value);
@@ -129,14 +161,118 @@ function buildContext(lines: string[], lineNumber1Based: number, contextLines: n
   return out.join('\n');
 }
 
+function normalizeGlobPattern(raw: string, field: 'include' | 'exclude', allowNegation: boolean): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error(`${field} 中不能包含空 glob`);
+  }
+
+  const negated = trimmed.startsWith('!');
+  if (negated && !allowNegation) {
+    throw new Error(`${field} 不支持 ! 否定模式；请把排除规则放到 exclude 数组中`);
+  }
+
+  const bodyRaw = negated ? trimmed.slice(1).trim() : trimmed;
+  if (!bodyRaw) {
+    throw new Error(`${field} 中不能包含空 glob`);
+  }
+
+  const body = bodyRaw.replace(/\\/g, '/');
+  if (path.isAbsolute(bodyRaw) || body.startsWith('/') || /^[A-Za-z]:[\\/]/.test(bodyRaw)) {
+    throw new Error(`${field} 只接受相对于项目根目录的 glob: ${raw}`);
+  }
+
+  if (body.split('/').some(part => part === '..')) {
+    throw new Error(`${field} 不允许包含 .. 路径段: ${raw}`);
+  }
+
+  return negated ? `!${body}` : body;
+}
+
+function normalizeGlobList(
+  value: unknown,
+  field: 'include' | 'exclude',
+  fallback: string[],
+  allowNegation: boolean,
+): string[] {
+  if (value === undefined) return [...fallback];
+  if (!Array.isArray(value)) {
+    throw new Error(`${field} 参数必须是字符串数组`);
+  }
+
+  const normalized = value.map((item) => {
+    if (typeof item !== 'string') {
+      throw new Error(`${field} 参数必须是字符串数组`);
+    }
+    return normalizeGlobPattern(item, field, allowNegation);
+  });
+
+  if (normalized.length === 0 && field === 'include') {
+    throw new Error('include 参数必须是非空字符串数组');
+  }
+
+  return Array.from(new Set(normalized));
+}
+
+function assertNoLegacyScopeArgs(args: Record<string, unknown>): void {
+  const legacyKeys = ['path', 'pattern', 'isRegex'].filter(key => args[key] !== undefined);
+  if (legacyKeys.length > 0) {
+    throw new Error(
+      `search_in_files 已切换为 include/exclude glob 结构，不再支持旧参数: ${legacyKeys.join(', ')}。`
+      + '请使用 include: ["src/**/*", "tests/**/*"]，regex: true。',
+    );
+  }
+}
+
+export function normalizeSearchGlobArgs(args: Record<string, unknown>): SearchGlobArgs {
+  assertNoLegacyScopeArgs(args);
+
+  const include = normalizeGlobList(args.include, 'include', DEFAULT_INCLUDE, true);
+  const exclude = normalizeGlobList(args.exclude, 'exclude', [], false);
+  const effectiveExclude = Array.from(new Set([...DEFAULT_EXCLUDE, ...exclude]));
+
+  return { include, exclude, effectiveExclude };
+}
+
+function assertInsideRoot(rootAbs: string, fileAbs: string, displayPath: string): void {
+  const rel = path.relative(rootAbs, fileAbs);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`glob 匹配结果超出项目目录: ${displayPath}`);
+  }
+}
+
+export function collectSearchFiles(rootAbs: string, include: string[], effectiveExclude: string[]): SearchFileMatch[] {
+  const projectRoot = path.resolve(rootAbs);
+  const entries = fg.sync(include, {
+    cwd: projectRoot,
+    ignore: effectiveExclude,
+    onlyFiles: true,
+    dot: true,
+    unique: true,
+    followSymbolicLinks: false,
+    absolute: false,
+  });
+
+  return entries
+    .map(entry => entry.replace(/\\/g, '/'))
+    .sort((a, b) => a.localeCompare(b))
+    .map((relPosix) => {
+      const fileAbs = path.resolve(projectRoot, relPosix);
+      assertInsideRoot(projectRoot, fileAbs, relPosix);
+      return { fileAbs, relPosix };
+    });
+}
+
 export const searchInFiles: ToolDefinition = {
   parallel: true,
   declaration: {
     name: 'search_in_files',
     description: [
-      '在一个文件或目录中搜索内容，可选执行替换。',
-      '支持基础 glob 匹配（*、?、**）与正则表达式（isRegex=true）。',
-      '默认忽略 .git、node_modules、dist 等目录。',
+      '在文件中搜索内容，可选执行替换。',
+      '使用 include/exclude glob 数组描述范围，例如 include: ["src/**/*", "tests/**/*"]。',
+      '支持常见 glob 语法：*, ?, **, {src,tests}/**/*, **/*.{ts,tsx}, extglob 等。',
+      '默认忽略 .git、node_modules、dist、build 等目录。',
+      '不要使用旧的 path/pattern/isRegex 参数；正则搜索请使用 regex: true。',
     ].join(''),
     parameters: {
       type: 'object',
@@ -150,15 +286,17 @@ export const searchInFiles: ToolDefinition = {
           type: 'string',
           description: '搜索关键词或正则表达式',
         },
-        path: {
-          type: 'string',
-          description: '搜索路径（相对于项目根目录），可以是目录或单个文件，默认 "."',
+        include: {
+          type: 'array',
+          description: '要搜索的文件 glob 数组（相对于项目根目录）。例如 ["src/**/*", "tests/**/*"] 或 ["{src,tests}/**/*.{ts,tsx}"]。默认 ["**/*"]。',
+          items: { type: 'string' },
         },
-        pattern: {
-          type: 'string',
-          description: '文件匹配 glob（默认 "**/*"）。当 path 为文件时忽略此参数。',
+        exclude: {
+          type: 'array',
+          description: '要排除的文件 glob 数组（相对于项目根目录）。默认已排除 .git、node_modules、dist、build 等目录。',
+          items: { type: 'string' },
         },
-        isRegex: {
+        regex: {
           type: 'boolean',
           description: '是否将 query 视为正则表达式，默认 false',
         },
@@ -191,10 +329,9 @@ export const searchInFiles: ToolDefinition = {
 
     const mode = ((args.mode as ToolMode | undefined) ?? 'search');
     const query = String(args.query ?? '');
+    const { include, exclude, effectiveExclude } = normalizeSearchGlobArgs(args as Record<string, unknown>);
 
-    const inputPath = (args.path as string | undefined) ?? '.';
-    const pattern = (args.pattern as string | undefined) ?? DEFAULT_PATTERN;
-    const isRegex = (args.isRegex as boolean | undefined) ?? false;
+    const regexMode = (args.regex as boolean | undefined) ?? false;
     // LLM 传入的值不得超过配置上限
     const maxResults = Math.min(clampPositiveInteger(args.maxResults, limits.maxResults), limits.maxResults);
     const maxFiles = Math.min(clampPositiveInteger(args.maxFiles, limits.maxFiles), limits.maxFiles);
@@ -205,12 +342,14 @@ export const searchInFiles: ToolDefinition = {
       throw new Error(`mode 参数无效: ${String(args.mode)}`);
     }
 
-    const rootAbs = resolveProjectPath(inputPath);
-    const stat = fs.statSync(rootAbs);
+    const rootAbs = resolveProjectPath('.');
+    const matchedFiles = collectSearchFiles(rootAbs, include, effectiveExclude);
+    const emptyMatchWarning = matchedFiles.length === 0
+      ? '没有文件匹配 include/exclude glob。请检查 include，例如 ["src/**/*", "tests/**/*"] 或 ["{src,tests}/**/*"]。'
+      : undefined;
 
     if (mode === 'search') {
-      const regex = buildSearchRegex(query, isRegex);
-      const patternRe = globToRegExp(pattern);
+      const regex = buildSearchRegex(query, regexMode);
 
       const results: SearchMatch[] = [];
       let filesSearched = 0;
@@ -222,9 +361,6 @@ export const searchInFiles: ToolDefinition = {
 
       const processFile = (fileAbs: string, relPosix: string) => {
         if (shouldStop()) return;
-
-        // 目录模式下做 pattern 过滤
-        if (stat.isDirectory() && !patternRe.test(relPosix)) return;
 
         filesSearched++;
         const buf = fs.readFileSync(fileAbs);
@@ -264,7 +400,7 @@ export const searchInFiles: ToolDefinition = {
           const column = offset - lineStartOffset + 1;
 
           results.push({
-            file: stat.isDirectory() ? toPosix(path.join(inputPath, relPosix)) : toPosix(inputPath),
+            file: relPosix,
             line: lineNumber,
             column,
             match: truncateLine(m[0], limits.maxMatchDisplayChars),
@@ -278,10 +414,9 @@ export const searchInFiles: ToolDefinition = {
         }
       };
 
-      if (stat.isFile()) {
-        processFile(rootAbs, toPosix(path.basename(rootAbs)));
-      } else {
-        walkFiles(rootAbs, processFile, shouldStop);
+      for (const file of matchedFiles) {
+        if (shouldStop()) break;
+        processFile(file.fileAbs, file.relPosix);
       }
 
       if (results.length >= maxResults) truncated = true;
@@ -289,15 +424,18 @@ export const searchInFiles: ToolDefinition = {
       return {
         mode,
         query,
-        isRegex,
-        path: inputPath,
-        pattern,
+        regex: regexMode,
+        include,
+        exclude,
+        effectiveExclude,
         results,
         count: results.length,
         truncated,
+        filesMatched: matchedFiles.length,
         filesSearched,
         skippedBinary,
         skippedTooLarge,
+        ...(emptyMatchWarning ? { warning: emptyMatchWarning } : {}),
       };
     }
 
@@ -307,28 +445,22 @@ export const searchInFiles: ToolDefinition = {
       throw new Error('replace 模式下必须提供 replace 参数');
     }
 
-    const regex = buildSearchRegex(query, isRegex);
-    const patternRe = globToRegExp(pattern);
+    const regex = buildSearchRegex(query, regexMode);
 
     const results: ReplaceFileResult[] = [];
     let processedFiles = 0;
     let totalReplacements = 0;
-    let truncated = false;
-
-    const shouldStop = () => processedFiles >= maxFiles;
+    const truncated = matchedFiles.length > maxFiles;
 
     const processFile = (fileAbs: string, relPosix: string) => {
-      if (shouldStop()) return;
-
-      // 目录模式下做 pattern 过滤
-      if (stat.isDirectory() && !patternRe.test(relPosix)) return;
+      if (processedFiles >= maxFiles) return;
 
       processedFiles++;
 
       const buf = fs.readFileSync(fileAbs);
       if (buf.length > maxFileSizeBytes) {
         results.push({
-          file: stat.isDirectory() ? toPosix(path.join(inputPath, relPosix)) : toPosix(inputPath),
+          file: relPosix,
           replacements: 0,
           changed: false,
           skipped: true,
@@ -339,7 +471,7 @@ export const searchInFiles: ToolDefinition = {
 
       if (isLikelyBinary(buf)) {
         results.push({
-          file: stat.isDirectory() ? toPosix(path.join(inputPath, relPosix)) : toPosix(inputPath),
+          file: relPosix,
           replacements: 0,
           changed: false,
           skipped: true,
@@ -364,7 +496,7 @@ export const searchInFiles: ToolDefinition = {
 
       if (replacements === 0) {
         results.push({
-          file: stat.isDirectory() ? toPosix(path.join(inputPath, relPosix)) : toPosix(inputPath),
+          file: relPosix,
           replacements: 0,
           changed: false,
         });
@@ -381,7 +513,7 @@ export const searchInFiles: ToolDefinition = {
       }
 
       results.push({
-        file: stat.isDirectory() ? toPosix(path.join(inputPath, relPosix)) : toPosix(inputPath),
+        file: relPosix,
         replacements,
         changed,
       });
@@ -389,24 +521,24 @@ export const searchInFiles: ToolDefinition = {
       totalReplacements += replacements;
     };
 
-    if (stat.isFile()) {
-      processFile(rootAbs, toPosix(path.basename(rootAbs)));
-    } else {
-      walkFiles(rootAbs, processFile, shouldStop);
-      if (processedFiles >= maxFiles) truncated = true;
+    for (const file of matchedFiles.slice(0, maxFiles)) {
+      processFile(file.fileAbs, file.relPosix);
     }
 
     return {
       mode,
       query,
       replace,
-      isRegex,
-      path: inputPath,
-      pattern,
+      regex: regexMode,
+      include,
+      exclude,
+      effectiveExclude,
       results,
+      filesMatched: matchedFiles.length,
       processedFiles,
       totalReplacements,
       truncated,
+      ...(emptyMatchWarning ? { warning: emptyMatchWarning } : {}),
     };
   },
 };

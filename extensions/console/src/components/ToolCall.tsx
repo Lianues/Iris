@@ -69,9 +69,9 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
     }
     case 'search_in_files': {
       const q = String(args.query || '');
-      const p = String(args.path || '');
+      const include = Array.isArray(args.include) ? (args.include as unknown[]).map(String).join(', ') : '';
       const head = q.length > 20 ? `"${q.slice(0, 20)}${ICONS.ellipsis}"` : `"${q}"`;
-      return p ? `${head} in ${p}` : head;
+      return include ? `${head} in ${include}` : head;
     }
     case 'find_files': {
       const patterns = Array.isArray(args.patterns) ? (args.patterns as unknown[]).map(String) : [];

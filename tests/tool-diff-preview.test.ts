@@ -102,8 +102,7 @@ describe('tool diff preview', () => {
 
     const preview = buildToolDiffPreview(inv('search_in_files', {
       mode: 'replace',
-      path: '.',
-      pattern: '*.txt',
+      include: ['*.txt'],
       query: 'foo',
       replace: 'bar',
       maxFiles: 10,

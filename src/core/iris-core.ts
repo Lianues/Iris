@@ -84,7 +84,7 @@ import {
   createAgent, updateAgent, deleteAgent, resetCache as resetAgentCache, loadAgentDefinitions,
 } from '../agents';
 import { parseUnifiedDiff } from '../tools/internal/apply_diff/unified_diff';
-import { buildSearchRegex, decodeText, globToRegExp, isLikelyBinary, toPosix, walkFiles } from '../tools/internal/search_in_files';
+import { buildSearchRegex, collectSearchFiles, decodeText, globToRegExp, isLikelyBinary, normalizeSearchGlobArgs, toPosix, walkFiles } from '../tools/internal/search_in_files';
 import { normalizeWriteArgs } from '../tools/internal/write_file';
 import { normalizeInsertArgs } from '../tools/internal/insert_code';
 import { normalizeDeleteCodeArgs } from '../tools/internal/delete_code';
@@ -712,7 +712,7 @@ export class IrisCore {
         getLastSessionTokens: (sessionId: string) => backend.getLastSessionTokens(sessionId),
         getAllSessionTokens: () => backend.getAllSessionTokens(),
       },
-      toolPreviewUtils: { parseUnifiedDiff, normalizeWriteArgs, normalizeInsertArgs, normalizeDeleteCodeArgs, resolveProjectPath, buildSearchRegex, decodeText, globToRegExp, isLikelyBinary, toPosix, walkFiles },
+      toolPreviewUtils: { parseUnifiedDiff, normalizeWriteArgs, normalizeInsertArgs, normalizeDeleteCodeArgs, resolveProjectPath, buildSearchRegex, decodeText, globToRegExp, isLikelyBinary, toPosix, walkFiles, normalizeSearchGlobArgs, collectSearchFiles },
       setLogLevel: (level: number) => {
         setGlobalLogLevel(level as LogLevel);
         setExtensionLogLevel(level);

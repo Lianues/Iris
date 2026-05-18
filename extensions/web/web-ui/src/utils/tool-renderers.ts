@@ -290,12 +290,14 @@ function callSummary(toolName: string, args: Record<string, unknown>): ToolSumma
     }
     case 'search_in_files': {
       const q = typeof args.query === 'string' ? truncStr(args.query, 40) : ''
+      const include = Array.isArray(args.include) ? args.include.map(String).join(', ') : ''
+      const scope = include ? ` in ${truncStr(include, 40)}` : ''
       const mode = args.mode as string | undefined
       if (mode === 'replace') {
         const r = typeof args.replace === 'string' ? truncStr(args.replace, 20) : ''
-        return buildSummary([seg(`"${q}" → "${r}"`, 'muted')])
+        return buildSummary([seg(`"${q}" → "${r}"${scope}`, 'muted')])
       }
-      return q ? buildSummary([seg(`"${q}"`, 'muted')]) : null
+      return q ? buildSummary([seg(`"${q}"${scope}`, 'muted')]) : null
     }
     case 'find_files': {
       const pattern = typeof args.pattern === 'string' ? truncStr(args.pattern, 40) : ''

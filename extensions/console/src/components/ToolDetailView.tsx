@@ -75,8 +75,10 @@ function childArgsSummary(toolName: string, args: Record<string, unknown>): stri
       }
       return String(args.path || '');
     }
-    case 'search_in_files':
-      return `"${truncate(String(args.query || ''), 20)}" in ${args.path || '.'}`;
+    case 'search_in_files': {
+      const include = Array.isArray(args.include) ? args.include.map(String).join(', ') : '**/*';
+      return `"${truncate(String(args.query || ''), 20)}" in ${truncate(include, 40)}`;
+    }
     case 'find_files':
       return Array.isArray(args.patterns) ? String(args.patterns[0] || '') : '';
     case 'sub_agent':

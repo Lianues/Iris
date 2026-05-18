@@ -5265,9 +5265,9 @@ function getArgsSummary(toolName, args) {
     }
     case "search_in_files": {
       const q = String(args.query || "");
-      const p = String(args.path || "");
+      const include = Array.isArray(args.include) ? args.include.map(String).join(", ") : "";
       const head = q.length > 20 ? `"${q.slice(0, 20)}${ICONS.ellipsis}"` : `"${q}"`;
-      return p ? `${head} in ${p}` : head;
+      return include ? `${head} in ${include}` : head;
     }
     case "find_files": {
       const patterns = Array.isArray(args.patterns) ? args.patterns.map(String) : [];
@@ -6818,8 +6818,10 @@ function childArgsSummary(toolName, args) {
       }
       return String(args.path || "");
     }
-    case "search_in_files":
-      return `"${truncate4(String(args.query || ""), 20)}" in ${args.path || "."}`;
+    case "search_in_files": {
+      const include = Array.isArray(args.include) ? args.include.map(String).join(", ") : "**/*";
+      return `"${truncate4(String(args.query || ""), 20)}" in ${truncate4(include, 40)}`;
+    }
     case "find_files":
       return Array.isArray(args.patterns) ? String(args.patterns[0] || "") : "";
     case "sub_agent":

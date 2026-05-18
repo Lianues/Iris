@@ -11,16 +11,14 @@ import type { ToolDiffPreviewItemLike, ToolDiffPreviewResponseLike } from 'irise
 import {
   buildSearchRegex,
   decodeText,
-  globToRegExp,
   isLikelyBinary,
   normalizeDeleteCodeArgs,
   normalizeInsertArgs,
   normalizeWriteArgs,
   parseUnifiedDiff,
   resolveProjectPath as resolveProjectPathRaw,
-  toPosix,
-  walkFiles,
 } from 'irises-extension-sdk/tool-utils';
+import { collectSearchFiles, normalizeSearchGlobArgs } from './internal/search_in_files';
 import type {
   DeleteCodeEntry,
   InsertEntry,
@@ -458,9 +456,10 @@ function countRegexMatches(regex: RegExp, text: string): number {
 }
 
 function buildSearchReplacePreview(inv: ToolInvocation, options: BuildPreviewOptions): ToolDiffPreviewResponseLike {
-  const inputPath = typeof inv.args.path === 'string' ? inv.args.path : '.';
-  const pattern = typeof inv.args.pattern === 'string' ? inv.args.pattern : '**/*';
-  const isRegex = inv.args.isRegex === true;
+  const scopeLabel = Array.isArray(inv.args.include)
+    ? inv.args.include.map(item => String(item)).join(', ')
+    : '**/*';
+  const regexMode = inv.args.regex === true;
   const query = String(inv.args.query ?? '');
   const replace = inv.args.replace;
   const limits = getToolLimits().search_in_files;
@@ -471,27 +470,24 @@ function buildSearchReplacePreview(inv: ToolInvocation, options: BuildPreviewOpt
     return {
       toolName: 'search_in_files', title: 'Diff 审批', toolLabel: 'search_in_files.replace',
       summary: ['replace 参数缺失。'],
-      items: [createMsg(`${inv.id}:search_replace.invalid`, inputPath, 'search_in_files.replace', 'replace 模式下必须提供 replace 参数。')],
+      items: [createMsg(`${inv.id}:search_replace.invalid`, scopeLabel, 'search_in_files.replace', 'replace 模式下必须提供 replace 参数。')],
     };
   }
 
   try {
-    const regex = buildSearchRegex(query, isRegex);
-    const rootAbs = resolveProjectPath(inputPath, options.cwd);
-    const stat = fs.statSync(rootAbs);
-    const patternRe = globToRegExp(pattern);
+    const regex = buildSearchRegex(query, regexMode);
+    const { include, effectiveExclude } = normalizeSearchGlobArgs(inv.args as Record<string, unknown>);
+    const rootAbs = resolveProjectPath('.', options.cwd);
+    const matchedFiles = collectSearchFiles(rootAbs, include, effectiveExclude);
 
     const items: ToolDiffPreviewItemLike[] = [];
     let processedFiles = 0, changedFiles = 0, unchangedFiles = 0;
     let skippedBinary = 0, skippedTooLarge = 0, totalReplacements = 0;
-    let truncated = false;
-    const shouldStop = () => processedFiles >= maxFiles;
+    const truncated = matchedFiles.length > maxFiles;
 
     const processFile = (fileAbs: string, relPosix: string) => {
-      if (shouldStop()) return;
-      if (stat.isDirectory() && !patternRe.test(relPosix)) return;
       processedFiles++;
-      const displayPath = stat.isDirectory() ? toPosix(path.join(inputPath, relPosix)) : toPosix(inputPath);
+      const displayPath = relPosix;
       const buf = fs.readFileSync(fileAbs);
       if (buf.length > maxFileSizeBytes) { skippedTooLarge++; return; }
       if (isLikelyBinary(buf)) { skippedBinary++; return; }
@@ -512,27 +508,25 @@ function buildSearchReplacePreview(inv: ToolInvocation, options: BuildPreviewOpt
       totalReplacements += replacements;
     };
 
-    if (stat.isFile()) processFile(rootAbs, toPosix(path.basename(rootAbs)));
-    else {
-      walkFiles(rootAbs, processFile, shouldStop);
-      if (processedFiles >= maxFiles) truncated = true;
+    for (const file of matchedFiles.slice(0, maxFiles)) {
+      processFile(file.fileAbs, file.relPosix);
     }
 
     const summary = [
-      `路径 ${inputPath} · pattern ${pattern}`,
-      `已处理 ${processedFiles} 个文件 · 将变更 ${changedFiles} 个文件 · 共 ${totalReplacements} 处替换`,
+      `include ${include.join(', ')}`,
+      `匹配 ${matchedFiles.length} 个文件 · 已处理 ${processedFiles} 个文件 · 将变更 ${changedFiles} 个文件 · 共 ${totalReplacements} 处替换`,
     ];
     if (unchangedFiles > 0) summary.push(`无实际变化 ${unchangedFiles} 个文件`);
     if (skippedBinary > 0 || skippedTooLarge > 0) summary.push(`跳过二进制 ${skippedBinary} 个 · 跳过过大文件 ${skippedTooLarge} 个`);
     if (truncated) summary.push(`已达到 maxFiles=${maxFiles}，预览已截断`);
-    if (items.length === 0) items.push(createMsg(`${inv.id}:search_replace.empty`, inputPath, 'search_in_files.replace', '当前 replace 不会修改任何文件。'));
+    if (items.length === 0) items.push(createMsg(`${inv.id}:search_replace.empty`, scopeLabel, 'search_in_files.replace', '当前 replace 不会修改任何文件。'));
 
     return { toolName: 'search_in_files', title: 'Diff 审批', toolLabel: 'search_in_files.replace', summary, items };
   } catch (err: unknown) {
     return {
       toolName: 'search_in_files', title: 'Diff 审批', toolLabel: 'search_in_files.replace',
       summary: ['生成预览时发生错误。'],
-      items: [createMsg(`${inv.id}:search_replace.error`, inputPath, 'search_in_files.replace', err instanceof Error ? err.message : String(err))],
+      items: [createMsg(`${inv.id}:search_replace.error`, scopeLabel, 'search_in_files.replace', err instanceof Error ? err.message : String(err))],
     };
   }
 }
