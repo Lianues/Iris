@@ -5241,7 +5241,7 @@ var init_types = __esm(() => {
   ProgressTokenSchema = union([string2(), number2().int()]);
   CursorSchema = string2();
   TaskCreationParamsSchema = looseObject({
-    ttl: union([number2(), _null3()]).optional(),
+    ttl: number2().optional(),
     pollInterval: number2().optional()
   });
   TaskMetadataSchema = object2({
@@ -5389,7 +5389,8 @@ var init_types = __esm(() => {
     roots: object2({
       listChanged: boolean2().optional()
     }).optional(),
-    tasks: ClientTasksCapabilitySchema.optional()
+    tasks: ClientTasksCapabilitySchema.optional(),
+    extensions: record(string2(), AssertObjectSchema).optional()
   });
   InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
     protocolVersion: string2(),
@@ -5414,7 +5415,8 @@ var init_types = __esm(() => {
     tools: object2({
       listChanged: boolean2().optional()
     }).optional(),
-    tasks: ServerTasksCapabilitySchema.optional()
+    tasks: ServerTasksCapabilitySchema.optional(),
+    extensions: record(string2(), AssertObjectSchema).optional()
   });
   InitializeResultSchema = ResultSchema.extend({
     protocolVersion: string2(),
@@ -5529,6 +5531,7 @@ var init_types = __esm(() => {
     uri: string2(),
     description: optional(string2()),
     mimeType: optional(string2()),
+    size: optional(number2()),
     annotations: AnnotationsSchema.optional(),
     _meta: optional(looseObject({}))
   });
@@ -6502,6 +6505,10 @@ class Protocol {
     this._progressHandlers.clear();
     this._taskProgressTokens.clear();
     this._pendingDebouncedNotifications.clear();
+    for (const info of this._timeoutInfo.values()) {
+      clearTimeout(info.timeoutId);
+    }
+    this._timeoutInfo.clear();
     for (const controller of this._requestHandlerAbortControllers.values()) {
       controller.abort();
     }
@@ -6632,7 +6639,9 @@ class Protocol {
         await capturedTransport?.send(errorResponse);
       }
     }).catch((error2) => this._onerror(new Error(`Failed to send response: ${error2}`))).finally(() => {
-      this._requestHandlerAbortControllers.delete(request.id);
+      if (this._requestHandlerAbortControllers.get(request.id) === abortController) {
+        this._requestHandlerAbortControllers.delete(request.id);
+      }
     });
   }
   _onprogress(notification) {
@@ -14771,7 +14780,7 @@ class StdioClientTransport {
         },
         stdio: ["pipe", "pipe", this._serverParams.stderr ?? "inherit"],
         shell: false,
-        windowsHide: process3.platform === "win32" && isElectron(),
+        windowsHide: process3.platform === "win32",
         cwd: this._serverParams.cwd
       });
       this._process.on("error", (error2) => {
@@ -14862,9 +14871,6 @@ class StdioClientTransport {
       }
     });
   }
-}
-function isElectron() {
-  return "type" in process3;
 }
 var import_cross_spawn, DEFAULT_INHERITED_ENV_VARS;
 var init_stdio2 = __esm(() => {
@@ -15487,11 +15493,11 @@ function isClientAuthMethod(method) {
 }
 function selectClientAuthMethod(clientInformation, supportedMethods) {
   const hasClientSecret = clientInformation.client_secret !== undefined;
-  if (supportedMethods.length === 0) {
-    return hasClientSecret ? "client_secret_post" : "none";
-  }
-  if ("token_endpoint_auth_method" in clientInformation && clientInformation.token_endpoint_auth_method && isClientAuthMethod(clientInformation.token_endpoint_auth_method) && supportedMethods.includes(clientInformation.token_endpoint_auth_method)) {
+  if ("token_endpoint_auth_method" in clientInformation && clientInformation.token_endpoint_auth_method && isClientAuthMethod(clientInformation.token_endpoint_auth_method) && (supportedMethods.length === 0 || supportedMethods.includes(clientInformation.token_endpoint_auth_method))) {
     return clientInformation.token_endpoint_auth_method;
+  }
+  if (supportedMethods.length === 0) {
+    return hasClientSecret ? "client_secret_basic" : "none";
   }
   if (hasClientSecret && supportedMethods.includes("client_secret_basic")) {
     return "client_secret_basic";
@@ -15602,6 +15608,7 @@ async function authInternal(provider, { serverUrl, authorizationCode, scope, res
     });
   }
   const resource = await selectResourceURL(serverUrl, provider, resourceMetadata);
+  const resolvedScope = scope || resourceMetadata?.scopes_supported?.join(" ") || provider.clientMetadata.scope;
   let clientInformation = await Promise.resolve(provider.clientInformation());
   if (!clientInformation) {
     if (authorizationCode !== undefined) {
@@ -15625,6 +15632,7 @@ async function authInternal(provider, { serverUrl, authorizationCode, scope, res
       const fullInformation = await registerClient(authorizationServerUrl, {
         metadata,
         clientMetadata: provider.clientMetadata,
+        scope: resolvedScope,
         fetchFn
       });
       await provider.saveClientInformation(fullInformation);
@@ -15667,7 +15675,7 @@ async function authInternal(provider, { serverUrl, authorizationCode, scope, res
     clientInformation,
     state,
     redirectUrl: provider.redirectUrl,
-    scope: scope || resourceMetadata?.scopes_supported?.join(" ") || provider.clientMetadata.scope,
+    scope: resolvedScope,
     resource
   });
   await provider.saveCodeVerifier(codeVerifier);
@@ -15983,7 +15991,7 @@ async function fetchToken(provider, authorizationServerUrl, { metadata, resource
     fetchFn
   });
 }
-async function registerClient(authorizationServerUrl, { metadata, clientMetadata, fetchFn }) {
+async function registerClient(authorizationServerUrl, { metadata, clientMetadata, scope, fetchFn }) {
   let registrationUrl;
   if (metadata) {
     if (!metadata.registration_endpoint) {
@@ -15998,7 +16006,10 @@ async function registerClient(authorizationServerUrl, { metadata, clientMetadata
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(clientMetadata)
+    body: JSON.stringify({
+      ...clientMetadata,
+      ...scope !== undefined ? { scope } : {}
+    })
   });
   if (!response.ok) {
     throw await parseErrorResponse(response);
@@ -16794,7 +16805,7 @@ var require_dereference_json_schema = __commonJS((exports) => {
     return from;
   }
 });
-// node_modules/irises-extension-sdk/dist/logger.js
+// ../../packages/extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -16826,7 +16837,7 @@ function createExtensionLogger(extensionName, tag) {
   };
 }
 
-// node_modules/irises-extension-sdk/dist/plugin/context.js
+// ../../packages/extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -16834,7 +16845,7 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
-// extensions/mcp/src/client.ts
+// src/client.ts
 var logger = createPluginLogger("mcp", "client");
 
 class MCPClient {
@@ -16996,7 +17007,7 @@ class MCPClient {
   }
 }
 
-// extensions/mcp/src/manager.ts
+// src/manager.ts
 var import_dereference_json_schema = __toESM(require_dereference_json_schema(), 1);
 var { dereferenceSync } = import_dereference_json_schema.default;
 var logger2 = createPluginLogger("mcp", "manager");
@@ -17089,7 +17100,7 @@ function sanitizeName(name) {
   return name.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
-// extensions/mcp/src/config.ts
+// src/config.ts
 var logger3 = createPluginLogger("mcp", "config");
 function normalizeTransport(value) {
   if (value === "http")
@@ -17136,7 +17147,7 @@ function parseMCPConfig(raw) {
   return { servers };
 }
 
-// extensions/mcp/src/config-template.ts
+// src/config-template.ts
 var DEFAULT_MCP_CONFIG_TEMPLATE = `# MCP 服务器配置
 # 连接外部 MCP 服务器，自动将其工具注入 LLM 工具列表
 # 启动时后台异步连接，不阻塞启动
@@ -17180,7 +17191,7 @@ var DEFAULT_MCP_CONFIG_TEMPLATE = `# MCP 服务器配置
 #     url: "https://qyapi.weixin.qq.com/mcp/robot-doc?apikey=your-mcp-apikey"
 `;
 
-// extensions/mcp/src/index.ts
+// src/index.ts
 var logger4 = createPluginLogger("mcp");
 var SERVICE_ID = "mcp.manager";
 var runtimes = new Map;

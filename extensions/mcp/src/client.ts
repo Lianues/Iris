@@ -67,8 +67,11 @@ export class MCPClient {
     this._error = undefined;
 
     try {
+      // 使用 SDK 的显式 exports 入口（而不是 ./client/index.js 旧写法）。
+      // 发布产物会通过 Bun --packages=bundle 内联 SDK，避免 compiled binary
+      // 在动态加载 extension 时解析 bare specifier。
       // @ts-ignore — ESM subpath import
-      const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+      const { Client } = await import('@modelcontextprotocol/sdk/client');
 
       this.client = new Client(
         { name: 'Iris', version:'1.0.0' },

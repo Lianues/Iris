@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../../script/prepare-extension-sdk.mjs && bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --external ws --external node-pty",
+    "build": "node ../../script/prepare-extension-sdk.mjs && bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --packages=bundle --external node-pty && bun ../../script/validate-extension-bundle.ts --file ./dist/index.mjs --extension web --allow node-pty",
     "build:ui": "cd web-ui && npm run build"
   },
   "dependencies": {

@@ -16,7 +16,7 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/irises-extension-sdk/dist/logger.js
+// ../../packages/extension-sdk/dist/logger.js
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
@@ -680,7 +680,7 @@ var init_remote_wizard = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/framing.js
+// ../../packages/extension-sdk/dist/ipc/framing.js
 import { Transform } from "node:stream";
 function encodeFrame(data) {
   const payload = Buffer.from(JSON.stringify(data), "utf-8");
@@ -731,7 +731,7 @@ var init_framing = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/protocol.js
+// ../../packages/extension-sdk/dist/ipc/protocol.js
 function isRequest(msg) {
   return "id" in msg && "method" in msg;
 }
@@ -864,7 +864,7 @@ var init_protocol = __esm(() => {
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/remote-tool-handle.js
+// ../../packages/extension-sdk/dist/ipc/remote-tool-handle.js
 import { EventEmitter } from "node:events";
 var logger, RemoteToolHandle;
 var init_remote_tool_handle = __esm(() => {
@@ -968,7 +968,7 @@ var init_remote_tool_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/remote-backend-handle.js
+// ../../packages/extension-sdk/dist/ipc/remote-backend-handle.js
 import { EventEmitter as EventEmitter2 } from "node:events";
 var logger2, RemoteBackendHandle;
 var init_remote_backend_handle = __esm(() => {
@@ -1238,7 +1238,7 @@ var init_remote_backend_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/remote-api-proxy.js
+// ../../packages/extension-sdk/dist/ipc/remote-api-proxy.js
 function callApi(client, targetAgentName, method, params) {
   if (!targetAgentName) {
     return client.call(method, params);
@@ -1315,7 +1315,7 @@ var init_remote_api_proxy = __esm(() => {
   logger3 = createExtensionLogger("RemoteApiProxy");
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/index.js
+// ../../packages/extension-sdk/dist/ipc/index.js
 var exports_ipc = {};
 __export(exports_ipc, {
   isResponse: () => isResponse,
@@ -1345,7 +1345,7 @@ import React14 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// node_modules/irises-extension-sdk/dist/platform.js
+// ../../packages/extension-sdk/dist/platform.js
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1490,9 +1490,9 @@ class PlatformAdapter {
   }
 }
 
-// node_modules/irises-extension-sdk/dist/index.js
+// ../../packages/extension-sdk/dist/index.js
 init_logger();
-// node_modules/irises-extension-sdk/dist/utils/dependencies.js
+// ../../packages/extension-sdk/dist/utils/dependencies.js
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
@@ -1629,11 +1629,11 @@ async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
     installArgs: args
   };
 }
-// node_modules/irises-extension-sdk/dist/utils/git.js
+// ../../packages/extension-sdk/dist/utils/git.js
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 
-// node_modules/irises-extension-sdk/dist/utils/paths.js
+// ../../packages/extension-sdk/dist/utils/paths.js
 function normalizeText(value) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -1649,7 +1649,7 @@ function normalizeRelativeFilePath(input, label = "文件路径") {
   return parts.join("/");
 }
 
-// node_modules/irises-extension-sdk/dist/utils/git.js
+// ../../packages/extension-sdk/dist/utils/git.js
 var GIT_INSTALL_METADATA_FILE = ".iris-extension-install.json";
 function stripGitPlusProtocol(url) {
   return url.startsWith("git+") ? url.slice("git+".length) : url;

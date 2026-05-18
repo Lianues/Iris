@@ -3,11 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../../script/prepare-extension-sdk.mjs && bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm"
+    "build": "node ../../script/prepare-extension-sdk.mjs && bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --packages=bundle && bun ../../script/validate-extension-bundle.ts --file ./dist/index.mjs --extension mcp"
   },
   "dependencies": {
     "irises-extension-sdk": "file:../../packages/extension-sdk",
-    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "dereference-json-schema": "^0.2.2"
   }
 }

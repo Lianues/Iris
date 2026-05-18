@@ -1,4 +1,4 @@
-// ../../packages/extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -30,7 +30,7 @@ function createExtensionLogger(extensionName, tag) {
   };
 }
 
-// ../../packages/extension-sdk/dist/plugin/context.js
+// node_modules/irises-extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -273,12 +273,6 @@ var logger = createPluginLogger("milestone");
 var EXTENSION_STATE_KEY = "milestone";
 var MILESTONE_EXTENSION_SERVICE_ID = "milestone:service";
 var CONSOLE_PROGRESS_SERVICE_ID = "console:progress";
-var manager = new SessionMilestoneManager;
-var updateListeners = new Set;
-function emitUpdate(sessionId, snapshot) {
-  for (const listener of updateListeners)
-    listener(sessionId, snapshot);
-}
 function getExtensionState(meta) {
   const raw = meta?.extensionState?.[EXTENSION_STATE_KEY];
   return raw && typeof raw === "object" ? raw : {};
@@ -359,20 +353,46 @@ function upsertArchive(state, snapshot, afterHistoryIndex) {
   state.archives = archives.sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
 }
 async function persistSnapshot(api, snapshot) {
-  const meta = await api.storage.getMeta?.(snapshot.sessionId);
+  await updatePersistedMilestoneState(api, snapshot.sessionId, async (state) => {
+    state.latest = snapshot.items.length > 0 ? snapshot : undefined;
+    const existingUi = normalizeUiState(state.ui);
+    if (isArchivable(snapshot)) {
+      upsertArchive(state, snapshot, await getHistoryLengthSafe(api, snapshot.sessionId));
+      state.ui = createUiState(true, snapshot.updatedAt);
+    } else if (snapshot.items.length > 0 && !existingUi) {
+      state.ui = createUiState(true, snapshot.updatedAt);
+    }
+    return state;
+  });
+}
+async function updatePersistedMilestoneState(api, sessionId, updater) {
+  let updatedState;
+  if (api.storage.updateMeta) {
+    await api.storage.updateMeta(sessionId, async (current) => {
+      if (!current)
+        return;
+      const meta2 = current;
+      const state2 = { ...getExtensionState(meta2) };
+      const next2 = await updater(state2, meta2);
+      if (!next2)
+        return;
+      updatedState = next2;
+      setExtensionState(meta2, next2);
+      return current;
+    });
+    return updatedState;
+  }
+  const meta = await api.storage.getMeta?.(sessionId);
   if (!meta)
     return;
-  const state = getExtensionState(meta);
-  state.latest = snapshot.items.length > 0 ? snapshot : undefined;
-  const existingUi = normalizeUiState(state.ui);
-  if (isArchivable(snapshot)) {
-    upsertArchive(state, snapshot, await getHistoryLengthSafe(api, snapshot.sessionId));
-    state.ui = createUiState(true, snapshot.updatedAt);
-  } else if (snapshot.items.length > 0 && !existingUi) {
-    state.ui = createUiState(true, snapshot.updatedAt);
-  }
-  setExtensionState(meta, state);
+  const state = { ...getExtensionState(meta) };
+  const next = await updater(state, meta);
+  if (!next)
+    return;
+  updatedState = next;
+  setExtensionState(meta, next);
   await api.storage.saveMeta?.(meta);
+  return updatedState;
 }
 var MILESTONE_TOOL_SYNC_IGNORED = new Set([
   "update_milestones",
@@ -407,10 +427,68 @@ function getMilestones(api) {
     throw new Error("Milestone 服务不可用");
   return service;
 }
+function tryGetMilestones(api) {
+  if (!api?.services?.get)
+    return;
+  return api.services.get(MILESTONE_EXTENSION_SERVICE_ID);
+}
 function createMilestoneServiceForApi(api) {
+  const manager = new SessionMilestoneManager;
+  const updateListeners = new Set;
+  const pendingArchiveReanchors = new Map;
+  const queueArchiveReanchor = (snapshot) => {
+    if (!isArchivable(snapshot))
+      return;
+    const updatedAt = typeof snapshot.updatedAt === "number" && Number.isFinite(snapshot.updatedAt) ? snapshot.updatedAt : 0;
+    if (updatedAt <= 0)
+      return;
+    const existing = pendingArchiveReanchors.get(snapshot.sessionId);
+    if (existing) {
+      existing.add(updatedAt);
+      return;
+    }
+    pendingArchiveReanchors.set(snapshot.sessionId, new Set([updatedAt]));
+  };
+  const flushPendingArchiveReanchors = async (sessionId) => {
+    const pending = pendingArchiveReanchors.get(sessionId);
+    if (!pending || pending.size === 0)
+      return;
+    pendingArchiveReanchors.delete(sessionId);
+    const anchorIndex = await getHistoryLengthSafe(api, sessionId);
+    await updatePersistedMilestoneState(api, sessionId, async (state) => {
+      const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
+      let changed = false;
+      for (const updatedAt of pending) {
+        const archive = normalizeArchives(state.archives, sessionId).find((entry) => entry.snapshot.updatedAt === updatedAt);
+        if (archive) {
+          const before = normalizeArchives(state.archives, sessionId).find((entry) => entry.snapshot.updatedAt === updatedAt)?.afterHistoryIndex ?? 0;
+          upsertArchive(state, archive.snapshot, anchorIndex);
+          const after = normalizeArchives(state.archives, sessionId).find((entry) => entry.snapshot.updatedAt === updatedAt)?.afterHistoryIndex ?? 0;
+          if (after > before)
+            changed = true;
+          continue;
+        }
+        if (isArchivable(latest) && latest.updatedAt === updatedAt) {
+          upsertArchive(state, latest, anchorIndex);
+          changed = true;
+        }
+      }
+      return changed ? state : undefined;
+    });
+  };
+  const emitUpdate = (sessionId, snapshot) => {
+    for (const listener of updateListeners)
+      listener(sessionId, snapshot);
+  };
+  if (api.backend?.on) {
+    api.backend.on("done", (sessionId) => {
+      flushPendingArchiveReanchors(sessionId).catch((err) => logger.warn("刷新 milestone 历史锚点失败:", err));
+    });
+  }
   const service = {
     update(sessionId, updates, options) {
       const snapshot = manager.update(sessionId, updates, options);
+      queueArchiveReanchor(snapshot);
       persistSnapshot(api, snapshot).catch((err) => logger.warn("保存进度状态失败:", err));
       emitUpdate(snapshot.sessionId, snapshot);
       return snapshot;
@@ -420,6 +498,7 @@ function createMilestoneServiceForApi(api) {
     },
     clear(sessionId) {
       const snapshot = manager.clear(sessionId);
+      pendingArchiveReanchors.delete(sessionId);
       persistSnapshot(api, snapshot).catch((err) => logger.warn("清理进度状态失败:", err));
       emitUpdate(snapshot.sessionId, snapshot);
       return snapshot;
@@ -427,6 +506,7 @@ function createMilestoneServiceForApi(api) {
     noteActiveToolFailure(sessionId, input) {
       const snapshot = manager.noteActiveToolFailure(sessionId, input);
       if (snapshot) {
+        queueArchiveReanchor(snapshot);
         persistSnapshot(api, snapshot).catch((err) => logger.warn("保存工具错误进度状态失败:", err));
         emitUpdate(snapshot.sessionId, snapshot);
       }
@@ -452,12 +532,15 @@ function createMilestoneServiceForApi(api) {
       const archives = normalizeArchives(state.archives, sessionId);
       const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
       if (isArchivable(latest) && !archives.some((entry) => entry.snapshot.updatedAt === latest.updatedAt)) {
-        upsertArchive(state, latest, await getHistoryLengthSafe(api, sessionId));
-        if (meta) {
-          setExtensionState(meta, state);
-          await api.storage.saveMeta?.(meta);
-        }
-        return normalizeArchives(state.archives, sessionId);
+        const updated = await updatePersistedMilestoneState(api, sessionId, async (currentState) => {
+          const currentArchives = normalizeArchives(currentState.archives, sessionId);
+          const currentLatest = normalizeMilestoneSnapshot(currentState.latest, sessionId);
+          if (isArchivable(currentLatest) && !currentArchives.some((entry) => entry.snapshot.updatedAt === currentLatest.updatedAt)) {
+            upsertArchive(currentState, currentLatest, await getHistoryLengthSafe(api, sessionId));
+          }
+          return currentState;
+        });
+        return normalizeArchives(updated?.archives, sessionId);
       }
       return archives;
     },
@@ -466,13 +549,10 @@ function createMilestoneServiceForApi(api) {
       return normalizeUiState(getExtensionState(meta).ui);
     },
     async setUiState(sessionId, uiState) {
-      const meta = await api.storage.getMeta?.(sessionId);
-      if (!meta)
-        return;
-      const state = getExtensionState(meta);
-      state.ui = createUiState(uiState.expanded, uiState.snapshotUpdatedAt);
-      setExtensionState(meta, state);
-      await api.storage.saveMeta?.(meta);
+      await updatePersistedMilestoneState(api, sessionId, (state) => {
+        state.ui = createUiState(uiState.expanded, uiState.snapshotUpdatedAt);
+        return state;
+      });
     },
     onDidUpdate(listener) {
       updateListeners.add(listener);
@@ -520,16 +600,28 @@ function parseCrossAgentTaskId(sessionId) {
     return;
   return parts.slice(2).join(":") || undefined;
 }
-function resolveExecutionSessionId(api, context) {
-  const rawSessionId = getSessionId(api, context);
+function resolveMilestoneTarget(api, rawSessionId) {
   const crossAgentTaskId = parseCrossAgentTaskId(rawSessionId);
+  let targetApi = api;
+  let sessionId = rawSessionId;
   if (crossAgentTaskId && api.taskBoard?.get) {
     const task = api.taskBoard.get(crossAgentTaskId);
     if (task?.type === "delegate") {
-      return task.sourceSessionId;
+      sessionId = task.sourceSessionId;
+      if (task.sourceAgent && task.sourceAgent !== api.agentName) {
+        const peerApi = api.agentNetwork?.getPeerAPI?.(task.sourceAgent);
+        if (tryGetMilestones(peerApi)) {
+          targetApi = peerApi;
+        } else {
+          logger.warn(`无法将 delegate milestone 路由到 source Agent "${task.sourceAgent}"，回退到当前 Agent`);
+        }
+      }
     }
   }
-  return rawSessionId;
+  return { api: targetApi, sessionId, service: getMilestones(targetApi) };
+}
+function resolveMilestoneTargetFromContext(api, context) {
+  return resolveMilestoneTarget(api, getSessionId(api, context));
 }
 function formatSummary(snapshot) {
   const { stats } = snapshot;
@@ -661,8 +753,7 @@ function createUpdateMilestonesTool(api) {
       }
     },
     handler: async (args, context) => {
-      const service = getMilestones(api);
-      const sessionId = resolveExecutionSessionId(api, context);
+      const { service, sessionId } = resolveMilestoneTargetFromContext(api, context);
       const items = normalizeToolItems(args.items);
       const snapshot = service.update(sessionId, items, { replaceAll: args.replaceAll === true });
       const toolSnapshot = stripMetadataForToolResult(snapshot);
@@ -680,8 +771,7 @@ function createListMilestonesTool(api) {
       parameters: { type: "object", properties: {} }
     },
     handler: async (_args, context) => {
-      const service = getMilestones(api);
-      const sessionId = resolveExecutionSessionId(api, context);
+      const { service, sessionId } = resolveMilestoneTargetFromContext(api, context);
       const snapshot = service.getSnapshot(sessionId);
       const toolSnapshot = stripMetadataForToolResult(snapshot);
       return { ok: true, summary: formatSummary(toolSnapshot), snapshot: toolSnapshot };
@@ -700,10 +790,11 @@ function wrapExitPlanMode(api, ctx) {
       const approvedPlan = typeof record?.approvedPlan === "string" ? record.approvedPlan : undefined;
       const planFilePath = typeof record?.planFilePath === "string" ? record.planFilePath : undefined;
       if (record?.approved === true && approvedPlan) {
-        const sessionId = context?.sessionId ?? api.backend.getActiveSessionId?.();
-        if (sessionId) {
+        const rawSessionId = context?.sessionId ?? api.backend.getActiveSessionId?.();
+        if (rawSessionId) {
           const items = buildMilestonesFromApprovedPlan(approvedPlan, { planFilePath });
-          getMilestones(api).update(sessionId, items, { replaceAll: true });
+          const { service, sessionId } = resolveMilestoneTarget(api, rawSessionId);
+          service.update(sessionId, items, { replaceAll: true });
         }
       }
     } catch (err) {
@@ -717,15 +808,6 @@ function wrapExitPlanMode(api, ctx) {
       exitPlanTool.handler = original;
   } });
 }
-function resolveExecutionSessionIdForTool(api, rawSessionId) {
-  const crossAgentTaskId = parseCrossAgentTaskId(rawSessionId);
-  if (crossAgentTaskId && api.taskBoard?.get) {
-    const task = api.taskBoard.get(crossAgentTaskId);
-    if (task?.type === "delegate")
-      return task.sourceSessionId;
-  }
-  return rawSessionId;
-}
 function observeToolFailures(api, ctx) {
   const listener = (_sessionId, handle) => {
     const initial = handle.getSnapshot();
@@ -737,10 +819,9 @@ function observeToolFailures(api, ctx) {
       const snapshot = handle.getSnapshot();
       if (snapshot.status !== "error")
         return;
-      const service = getMilestones(api);
+      const { service, sessionId } = resolveMilestoneTarget(api, snapshot.sessionId ?? _sessionId);
       if (!service?.noteActiveToolFailure)
         return;
-      const sessionId = resolveExecutionSessionIdForTool(api, snapshot.sessionId ?? _sessionId);
       service.noteActiveToolFailure(sessionId, {
         toolId: snapshot.id,
         toolName: snapshot.toolName,

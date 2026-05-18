@@ -39,8 +39,13 @@ function getSdkDistLatestMtime() {
 }
 
 function run(command, args, cwd) {
-  const executable = process.platform === 'win32' && command === 'npm' ? 'npm.cmd' : command;
-  const result = spawnSync(executable, args, {
+  // Windows 上直接 spawn npm.cmd 在部分 Node 版本会抛 EINVAL；改走 cmd.exe /c 更稳。
+  const isWindows = process.platform === 'win32';
+  const executable = isWindows ? (process.env.ComSpec || 'cmd.exe') : command;
+  const spawnArgs = isWindows
+    ? ['/d', '/s', '/c', [command, ...args].map(quoteCmdArg).join(' ')]
+    : args;
+  const result = spawnSync(executable, spawnArgs, {
     cwd,
     stdio: 'inherit',
     shell: false,
@@ -49,6 +54,12 @@ function run(command, args, cwd) {
   if (typeof result.status === 'number' && result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed (exit=${result.status})`);
   }
+}
+
+function quoteCmdArg(value) {
+  const text = String(value);
+  if (!/[\s&()^|<>"]/.test(text)) return text;
+  return `"${text.replace(/"/g, '\\"')}"`;
 }
 
 function ensureSdkBuilt() {

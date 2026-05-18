@@ -24,6 +24,10 @@ import { $ } from "bun"
 import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
+import {
+  findDisallowedBareRuntimeImports,
+  formatDisallowedBareRuntimeImports,
+} from "./extension-bundle-validation"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -245,6 +249,7 @@ async function buildBundledModule(options: {
     target: options.target ?? "node",
     format: options.format ?? "esm",
     external: options.external,
+    packages: "bundle",
   })
   if (!result.success) {
     const logs = formatBuildLogs(result)
@@ -337,6 +342,22 @@ function loadEmbeddedExtensionBuildTargets(): EmbeddedExtensionBuildTarget[] {
   return targets
 }
 
+function validateBundledModuleRuntimeImports(extension: EmbeddedExtensionBuildTarget): void {
+  const content = fs.readFileSync(extension.outfile, "utf8")
+  const violations = findDisallowedBareRuntimeImports(content, {
+    allowedBarePackages: extension.external,
+  })
+
+  if (violations.length === 0) return
+
+  throw new Error(
+    `extension "${extension.name}" bundle 中仍包含非 external bare ESM import: `
+    + `${formatDisallowedBareRuntimeImports(violations)}。`
+    + "Bun compiled binary 动态加载 extension 文件时不能可靠解析这类 node_modules specifier；"
+    + "请将依赖打包进 bundle，或在 extensions/embedded.json 的 external 中声明并由目标平台安装。",
+  )
+}
+
 async function buildEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[]): Promise<void> {
   for (const extension of extensions) {
     await buildBundledModule({
@@ -347,6 +368,7 @@ async function buildEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[
       target: extension.target,
       format: extension.format,
     })
+    validateBundledModuleRuntimeImports(extension)
     console.log(`✓ extension bundled: ${extension.name} -> ${formatRelativePath(extension.outfile)}`)
   }
 }

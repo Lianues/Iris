@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../../script/prepare-extension-sdk.mjs && bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --external react --external @opentui/core --external @opentui/react"
+    "build": "node ../../script/prepare-extension-sdk.mjs && bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --packages=bundle --external react --external @opentui/core --external @opentui/react && bun ../../script/validate-extension-bundle.ts --file ./dist/index.mjs --extension console --allow react --allow @opentui/core --allow @opentui/react"
   },
   "dependencies": {
     "irises-extension-sdk": "file:../../packages/extension-sdk",
