@@ -11702,9 +11702,14 @@ var require_utils = __commonJS((exports, module) => {
   };
 });
 
+// node_modules/ssh2/lib/protocol/crypto/build/Release/sshcrypto.node
+var require_sshcrypto = __commonJS((exports, module) => {
+  module.exports = __require("./sshcrypto-nz4yty39.node");
+});
+
 // node_modules/ssh2/lib/protocol/crypto/poly1305.js
 var require_poly1305 = __commonJS((exports, module) => {
-  var __dirname = "D:\\code\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib\\protocol\\crypto", __filename = "D:\\code\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib\\protocol\\crypto\\poly1305.js";
+  var __dirname = "/root/Iris/extensions/remote-exec/node_modules/ssh2/lib/protocol/crypto", __filename = "/root/Iris/extensions/remote-exec/node_modules/ssh2/lib/protocol/crypto/poly1305.js";
   var createPoly1305 = function() {
     var _scriptDir = typeof document !== "undefined" && document.currentScript ? document.currentScript.src : undefined;
     if (typeof __filename !== "undefined")
@@ -12188,7 +12193,7 @@ var require_crypto = __commonJS((exports, module) => {
   var ChaChaPolyDecipher;
   var GenericDecipher;
   try {
-    binding = (()=>{throw new Error("Cannot require module "+"./crypto/build/Release/sshcrypto.node");})();
+    binding = require_sshcrypto();
     ({
       AESGCMCipher,
       ChaChaPolyCipher,
@@ -14477,7 +14482,7 @@ ${formatted}-----END ${type} KEY-----`;
 
 // node_modules/ssh2/lib/agent.js
 var require_agent = __commonJS((exports, module) => {
-  var __dirname = "D:\\code\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib";
+  var __dirname = "/root/Iris/extensions/remote-exec/node_modules/ssh2/lib";
   var { Socket } = __require("net");
   var { Duplex } = __require("stream");
   var { resolve } = __require("path");
