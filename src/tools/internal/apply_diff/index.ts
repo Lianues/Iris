@@ -17,6 +17,61 @@ import {
   applySearchReplaceBestEffort,
 } from './unified_diff';
 
+type ApplyDiffResultEntry = {
+  index: number;
+  success: boolean;
+  error?: string;
+  appliedHeader?: string;
+  appliedBy?: string;
+  fallback?: {
+    strategy: string;
+    message: string;
+    originalHeader?: string;
+    correctedHeader?: string;
+  };
+};
+
+function buildSearchReplaceFallbackMessage(strategy: 'search_replace' | 'loose_search_replace'): string {
+  return strategy === 'loose_search_replace'
+    ? '原始补丁 hunk 头无效，已通过 loose search/replace 兜底应用该 hunk。'
+    : '常规 hunk 应用失败，已通过 search/replace 兜底应用该 hunk。';
+}
+
+function mergeFallbackResults(
+  primaryResults: ApplyDiffResultEntry[],
+  fallbackResults: ApplyDiffResultEntry[],
+  totalHunks: number,
+): ApplyDiffResultEntry[] {
+  const primaryMap = new Map(primaryResults.map((item) => [item.index, item]));
+  const fallbackMap = new Map(fallbackResults.map((item) => [item.index, item]));
+  const merged: ApplyDiffResultEntry[] = [];
+
+  for (let index = 0; index < totalHunks; index++) {
+    const primary = primaryMap.get(index);
+    const fallback = fallbackMap.get(index);
+    if (primary?.success) {
+      merged.push(primary);
+      continue;
+    }
+    if (fallback) {
+      merged.push(fallback);
+      continue;
+    }
+    if (primary) {
+      merged.push(primary);
+      continue;
+    }
+    merged.push({ index, success: false, error: 'Unknown hunk result' });
+  }
+
+  return merged;
+}
+
+function preservesPrimarySuccesses(primaryResults: ApplyDiffResultEntry[], fallbackResults: ApplyDiffResultEntry[]): boolean {
+  const fallbackMap = new Map(fallbackResults.map((item) => [item.index, item]));
+  return primaryResults.filter((item) => item.success).every((item) => fallbackMap.get(item.index)?.success === true);
+}
+
 export const applyDiff: ToolDefinition = {
   declaration: {
     name: 'apply_diff',
@@ -59,7 +114,7 @@ export const applyDiff: ToolDefinition = {
     let appliedCount: number;
     let failedCount: number;
     let totalHunks: number;
-    let results: Array<{ index: number; success: boolean; error?: string }>;
+    let results: ApplyDiffResultEntry[];
     let fallbackMode: string = 'none';
 
     try {
@@ -75,22 +130,34 @@ export const applyDiff: ToolDefinition = {
         index: r.index,
         success: r.ok,
         error: r.error,
+        appliedHeader: r.appliedHeader,
+        appliedBy: r.appliedBy,
+        fallback: r.fallback,
   }));
 
       // 如果有 hunk 失败，尝试用 search/replace 兜底
       if (appliedCount < totalHunks) {
         const srBlocks = convertHunksToSearchReplace(parsed.hunks);
         const srResult = applySearchReplaceBestEffort(content, srBlocks);
+        const srMapped = srResult.results.map(r => ({
+          index: r.index,
+          success: r.success,
+          error: r.error,
+          appliedHeader: r.appliedHeader,
+          appliedBy: r.success ? 'search_replace' : undefined,
+          fallback: r.success ? {
+            strategy: 'search_replace',
+            message: buildSearchReplaceFallbackMessage('search_replace'),
+            originalHeader: parsed.hunks[r.index]?.header,
+            correctedHeader: r.appliedHeader,
+          } : undefined,
+        }));
 
-        if (srResult.appliedCount > appliedCount) {
+        if (srResult.appliedCount > appliedCount && preservesPrimarySuccesses(results, srMapped)) {
           appliedCount = srResult.appliedCount;
           failedCount = srResult.failedCount;
           newContent = srResult.newContent;
-          results = srResult.results.map(r => ({
-            index: r.index,
-            success: r.success,
-            error: r.error,
-          }));
+          results = mergeFallbackResults(results, srMapped, totalHunks);
           fallbackMode = 'unified_hunks_search_replace';
         }
       }
@@ -110,6 +177,14 @@ export const applyDiff: ToolDefinition = {
           index: r.index,
           success: r.success,
           error: r.error,
+          appliedHeader: r.appliedHeader,
+          appliedBy: r.success ? 'loose_search_replace' : undefined,
+          fallback: r.success ? {
+            strategy: 'loose_search_replace',
+            message: buildSearchReplaceFallbackMessage('loose_search_replace'),
+            originalHeader: looseBlocks[r.index]?.originalHeader,
+            correctedHeader: r.appliedHeader,
+          } : undefined,
         }));
         fallbackMode = 'loose_hunk_search_replace';
       } else {

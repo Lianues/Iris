@@ -712,12 +712,53 @@ const tApplyDiff: ToolTranslator = async (args, ctx) => {
   const filePath = args.path as string;
   const patch = args.patch as string;
   if (!filePath || typeof patch !== 'string') throw new Error('apply_diff: path 和 patch 必填');
+  type TranslatorApplyDiffResultEntry = {
+    index: number;
+    success: boolean;
+    error?: string;
+    appliedHeader?: string;
+    appliedBy?: string;
+    fallback?: {
+      strategy: string;
+      message: string;
+      originalHeader?: string;
+      correctedHeader?: string;
+    };
+  };
+  const buildSearchReplaceFallbackMessage = (strategy: 'search_replace' | 'loose_search_replace') => strategy === 'loose_search_replace'
+    ? '原始补丁 hunk 头无效，已通过 loose search/replace 兜底应用该 hunk。'
+    : '常规 hunk 应用失败，已通过 search/replace 兜底应用该 hunk。';
+  const mergeFallbackResults = (
+    primaryResults: TranslatorApplyDiffResultEntry[],
+    fallbackResults: TranslatorApplyDiffResultEntry[],
+    hunkCount: number,
+  ) => {
+    const primaryMap = new Map(primaryResults.map((item) => [item.index, item]));
+    const fallbackMap = new Map(fallbackResults.map((item) => [item.index, item]));
+    const merged: TranslatorApplyDiffResultEntry[] = [];
+    for (let index = 0; index < hunkCount; index++) {
+      const primary = primaryMap.get(index);
+      const fallback = fallbackMap.get(index);
+      if (primary?.success) { merged.push(primary); continue; }
+      if (fallback) { merged.push(fallback); continue; }
+      if (primary) { merged.push(primary); continue; }
+      merged.push({ index, success: false, error: 'Unknown hunk result' });
+    }
+    return merged;
+  };
+  const preservesPrimarySuccesses = (
+    primaryResults: TranslatorApplyDiffResultEntry[],
+    fallbackResults: TranslatorApplyDiffResultEntry[],
+  ) => {
+    const fallbackMap = new Map(fallbackResults.map((item) => [item.index, item]));
+    return primaryResults.filter((item) => item.success).every((item) => fallbackMap.get(item.index)?.success === true);
+  };
   const content = (await readRemoteBuffer(ctx, filePath)).toString('utf8');
   let newContent: string;
   let appliedCount: number;
   let failedCount: number;
   let totalHunks: number;
-  let results: Array<{ index: number; success: boolean; error?: string }>;
+  let results: TranslatorApplyDiffResultEntry[];
   let fallbackMode = 'none';
   try {
     const parsed = parseUnifiedDiff(patch);
@@ -726,13 +767,33 @@ const tApplyDiff: ToolTranslator = async (args, ctx) => {
     appliedCount = applied.results.filter(r => r.ok).length;
     failedCount = totalHunks - appliedCount;
     newContent = applied.newContent;
-    results = applied.results.map(r => ({ index: r.index, success: r.ok, error: r.error }));
+    results = applied.results.map(r => ({
+      index: r.index,
+      success: r.ok,
+      error: r.error,
+      appliedHeader: r.appliedHeader,
+      appliedBy: r.appliedBy,
+      fallback: r.fallback,
+    }));
     if (appliedCount < totalHunks) {
       const srBlocks = convertHunksToSearchReplace(parsed.hunks);
       const srResult = applySearchReplaceBestEffort(content, srBlocks);
-      if (srResult.appliedCount > appliedCount) {
+      const srMapped = srResult.results.map(r => ({
+        index: r.index,
+        success: r.success,
+        error: r.error,
+        appliedHeader: r.appliedHeader,
+        appliedBy: r.success ? 'search_replace' : undefined,
+        fallback: r.success ? {
+          strategy: 'search_replace',
+          message: buildSearchReplaceFallbackMessage('search_replace'),
+          originalHeader: parsed.hunks[r.index]?.header,
+          correctedHeader: r.appliedHeader,
+        } : undefined,
+      }));
+      if (srResult.appliedCount > appliedCount && preservesPrimarySuccesses(results, srMapped)) {
         appliedCount = srResult.appliedCount; failedCount = srResult.failedCount; newContent = srResult.newContent;
-        results = srResult.results.map(r => ({ index: r.index, success: r.success, error: r.error }));
+        results = mergeFallbackResults(results, srMapped, totalHunks);
         fallbackMode = 'unified_hunks_search_replace';
       }
     }
@@ -742,7 +803,19 @@ const tApplyDiff: ToolTranslator = async (args, ctx) => {
       const looseBlocks = parseLoosePatchToSearchReplace(patch);
       const looseResult = applySearchReplaceBestEffort(content, looseBlocks);
       totalHunks = looseBlocks.length; appliedCount = looseResult.appliedCount; failedCount = looseResult.failedCount; newContent = looseResult.newContent;
-      results = looseResult.results.map(r => ({ index: r.index, success: r.success, error: r.error }));
+      results = looseResult.results.map(r => ({
+        index: r.index,
+        success: r.success,
+        error: r.error,
+        appliedHeader: r.appliedHeader,
+        appliedBy: r.success ? 'loose_search_replace' : undefined,
+        fallback: r.success ? {
+          strategy: 'loose_search_replace',
+          message: buildSearchReplaceFallbackMessage('loose_search_replace'),
+          originalHeader: looseBlocks[r.index]?.originalHeader,
+          correctedHeader: r.appliedHeader,
+        } : undefined,
+      }));
       fallbackMode = 'loose_hunk_search_replace';
     } else throw e;
   }

@@ -10,7 +10,7 @@
 
 import React from 'react';
 import type { ToolDiffPreviewItemLike, ToolDiffPreviewResponseLike } from 'irises-extension-sdk';
-import { ICONS } from '../terminal-compat';
+import { BORDER_CHARS, ICONS } from '../terminal-compat';
 
 const DEFAULT_MAX_ITEMS = 3;
 const DEFAULT_MAX_LINES = 80;
@@ -21,6 +21,8 @@ type DiffLineKind = 'file' | 'hunk' | 'add' | 'del' | 'ctx' | 'meta' | 'message'
 interface HunkStatus {
   success?: boolean;
   error?: string;
+  correctedHeader?: string;
+  fallbackMessage?: string;
 }
 
 interface RenderLine {
@@ -28,6 +30,8 @@ interface RenderLine {
   text: string;
   hunkIndex?: number;
   hunkStatus?: HunkStatus;
+  oldLineNumber?: number;
+  newLineNumber?: number;
 }
 
 interface ResultWithUiPreview {
@@ -99,11 +103,31 @@ function truncateLine(line: string, max = MAX_LINE_CHARS): string {
   return `${line.slice(0, head)} ${ICONS.ellipsis} ${line.slice(-tail)}`;
 }
 
+function parseHunkHeader(header: string): { oldStart: number; newStart: number } | undefined {
+  const m = header.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
+  if (!m) return undefined;
+  return {
+    oldStart: Number.parseInt(m[1], 10),
+    newStart: Number.parseInt(m[3], 10),
+  };
+}
+
+function formatLineNumber(value: number | undefined, width: number): string {
+  if (width <= 0) return '';
+  if (value === undefined || !Number.isFinite(value)) {
+    return ' '.repeat(width);
+  }
+  return String(value).padStart(width, ' ');
+}
+
 function classifyDiffLine(rawLine: string, hunkIndex?: number, hunkStatus?: HunkStatus): RenderLine {
   const line = truncateLine(rawLine);
-  if (line.startsWith('@@')) {
+  const displayLine = rawLine.startsWith('@@') && hunkStatus?.correctedHeader
+    ? truncateLine(hunkStatus.correctedHeader)
+    : line;
+  if (displayLine.startsWith('@@')) {
     return {
-      kind: 'hunk', text: line, hunkIndex, hunkStatus,
+      kind: 'hunk', text: displayLine, hunkIndex, hunkStatus,
     };
   }
   if (line.startsWith('+') && !isUnifiedFileHeader(rawLine)) return { kind: 'add', text: line };
@@ -137,6 +161,8 @@ function collectRenderLines(
   let hiddenLines = 0;
   let hiddenItems = 0;
   let renderedItems = 0;
+  let currentOldLine: number | undefined;
+  let currentNewLine: number | undefined;
   let hunkCounter = 0;
 
   const pushLine = (line: RenderLine): boolean => {
@@ -166,13 +192,41 @@ function collectRenderLines(
       for (let i = 0; i < diffLines.length; i++) {
         const rawLine = diffLines[i];
         if (rawLine.length === 0 || isUnifiedFileHeader(rawLine)) continue;
+
         const currentHunkIndex = rawLine.startsWith('@@') ? hunkCounter++ : undefined;
         const hunkStatus = currentHunkIndex !== undefined ? hunkStatuses[currentHunkIndex] : undefined;
-        if (!pushLine(classifyDiffLine(rawLine, currentHunkIndex, hunkStatus))) {
+
+        if (rawLine.startsWith('@@')) {
+          const parsedHeader = parseHunkHeader(hunkStatus?.correctedHeader ?? rawLine);
+          currentOldLine = parsedHeader?.oldStart;
+          currentNewLine = parsedHeader?.newStart;
+        }
+
+        let oldLineNumber: number | undefined;
+        let newLineNumber: number | undefined;
+        if (!rawLine.startsWith('@@')) {
+          if (rawLine.startsWith(' ')) {
+            oldLineNumber = currentOldLine;
+            newLineNumber = currentNewLine;
+            currentOldLine = currentOldLine !== undefined ? currentOldLine + 1 : undefined;
+            currentNewLine = currentNewLine !== undefined ? currentNewLine + 1 : undefined;
+          } else if (rawLine.startsWith('-')) {
+            oldLineNumber = currentOldLine;
+            currentOldLine = currentOldLine !== undefined ? currentOldLine + 1 : undefined;
+          } else if (rawLine.startsWith('+')) {
+            newLineNumber = currentNewLine;
+            currentNewLine = currentNewLine !== undefined ? currentNewLine + 1 : undefined;
+          }
+        }
+
+        if (!pushLine({ ...classifyDiffLine(rawLine, currentHunkIndex, hunkStatus), oldLineNumber, newLineNumber })) {
           hiddenLines += diffLines.slice(i + 1)
             .filter(line => line.length > 0 && !isUnifiedFileHeader(line))
             .length;
           break;
+        }
+        if (rawLine.startsWith('@@') && hunkStatus?.fallbackMessage) {
+          pushLine({ kind: 'message', text: `fallback: ${truncateLine(hunkStatus.fallbackMessage)}` });
         }
       }
     } else if (item.message) {
@@ -211,6 +265,12 @@ export function CompactDiffPreview({
   const { lines, hiddenLines, hiddenItems } = collectRenderLines(preview, maxItems, maxLines, hunkStatuses);
   if (lines.length === 0) return null;
 
+  const lineNumberWidth = lines.reduce((max, line) => {
+    const oldWidth = line.oldLineNumber !== undefined ? String(line.oldLineNumber).length : 0;
+    const newWidth = line.newLineNumber !== undefined ? String(line.newLineNumber).length : 0;
+    return Math.max(max, oldWidth, newWidth);
+  }, 0);
+
   return (
     <box flexDirection="column">
       {lines.map((line, index) => (
@@ -221,7 +281,14 @@ export function CompactDiffPreview({
               <span fg={getLineColor(line.kind, line.hunkStatus)}>{line.text}</span>
             </>
           ) : (
-            <span fg={getLineColor(line.kind, line.hunkStatus)}>{`  ${line.text}`}</span>
+            <>
+              {lineNumberWidth > 0 ? (
+                <span fg="#6b7280">{`  ${formatLineNumber(line.oldLineNumber, lineNumberWidth)} ${formatLineNumber(line.newLineNumber, lineNumberWidth)} ${BORDER_CHARS.vertical} `}</span>
+              ) : (
+                <span fg="#6b7280">{'  '}</span>
+              )}
+              <span fg={getLineColor(line.kind, line.hunkStatus)}>{line.text}</span>
+            </>
           )}
         </text>
       ))}

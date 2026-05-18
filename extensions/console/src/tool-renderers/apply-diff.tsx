@@ -19,6 +19,13 @@ interface ApplyDiffResult {
   results?: Array<{
     index?: number;
     success?: boolean;
+    appliedHeader?: string;
+    fallback?: {
+      strategy?: string;
+      message?: string;
+      originalHeader?: string;
+      correctedHeader?: string;
+    };
   }>;
 }
 
@@ -64,7 +71,12 @@ export function ApplyDiffRenderer({ args, result }: ToolRendererProps) {
           {path ? ` (${path})` : ''}
         </em>
       </text>
-      <CompactDiffPreview preview={preview} hunkStatuses={hunkResults} />
+      <CompactDiffPreview preview={preview} hunkStatuses={hunkResults.map((hunk) => ({
+        success: hunk.success,
+        error: undefined,
+        correctedHeader: hunk.fallback?.correctedHeader ?? hunk.appliedHeader,
+        fallbackMessage: hunk.fallback?.message,
+      }))} />
     </box>
   );
 }

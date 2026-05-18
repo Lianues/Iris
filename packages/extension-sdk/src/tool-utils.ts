@@ -36,10 +36,19 @@ export interface ParsedUnifiedDiff {
   hunks: UnifiedDiffHunk[];
 }
 
+export type UnifiedDiffApplyStrategy = 'line_number' | 'context_search' | 'search_replace' | 'loose_search_replace';
+
 export interface AppliedHunkRange {
   index: number;
   startLine: number;
   endLine: number;
+}
+
+export interface UnifiedDiffFallbackInfo {
+  strategy: Exclude<UnifiedDiffApplyStrategy, 'line_number'>;
+  message: string;
+  originalHeader?: string;
+  correctedHeader?: string;
 }
 
 export interface UnifiedDiffHunkApplyResult {
@@ -48,6 +57,9 @@ export interface UnifiedDiffHunkApplyResult {
   error?: string;
   startLine?: number;
   endLine?: number;
+  appliedHeader?: string;
+  appliedBy?: UnifiedDiffApplyStrategy;
+  fallback?: UnifiedDiffFallbackInfo;
 }
 
 export interface ApplyUnifiedDiffBestEffortResult {
@@ -61,6 +73,9 @@ export interface SearchReplaceBlock {
   search: string;
   replace: string;
   startLine?: number;
+  oldCount?: number;
+  newCount?: number;
+  originalHeader?: string;
 }
 
 // ============ 内部工具函数 ============
@@ -111,6 +126,10 @@ function joinLinesPreserveTrailing(lines: string[], endsWithNewline: boolean): s
 
 function computeHunkNewLen(hunk: UnifiedDiffHunk): number {
   return hunk.lines.reduce((acc, l) => acc + (l.type === 'del' ? 0 : 1), 0);
+}
+
+function computeHunkOldLen(hunk: UnifiedDiffHunk): number {
+  return hunk.lines.reduce((acc, l) => acc + (l.type === 'add' ? 0 : 1), 0);
 }
 
 // ============ 解析 ============
@@ -206,6 +225,26 @@ export function parseUnifiedDiff(patch: string): ParsedUnifiedDiff {
   return { oldFile, newFile, hunks };
 }
 
+function buildAppliedHunkHeader(startLine: number, oldCount: number, newCount: number): string {
+  const normalizedStartLine = Math.max(1, startLine);
+  const oldStart = oldCount > 0
+    ? normalizedStartLine
+    : Math.max(0, normalizedStartLine - 1);
+  const newStart = newCount > 0
+    ? normalizedStartLine
+    : Math.max(0, normalizedStartLine - 1);
+  return `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`;
+}
+
+function createContextSearchFallbackInfo(hunk: UnifiedDiffHunk, appliedHeader: string): UnifiedDiffFallbackInfo {
+  return {
+    strategy: 'context_search',
+    message: '行号定位失败，已通过唯一上下文匹配兜底应用该 hunk。',
+    originalHeader: hunk.header,
+    correctedHeader: appliedHeader,
+  };
+}
+
 // ============ 应用 ============
 
 /**
@@ -280,6 +319,8 @@ export function applyUnifiedDiffBestEffort(
 
     let snapshot = lines.slice();
     let applied = false;
+    const oldCount = computeHunkOldLen(hunk);
+    const newCount = computeHunkNewLen(hunk);
 
     // 第一轮：按行号 + delta 定位
     try {
@@ -288,12 +329,19 @@ export function applyUnifiedDiffBestEffort(
         const startIndex = baseOldStart - 1 + delta;
         const { added, removed } = tryApplyAt(startIndex);
 
-        const newLen = computeHunkNewLen(hunk);
         const startLine = startIndex + 1;
-        const endLine = startLine + Math.max(newLen, 1) - 1;
+        const endLine = startLine + Math.max(newCount, 1) - 1;
+        const appliedHeader = buildAppliedHunkHeader(startLine, oldCount, newCount);
         appliedHunks.push({ index: hunkIndex, startLine, endLine });
         delta += added - removed;
-        results.push({ index: hunkIndex, ok: true, startLine, endLine });
+        results.push({
+          index: hunkIndex,
+          ok: true,
+          startLine,
+          endLine,
+          appliedHeader,
+          appliedBy: 'line_number',
+        });
         applied = true;
       }
     } catch {
@@ -310,12 +358,20 @@ export function applyUnifiedDiffBestEffort(
           const startIndex = matches[0];
           const { added, removed } = tryApplyAt(startIndex);
 
-          const newLen = computeHunkNewLen(hunk);
           const startLine = startIndex + 1;
-          const endLine = startLine + Math.max(newLen, 1) - 1;
+          const endLine = startLine + Math.max(newCount, 1) - 1;
+          const appliedHeader = buildAppliedHunkHeader(startLine, oldCount, newCount);
           appliedHunks.push({ index: hunkIndex, startLine, endLine });
           delta += added - removed;
-          results.push({ index: hunkIndex, ok: true, startLine, endLine });
+          results.push({
+            index: hunkIndex,
+            ok: true,
+            startLine,
+            endLine,
+            appliedHeader,
+            appliedBy: 'context_search',
+            fallback: createContextSearchFallbackInfo(hunk, appliedHeader),
+          });
           applied = true;
         } catch {
           lines.splice(0, lines.length, ...snapshot);
@@ -371,6 +427,9 @@ export function convertHunksToSearchReplace(hunks: UnifiedDiffHunk[]): SearchRep
     return {
       search: searchLines.join('\n'),
       replace: replaceLines.join('\n'),
+      oldCount: computeHunkOldLen(h),
+      newCount: computeHunkNewLen(h),
+      originalHeader: h.header,
       startLine: startLineHint,
     };
   });
@@ -387,6 +446,7 @@ export function parseLoosePatchToSearchReplace(patch: string): SearchReplaceBloc
   let inHunk = false;
   let searchLines: string[] = [];
   let replaceLines: string[] = [];
+  let currentHeader: string | undefined;
 
   const flush = () => {
     if (!inHunk) return;
@@ -395,15 +455,20 @@ export function parseLoosePatchToSearchReplace(patch: string): SearchReplaceBloc
     if (!search.trim()) {
       throw new Error('Loose @@ hunk has empty search block.');
     }
-    blocks.push({ search, replace });
+    blocks.push({
+      search, replace, originalHeader: currentHeader,
+      oldCount: search ? search.split('\n').length : 0, newCount: replace ? replace.split('\n').length : 0,
+    });
     searchLines = [];
     replaceLines = [];
+    currentHeader = undefined;
   };
 
   for (const line of lines) {
     if (line.startsWith('@@')) {
       flush();
       inHunk = true;
+      currentHeader = line;
       continue;
     }
     if (!inHunk) continue;
@@ -447,13 +512,13 @@ export function applySearchReplaceBestEffort(
   blocks: SearchReplaceBlock[],
 ): {
   newContent: string;
-  results: Array<{ index: number; success: boolean; error?: string; matchCount?: number }>;
+  results: Array<{ index: number; success: boolean; error?: string; matchCount?: number; startLine?: number; endLine?: number; appliedHeader?: string }>;
   appliedCount: number;
   failedCount: number;
 } {
   const norm = normalizeLineEndings;
   let currentContent = norm(originalContent);
-  const results: Array<{ index: number; success: boolean; error?: string; matchCount?: number }> = [];
+  const results: Array<{ index: number; success: boolean; error?: string; matchCount?: number; startLine?: number; endLine?: number; appliedHeader?: string }> = [];
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
@@ -474,8 +539,13 @@ export function applySearchReplaceBestEffort(
       }
       const idx = currentContent.indexOf(search, charOffset);
       if (idx !== -1) {
+        const startLine = currentContent.slice(0, idx).split('\n').length;
+        const oldCount = block.oldCount ?? (search ? search.split('\n').length : 0);
+        const newCount = block.newCount ?? (replace ? replace.split('\n').length : 0);
+        const endLine = startLine + Math.max(newCount, 1) - 1;
+        const appliedHeader = buildAppliedHunkHeader(startLine, oldCount, newCount);
         currentContent = currentContent.slice(0, idx) + replace + currentContent.slice(idx + search.length);
-        results.push({ index: i, success: true, matchCount: 1 });
+        results.push({ index: i, success: true, matchCount: 1, startLine, endLine, appliedHeader });
         continue;
       }
     }
@@ -487,8 +557,13 @@ export function applySearchReplaceBestEffort(
     } else if (matchCount > 1) {
       results.push({ index: i, success: false, error: `Multiple matches found (${matchCount})`, matchCount });
     } else {
+      const idx = currentContent.indexOf(search);
+      const startLine = currentContent.slice(0, idx).split('\n').length;
+      const oldCount = block.oldCount ?? (search ? search.split('\n').length : 0);
+      const newCount = block.newCount ?? (replace ? replace.split('\n').length : 0);
+      const endLine = startLine + Math.max(newCount, 1) - 1;
       currentContent = currentContent.replace(search, replace);
-      results.push({ index: i, success: true, matchCount: 1 });
+      results.push({ index: i, success: true, matchCount: 1, startLine, endLine, appliedHeader: buildAppliedHunkHeader(startLine, oldCount, newCount) });
     }
   }
 
