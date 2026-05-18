@@ -238,6 +238,49 @@ async function statRemoteSize(ctx: TranslatorContext, toolPath: string): Promise
   return Number.isFinite(n) ? n : undefined;
 }
 
+async function readRemoteTextSlice(ctx: TranslatorContext, toolPath: string, startLine: number, endLine: number | undefined): Promise<{ text: string; totalLines: number }> {
+  const remotePath = resolveRemotePath(toolPath, ctx.remoteCwd);
+  const safeStart = Math.max(1, Math.floor(startLine));
+  const safeEnd = endLine !== undefined && Number.isFinite(endLine) ? Math.max(0, Math.floor(endLine)) : 0;
+  const script = `set -euo pipefail
+FILE=${shQuote(remotePath)}
+START=${safeStart}
+RANGE_END=${safeEnd}
+bytes="$(wc -c < "$FILE" 2>/dev/null || printf '0')"
+case "$bytes" in ''|*[!0-9]*) bytes=0 ;; esac
+records="$(awk 'END { print NR }' "$FILE")"
+case "$records" in ''|*[!0-9]*) records=0 ;; esac
+last_hex=""
+if [ "$bytes" -gt 0 ]; then
+  last_hex="$(tail -c 1 "$FILE" | od -An -tx1 | tr -d ' \\n\\r')"
+fi
+if [ "$bytes" -eq 0 ]; then
+  total=1
+elif [ "$last_hex" = "0a" ]; then
+  total=$((records + 1))
+else
+  total=$records
+fi
+content="$(awk -v start="$START" -v end="$RANGE_END" 'NR >= start && (end <= 0 || NR <= end) { print }' "$FILE")"
+if [ "$last_hex" = "0a" ] && [ "$START" -le "$total" ] && { [ "$RANGE_END" -le 0 ] || [ "$RANGE_END" -ge "$total" ]; }; then
+  content="\${content}
+"
+fi
+printf '%s\\n' "$total"
+printf '%s' "$content" | base64 | tr -d '\\n\\r'`;
+  const r = await execBash(ctx, script);
+  assertExitOk(r, `读取文件片段 ${toolPath}`);
+  const nl = r.stdout.indexOf('\n');
+  const totalText = (nl >= 0 ? r.stdout.slice(0, nl) : r.stdout).trim();
+  const encoded = nl >= 0 ? r.stdout.slice(nl + 1).replace(/\s+/g, '') : '';
+  const totalLines = Number.parseInt(totalText, 10);
+  return {
+    text: Buffer.from(encoded, 'base64').toString('utf8'),
+    totalLines: Number.isFinite(totalLines) ? totalLines : 0,
+  };
+}
+
+
 async function writeRemoteBuffer(ctx: TranslatorContext, toolPath: string, data: Buffer | string): Promise<void> {
   const m = mode(ctx);
   const remotePath = resolveRemotePath(toolPath, ctx.remoteCwd);
@@ -390,22 +433,39 @@ const tReadFile: ToolTranslator = async (args, ctx) => {
   for (const req of cappedList) {
     try {
       if (!isTextFile(req.path)) throw new Error(`不支持的文件类型: ${path.posix.extname(req.path) || '(无扩展名)'}`);
-      const size = await statRemoteSize(ctx, req.path);
-      if (size !== undefined && size > LIMITS.read_file.maxFileSizeBytes) throw new Error(`文件过大 (${size} bytes > ${LIMITS.read_file.maxFileSizeBytes} bytes)，请使用 startLine/endLine 分段读取`);
-      const raw = (await readRemoteBuffer(ctx, req.path)).toString('utf8');
-      const allLines = raw.split('\n');
-      const totalLines = allLines.length;
       const startLine = Math.max(1, req.startLine ?? 1);
-      const endLine = req.endLine ? Math.min(req.endLine, totalLines) : totalLines;
-      if (startLine > totalLines) throw new Error(`startLine (${startLine}) 超出文件总行数 (${totalLines})`);
-      const sliced = allLines.slice(startLine - 1, endLine);
-      const formatted = formatWithLineNumbers(sliced.join('\n'), startLine);
+      const hasLineRange = req.startLine !== undefined || req.endLine !== undefined;
+      const size = await statRemoteSize(ctx, req.path);
+      if (size !== undefined && size > LIMITS.read_file.maxFileSizeBytes && !hasLineRange) throw new Error(`文件过大 (${size} bytes > ${LIMITS.read_file.maxFileSizeBytes} bytes)，请使用 startLine/endLine 分段读取`);
+
+      let slicedText: string;
+      let totalLines: number;
+      let endLine: number;
+      let lineCount: number;
+      if (hasLineRange) {
+        const remoteSlice = await readRemoteTextSlice(ctx, req.path, startLine, req.endLine);
+        totalLines = remoteSlice.totalLines;
+        endLine = req.endLine ? Math.min(req.endLine, totalLines) : totalLines;
+        if (startLine > totalLines) throw new Error(`startLine (${startLine}) 超出文件总行数 (${totalLines})`);
+        slicedText = remoteSlice.text;
+        lineCount = Math.max(0, endLine - startLine + 1);
+      } else {
+        const raw = (await readRemoteBuffer(ctx, req.path)).toString('utf8');
+        const allLines = raw.split('\n');
+        totalLines = allLines.length;
+        endLine = req.endLine ? Math.min(req.endLine, totalLines) : totalLines;
+        if (startLine > totalLines) throw new Error(`startLine (${startLine}) 超出文件总行数 (${totalLines})`);
+        const sliced = allLines.slice(startLine - 1, endLine);
+        slicedText = sliced.join('\n');
+        lineCount = sliced.length;
+      }
+      const formatted = formatWithLineNumbers(slicedText, startLine);
       totalOutputChars += formatted.length;
       if (totalOutputChars > LIMITS.read_file.maxTotalOutputChars) {
         results.push({ path: req.path, success: false, error: `总输出已达上限 (${LIMITS.read_file.maxTotalOutputChars} chars)，后续文件已跳过。请使用 startLine/endLine 分段读取` });
         failCount++; break;
       }
-      const res: any = { path: req.path, success: true, type: 'text', content: formatted, lineCount: sliced.length };
+      const res: any = { path: req.path, success: true, type: 'text', content: formatted, lineCount };
       if (req.startLine !== undefined || req.endLine !== undefined) { res.totalLines = totalLines; res.startLine = startLine; res.endLine = endLine; }
       results.push(res); successCount++;
     } catch (err) {
@@ -518,11 +578,18 @@ const tFindFiles: ToolTranslator = async (args, ctx) => {
   if (patternList.length === 0) throw new Error('patterns 参数不能为空');
   const exclude = (args.exclude as string | undefined) ?? DEFAULT_EXCLUDE;
   const maxResults = clampPositiveInteger(args.maxResults, LIMITS.find_files.maxResults, LIMITS.find_files.maxResults);
-  const files = await listAllFiles(ctx, '.', '**/*');
+  const roots = getRemoteSearchRoots(patternList);
+  const fileMap = new Map<string, { rel: string; display: string; toolPath: string }>();
+  for (const root of roots) {
+    for (const file of await listAllFiles(ctx, root, '**/*')) {
+      fileMap.set(file.display, file);
+    }
+  }
+  const files = Array.from(fileMap.values()).sort((a, b) => a.display.localeCompare(b.display));
   const excludeMatchers = buildExcludeMatchers(exclude);
   const patternRes = patternList.map(p => ({ pattern: p, re: globToRegExp(p), matches: [] as string[], truncated: false }));
   for (const f of files) {
-    const rel = f.rel;
+    const rel = f.display;
     if (isExcluded(rel, excludeMatchers)) continue;
     for (const p of patternRes) {
       if (p.matches.length >= maxResults) continue;
@@ -724,20 +791,29 @@ process_file() {
     line_no="\${hit%%:*}"
     text="\${hit#*:}"
     case "$line_no" in ''|*[!0-9]*) continue ;; esac
-    awk_out="$(awk -v mode="$MODE" -v q="$QUERY" -v line="$text" 'BEGIN {
+    matches="$(awk -v mode="$MODE" -v q="$QUERY" -v line="$text" 'BEGIN {
   if (mode == "literal") {
-    c = index(line, q);
-    if (c <= 0) exit;
-    print c " " q;
-  } else if (match(line, q)) {
-    if (RLENGTH <= 0) exit;
-    print RSTART " " substr(line, RSTART, RLENGTH);
+    if (length(q) == 0) exit;
+    pos = 1;
+    rest = line;
+    while ((c = index(rest, q)) > 0) {
+      start = pos + c - 1;
+      print start "\t" q;
+      pos = start + length(q);
+      rest = substr(line, pos);
+    }
+  } else {
+    pos = 1;
+    rest = line;
+    while (match(rest, q)) {
+      if (RLENGTH <= 0) exit;
+      print (pos + RSTART - 1) "\t" substr(rest, RSTART, RLENGTH);
+      pos += RSTART + RLENGTH - 1;
+      rest = substr(line, pos);
+    }
   }
 }')"
-    col="\${awk_out%% *}"
-    matched="\${awk_out#* }"
-    [ "$col" != "$awk_out" ] || continue
-    [ -n "$col" ] || continue
+    [ -n "$matches" ] || continue
     start=$((line_no - CONTEXT_LINES)); [ "$start" -lt 1 ] && start=1
     end=$((line_no + CONTEXT_LINES))
     context="$(awk -v start="$start" -v end="$end" -v max="$MAX_LINE_CHARS" 'NR >= start && NR <= end {
@@ -749,12 +825,17 @@ process_file() {
       printf "%d: %s\\n", NR, line;
     }' "$file")"
     rel="\${file#./}"
-    printf '%s\\0%s\\0%s\\0%s\\0%s\\0' "$rel" "$line_no" "$col" "$matched" "$context" >> "$out"
-    count=$((count + 1))
-    if [ "$count" -ge "$MAX_RESULTS" ]; then
-      truncated=1
-      return 1
-    fi
+    tab="$(printf '\\t')"
+    while IFS="$tab" read -r col matched; do
+      [ -n "$col" ] || continue
+      printf '%s\\0%s\\0%s\\0%s\\0%s\\0' "$rel" "$line_no" "$col" "$matched" "$context" >> "$out"
+      count=$((count + 1))
+      if [ "$count" -ge "$MAX_RESULTS" ]; then
+        truncated=1
+        return 1
+      fi
+    done <<< "$matches"
+
   done < <(grep -nI ${flag} -e "$QUERY" -- "$file" 2>/dev/null)
   return 0
 }
@@ -790,6 +871,95 @@ done
 
   return { records, filesSearched, skippedTooLarge, truncated };
 }
+
+interface RemoteGrepFileCandidatesResult {
+  files: Array<{ rel: string; display: string; toolPath: string }>;
+  filesSearched: number;
+  skippedTooLarge: number;
+  truncated: boolean;
+}
+
+async function grepFileCandidatesRemote(
+  ctx: TranslatorContext,
+  include: string[],
+  effectiveExclude: string[],
+  query: string,
+  grepMode: 'literal' | 'regex-ere',
+  maxFiles: number,
+  maxFileSizeBytes: number,
+): Promise<RemoteGrepFileCandidatesResult | undefined> {
+  if (!query || query.includes('\n') || query.includes('\r')) return undefined;
+
+  const roots = getRemoteSearchRoots(include);
+  const rootArray = roots.map(root => shQuote(root)).join(' ');
+  const prunes = DEFAULT_IGNORED_DIRS.map(d => `-name ${shQuote(d)}`).join(' -o ');
+  const flag = grepMode === 'literal' ? '-F' : '-E';
+  const remoteLimit = Math.min(Math.max(maxFiles * 100, maxFiles), 10000);
+  const preflight = grepMode === 'regex-ere'
+    ? `grep -E -e "$QUERY" </dev/null >/dev/null 2>/dev/null; st=$?; [ "$st" -gt 1 ] && exit 2`
+    : '';
+
+  const script = `set +e
+QUERY=${shQuote(query)}
+MAX_FILES=${remoteLimit}
+MAX_FILE_SIZE=${maxFileSizeBytes}
+${preflight}
+out="$(mktemp)" || exit 2
+trap 'rm -f "$out"' EXIT
+files_searched=0
+skipped_too_large=0
+truncated=0
+count=0
+process_file() {
+  file="$1"
+  [ -f "$file" ] || return 0
+  size="$(stat -c %s -- "$file" 2>/dev/null || wc -c < "$file" 2>/dev/null || printf '0')"
+  case "$size" in ''|*[!0-9]*) size=0 ;; esac
+  if [ "$size" -gt "$MAX_FILE_SIZE" ]; then
+    skipped_too_large=$((skipped_too_large + 1))
+    return 0
+  fi
+  files_searched=$((files_searched + 1))
+  if grep -Iq ${flag} -e "$QUERY" -- "$file" 2>/dev/null; then
+    rel="\${file#./}"
+    printf '%s\\0' "$rel" >> "$out"
+    count=$((count + 1))
+    if [ "$count" -ge "$MAX_FILES" ]; then
+      truncated=1
+      return 1
+    fi
+  fi
+  return 0
+}
+for root in ${rootArray}; do
+  [ "$truncated" -eq 1 ] && break
+  if [ -f "$root" ]; then
+    process_file "$root" || true
+  elif [ -d "$root" ]; then
+    while IFS= read -r -d '' file; do
+      process_file "$file" || true
+      [ "$truncated" -eq 1 ] && break
+    done < <(find "$root" \\( ${prunes} \\) -prune -o -type f -print0 2>/dev/null)
+  fi
+done
+{ printf 'S\\0%s\\0%s\\0%s\\0' "$files_searched" "$skipped_too_large" "$truncated"; cat "$out"; } | base64 | tr -d '\\n\\r'`;
+
+  const r = await execBash(ctx, script);
+  if ((r.exitCode ?? 0) > 1 || r.timedOut) return undefined;
+  if (!r.stdout.trim()) return { files: [], filesSearched: 0, skippedTooLarge: 0, truncated: false };
+
+  const fields = decodeNulListFromBase64(r.stdout);
+  if (fields.shift() !== 'S') return undefined;
+  const filesSearched = Number.parseInt(fields.shift() ?? '0', 10) || 0;
+  const skippedTooLarge = Number.parseInt(fields.shift() ?? '0', 10) || 0;
+  const truncated = (fields.shift() ?? '0') === '1';
+  const files = Array.from(new Set(fields))
+    .filter(file => matchesSearchGlob(file, include, effectiveExclude))
+    .map(file => ({ rel: file, display: file, toolPath: file }));
+
+  return { files, filesSearched, skippedTooLarge, truncated };
+}
+
 
 
 const tSearchInFiles: ToolTranslator = async (args, ctx) => {
@@ -862,11 +1032,17 @@ const tSearchInFiles: ToolTranslator = async (args, ctx) => {
 
   const replace = args.replace;
   if (typeof replace !== 'string') throw new Error('replace 模式下必须提供 replace 参数');
-  const candidates = await listSearchCandidates(ctx, include, effectiveExclude);
+  const grepMode: 'literal' | 'regex-ere' | undefined = !regexMode
+    ? 'literal'
+    : (canPrefilterRegexWithGrepE(query) ? 'regex-ere' : undefined);
+  const grepCandidates = grepMode
+    ? await grepFileCandidatesRemote(ctx, include, effectiveExclude, query, grepMode, maxFiles, maxFileSizeBytes)
+    : undefined;
+  const candidates = grepCandidates?.files ?? await listSearchCandidates(ctx, include, effectiveExclude);
   const emptyMatchWarning = candidates.length === 0 ? '没有文件匹配 include/exclude glob。请检查 include，例如 ["src/**/*", "tests/**/*"] 或 ["{src,tests}/**/*"]。' : undefined;
   const results: any[] = [];
   let processedFiles = 0, totalReplacements = 0;
-  const truncated = candidates.length > maxFiles;
+  const truncated = candidates.length > maxFiles || grepCandidates?.truncated === true;
   for (const f of candidates.slice(0, maxFiles)) {
     processedFiles++;
     const buf = await readRemoteBuffer(ctx, f.toolPath);
@@ -882,7 +1058,7 @@ const tSearchInFiles: ToolTranslator = async (args, ctx) => {
     if (changed) await writeRemoteBuffer(ctx, f.toolPath, encodeText(newText, decoded.encoding, decoded.hasBom, decoded.hasCRLF));
     results.push({ file: f.display, replacements, changed }); totalReplacements += replacements;
   }
-  return { mode: modeArg, query, replace, regex: regexMode, include, exclude, effectiveExclude, results, filesMatched: candidates.length, processedFiles, totalReplacements, truncated, ...(emptyMatchWarning ? { warning: emptyMatchWarning } : {}) };
+  return { mode: modeArg, query, replace, regex: regexMode, include, exclude, effectiveExclude, results, filesMatched: candidates.length, processedFiles, totalReplacements, truncated, ...(grepCandidates ? { remotePrefilter: 'grep', filesSearched: grepCandidates.filesSearched, skippedTooLarge: grepCandidates.skippedTooLarge } : {}), ...(emptyMatchWarning ? { warning: emptyMatchWarning } : {}) };
 };
 
 // ─────────────────────────── insert_code / delete_code / apply_diff ───────────────────────────
