@@ -8,9 +8,6 @@
       "name": "mcp"
     },
     {
-      "name": "cron"
-    },
-    {
       "name": "memory"
     },
     {
@@ -27,31 +24,7 @@
       "external": ["@opentui/core", "@opentui/react", "react"]
     },
     {
-      "name": "remote-connect"
-    },
-    {
       "name": "remote-exec"
-    },
-    {
-      "name": "telegram"
-    },
-    {
-      "name": "discord"
-    },
-    {
-      "name": "qq"
-    },
-    {
-      "name": "lark"
-    },
-    {
-      "name": "wxwork"
-    },
-    {
-      "name": "weixin"
-    },
-    {
-      "name": "virtual-lover"
     }
   ]
 }
