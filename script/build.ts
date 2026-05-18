@@ -399,6 +399,23 @@ const distributionPruneLockfiles = new Set([
   "pnpm-lock.yaml",
 ])
 
+const platformNativeExtensions: Record<string, string[]> = {
+  win32: [".dll", ".pdb", ".exe"],
+  linux: [".so", ".so."],
+  darwin: [".dylib"],
+}
+
+function isNativeFileForOtherPlatform(fileName: string, target: Target): boolean {
+  const lowerName = fileName.toLowerCase()
+  for (const [platform, extensions] of Object.entries(platformNativeExtensions)) {
+    if (platform === target.os) continue
+    if (extensions.some((ext) => lowerName.endsWith(ext) || lowerName.includes(ext))) {
+      return true
+    }
+  }
+  return false
+}
+
 function isWithinDirectory(candidatePath: string, parentDir: string): boolean {
   const relative = path.relative(parentDir, candidatePath)
   return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative))
@@ -418,7 +435,7 @@ function getDirectorySize(dir: string): number {
   return total
 }
 
-function pruneDistributionArtifacts(targetDir: string): DistributionPruneStats {
+function pruneDistributionArtifacts(targetDir: string, target: Target): DistributionPruneStats {
   const stats: DistributionPruneStats = { files: 0, dirs: 0, bytes: 0 }
   const nodeModulesDir = path.join(targetDir, "node_modules")
 
@@ -449,7 +466,8 @@ function pruneDistributionArtifacts(targetDir: string): DistributionPruneStats {
       } else if (entry.isFile()) {
         const isSourceMap = entry.name.endsWith(".map")
         const isDeclarationFile = entry.name.endsWith(".d.ts")
-        if (distributionPruneLockfiles.has(entry.name) || (inNodeModules && (isSourceMap || isDeclarationFile))) {
+        const isOtherPlatformNative = inNodeModules && isNativeFileForOtherPlatform(entry.name, target)
+        if (distributionPruneLockfiles.has(entry.name) || (inNodeModules && (isSourceMap || isDeclarationFile || isOtherPlatformNative))) {
           removeFile(fullPath)
         }
       }
@@ -566,7 +584,7 @@ function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targ
     }
 
     installExternalDependenciesForTarget(targetDir, target, extension)
-    const pruneStats = pruneDistributionArtifacts(targetDir)
+    const pruneStats = pruneDistributionArtifacts(targetDir, target)
     if (pruneStats.files > 0 || pruneStats.dirs > 0) {
       console.log(
         `  ✓ distribution artifacts pruned: ${pruneStats.files} files, ${pruneStats.dirs} dirs, ${Math.round(pruneStats.bytes / 1024 / 1024 * 100) / 100} MB`,
