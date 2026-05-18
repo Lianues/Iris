@@ -91,18 +91,6 @@ export class OpenAIResponsesFormat implements FormatAdapter {
               output: JSON.stringify(part.functionResponse.response),
             });
           }
-          // 请求尾部动态提醒可能被合并到包含 function_call_output 的内部 user content。
-          // Responses API 中 function_call_output 是独立 input item，提醒文本需另作为 user item 追加。
-          const text = content.parts
-            .filter(isVisibleTextPart)
-            .map(part => part.text)
-            .join('');
-          if (text) {
-            inputItems.push({
-              role: 'user',
-              content: [{ type: 'input_text', text }],
-            });
-          }
         } else {
           const contentBlocks: any[] = [];
           for (const part of content.parts) {

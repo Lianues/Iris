@@ -88,12 +88,6 @@ export class ClaudeFormat implements FormatAdapter {
               content: JSON.stringify(part.functionResponse.response),
             });
           }
-          // 请求尾部的动态提醒可能与 tool_result 合并在同一条内部 user content。
-          // Claude 允许 user content 同时携带 tool_result 与 text；不要丢弃这些提醒。
-          for (const part of textParts) {
-            if (!isTextPart(part)) continue;
-            if (part.text) contentBlocks.push({ type: 'text', text: part.text });
-          }
           messages.push({ role: 'user', content: contentBlocks });
         } else {
           const contentBlocks: Record<string, unknown>[] = [];
