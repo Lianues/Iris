@@ -3070,7 +3070,7 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
     if (isGenerating && hasQueue) {
       parts.push("/queue 管理队列");
     }
-    parts.push(isGenerating ? "ctrl+s 优先发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式");
+    parts.push(isGenerating ? "ctrl+s 立即发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式");
     hintStr = parts.join(`  ${ICONS.separator}  `);
   }
   const hintWidth = getTextWidth(hintStr);
@@ -3129,7 +3129,7 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
               ]
             }, undefined, true, undefined, this) : null,
             `  ${ICONS.separator}  `,
-            isGenerating ? "ctrl+s 优先发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式"
+            isGenerating ? "ctrl+s 立即发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式"
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this)
@@ -12743,7 +12743,8 @@ function App({
   }, [appState.isGenerating, messageQueue, onSubmit]);
   const handlePrioritySubmit = useCallback11((text) => {
     messageQueue.prepend(text);
-  }, [messageQueue]);
+    onAbort();
+  }, [messageQueue, onAbort]);
   const cycleThinkingEffort = useCallback11((direction) => {
     if (modelState.currentThinkingControlEnabled === false)
       return;

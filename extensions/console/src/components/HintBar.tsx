@@ -82,7 +82,7 @@ export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queue
     if (isGenerating && hasQueue) {
       parts.push('/queue 管理队列');
     }
-    parts.push(isGenerating ? 'ctrl+s 优先发送' : (copyMode ? 'f6 返回滚动模式' : 'f6 复制模式'));
+    parts.push(isGenerating ? 'ctrl+s 立即发送' : (copyMode ? 'f6 返回滚动模式' : 'f6 复制模式'));
     hintStr = parts.join(`  ${ICONS.separator}  `);
   }
   const hintWidth = getTextWidth(hintStr);
@@ -122,7 +122,7 @@ export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queue
               </>
             ) : null}
             {`  ${ICONS.separator}  `}
-            {isGenerating ? 'ctrl+s 优先发送' : (copyMode ? 'f6 返回滚动模式' : 'f6 复制模式')}
+            {isGenerating ? 'ctrl+s 立即发送' : (copyMode ? 'f6 返回滚动模式' : 'f6 复制模式')}
           </text>
         </box>
       )}

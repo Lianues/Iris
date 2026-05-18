@@ -354,10 +354,11 @@ export function App({
     }
   }, [appState.isGenerating, messageQueue, onSubmit]);
 
-  // ── 优先发送：生成中将消息插到队列最前面；不打断当前生成，等待本轮完成后发送 ──
+  // ── 立即发送：中断当前生成，将消息插到队列最前面并立刻处理 ──
   const handlePrioritySubmit = useCallback((text: string) => {
     messageQueue.prepend(text);
-  }, [messageQueue]);
+    onAbort();
+  }, [messageQueue, onAbort]);
 
   const cycleThinkingEffort = useCallback((direction: 1 | -1) => {
     if (modelState.currentThinkingControlEnabled === false) return;

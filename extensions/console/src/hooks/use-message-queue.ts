@@ -9,7 +9,7 @@ export interface QueuedMessage {
 export interface UseMessageQueueReturn {
   /** 当前队列快照（响应式） */
   queue: QueuedMessage[];
-  /** 入队到指定位置（队首），用于"优先发送"等场景 */
+  /** 入队到指定位置（队首），用于"立即发送"等场景 */
   prepend: (text: string) => QueuedMessage;
   /** 入队，返回新创建的 QueuedMessage */
   enqueue: (text: string) => QueuedMessage;
