@@ -8,6 +8,7 @@ import React from 'react';
 import { Spinner } from './Spinner';
 import type { ToolInvocation, ToolStatus } from 'irises-extension-sdk';
 import { getToolRenderer } from '../tool-renderers';
+import { useResultWithResolvedDiffPreview } from '../tool-renderers/use-diff-preview-result.js';
 import { formatToolError } from '../tool-errors';
 import { getToolDisplayProvider } from '../tool-display-service';
 import { C } from '../theme';
@@ -93,6 +94,8 @@ export function ToolCall({ invocation }: ToolCallProps) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
   const displayError = formatToolError(error);
 
+  const displayResult = useResultWithResolvedDiffPreview(result);
+
   // 通用进度字段（由 handler yield 的中间值填充，scheduler 推送到 ToolStateManager.progress）
   // 各工具自行定义结构，如 sub_agent: { tokens: number, frame: number, streamingText: string }
   const progress = invocation.progress as Record<string, unknown> | undefined;
@@ -114,11 +117,11 @@ export function ToolCall({ invocation }: ToolCallProps) {
   const isAwaitingApproval = status === 'awaiting_approval';
 
   const argsSummary = displayProvider?.getArgsSummary?.({ toolName, args }) ?? getArgsSummary(toolName, args);
-  const Renderer = isFinal && result != null ? getToolRenderer(toolName) : null;
+  const Renderer = isFinal && displayResult != null ? getToolRenderer(toolName) : null;
   const durationSec = (updatedAt - createdAt) / 1000;
   const duration = isFinal && durationSec > 0 ? durationSec.toFixed(1) + 's' : '';
-  const customResultSummary = isFinal && result != null
-    ? displayProvider?.getResultSummary?.({ toolName, args, result }) ?? ''
+  const customResultSummary = isFinal && displayResult != null
+    ? displayProvider?.getResultSummary?.({ toolName, args, result: displayResult }) ?? ''
     : '';
 
   const nameBg = status === 'error' ? C.error : isAwaitingApproval ? C.warn : C.accent;
@@ -165,9 +168,9 @@ export function ToolCall({ invocation }: ToolCallProps) {
           ))}
         </box>
       )}
-      {Renderer && result != null && (
+      {Renderer && displayResult != null && (
         <box paddingLeft={2}>
-          {Renderer({ toolName, args, result }) as React.ReactNode}
+          {Renderer({ toolName, args, result: displayResult }) as React.ReactNode}
         </box>
       )}
     </box>

@@ -5,6 +5,8 @@
  * 对于非 Gemini 的 LLM 提供商（如 OpenAI），在 LLM 调用层进行格式转换。
  */
 
+import type { ToolDiffPreviewResponseLike } from 'irises-extension-sdk/plugin';
+
 /** 文本部分 */
 export interface TextPart {
   text?: string;
@@ -52,6 +54,8 @@ export interface FunctionResponsePart {
     parts?: InlineDataPart[];
     /** 工具执行耗时（毫秒），存储用，不发送给 LLM */
     durationMs?: number;
+    /** 工具 diff 预览（存储用，不发送给 LLM，仅供前端展示） */
+    diffPreview?: ToolDiffPreviewResponseLike;
   };
 }
 

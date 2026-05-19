@@ -97,6 +97,7 @@ export function preparePartsForLLM(parts: Part[], currentLLMConfig?: LLMConfig):
     if (isFunctionResponsePart(part)) {
       prepared.push({
         functionResponse: {
+          // 仅保留发给 LLM 必需的 response/callId/parts；durationMs/diffPreview 等本地元数据在此剥离。
           name: part.functionResponse.name,
           response: JSON.parse(JSON.stringify(part.functionResponse.response ?? {})),
           callId: part.functionResponse.callId,

@@ -1,3 +1,5 @@
+import type { ToolDiffPreviewResponseLike } from './plugin/tool-preview.js';
+
 export interface TextPart {
   text?: string;
   thought?: boolean;
@@ -34,6 +36,8 @@ export interface FunctionResponsePart {
     callId?: string;
     parts?: InlineDataPart[];
     durationMs?: number;
+    /** 工具 diff 预览（存储用，不发送给 LLM，仅供前端展示） */
+    diffPreview?: ToolDiffPreviewResponseLike;
   };
 }
 

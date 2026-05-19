@@ -25,6 +25,7 @@ import {
   type Content,
   type Part,
   type FunctionResponsePart,
+  type ToolDiffPreviewResponseLike,
   type ToolInvocation,
   type ToolStatus,
   type UsageMetadata,
@@ -61,6 +62,7 @@ import {
   type ConsoleProgressUiStateLike,
 } from './progress-service';
 import { handleConsoleToggleExtension } from './extension-toggle';
+import { attachResultDiffPreview } from './tool-renderers/diff-preview-meta.js';
 
 /**
  * 从 shell 命令生成可记忆的命令模式。
@@ -155,6 +157,7 @@ function createToolInvocationFromFunctionCall(
   index: number,
   defaultStatus: ToolStatus,
   response?: Record<string, unknown>,
+  diffPreview?: ToolDiffPreviewResponseLike,
   durationMs?: number,
 ): ToolInvocation {
   let status = defaultStatus;
@@ -171,6 +174,10 @@ function createToolInvocationFromFunctionCall(
       // 富媒体结果或其他格式 — 将整个 response 对象视为 result
       result = response;
     }
+  }
+
+  if (result != null && diffPreview) {
+    result = attachResultDiffPreview(result, diffPreview);
   }
 
   const now = Date.now();
@@ -232,18 +239,21 @@ function convertPartsToMessageParts(
       // 查找匹配的 functionResponse：优先 callId，兜底按序号
       let matchedResponse: Record<string, unknown> | undefined;
       let matchedDurationMs: number | undefined;
+      let matchedDiffPreview: ToolDiffPreviewResponseLike | undefined;
       const callId = (part as any).functionCall.callId;
       if (callId && responseByCallId.has(callId)) {
         const matched = responseByCallId.get(callId)!.functionResponse;
         matchedResponse = matched.response;
         matchedDurationMs = matched.durationMs;
+        matchedDiffPreview = matched.diffPreview;
       } else if (toolIndex < responseByIndex.length) {
         const matched = responseByIndex[toolIndex]?.functionResponse;
         matchedResponse = matched?.response;
         matchedDurationMs = matched?.durationMs;
+        matchedDiffPreview = matched?.diffPreview;
       }
 
-      const invocation = createToolInvocationFromFunctionCall(part, toolIndex++, toolStatus, matchedResponse, matchedDurationMs);
+      const invocation = createToolInvocationFromFunctionCall(part, toolIndex++, toolStatus, matchedResponse, matchedDiffPreview, matchedDurationMs);
       const last = result.length > 0 ? result[result.length - 1] : undefined;
       if (last && last.type === 'tool_use') {
         last.tools.push(invocation);

@@ -13,6 +13,7 @@ import { useKeyboard } from '@opentui/react';
 import type { ToolInvocation, ToolOutputEntry, ToolStatus } from 'irises-extension-sdk';
 import type { ToolDetailData, ToolDetailBreadcrumb } from '../app-types';
 import { getToolRenderer, getToolDetailRenderer } from '../tool-renderers';
+import { useResultWithResolvedDiffPreview } from '../tool-renderers/use-diff-preview-result.js';
 import { formatToolError } from '../tool-errors';
 import { Spinner } from './Spinner';
 import { C } from '../theme';
@@ -109,6 +110,7 @@ export function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onA
   const { invocation, output, children } = data;
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const displayResult = useResultWithResolvedDiffPreview(result);
 
   const isFinal = TERMINAL_STATUSES.has(status);
   const isExecuting = status === 'executing';
@@ -116,7 +118,7 @@ export function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onA
   // 自定义详情渲染器
   const DetailRenderer = getToolDetailRenderer(toolName);
   // 结果渲染器（复用现有）
-  const ResultRenderer = isFinal && result != null ? getToolRenderer(toolName) : null;
+  const ResultRenderer = isFinal && displayResult != null ? getToolRenderer(toolName) : null;
 
   // 键盘
   useKeyboard(useCallback((key: { name: string; ctrl?: boolean; preventDefault?: () => void }) => {
@@ -200,7 +202,7 @@ export function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onA
       {isFinal && (
         <box flexDirection="column">
           <Divider label="结果" />
-          <ResultSection status={status} error={error} result={result} toolName={toolName} args={args} Renderer={ResultRenderer} />
+          <ResultSection status={status} error={error} result={displayResult} toolName={toolName} args={args} Renderer={ResultRenderer} />
         </box>
       )}
 

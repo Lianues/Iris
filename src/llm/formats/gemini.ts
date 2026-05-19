@@ -232,13 +232,14 @@ function mapCallIdsToGemini(obj: unknown): void {
   }
 
   // functionResponse.callId → functionResponse.id
-  // 同时清理 durationMs（工具执行耗时，内部字段，不发送给 LLM）
+  // 同时清理 durationMs / diffPreview（仅本地存储与前端展示使用，不发送给 LLM）
   if (record.functionResponse && typeof record.functionResponse === 'object') {
     if (record.functionResponse.callId) {
       record.functionResponse.id = record.functionResponse.callId;
     }
     delete record.functionResponse.callId;
     delete record.functionResponse.durationMs;
+    delete record.functionResponse.diffPreview;
   }
 
   for (const value of Object.values(record)) {

@@ -1,36 +1,28 @@
-// node_modules/irises-extension-sdk/dist/logger.js
-var LogLevel;
-(function(LogLevel2) {
-  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
-  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
-  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
-  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
-  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
-})(LogLevel || (LogLevel = {}));
-var _logLevel = LogLevel.INFO;
+// ../../packages/extension-sdk/src/logger.ts
+var _logLevel = 1 /* INFO */;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= LogLevel.DEBUG)
+      if (_logLevel <= 0 /* DEBUG */)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= LogLevel.INFO)
+      if (_logLevel <= 1 /* INFO */)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= LogLevel.WARN)
+      if (_logLevel <= 2 /* WARN */)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= LogLevel.ERROR)
+      if (_logLevel <= 3 /* ERROR */)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
 
-// node_modules/irises-extension-sdk/dist/plugin/context.js
+// ../../packages/extension-sdk/src/plugin/context.ts
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -78,11 +70,71 @@ function asMetadata(value) {
 function asTimestamp(value, fallback) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
-function getInputTitle(input) {
-  return asOptionalString(input.title) ?? asOptionalString(input.subject) ?? asOptionalString(input.content);
+function getExplicitInputTitle(input) {
+  return asOptionalString(input.title);
 }
 function titleKey(title) {
   return title.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+}
+function findMilestoneByLocator(items, value, matchFields) {
+  const key = titleKey(value);
+  const matches = [];
+  for (const item of items) {
+    const matched = matchFields.some((field) => {
+      if (field === "title")
+        return titleKey(item.title) === key;
+      if (field === "description")
+        return !!item.description && titleKey(item.description) === key;
+      return !!item.activeForm && titleKey(item.activeForm) === key;
+    });
+    if (!matched)
+      continue;
+    matches.push(item);
+    if (matches.length > 1)
+      return { ambiguous: true };
+  }
+  return { item: matches[0], ambiguous: false };
+}
+function resolveMilestoneUpdateInput(input, currentItems, index) {
+  const title = getExplicitInputTitle(input);
+  const description = asOptionalString(input.description);
+  const activeForm = asOptionalString(input.activeForm);
+  const candidates = [];
+  if (title)
+    candidates.push({ field: "title", value: title, matchFields: ["title"] });
+  if (description)
+    candidates.push({ field: "description", value: description, matchFields: ["title", "description", "activeForm"] });
+  if (activeForm)
+    candidates.push({ field: "activeForm", value: activeForm, matchFields: ["title", "description", "activeForm"] });
+  if (candidates.length === 0) {
+    throw new Error(`items[${index}] 缺少 title；也可用 description 或 activeForm 作为唯一定位字段`);
+  }
+  const current = Array.from(currentItems);
+  const ambiguousFields = [];
+  for (let candidateIndex = 0;candidateIndex < candidates.length; candidateIndex++) {
+    const candidate = candidates[candidateIndex];
+    const result = findMilestoneByLocator(current, candidate.value, candidate.matchFields);
+    if (result.item) {
+      return {
+        title: result.item.title,
+        description: candidate.field === "description" && !title ? undefined : description,
+        activeForm: candidate.field === "activeForm" && !title ? undefined : activeForm
+      };
+    }
+    if (result.ambiguous) {
+      ambiguousFields.push(candidate.field);
+      continue;
+    }
+    if (candidateIndex === 0) {
+      return {
+        title: candidate.value,
+        description: candidate.field === "description" && !title ? undefined : description,
+        activeForm: candidate.field === "activeForm" && !title ? undefined : activeForm
+      };
+    }
+  }
+  const ambiguousLabel = ambiguousFields.join(" / ");
+  throw new Error(`items[${index}] 的 ${ambiguousLabel} 无法唯一定位 milestone；请改传 title`);
 }
 function sortMilestones(a, b) {
   return a.createdAt - b.createdAt || a.title.localeCompare(b.title);
@@ -102,7 +154,7 @@ function normalizeMilestoneItem(value, fallbackNow = Date.now()) {
   if (!value || typeof value !== "object" || Array.isArray(value))
     return;
   const record = value;
-  const title = asOptionalString(record.title) ?? asOptionalString(record.subject) ?? asOptionalString(record.content);
+  const title = asOptionalString(record.title);
   if (!title)
     return;
   return {
@@ -225,10 +277,8 @@ class SessionMilestoneManager extends EventEmitter {
     let activeKeepKey;
     updates.forEach((input, index) => {
       const itemNow = now + index;
-      const title = getInputTitle(input);
-      if (!title) {
-        throw new Error(`items[${index}] 缺少 title/subject/content`);
-      }
+      const resolved = resolveMilestoneUpdateInput(input, byTitle.values(), index);
+      const title = resolved.title;
       const key = titleKey(title);
       if (input.delete === true) {
         byTitle.delete(key);
@@ -238,8 +288,8 @@ class SessionMilestoneManager extends EventEmitter {
       const status = input.status === undefined && existing ? existing.status : normalizeStatus(input.status);
       const item = {
         title,
-        description: asOptionalString(input.description) ?? existing?.description,
-        activeForm: asOptionalString(input.activeForm) ?? existing?.activeForm,
+        description: resolved.description ?? existing?.description,
+        activeForm: resolved.activeForm ?? existing?.activeForm,
         status,
         metadata: asMetadata(input.metadata) ?? existing?.metadata,
         createdAt: existing?.createdAt ?? itemNow,
@@ -502,15 +552,15 @@ var ACTION_TEXT_RE = /(实现|修改|新增|补充|接入|调整|修复|验证|�
 var ITEM_SCHEMA = {
   type: "object",
   properties: {
-    title: { type: "string", description: "面向用户展示的短标题；增量更新时按 title 匹配已有项。建议使用动宾短语。" },
-    description: { type: "string", description: "更完整的说明、验收条件或上下文。" },
-    activeForm: { type: "string", description: "当前进行中时用于 spinner/状态栏的现在进行时文案，例如「运行测试」。" },
+    title: { type: "string", description: "首选定位字段，也是面向用户展示的短标题；增量更新时优先按 title 匹配已有项。建议使用动宾短语。" },
+    description: { type: "string", description: "更完整的说明、验收条件或上下文。若 title 缺失，且能唯一定位已有项，也可临时作为回退定位字段。" },
+    activeForm: { type: "string", description: "当前进行中时用于 spinner/状态栏的现在进行时文案，例如「运行测试」。若 title/description 都缺失，且能唯一定位已有项，也可临时作为回退定位字段。" },
     status: {
       type: "string",
       enum: ["pending", "in_progress", "completed", "blocked", "cancelled"],
       description: "状态：pending 待处理/未开始（尚未执行，或暂时回到等待队列），in_progress 正在做，completed 已完成，blocked 被阻塞，cancelled 已取消。"
     },
-    delete: { type: "boolean", description: "设为 true 时删除同 title 的 milestone。" }
+    delete: { type: "boolean", description: "设为 true 时删除定位到的 milestone；定位优先级同样是 title > description > activeForm。" }
   }
 };
 function getMilestones(api) {
@@ -665,8 +715,6 @@ function normalizeToolItems(raw) {
     const record = entry;
     return {
       title: record.title,
-      subject: record.subject,
-      content: record.content,
       description: record.description,
       activeForm: record.activeForm,
       status: record.status,
@@ -825,6 +873,8 @@ function createUpdateMilestonesTool(api) {
 - 复杂、多步骤、跨文件或用户明确要求跟踪进度时，先创建 3-8 个 milestone。
 - 开始某项工作前，把该项设为 in_progress；完成后立即设为 completed，不要批量拖到最后。
 - 同一时间只保留一个 in_progress；启动新项时旧的进行中项会自动回到 pending。
+- 定位优先级：title > description > activeForm。title 缺失时，description / activeForm 只有在能唯一定位已有项时才会被当作回退定位字段。
+- 如果 title 缺失且首个回退字段没有命中已有项，系统会把该字段的值当作 title 新建 milestone；若回退字段命中多个候选项，则会报错要求改传 title。
 - replaceAll=true 表示“我现在提交的是当前任务的完整进度清单”，会用 items 替换旧清单。
 - 遇到新的、明显不是同一批工作的用户任务/新计划/新阶段时，必须使用 replaceAll=true，避免把旧任务和新任务混在同一个进度面板里。
 - 如果本次 items 已经覆盖当前任务应显示的全部 milestone，也应使用 replaceAll=true。

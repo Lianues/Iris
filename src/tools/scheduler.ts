@@ -834,6 +834,7 @@ async function executeSingle(
   const displayDiffPreview = captureDiffPreviewForDisplay(
     toolName, effectiveArgs, toolState, invocationId, runtimeApprovalContext,
   );
+  const persistedDiffPreview = hasDisplayableDiffPreview(displayDiffPreview) ? displayDiffPreview : undefined;
 
     // 创建工具执行上下文：带节流的进度上报 + 中止信号 + Handle 能力。
     // 仅在有 ToolStateManager 和 invocationId 时创建 reportProgress（CLI 等场景跳过）。
@@ -1025,6 +1026,7 @@ async function executeSingle(
         name: call.functionCall.name,
         callId: call.functionCall.callId,
         response,
+        ...(persistedDiffPreview ? { diffPreview: persistedDiffPreview } : {}),
         durationMs,
         ...(responseParts ? { parts: responseParts } : {}),
       },
@@ -1051,6 +1053,7 @@ async function executeSingle(
       functionResponse: {
         name: call.functionCall.name,
         callId: call.functionCall.callId,
+        ...(persistedDiffPreview ? { diffPreview: persistedDiffPreview } : {}),
         response: { error: errorMsg },
         durationMs,
       },

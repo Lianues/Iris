@@ -1866,7 +1866,7 @@ function getCharacterCount(text) {
 }
 
 // src/App.tsx
-import { useCallback as useCallback11, useEffect as useEffect13, useMemo as useMemo8, useRef as useRef9, useState as useState16 } from "react";
+import { useCallback as useCallback11, useEffect as useEffect13, useMemo as useMemo9, useRef as useRef9, useState as useState16 } from "react";
 import { useRenderer } from "@opentui/react";
 
 // src/theme.ts
@@ -4248,7 +4248,7 @@ function AgentListView({ agents, selectedIndex, currentAgentName }) {
 }
 
 // src/components/ChatMessageList.tsx
-import { useMemo as useMemo5 } from "react";
+import { useMemo as useMemo6 } from "react";
 import { useTerminalDimensions as useTerminalDimensions6 } from "@opentui/react";
 
 // src/components/GeneratingTimer.tsx
@@ -4697,10 +4697,7 @@ function layoutCompactDiffPreview({
   return { rows, hiddenLines, hiddenItems, clippedRows, lineNumberWidth, separatorText };
 }
 
-// src/tool-renderers/diff-preview.tsx
-import { jsxDEV as jsxDEV18, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
-var DEFAULT_MAX_ITEMS = 3;
-var DEFAULT_MAX_LINES = 80;
+// src/tool-renderers/diff-preview-meta.ts
 function isRecord(value) {
   return value != null && typeof value === "object" && !Array.isArray(value);
 }
@@ -4710,28 +4707,29 @@ function isDiffPreviewResponse(value) {
 function extractResultDiffPreview(result) {
   if (!isRecord(result))
     return;
-  const ui = result.__ui;
-  const diffPreview = ui?.diffPreview;
+  const diffPreview = result.__ui?.diffPreview;
   return isDiffPreviewResponse(diffPreview) ? diffPreview : undefined;
 }
-function createInlineDiffPreview(input) {
-  if (typeof input.diff !== "string" || input.diff.trim().length === 0)
-    return;
-  const filePath = input.filePath || "patch";
-  return {
-    toolName: input.toolName,
-    title: "Diff 预览",
-    toolLabel: input.toolName,
-    summary: [],
-    items: [{
-      filePath,
-      label: input.label ?? filePath,
-      diff: input.diff,
-      added: input.added ?? 0,
-      removed: input.removed ?? 0
-    }]
-  };
+function attachResultDiffPreview(result, preview) {
+  if (!preview || !isRecord(result) || extractResultDiffPreview(result))
+    return result;
+  const existingUi = isRecord(result.__ui) ? result.__ui : {};
+  const withUi = { ...result };
+  Object.defineProperty(withUi, "__ui", {
+    value: {
+      ...existingUi,
+      diffPreview: preview
+    },
+    enumerable: false,
+    configurable: true
+  });
+  return withUi;
 }
+
+// src/tool-renderers/diff-preview.tsx
+import { jsxDEV as jsxDEV18, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
+var DEFAULT_MAX_ITEMS = 3;
+var DEFAULT_MAX_LINES = 80;
 function getLineColor(kind, hunkStatus) {
   switch (kind) {
     case "file":
@@ -4820,9 +4818,8 @@ function countPatchLines(patch) {
     return { added: 0, deleted: 0 };
   let added = 0;
   let deleted = 0;
-  const lines = patch.split(`
-`);
-  for (const line of lines) {
+  for (const line of patch.split(`
+`)) {
     if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@"))
       continue;
     if (line.startsWith("+"))
@@ -4835,11 +4832,11 @@ function countPatchLines(patch) {
 function ApplyDiffRenderer({ args, result }) {
   const r = result || {};
   const isError = (r.failed ?? 0) > 0;
-  const { added, deleted } = countPatchLines(args?.patch);
   const path4 = r.path ?? (typeof args?.path === "string" ? args.path : "");
+  const { added, deleted } = countPatchLines(args?.patch);
   const hunkResults = Array.isArray(r.results) ? r.results : [];
+  const preview = extractResultDiffPreview(result);
   const hasStats = added > 0 || deleted > 0;
-  const preview = extractResultDiffPreview(result) ?? createInlineDiffPreview({ toolName: "apply_diff", filePath: path4, diff: args?.patch, added, removed: deleted });
   return /* @__PURE__ */ jsxDEV19("box", {
     flexDirection: "column",
     children: [
@@ -5287,6 +5284,13 @@ function getToolDetailRenderer(toolName) {
   return detailRenderers[toolName] ?? null;
 }
 
+// src/tool-renderers/use-diff-preview-result.ts
+import { useMemo as useMemo4 } from "react";
+function useResultWithResolvedDiffPreview(result) {
+  const embeddedDiffPreview = useMemo4(() => result != null ? extractResultDiffPreview(result) : undefined, [result]);
+  return useMemo4(() => attachResultDiffPreview(result, embeddedDiffPreview), [result, embeddedDiffPreview]);
+}
+
 // src/tool-errors.ts
 function formatToolError(error) {
   if (!error)
@@ -5400,6 +5404,7 @@ function getArgsSummary(toolName, args) {
 function ToolCall({ invocation }) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
   const displayError = formatToolError(error);
+  const displayResult = useResultWithResolvedDiffPreview(result);
   const progress = invocation.progress;
   const progressTokens = typeof progress?.tokens === "number" ? progress.tokens : undefined;
   const progressFrame = typeof progress?.frame === "number" ? progress.frame : undefined;
@@ -5413,10 +5418,10 @@ function ToolCall({ invocation }) {
   const isExecuting = status === "executing";
   const isAwaitingApproval = status === "awaiting_approval";
   const argsSummary = displayProvider?.getArgsSummary?.({ toolName, args }) ?? getArgsSummary(toolName, args);
-  const Renderer = isFinal && result != null ? getToolRenderer(toolName) : null;
+  const Renderer = isFinal && displayResult != null ? getToolRenderer(toolName) : null;
   const durationSec = (updatedAt - createdAt) / 1000;
   const duration = isFinal && durationSec > 0 ? durationSec.toFixed(1) + "s" : "";
-  const customResultSummary = isFinal && result != null ? displayProvider?.getResultSummary?.({ toolName, args, result }) ?? "" : "";
+  const customResultSummary = isFinal && displayResult != null ? displayProvider?.getResultSummary?.({ toolName, args, result: displayResult }) ?? "" : "";
   const nameBg = status === "error" ? C.error : isAwaitingApproval ? C.warn : C.accent;
   return /* @__PURE__ */ jsxDEV27("box", {
     flexDirection: "column",
@@ -5544,16 +5549,16 @@ function ToolCall({ invocation }) {
           invocation: child
         }, child.id, false, undefined, this))
       }, undefined, false, undefined, this),
-      Renderer && result != null && /* @__PURE__ */ jsxDEV27("box", {
+      Renderer && displayResult != null && /* @__PURE__ */ jsxDEV27("box", {
         paddingLeft: 2,
-        children: Renderer({ toolName, args, result })
+        children: Renderer({ toolName, args, result: displayResult })
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
 }
 
 // src/components/ProgressListView.tsx
-import { useMemo as useMemo4 } from "react";
+import { useMemo as useMemo5 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV28, Fragment as Fragment6 } from "@opentui/react/jsx-dev-runtime";
 var PROGRESS_PANEL_MAX_ITEMS = 8;
@@ -5646,7 +5651,7 @@ function ProgressListView({
   const itemLimit = isCompletedSnapshot ? Math.max(1, items.length) : normalizeMaxItems(maxItems);
   const canCollapse = (stats?.open ?? 0) > 0;
   const effectiveCollapsed = canCollapse && collapsed;
-  const { sorted, visibleItems, hiddenBeforeCount, hiddenAfterCount, effectiveScrollOffset, visibleCount } = useMemo4(() => {
+  const { sorted, visibleItems, hiddenBeforeCount, hiddenAfterCount, effectiveScrollOffset, visibleCount } = useMemo5(() => {
     const all = [...items].sort(compareProgressItems);
     const effectiveOffset = clampScrollOffset(scrollOffset, all.length, itemLimit);
     const visible = effectiveCollapsed ? [] : all.slice(effectiveOffset, effectiveOffset + itemLimit);
@@ -6322,7 +6327,7 @@ function ChatMessageList({
       captureSelectionSnapshot(scrollBox);
     }, 0);
   };
-  const scrollAccel = useMemo5(() => {
+  const scrollAccel = useMemo6(() => {
     const chatViewportHeight = Math.max(5, termHeight - 8);
     const step = Math.max(1, Math.round(chatViewportHeight / 5));
     return { tick: () => step, reset: () => {} };
@@ -6345,7 +6350,7 @@ function ChatMessageList({
       break;
     }
   }
-  const queuedPreviewMessages = useMemo5(() => (queuedMessages ?? []).map((msg) => ({
+  const queuedPreviewMessages = useMemo6(() => (queuedMessages ?? []).map((msg) => ({
     id: `queued-preview-${msg.id}`,
     role: "user",
     parts: [{ type: "text", text: msg.text }],
@@ -6442,7 +6447,7 @@ function ChatMessageList({
 }
 
 // src/components/DiffApprovalView.tsx
-import { useEffect as useEffect8, useMemo as useMemo6, useState as useState8 } from "react";
+import { useEffect as useEffect8, useMemo as useMemo7, useState as useState8 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV31 } from "@opentui/react/jsx-dev-runtime";
 function normalizePreviewIndex(index, itemCount) {
@@ -6516,7 +6521,7 @@ function DiffApprovalView({
   const normalizedPreviewIndex = normalizePreviewIndex(previewIndex, items.length);
   const currentItem = items[normalizedPreviewIndex];
   const toolLabel = preview.toolLabel ?? preview.toolName ?? invocation.toolName;
-  const summaryLines = useMemo6(() => {
+  const summaryLines = useMemo7(() => {
     if (loading && preview.summary.length === 0)
       return ["正在加载 diff 预览…"];
     return preview.summary ?? [];
@@ -6975,10 +6980,11 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
   const { invocation, output, children } = data;
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
   const [selectedIdx, setSelectedIdx] = useState9(0);
+  const displayResult = useResultWithResolvedDiffPreview(result);
   const isFinal = TERMINAL_STATUSES2.has(status);
   const isExecuting = status === "executing";
   const DetailRenderer = getToolDetailRenderer(toolName);
-  const ResultRenderer = isFinal && result != null ? getToolRenderer(toolName) : null;
+  const ResultRenderer = isFinal && displayResult != null ? getToolRenderer(toolName) : null;
   useKeyboard3(useCallback3((key) => {
     if (key.name === "escape" || key.name === "q") {
       key.preventDefault?.();
@@ -7134,7 +7140,7 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
           /* @__PURE__ */ jsxDEV35(ResultSection, {
             status,
             error,
-            result,
+            result: displayResult,
             toolName,
             args,
             Renderer: ResultRenderer
@@ -8550,7 +8556,7 @@ function ExtensionListView({
 }
 
 // src/components/SettingsView.tsx
-import { useCallback as useCallback4, useEffect as useEffect9, useMemo as useMemo7, useState as useState10 } from "react";
+import { useCallback as useCallback4, useEffect as useEffect9, useMemo as useMemo8, useState as useState10 } from "react";
 import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions9 } from "@opentui/react";
 init_terminal_compat();
 
@@ -9185,7 +9191,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
   const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState10(false);
   const [pluginDraft, setPluginDraft] = useState10({});
   const [pluginBaseline, setPluginBaseline] = useState10({});
-  const sections = useMemo7(() => {
+  const sections = useMemo8(() => {
     const pluginSections = (pluginTabs ?? []).map((tab, i) => ({
       id: tab.id,
       label: tab.label,
@@ -9204,12 +9210,12 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
     setStatusText(text);
     setStatusKind(kind);
   }, []);
-  const isDirty = useMemo7(() => {
+  const isDirty = useMemo8(() => {
     const builtinDirty = getEditableFingerprint(draft) !== getEditableFingerprint(baseline);
     const pluginDirty = JSON.stringify(pluginDraft) !== JSON.stringify(pluginBaseline);
     return builtinDirty || pluginDirty;
   }, [draft, baseline, pluginDraft, pluginBaseline]);
-  const rows = useMemo7(() => {
+  const rows = useMemo8(() => {
     if (!draft)
       return [];
     const builtinRows = buildRows(draft, termWidth);
@@ -9264,15 +9270,15 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
     }
     return builtinRows;
   }, [draft, termWidth, pluginTabs, pluginDraft]);
-  const selectableRows = useMemo7(() => rows.filter((row) => row.target), [rows]);
-  const selectedRow = useMemo7(() => rows.find((row) => row.id === selectedRowId), [rows, selectedRowId]);
-  const currentSection = useMemo7(() => selectedRow?.section ?? initialSection, [selectedRow, initialSection]);
-  const sectionRows = useMemo7(() => rows.filter((r) => r.section === currentSection && r.kind !== "section"), [rows, currentSection]);
-  const selectedSelectableIndex = useMemo7(() => {
+  const selectableRows = useMemo8(() => rows.filter((row) => row.target), [rows]);
+  const selectedRow = useMemo8(() => rows.find((row) => row.id === selectedRowId), [rows, selectedRowId]);
+  const currentSection = useMemo8(() => selectedRow?.section ?? initialSection, [selectedRow, initialSection]);
+  const sectionRows = useMemo8(() => rows.filter((r) => r.section === currentSection && r.kind !== "section"), [rows, currentSection]);
+  const selectedSelectableIndex = useMemo8(() => {
     return selectableRows.findIndex((row) => row.id === selectedRowId);
   }, [selectableRows, selectedRowId]);
-  const sectionSelectableRows = useMemo7(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
-  const selectedSectionIndex = useMemo7(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
+  const sectionSelectableRows = useMemo8(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
+  const selectedSectionIndex = useMemo8(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
   useEffect9(() => {
     let cancelled = false;
     const load = async () => {
@@ -12900,9 +12906,9 @@ function App({
   }, []);
   const [fileBrowserPath, setFileBrowserPath] = useState16("");
   const [fileBrowserEntries, setFileBrowserEntries] = useState16([]);
-  const disabledExtensionNames = useMemo8(() => new Set(extensionList.filter((item) => (item.originalStatus ?? item.status) === "disabled").map((item) => item.name)), [extensionList]);
-  const activePluginSettingsTabs = useMemo8(() => runtimePluginSettingsTabs.filter((tab) => !disabledExtensionNames.has(tab.id)), [runtimePluginSettingsTabs, disabledExtensionNames]);
-  const dynamicCommands = useMemo8(() => {
+  const disabledExtensionNames = useMemo9(() => new Set(extensionList.filter((item) => (item.originalStatus ?? item.status) === "disabled").map((item) => item.name)), [extensionList]);
+  const activePluginSettingsTabs = useMemo9(() => runtimePluginSettingsTabs.filter((tab) => !disabledExtensionNames.has(tab.id)), [runtimePluginSettingsTabs, disabledExtensionNames]);
+  const dynamicCommands = useMemo9(() => {
     const pluginCommands = activePluginSettingsTabs.some((tab) => tab.id === "virtual-lover") ? [{ name: "/lover", description: "打开 Virtual Lover 配置" }] : [];
     return [...pluginCommands, ...runtimeSlashCommands];
   }, [activePluginSettingsTabs, runtimeSlashCommands]);
@@ -13289,7 +13295,7 @@ function App({
   const activeProgress = appState.progressSnapshot?.items.find((item) => item.status === "in_progress");
   const progressGeneratingLabel = activeProgress ? `${activeProgress.activeForm ?? activeProgress.title}...` : undefined;
   const effectiveGeneratingLabel = appState.generatingLabel ?? progressGeneratingLabel;
-  const rightStatusSegments = useMemo8(() => getStatusSegments({ sessionId: getCurrentSessionId?.() }, "right"), [statusSegmentVersion, getCurrentSessionId, viewMode, appState.messages.length]);
+  const rightStatusSegments = useMemo9(() => getStatusSegments({ sessionId: getCurrentSessionId?.() }, "right"), [statusSegmentVersion, getCurrentSessionId, viewMode, appState.messages.length]);
   if (viewMode === "settings") {
     return /* @__PURE__ */ jsxDEV43(SettingsView, {
       initialSection: settingsInitialSection,
@@ -13992,7 +13998,7 @@ var REMOTE_CONNECT_WS_CLIENT_SERVICE = "remote-connect:WsIPCClient";
 var REMOTE_CONNECT_DISCOVERY_SERVICE = "remote-connect:discoverLanInstances";
 var PLAN_MODE_SERVICE_ID = "plan-mode";
 var REMOTE_EXEC_ENVIRONMENT_SERVICE_ID = "remote-exec:environment";
-function createToolInvocationFromFunctionCall(part, index, defaultStatus, response, durationMs) {
+function createToolInvocationFromFunctionCall(part, index, defaultStatus, response, diffPreview, durationMs) {
   let status = defaultStatus;
   let result;
   let error;
@@ -14005,6 +14011,9 @@ function createToolInvocationFromFunctionCall(part, index, defaultStatus, respon
     } else {
       result = response;
     }
+  }
+  if (result != null && diffPreview) {
+    result = attachResultDiffPreview(result, diffPreview);
   }
   const now = Date.now();
   return {
@@ -14051,17 +14060,20 @@ function convertPartsToMessageParts(parts, toolStatus = "success", responseParts
     if ("functionCall" in part) {
       let matchedResponse;
       let matchedDurationMs;
+      let matchedDiffPreview;
       const callId = part.functionCall.callId;
       if (callId && responseByCallId.has(callId)) {
         const matched = responseByCallId.get(callId).functionResponse;
         matchedResponse = matched.response;
         matchedDurationMs = matched.durationMs;
+        matchedDiffPreview = matched.diffPreview;
       } else if (toolIndex < responseByIndex.length) {
         const matched = responseByIndex[toolIndex]?.functionResponse;
         matchedResponse = matched?.response;
         matchedDurationMs = matched?.durationMs;
+        matchedDiffPreview = matched?.diffPreview;
       }
-      const invocation = createToolInvocationFromFunctionCall(part, toolIndex++, toolStatus, matchedResponse, matchedDurationMs);
+      const invocation = createToolInvocationFromFunctionCall(part, toolIndex++, toolStatus, matchedResponse, matchedDiffPreview, matchedDurationMs);
       const last = result.length > 0 ? result[result.length - 1] : undefined;
       if (last && last.type === "tool_use") {
         last.tools.push(invocation);

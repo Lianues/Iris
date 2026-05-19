@@ -22,12 +22,6 @@ import {
 const DEFAULT_MAX_ITEMS = 3;
 const DEFAULT_MAX_LINES = 80;
 
-interface ResultWithUiPreview {
-  __ui?: {
-    diffPreview?: ToolDiffPreviewResponseLike;
-  };
-}
-
 interface CompactDiffPreviewProps {
   preview?: ToolDiffPreviewResponseLike;
   maxItems?: number;
@@ -35,47 +29,7 @@ interface CompactDiffPreviewProps {
   hunkStatuses?: HunkStatus[];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isDiffPreviewResponse(value: unknown): value is ToolDiffPreviewResponseLike {
-  return isRecord(value)
-    && typeof value.toolName === 'string'
-    && Array.isArray(value.items);
-}
-
-export function extractResultDiffPreview(result: unknown): ToolDiffPreviewResponseLike | undefined {
-  if (!isRecord(result)) return undefined;
-  const ui = (result as ResultWithUiPreview).__ui;
-  const diffPreview = ui?.diffPreview;
-  return isDiffPreviewResponse(diffPreview) ? diffPreview : undefined;
-}
-
-export function createInlineDiffPreview(input: {
-  toolName: string;
-  filePath: string;
-  diff: unknown;
-  added?: number;
-  removed?: number;
-  label?: string;
-}): ToolDiffPreviewResponseLike | undefined {
-  if (typeof input.diff !== 'string' || input.diff.trim().length === 0) return undefined;
-  const filePath = input.filePath || 'patch';
-  return {
-    toolName: input.toolName,
-    title: 'Diff 预览',
-    toolLabel: input.toolName,
-    summary: [],
-    items: [{
-      filePath,
-      label: input.label ?? filePath,
-      diff: input.diff,
-      added: input.added ?? 0,
-      removed: input.removed ?? 0,
-    }],
-  };
-}
+export { extractResultDiffPreview } from './diff-preview-meta.js';
 
 function getLineColor(kind: DiffLineKind, hunkStatus?: HunkStatus): string {
   switch (kind) {
