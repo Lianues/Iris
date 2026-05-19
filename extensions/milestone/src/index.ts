@@ -314,15 +314,15 @@ export interface PlanMilestoneCandidate {
 const ITEM_SCHEMA: Record<string, unknown> = {
   type: 'object',
   properties: {
-    title: { type: 'string', description: '面向用户展示的短标题；增量更新时按 title 匹配已有项。建议使用动宾短语。' },
-    description: { type: 'string', description: '更完整的说明、验收条件或上下文。' },
-    activeForm: { type: 'string', description: '当前进行中时用于 spinner/状态栏的现在进行时文案，例如「运行测试」。' },
+    title: { type: 'string', description: '首选定位字段，也是面向用户展示的短标题；增量更新时优先按 title 匹配已有项。建议使用动宾短语。' },
+    description: { type: 'string', description: '更完整的说明、验收条件或上下文。若 title 缺失，且能唯一定位已有项，也可临时作为回退定位字段。' },
+    activeForm: { type: 'string', description: '当前进行中时用于 spinner/状态栏的现在进行时文案，例如「运行测试」。若 title/description 都缺失，且能唯一定位已有项，也可临时作为回退定位字段。' },
     status: {
       type: 'string',
       enum: ['pending', 'in_progress', 'completed', 'blocked', 'cancelled'],
       description: '状态：pending 待处理/未开始（尚未执行，或暂时回到等待队列），in_progress 正在做，completed 已完成，blocked 被阻塞，cancelled 已取消。',
     },
-    delete: { type: 'boolean', description: '设为 true 时删除同 title 的 milestone。' },
+    delete: { type: 'boolean', description: '设为 true 时删除定位到的 milestone；定位优先级同样是 title > description > activeForm。' },
   },
 };
 
@@ -481,8 +481,6 @@ function normalizeToolItems(raw: unknown): MilestoneUpdateInput[] {
     const record = entry as Record<string, unknown>;
     return {
       title: record.title,
-      subject: record.subject,
-      content: record.content,
       description: record.description,
       activeForm: record.activeForm,
       status: record.status,
@@ -657,6 +655,8 @@ function createUpdateMilestonesTool(api: IrisAPI): ToolDefinition {
 - 复杂、多步骤、跨文件或用户明确要求跟踪进度时，先创建 3-8 个 milestone。
 - 开始某项工作前，把该项设为 in_progress；完成后立即设为 completed，不要批量拖到最后。
 - 同一时间只保留一个 in_progress；启动新项时旧的进行中项会自动回到 pending。
+- 定位优先级：title > description > activeForm。title 缺失时，description / activeForm 只有在能唯一定位已有项时才会被当作回退定位字段。
+- 如果 title 缺失且首个回退字段没有命中已有项，系统会把该字段的值当作 title 新建 milestone；若回退字段命中多个候选项，则会报错要求改传 title。
 - replaceAll=true 表示“我现在提交的是当前任务的完整进度清单”，会用 items 替换旧清单。
 - 遇到新的、明显不是同一批工作的用户任务/新计划/新阶段时，必须使用 replaceAll=true，避免把旧任务和新任务混在同一个进度面板里。
 - 如果本次 items 已经覆盖当前任务应显示的全部 milestone，也应使用 replaceAll=true。

@@ -78,8 +78,6 @@ export interface MilestoneUiState {
 
 export interface MilestoneUpdateInput {
   title?: unknown;
-  subject?: unknown;
-  content?: unknown;
   description?: unknown;
   activeForm?: unknown;
   status?: unknown;
@@ -143,12 +141,98 @@ function asTimestamp(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
-function getInputTitle(input: MilestoneUpdateInput): string | undefined {
-  return asOptionalString(input.title) ?? asOptionalString(input.subject) ?? asOptionalString(input.content);
+type MilestoneLocatorField = 'title' | 'description' | 'activeForm';
+
+interface MilestoneLookupCandidate {
+  field: MilestoneLocatorField;
+  value: string;
+  matchFields: readonly MilestoneLocatorField[];
+}
+
+interface MilestoneLookupResult {
+  item?: MilestoneItem;
+  ambiguous: boolean;
+}
+
+interface ResolvedMilestoneUpdateInput {
+  title: string;
+  description?: string;
+  activeForm?: string;
+}
+
+function getExplicitInputTitle(input: MilestoneUpdateInput): string | undefined {
+  return asOptionalString(input.title);
 }
 
 function titleKey(title: string): string {
   return title.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+}
+
+function findMilestoneByLocator(
+  items: Iterable<MilestoneItem>,
+  value: string,
+  matchFields: readonly MilestoneLocatorField[],
+): MilestoneLookupResult {
+  const key = titleKey(value);
+  const matches: MilestoneItem[] = [];
+  for (const item of items) {
+    const matched = matchFields.some((field) => {
+      if (field === 'title') return titleKey(item.title) === key;
+      if (field === 'description') return !!item.description && titleKey(item.description) === key;
+      return !!item.activeForm && titleKey(item.activeForm) === key;
+    });
+    if (!matched) continue;
+    matches.push(item);
+    if (matches.length > 1) return { ambiguous: true };
+  }
+  return { item: matches[0], ambiguous: false };
+}
+
+function resolveMilestoneUpdateInput(
+  input: MilestoneUpdateInput,
+  currentItems: Iterable<MilestoneItem>,
+  index: number,
+): ResolvedMilestoneUpdateInput {
+  const title = getExplicitInputTitle(input);
+  const description = asOptionalString(input.description);
+  const activeForm = asOptionalString(input.activeForm);
+  const candidates: MilestoneLookupCandidate[] = [];
+  if (title) candidates.push({ field: 'title', value: title, matchFields: ['title'] });
+  if (description) candidates.push({ field: 'description', value: description, matchFields: ['title', 'description', 'activeForm'] });
+  if (activeForm) candidates.push({ field: 'activeForm', value: activeForm, matchFields: ['title', 'description', 'activeForm'] });
+
+  if (candidates.length === 0) {
+    throw new Error(`items[${index}] 缺少 title；也可用 description 或 activeForm 作为唯一定位字段`);
+  }
+
+  const current = Array.from(currentItems);
+  const ambiguousFields: MilestoneLocatorField[] = [];
+
+  for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+    const candidate = candidates[candidateIndex];
+    const result = findMilestoneByLocator(current, candidate.value, candidate.matchFields);
+    if (result.item) {
+      return {
+        title: result.item.title,
+        description: candidate.field === 'description' && !title ? undefined : description,
+        activeForm: candidate.field === 'activeForm' && !title ? undefined : activeForm,
+      };
+    }
+    if (result.ambiguous) {
+      ambiguousFields.push(candidate.field);
+      continue;
+    }
+    if (candidateIndex === 0) {
+      return {
+        title: candidate.value,
+        description: candidate.field === 'description' && !title ? undefined : description,
+        activeForm: candidate.field === 'activeForm' && !title ? undefined : activeForm,
+      };
+    }
+  }
+
+  const ambiguousLabel = ambiguousFields.join(' / ');
+  throw new Error(`items[${index}] 的 ${ambiguousLabel} 无法唯一定位 milestone；请改传 title`);
 }
 
 function sortMilestones(a: MilestoneItem, b: MilestoneItem): number {
@@ -170,7 +254,7 @@ function cloneItem(item: MilestoneItem): MilestoneItem {
 function normalizeMilestoneItem(value: unknown, fallbackNow = Date.now()): MilestoneItem | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  const title = asOptionalString(record.title) ?? asOptionalString(record.subject) ?? asOptionalString(record.content);
+  const title = asOptionalString(record.title);
   if (!title) return undefined;
   return {
     title,
@@ -317,10 +401,8 @@ export class SessionMilestoneManager extends EventEmitter {
 
     updates.forEach((input, index) => {
       const itemNow = now + index;
-      const title = getInputTitle(input);
-      if (!title) {
-        throw new Error(`items[${index}] 缺少 title/subject/content`);
-      }
+      const resolved = resolveMilestoneUpdateInput(input, byTitle.values(), index);
+      const title = resolved.title;
       const key = titleKey(title);
 
       if (input.delete === true) {
@@ -332,8 +414,8 @@ export class SessionMilestoneManager extends EventEmitter {
       const status = input.status === undefined && existing ? existing.status : normalizeStatus(input.status);
       const item: MilestoneItem = {
         title,
-        description: asOptionalString(input.description) ?? existing?.description,
-        activeForm: asOptionalString(input.activeForm) ?? existing?.activeForm,
+        description: resolved.description ?? existing?.description,
+        activeForm: resolved.activeForm ?? existing?.activeForm,
         status,
         metadata: asMetadata(input.metadata) ?? existing?.metadata,
         createdAt: existing?.createdAt ?? itemNow,

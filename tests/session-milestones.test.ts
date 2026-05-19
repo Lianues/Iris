@@ -78,6 +78,52 @@ describe('SessionMilestoneManager', () => {
     expect(snapshot.stats.inProgress).toBe(1);
   });
 
+  it('title 缺失时可用 description 唯一定位现有 milestone', () => {
+    const manager = new SessionMilestoneManager();
+    manager.update('s1', [
+      {
+        title: '系统集成与实时调试交互',
+        description: '在 js/app.js 中集成所有组件',
+        activeForm: '正在系统集成与实时调试交互',
+        status: 'in_progress',
+      },
+      { title: '开发 Canvas 频谱仪', description: '在 js/visualizer.js 中实现可视化', status: 'pending' },
+    ], { replaceAll: true });
+
+    const snapshot = manager.update('s1', [
+      { description: '系统集成与实时调试交互', status: 'completed' },
+    ]);
+
+    const item = snapshot.items.find((entry) => entry.title === '系统集成与实时调试交互');
+    expect(item?.status).toBe('completed');
+    expect(item?.description).toBe('在 js/app.js 中集成所有组件');
+  });
+
+  it('description 歧义时可继续用 activeForm 唯一定位', () => {
+    const manager = new SessionMilestoneManager();
+    manager.update('s1', [
+      { title: '任务 A', description: '共享说明', activeForm: '正在处理任务 A', status: 'in_progress' },
+      { title: '任务 B', description: '共享说明', activeForm: '正在处理任务 B', status: 'pending' },
+    ], { replaceAll: true });
+
+    const snapshot = manager.update('s1', [
+      { description: '共享说明', activeForm: '正在处理任务 B', status: 'completed' },
+    ]);
+
+    expect(snapshot.items.find((item) => item.title === '任务 A')?.status).toBe('in_progress');
+    expect(snapshot.items.find((item) => item.title === '任务 B')?.status).toBe('completed');
+  });
+
+  it('description 和 activeForm 都无法唯一定位时会报错', () => {
+    const manager = new SessionMilestoneManager();
+    manager.update('s1', [
+      { title: '任务 A', description: '共享说明', activeForm: '进行中', status: 'in_progress' },
+      { title: '任务 B', description: '共享说明', activeForm: '进行中', status: 'pending' },
+    ], { replaceAll: true });
+
+    expect(() => manager.update('s1', [{ description: '共享说明', activeForm: '进行中', status: 'completed' }])).toThrow(/无法唯一定位 milestone/);
+  });
+
   it('不再维护并发版本字段', () => {
     const manager = new SessionMilestoneManager();
     const first = manager.update('s1', [
@@ -153,6 +199,18 @@ describe('milestone tools', () => {
     expect(list.snapshot.sessionId).toBe('s-tool');
     expect(list.snapshot.items[0].title).toBe('接入 UI');
     expect(list.snapshot.items[0].metadata).toBeUndefined();
+  });
+
+  it('update_milestones 在 title 缺失时支持 description 兜底定位', async () => {
+    const manager = new SessionMilestoneManager();
+    manager.update('s-tool', [
+      { title: '接入 UI', activeForm: '正在接入 UI', status: 'in_progress' },
+    ], { replaceAll: true });
+    const { updateTool } = createMilestoneTools({ manager, sessionId: 's-tool', agentName: 'agent-a' });
+
+    const result = await updateTool.handler({ items: [{ description: '接入 UI', status: 'completed' }] }) as any;
+    expect(result.ok).toBe(true);
+    expect(result.snapshot.items.find((item: any) => item.title === '接入 UI')?.status).toBe('completed');
   });
 
   it('委派 Agent 的 milestone 更新会路由回发起方 session', async () => {
