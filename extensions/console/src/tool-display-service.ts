@@ -1,4 +1,5 @@
 import type { Disposable } from 'irises-extension-sdk';
+import { createKeyedRegistry } from './service-registry-utils';
 
 export const CONSOLE_TOOL_DISPLAY_SERVICE_ID = 'console:tool-display';
 
@@ -31,25 +32,25 @@ export interface ConsoleToolDisplayService {
 }
 
 export function createConsoleToolDisplayService(): ConsoleToolDisplayService {
-  const providers = new Map<string, ConsoleToolDisplayProvider>();
+  const providers = createKeyedRegistry<ConsoleToolDisplayProvider>();
 
   return {
     register(toolName, provider) {
-    providers.set(toolName, provider);
-    let disposed = false;
-    return {
-      dispose() {
-        if (disposed) return;
-        disposed = true;
-        if (providers.get(toolName) === provider) providers.delete(toolName);
-      },
-    };
+      providers.replace(toolName, provider);
+      let disposed = false;
+      return {
+        dispose() {
+          if (disposed) return;
+          disposed = true;
+          providers.deleteIf(toolName, provider);
+        },
+      };
     },
     get(toolName) {
-    return providers.get(toolName);
+      return providers.get(toolName);
     },
     list() {
-    return Array.from(providers.keys());
+      return Array.from(providers.keys());
     },
   };
 }

@@ -1,5 +1,6 @@
 import type { Disposable } from 'irises-extension-sdk';
 import type { ProgressSnapshotLike } from './progress-types';
+import { comparePriorityThenId, createKeyedRegistry, createListenerSignal, disposeSilently } from './service-registry-utils';
 
 export const CONSOLE_PROGRESS_SERVICE_ID = 'console:progress';
 
@@ -36,60 +37,52 @@ export interface ConsoleProgressService {
 }
 
 export function createConsoleProgressService(): ConsoleProgressService {
-  const providers = new Map<string, ConsoleProgressProvider>();
-  const providerDisposers = new Map<string, Disposable | undefined>();
-  const changeListeners = new Set<() => void>();
-  const updateListeners = new Set<(providerId: string, sessionId: string, snapshot: ProgressSnapshotLike) => void>();
-
-  function emitChange(): void {
-    for (const listener of changeListeners) listener();
-  }
-
-  function emitUpdate(providerId: string, sessionId: string, snapshot: ProgressSnapshotLike): void {
-    for (const listener of updateListeners) listener(providerId, sessionId, snapshot);
-  }
+  const providers = createKeyedRegistry<ConsoleProgressProvider>();
+  const providerSubscriptions = new Map<string, Disposable | undefined>();
+  const changes = createListenerSignal<[]>();
+  const updates = createListenerSignal<[string, string, ProgressSnapshotLike]>();
 
   function orderedProviders(): ConsoleProgressProvider[] {
-    return Array.from(providers.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id.localeCompare(b.id));
+    return Array.from(providers.values()).sort(comparePriorityThenId('desc'));
   }
 
   return {
     register(provider) {
-    providers.set(provider.id, provider);
-    providerDisposers.get(provider.id)?.dispose();
-    providerDisposers.set(provider.id, provider.onDidUpdate?.((sessionId, snapshot) => emitUpdate(provider.id, sessionId, snapshot)));
-    emitChange();
-    let disposed = false;
-    return {
-      dispose() {
-        if (disposed) return;
-        disposed = true;
-        const current = providers.get(provider.id);
-        if (current === provider) {
-          providers.delete(provider.id);
-          providerDisposers.get(provider.id)?.dispose();
-          providerDisposers.delete(provider.id);
-          emitChange();
-        }
-      },
-    };
+      disposeSilently(providerSubscriptions.get(provider.id));
+      providers.replace(provider.id, provider);
+      providerSubscriptions.set(
+        provider.id,
+        provider.onDidUpdate?.((sessionId, snapshot) => updates.emit(provider.id, sessionId, snapshot)),
+      );
+      changes.emit();
+
+      let disposed = false;
+      return {
+        dispose() {
+          if (disposed) return;
+          disposed = true;
+          if (providers.deleteIf(provider.id, provider)) {
+            disposeSilently(providerSubscriptions.get(provider.id));
+            providerSubscriptions.delete(provider.id);
+            changes.emit();
+          }
+        },
+      };
     },
     getProvider(id) {
-    return providers.get(id);
+      return providers.get(id);
     },
     getActiveProvider() {
-    return orderedProviders()[0];
+      return orderedProviders()[0];
     },
     listProviders() {
-    return orderedProviders();
+      return orderedProviders();
     },
     onDidChange(listener) {
-    changeListeners.add(listener);
-    return { dispose: () => changeListeners.delete(listener) };
+      return changes.on(listener);
     },
     onDidUpdate(listener) {
-    updateListeners.add(listener);
-    return { dispose: () => updateListeners.delete(listener) };
+      return updates.on(listener);
     },
   };
 }

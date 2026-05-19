@@ -1,4 +1,5 @@
 import type { ConfigManagerLike, Disposable, RawEditableConfig } from 'irises-extension-sdk';
+import { createKeyedRegistry, createListenerSignal } from './service-registry-utils';
 
 export const CONSOLE_SETTINGS_TAB_SERVICE_ID = 'console:settings-tab';
 
@@ -54,27 +55,20 @@ export interface ConsoleSettingsTabService {
 }
 
 export function createConsoleSettingsTabService(): ConsoleSettingsTabService {
-  const tabs = new Map<string, ConsoleSettingsTabDefinition>();
-  const listeners = new Set<() => void>();
-
-  function emitChange(): void {
-    for (const listener of [...listeners]) {
-      try { listener(); } catch { /* ignore */ }
-    }
-  }
+  const tabs = createKeyedRegistry<ConsoleSettingsTabDefinition>();
+  const changes = createListenerSignal<[]>();
 
   return {
     register(tab) {
-      tabs.set(tab.id, tab);
-      emitChange();
+      tabs.replace(tab.id, tab);
+      changes.emit();
       let disposed = false;
       return {
         dispose() {
           if (disposed) return;
           disposed = true;
-          if (tabs.get(tab.id) === tab) {
-            tabs.delete(tab.id);
-            emitChange();
+          if (tabs.deleteIf(tab.id, tab)) {
+            changes.emit();
           }
         },
       };
@@ -83,8 +77,7 @@ export function createConsoleSettingsTabService(): ConsoleSettingsTabService {
       return Array.from(tabs.values());
     },
     onDidChange(listener) {
-      listeners.add(listener);
-      return { dispose: () => { listeners.delete(listener); } };
+      return changes.on(listener);
     },
   };
 }

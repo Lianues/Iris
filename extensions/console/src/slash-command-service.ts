@@ -1,5 +1,6 @@
 import type { Disposable } from 'irises-extension-sdk';
 import type { Command } from './input-commands';
+import { createKeyedRegistry, createListenerSignal } from './service-registry-utils';
 
 export const CONSOLE_SLASH_COMMAND_SERVICE_ID = 'console:slash-command';
 
@@ -32,14 +33,8 @@ export interface ConsoleSlashCommandService {
 }
 
 export function createConsoleSlashCommandService(): ConsoleSlashCommandService {
-  const commands = new Map<string, ConsoleSlashCommandDefinition>();
-  const listeners = new Set<() => void>();
-
-  function emitChange(): void {
-    for (const listener of [...listeners]) {
-      try { listener(); } catch { /* ignore */ }
-    }
-  }
+  const commands = createKeyedRegistry<ConsoleSlashCommandDefinition>();
+  const changes = createListenerSignal<[]>();
 
   function matchCommand(rawInput: string): { command: ConsoleSlashCommandDefinition; arg: string } | undefined {
     const raw = rawInput.trim();
@@ -49,7 +44,9 @@ export function createConsoleSlashCommandService(): ConsoleSlashCommandService {
       const name = command.name.trim();
       if (raw === name || raw.startsWith(`${name} `)) {
         const arg = raw === name ? '' : raw.slice(name.length).trim();
-        if (!best || name.length > best.command.name.length) best = { command, arg };
+        if (!best || name.length > best.command.name.length) {
+          best = { command, arg };
+        }
       }
     }
     return best;
@@ -57,40 +54,38 @@ export function createConsoleSlashCommandService(): ConsoleSlashCommandService {
 
   return {
     register(command) {
-    commands.set(command.name, command);
-    emitChange();
-    let disposed = false;
-    return {
-      dispose() {
-        if (disposed) return;
-        disposed = true;
-        if (commands.get(command.name) === command) {
-          commands.delete(command.name);
-          emitChange();
-        }
-      },
-    };
+      commands.replace(command.name, command);
+      changes.emit();
+      let disposed = false;
+      return {
+        dispose() {
+          if (disposed) return;
+          disposed = true;
+          if (commands.deleteIf(command.name, command)) {
+            changes.emit();
+          }
+        },
+      };
     },
     list() {
-    return Array.from(commands.values()).map(({ handle: _handle, ...command }) => command);
+      return Array.from(commands.values()).map(({ handle: _handle, ...command }) => command);
     },
     canHandle(raw) {
-    return !!matchCommand(raw);
+      return !!matchCommand(raw);
     },
     async dispatch(raw, context) {
-    const matched = matchCommand(raw);
-    if (!matched) return undefined;
-    const result = await matched.command.handle({
-      raw: raw.trim(),
-      name: matched.command.name,
-      arg: matched.arg,
-      sessionId: context?.sessionId,
-    });
-    return result ?? {};
+      const matched = matchCommand(raw);
+      if (!matched) return undefined;
+      const result = await matched.command.handle({
+        raw: raw.trim(),
+        name: matched.command.name,
+        arg: matched.arg,
+        sessionId: context?.sessionId,
+      });
+      return result ?? {};
     },
     onDidChange(listener) {
-    listeners.add(listener);
-    return { dispose: () => { listeners.delete(listener); } };
+      return changes.on(listener);
     },
   };
 }
