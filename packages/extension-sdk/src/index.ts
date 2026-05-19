@@ -176,6 +176,7 @@ export type {
 export {
   createPluginLogger,
   definePlugin,
+  waitForServiceAndRegister,
 } from './plugin.js';
 
 export type {

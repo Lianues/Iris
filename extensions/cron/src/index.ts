@@ -8,7 +8,7 @@
  * 配置来源：用户配置目录的 cron.yaml（由 config-template.ts 模板首次释放）
  */
 
-import { definePlugin, createPluginLogger, SCHEDULER_SERVICE_ID } from 'irises-extension-sdk';
+import { definePlugin, createPluginLogger, SCHEDULER_SERVICE_ID, waitForServiceAndRegister } from 'irises-extension-sdk';
 import type { Disposable, PluginContext, IrisAPI } from 'irises-extension-sdk';
 import { CronScheduler } from './scheduler.js';
 import {
@@ -51,13 +51,12 @@ interface ConsoleSettingsTabServiceLike {
 }
 
 function registerSettingsTabWithConsoleService(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
-  let disposed = false;
-  let registration: Disposable | undefined;
-  void api.services.waitFor<ConsoleSettingsTabServiceLike>(CONSOLE_SETTINGS_TAB_SERVICE_ID, 5000).then((service) => {
-    if (disposed) return;
-    registration = service.register(tab);
-  }).catch(() => {});
-  return { dispose: () => { disposed = true; try { registration?.dispose(); } catch { /* ignore */ } } };
+  return waitForServiceAndRegister<ConsoleSettingsTabServiceLike>(
+    api.services,
+    CONSOLE_SETTINGS_TAB_SERVICE_ID,
+    (service) => service.register(tab),
+    5000,
+  );
 }
 
 // ============ 模块级状态 ============

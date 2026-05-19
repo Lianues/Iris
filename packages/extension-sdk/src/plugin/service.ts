@@ -94,3 +94,32 @@ export interface ServiceRegistryLike {
    */
   onDidUnregister(listener: (id: string) => void): Disposable;
 }
+
+/**
+ * 等待某个服务可用后完成注册，并返回一个可安全提前 dispose 的占位释放器。
+ *
+ * 适用于插件想在某平台/宿主服务出现后再注册 provider 的场景。
+ * 如果在服务出现前调用 dispose()，注册动作会被取消；
+ * 如果服务已注册成功，dispose() 会继续透传到底层 registration.dispose()。
+ */
+export function waitForServiceAndRegister<TService>(
+  services: Pick<ServiceRegistryLike, 'waitFor'>,
+  serviceId: string,
+  register: (service: TService) => Disposable,
+  timeoutMs = 10000,
+): Disposable {
+  let disposed = false;
+  let registration: Disposable | undefined;
+  void services.waitFor<TService>(serviceId, timeoutMs)
+    .then((service) => {
+      if (disposed) return;
+      registration = register(service);
+    })
+    .catch(() => {});
+  return {
+    dispose() {
+      disposed = true;
+      registration?.dispose();
+    },
+  };
+}

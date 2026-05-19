@@ -18,7 +18,7 @@
  */
 
 import * as path from 'path';
-import { definePlugin, createPluginLogger } from 'irises-extension-sdk';
+import { definePlugin, createPluginLogger, waitForServiceAndRegister } from 'irises-extension-sdk';
 import type { Disposable, PluginContext, IrisAPI, Part } from 'irises-extension-sdk';
 import { SqliteMemory } from './sqlite/index.js';
 import { createMemoryTools, MEMORY_TOOL_NAMES } from './tools.js';
@@ -57,13 +57,12 @@ interface ConsoleSettingsTabServiceLike {
 }
 
 function registerSettingsTabWithConsoleService(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
-  let disposed = false;
-  let registration: Disposable | undefined;
-  void api.services.waitFor<ConsoleSettingsTabServiceLike>(CONSOLE_SETTINGS_TAB_SERVICE_ID, 5000).then((service) => {
-    if (disposed) return;
-    registration = service.register(tab);
-  }).catch(() => {});
-  return { dispose: () => { disposed = true; try { registration?.dispose(); } catch { /* ignore */ } } };
+  return waitForServiceAndRegister<ConsoleSettingsTabServiceLike>(
+    api.services,
+    CONSOLE_SETTINGS_TAB_SERVICE_ID,
+    (service) => service.register(tab),
+    5000,
+  );
 }
 
 // ============ Per-session 状态类型 ============
