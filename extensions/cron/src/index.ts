@@ -24,6 +24,41 @@ import { createCronSchedulerService } from './service.js';
 
 
 const logger = createPluginLogger('cron');
+const CONSOLE_SETTINGS_TAB_SERVICE_ID = 'console:settings-tab';
+
+type ConsoleSettingsFieldLike = {
+  key: string;
+  label: string;
+  type: 'toggle' | 'number' | 'text' | 'select' | 'readonly' | 'action';
+  options?: { label: string; value: string }[];
+  defaultValue?: unknown;
+  description?: string;
+  group?: string;
+};
+
+type ConsoleSettingsTabDefinitionLike = {
+  id: string;
+  label: string;
+  icon?: string;
+  fields: ConsoleSettingsFieldLike[];
+  onLoad: () => Promise<Record<string, unknown>>;
+  onSave: (values: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
+  onAction?: (actionKey: string, values: Record<string, unknown>) => Promise<{ success: boolean; error?: string; message?: string; data?: unknown; patch?: Record<string, unknown> }> | { success: boolean; error?: string; message?: string; data?: unknown; patch?: Record<string, unknown> };
+};
+
+interface ConsoleSettingsTabServiceLike {
+  register(tab: ConsoleSettingsTabDefinitionLike): Disposable;
+}
+
+function registerConsoleSettingsTab(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
+  let disposed = false;
+  let registration: Disposable | undefined;
+  void api.services.waitFor<ConsoleSettingsTabServiceLike>(CONSOLE_SETTINGS_TAB_SERVICE_ID, 5000).then((service) => {
+    if (disposed) return;
+    registration = service.register(tab);
+  }).catch(() => {});
+  return { dispose: () => { disposed = true; try { registration?.dispose(); } catch { /* ignore */ } } };
+}
 
 // ============ 模块级状态 ============
 
@@ -311,14 +346,7 @@ function registerWebRoutes(api: IrisAPI): Disposable[] {
  * - 当前任务：jobsSummary（只读）
  */
 function registerSettingsTab(api: IrisAPI, ctx: PluginContext): Disposable | undefined {
-  // registerConsoleSettingsTab 是可选方法，先检查是否存在
-  const registerTab = (api as Record<string, any>).registerConsoleSettingsTab as ((tab: any) => Disposable) | undefined;
-  if (!registerTab) {
-    logger.info('Console Settings Tab 注册不可用，跳过');
-    return undefined;
-  }
-
-  const disposable = registerTab({
+  const disposable = registerConsoleSettingsTab(api, {
     id: 'cron',
     label: '定时任务',
     icon: '06',

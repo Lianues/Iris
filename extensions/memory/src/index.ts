@@ -30,6 +30,41 @@ import { shouldExtractSessionMemory, extractSessionNotes, updateTokenTracking, c
 import { createMemorySpacesService, MEMORY_SPACES_SERVICE_ID, type MemorySpacesService } from './service.js';
 
 const logger = createPluginLogger('memory');
+const CONSOLE_SETTINGS_TAB_SERVICE_ID = 'console:settings-tab';
+
+type ConsoleSettingsFieldLike = {
+  key: string;
+  label: string;
+  type: 'toggle' | 'number' | 'text' | 'select' | 'readonly' | 'action';
+  options?: { label: string; value: string }[];
+  defaultValue?: unknown;
+  description?: string;
+  group?: string;
+};
+
+type ConsoleSettingsTabDefinitionLike = {
+  id: string;
+  label: string;
+  icon?: string;
+  fields: ConsoleSettingsFieldLike[];
+  onLoad: () => Promise<Record<string, unknown>>;
+  onSave: (values: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
+  onAction?: (actionKey: string, values: Record<string, unknown>) => Promise<{ success: boolean; error?: string; message?: string; data?: unknown; patch?: Record<string, unknown> }> | { success: boolean; error?: string; message?: string; data?: unknown; patch?: Record<string, unknown> };
+};
+
+interface ConsoleSettingsTabServiceLike {
+  register(tab: ConsoleSettingsTabDefinitionLike): Disposable;
+}
+
+function registerConsoleSettingsTab(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
+  let disposed = false;
+  let registration: Disposable | undefined;
+  void api.services.waitFor<ConsoleSettingsTabServiceLike>(CONSOLE_SETTINGS_TAB_SERVICE_ID, 5000).then((service) => {
+    if (disposed) return;
+    registration = service.register(tab);
+  }).catch(() => {});
+  return { dispose: () => { disposed = true; try { registration?.dispose(); } catch { /* ignore */ } } };
+}
 
 // ============ Per-session 状态类型 ============
 
@@ -203,11 +238,8 @@ async function runForcedConsolidation(state: AgentMemoryState): Promise<{ ok: bo
 // ============ Console Settings Tab ============
 
 function registerSettingsTab(state: AgentMemoryState, api: IrisAPI, ctx: PluginContext): void {
-  const registerTab = (api as any).registerConsoleSettingsTab as ((tab: any) => Disposable) | undefined;
-  if (!registerTab) return;
-
   state.settingsTabDisposable?.dispose();
-  state.settingsTabDisposable = registerTab({
+  state.settingsTabDisposable = registerConsoleSettingsTab(api, {
     id: 'memory',
     label: '记忆',
     icon: '05',

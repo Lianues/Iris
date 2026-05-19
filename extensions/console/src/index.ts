@@ -34,7 +34,7 @@ import {
   type IrisSessionMetaLike,
   type IrisAPI,
   type BootstrapExtensionRegistryLike,
-  type ConfigManagerLike,
+  type Disposable,
 } from 'irises-extension-sdk';
 import type { IPCClientLike } from 'irises-extension-sdk/ipc';
 import {
@@ -54,6 +54,7 @@ import { resolveConsoleConfig } from './console-config';
 import { CONSOLE_TOOL_DISPLAY_SERVICE_ID, consoleToolDisplayService } from './tool-display-service';
 import { CONSOLE_SLASH_COMMAND_SERVICE_ID, consoleSlashCommandService } from './slash-command-service';
 import { CONSOLE_PATH_DISPLAY_SERVICE_ID, consolePathDisplayService } from './path-display-service';
+import { CONSOLE_SETTINGS_TAB_SERVICE_ID, type ConsoleSettingsTabDefinition, type ConsoleSettingsTabService } from './settings-tab-service';
 import { CONSOLE_STATUS_SEGMENT_SERVICE_ID, consoleStatusSegmentService } from './status-segment-service';
 import type { ProgressSnapshotLike } from './progress-types';
 import {
@@ -622,6 +623,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private originalSettingsController: ConsoleSettingsController | null = null;
   /** 远程连接前保存的原始 agentName */
   private originalAgentName?: string;
+  /** 远程连接时缓存的远端 Console Settings Tabs */
+  private remotePluginSettingsTabs: ConsoleSettingsTabDefinition[] = [];
+  /** Settings Tab 变化监听回调集合（供 App 订阅） */
+  private pluginSettingsTabListeners = new Set<() => void>();
+  /** 本地 Console Settings Tab 服务订阅 */
+  private pluginSettingsTabServiceDisposable?: Disposable;
   /** Backend 事件监听清理函数；start/stop 之间有效，避免切换 Agent 后重复监听 */
   private backendListenerDisposers: Array<() => void> = [];
   /** 当前是否正在生成响应（用于阻止 addErrorMessage 破坏流式占位消息） */
@@ -694,6 +701,11 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       });
     }
     consoleProgressService.onDidChange(() => { void this.syncProgress(); });
+    this.bindPluginSettingsTabService();
+    if (typeof (this.api as any)?.__consoleGetSettingsTabs === 'function') {
+      const cached = (this.api as any).__consoleGetSettingsTabs?.();
+      this.remotePluginSettingsTabs = Array.isArray(cached) ? [...cached] : [];
+    }
     consoleProgressService.onDidUpdate((_providerId, sid, snapshot) => {
       if (sid === this.sessionId) this.appHandle?.setProgress(snapshot);
     });
@@ -705,6 +717,58 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private getRemoteExecEnvironmentService(): RemoteExecEnvironmentServiceLike | undefined {
     return (this.api?.services as any)?.get?.(REMOTE_EXEC_ENVIRONMENT_SERVICE_ID) as RemoteExecEnvironmentServiceLike | undefined;
+  }
+
+  private getLocalConsoleSettingsTabService(): ConsoleSettingsTabService | undefined {
+    const baseApi = (this.originalApi ?? this.api) as any;
+    return baseApi?.services?.get?.(CONSOLE_SETTINGS_TAB_SERVICE_ID) as ConsoleSettingsTabService | undefined;
+  }
+
+  private hasRemotePluginSettingsTabSource(): boolean {
+    return typeof (this.api as any)?.__consoleGetSettingsTabs === 'function' || this._isRemote;
+  }
+
+  private listPluginSettingsTabs(): ConsoleSettingsTabDefinition[] {
+    if (this.hasRemotePluginSettingsTabSource()) {
+      if (this.remotePluginSettingsTabs.length > 0) return [...this.remotePluginSettingsTabs];
+      const direct = (this.api as any)?.__consoleGetSettingsTabs?.();
+      return Array.isArray(direct) ? [...direct] : [];
+    }
+    return this.getLocalConsoleSettingsTabService()?.list?.() ?? [];
+  }
+
+  private emitPluginSettingsTabsChanged(): void {
+    for (const listener of [...this.pluginSettingsTabListeners]) {
+      try { listener(); } catch { /* ignore */ }
+    }
+  }
+
+  private bindPluginSettingsTabService(): void {
+    try { this.pluginSettingsTabServiceDisposable?.dispose(); } catch { /* ignore */ }
+    this.pluginSettingsTabServiceDisposable = this.getLocalConsoleSettingsTabService()?.onDidChange(() => this.emitPluginSettingsTabsChanged());
+  }
+
+  private onPluginSettingsTabsChanged(listener: () => void): Disposable {
+    this.pluginSettingsTabListeners.add(listener);
+    return {
+      dispose: () => { this.pluginSettingsTabListeners.delete(listener); },
+    };
+  }
+
+  private async refreshRemotePluginSettingsTabsCache(): Promise<void> {
+    if (!this.hasRemotePluginSettingsTabSource()) return;
+    const api = this.api as any;
+    try {
+      if (typeof api?.initCaches === 'function') {
+        await api.initCaches();
+      }
+      this.remotePluginSettingsTabs = Array.isArray(api?.__consoleGetSettingsTabs?.())
+        ? [...api.__consoleGetSettingsTabs()]
+        : [];
+    } catch {
+      this.remotePluginSettingsTabs = [];
+    }
+    this.emitPluginSettingsTabsChanged();
   }
 
   private async restoreRemoteExecEnvironmentForSession(sessionId: string, validate: boolean): Promise<RemoteExecEnvironmentRestoreResultLike | undefined> {
@@ -802,6 +866,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   async start(): Promise<void> {
     this.api?.setLogLevel?.(LogLevel.SILENT);
+    this.bindPluginSettingsTabService();
 
     configureBundledOpenTuiTreeSitter(this.isCompiledBinary);
 
@@ -1186,7 +1251,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onDeleteExtension: (name: string) => this.handleDeleteExtension(name),
         onPreviewUpdateExtension: (name: string) => this.handlePreviewUpdateExtension(name),
         onUpdateExtension: (name: string) => this.handleUpdateExtension(name),
-        onListPluginSettingsTabs: () => this.api?.getConsoleSettingsTabs?.() ?? [],
+        onListPluginSettingsTabs: () => this.listPluginSettingsTabs(),
+        onPluginSettingsTabsChanged: (listener: () => void) => this.onPluginSettingsTabsChanged(listener),
         onRemoteConnect: (name?: string) => this.handleRemoteConnect(name),
         onRemoteDisconnect: () => this.handleRemoteDisconnect(),
         remoteHost: this._remoteHost || undefined,
@@ -1201,8 +1267,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         initWarnings: this.initWarnings,
         initWarningsColor: this.initWarningsColor,
         initWarningsIcon: this.initWarningsIcon,
-        // 插件注册的 Settings Tab：从 IrisAPI 获取所有已注册的 tab 定义
-        pluginSettingsTabs: this.api?.getConsoleSettingsTabs?.() ?? [],
+        // 插件注册的 Settings Tab：本地从 console:settings-tab 服务读取，远程从 attach 缓存读取
+        pluginSettingsTabs: this.listPluginSettingsTabs(),
       });
 
       // CliRenderer 在 console/node_modules 与 Iris/node_modules 中的私有字段声明不同，
@@ -1213,6 +1279,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   async stop(options: ConsoleStopOptions = {}): Promise<void> {
     this.disposeBackendListeners();
+    try { this.pluginSettingsTabServiceDisposable?.dispose(); } catch { /* ignore */ }
+    this.pluginSettingsTabServiceDisposable = undefined;
 
     // 幂等保护：onExit 和 shutdown() 都会调用 stop()，
     // 双重 destroy() 会向已恢复的终端重复写入 ANSI 转义序列导致异常。
@@ -1329,6 +1397,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       if (peerAPI) {
         if (typeof peerAPI.initCaches === 'function') await peerAPI.initCaches();
         this.api = peerAPI;
+        this.remotePluginSettingsTabs = Array.isArray(peerAPI?.__consoleGetSettingsTabs?.()) ? [...peerAPI.__consoleGetSettingsTabs()] : [];
+        this.bindPluginSettingsTabService();
         this.settingsController = new ConsoleSettingsController({
           backend: targetHandle,
           configManager: peerAPI.configManager,
@@ -1375,6 +1445,9 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         if (typeof remoteApi.initCaches === 'function') {
           await remoteApi.initCaches();
         }
+        this.remotePluginSettingsTabs = Array.isArray(remoteApi?.__consoleGetSettingsTabs?.())
+          ? [...remoteApi.__consoleGetSettingsTabs()]
+          : [];
       } catch (initErr) {
         wsClient.disconnect();
         throw initErr;
@@ -1385,6 +1458,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.originalSettingsController = this.settingsController;
       this.originalAgentName = this.agentName;
       this.remoteClient = wsClient;
+      this.bindPluginSettingsTabService();
       this.backend = remoteBackend;
       this.api = remoteApi;
       this.settingsController = new ConsoleSettingsController({
@@ -1396,6 +1470,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this._isRemote = true;
       this.agentName = handshake.agentName === '__global__' ? undefined : handshake.agentName;
       try { this._remoteHost = new URL(url).host; } catch { this._remoteHost = url; }
+      this.emitPluginSettingsTabsChanged();
 
       const modelInfo = remoteBackend.getCurrentModelInfo?.();
       if (modelInfo) {
@@ -1605,6 +1680,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.agentName = this.originalAgentName;
     this.originalAgentName = undefined;
     this._isRemote = false;
+    this.remotePluginSettingsTabs = [];
+    this.emitPluginSettingsTabsChanged();
     this._remoteHost = '';
     this.initWarnings = [`已断开远程连接 (${disconnectedHost})，已回到本地`];
     this.initWarningsColor = '#74b9ff';
@@ -2394,7 +2471,9 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
           getRemoteRequestPath: (extensionName: string) => this.remoteExtensionRequestPaths.get(extensionName),
         }
       : undefined;
-    return handleConsoleToggleExtension({ ...api, extensions }, name, desiredEnabled);
+    const result = await handleConsoleToggleExtension({ ...api, extensions }, name, desiredEnabled);
+    if (result.ok) await this.refreshRemotePluginSettingsTabsCache();
+    return result;
   }
 
 
@@ -2421,19 +2500,25 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       const hasPlugin = pkg ? this.hasPluginContribution(pkg.manifest) : true;
       const scopeLabel = scope === 'global' ? '全局' : '此 agent';
       if (!hasPlugin) {
-        return { ok: true, message: `已拉取安装到${scopeLabel} "${result.name}@${result.version}"。平台扩展通常需要重启或配置 platform.yaml 后生效。` };
+        const response = { ok: true, message: `已拉取安装到${scopeLabel} "${result.name}@${result.version}"。平台扩展通常需要重启或配置 platform.yaml 后生效。` };
+        await this.refreshRemotePluginSettingsTabsCache();
+        return response;
       }
 
       const active = (this.api as any)?.pluginManager?.listPlugins?.() ?? [];
       const alreadyActive = active.some((item: any) => item.name === result.name);
       if (alreadyActive) {
         this.setPluginConfigEnabled(result.name, true);
-        return { ok: true, message: `已覆盖安装到${scopeLabel} "${result.name}@${result.version}"。当前运行实例已加载同名插件，重启后使用新代码。` };
+        const response = { ok: true, message: `已覆盖安装到${scopeLabel} "${result.name}@${result.version}"。当前运行实例已加载同名插件，重启后使用新代码。` };
+        await this.refreshRemotePluginSettingsTabsCache();
+        return response;
       }
 
       await ext.activate(result.name);
       this.setPluginConfigEnabled(result.name, true);
-      return { ok: true, message: `已拉取安装到${scopeLabel}并启用 "${result.name}@${result.version}"` };
+      const response = { ok: true, message: `已拉取安装到${scopeLabel}并启用 "${result.name}@${result.version}"` };
+      await this.refreshRemotePluginSettingsTabsCache();
+      return response;
     } catch (err) {
       return { ok: false, message: `Git 拉取失败: ${err instanceof Error ? err.message : String(err)}` };
     }
@@ -2463,7 +2548,9 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     try {
       await ext.remove(name, scope ? { scope } : undefined);
       this.removePluginConfigEntry(name);
-      return { ok: true, message: `已删除 "${name}"` };
+      const response = { ok: true, message: `已删除 "${name}"` };
+      await this.refreshRemotePluginSettingsTabsCache();
+      return response;
     } catch (err) {
       return { ok: false, message: `删除失败: ${err instanceof Error ? err.message : String(err)}` };
     }
@@ -2514,7 +2601,9 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
     try {
       const result = await ext.updateGit(name, { scope });
-      return { ok: true, message: `已升级 "${result.name}@${result.version}" 到 ${result.gitCommit ?? '最新 commit'}。当前运行中的插件可能需要重启后完全生效。` };
+      const response = { ok: true, message: `已升级 "${result.name}@${result.version}" 到 ${result.gitCommit ?? '最新 commit'}。当前运行中的插件可能需要重启后完全生效。` };
+      await this.refreshRemotePluginSettingsTabsCache();
+      return response;
     } catch (err) {
       return { ok: false, message: `升级失败: ${err instanceof Error ? err.message : String(err)}` };
     }

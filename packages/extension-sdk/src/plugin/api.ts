@@ -32,59 +32,6 @@ export interface WebPanelDefinition {
   contentPath: string;
 }
 
-/* ────────────────────────────────────────────────────────────
- * Console Settings Tab 注入机制
- *
- * 插件通过 registerConsoleSettingsTab 注册声明式表单 schema，
- * Console TUI 的 SettingsView 动态渲染这些 tab。
- * 数据流与内置 snapshot 完全解耦——插件自带 onLoad / onSave。
- * ──────────────────────────────────────────────────────────── */
-
-/** Console Settings Tab 中的单个表单字段 */
-export interface ConsoleSettingsField {
-  /** 字段唯一标识（在该 tab 内唯一） */
-  key: string;
-  /** 显示标签 */
-  label: string;
-  /** 字段类型 */
-  type: 'toggle' | 'number' | 'text' | 'select' | 'readonly' | 'action';
-  /** select 类型的可选项 */
-  options?: { label: string; value: string }[];
-  /** 默认值 */
-  defaultValue?: unknown;
-  /** 字段说明（显示为 info 行） */
-  description?: string;
-  /** 分组标题（非空时在该字段前插入 section 头行） */
-  group?: string;
-}
-
-export interface ConsoleSettingsActionResult {
-  success: boolean;
-  message?: string;
-  error?: string;
-  data?: unknown;
-  /** 可选：action 执行后回填到当前 tab 草稿值中，用户仍需按 S 保存。 */
-  patch?: Record<string, unknown>;
-}
-
-/** 插件注册的 Console Settings Tab 页定义 */
-export interface ConsoleSettingsTabDefinition {
-  /** tab 唯一标识 */
-  id: string;
-  /** tab 显示标签 */
-  label: string;
-  /** tab 序号图标（如 '04'），缺省按内置 tab 数量自动递增 */
-  icon?: string;
-  /** 表单字段列表 */
-  fields: ConsoleSettingsField[];
-  /** 加载当前值（Settings 页面打开时调用） */
-  onLoad: () => Promise<Record<string, unknown>>;
-  /** 保存修改后的值（用户按 S 保存时调用） */
-  onSave: (values: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
-  /** 执行 action 字段（用户在 action row 上按 Enter 时调用） */
-  onAction?: (actionKey: string, values: Record<string, unknown>) => Promise<ConsoleSettingsActionResult> | ConsoleSettingsActionResult;
-}
-
 export { LogLevel };
 /**
  * 可编辑配置的原始结构。
@@ -243,10 +190,6 @@ export interface IrisAPI {
   supportsNativeOffice?(modelName?: string): boolean;
   /** 检查 MIME 类型是否为文档类型（PDF / DOCX / PPTX / XLSX） */
   isDocumentMimeType?(mimeType: string): boolean;
-  /** 向 Console 平台 Settings 界面注册插件 Tab 页（声明式表单 schema） */
-  registerConsoleSettingsTab?: (tab: ConsoleSettingsTabDefinition) => Disposable;
-  /** 获取所有已注册的 Console Settings 插件 Tab */
-  getConsoleSettingsTabs?: () => ConsoleSettingsTabDefinition[];
 
   /**
    * 全局任务板（可选）。

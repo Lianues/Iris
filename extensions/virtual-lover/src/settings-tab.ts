@@ -15,6 +15,42 @@ import { MEMORY_SPACES_SERVICE_ID, type MemorySpacesServiceLike } from './memory
 import { syncVirtualLoverStrategies } from './strategies.js';
 import { scheduleVirtualLoverFollowup } from './followup.js';
 
+const CONSOLE_SETTINGS_TAB_SERVICE_ID = 'console:settings-tab';
+
+type ConsoleSettingsFieldLike = {
+  key: string;
+  label: string;
+  type: 'toggle' | 'number' | 'text' | 'select' | 'readonly' | 'action';
+  options?: { label: string; value: string }[];
+  defaultValue?: unknown;
+  description?: string;
+  group?: string;
+};
+
+type ConsoleSettingsTabDefinitionLike = {
+  id: string;
+  label: string;
+  icon?: string;
+  fields: ConsoleSettingsFieldLike[];
+  onLoad: () => Promise<Record<string, unknown>>;
+  onSave: (values: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
+  onAction?: (actionKey: string, values: Record<string, unknown>) => Promise<{ success: boolean; error?: string; message?: string; data?: unknown; patch?: Record<string, unknown> }> | { success: boolean; error?: string; message?: string; data?: unknown; patch?: Record<string, unknown> };
+};
+
+interface ConsoleSettingsTabServiceLike {
+  register(tab: ConsoleSettingsTabDefinitionLike): Disposable;
+}
+
+function registerConsoleSettingsTab(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
+  let disposed = false;
+  let registration: Disposable | undefined;
+  void api.services.waitFor<ConsoleSettingsTabServiceLike>(CONSOLE_SETTINGS_TAB_SERVICE_ID, 5000).then((service) => {
+    if (disposed) return;
+    registration = service.register(tab);
+  }).catch(() => {});
+  return { dispose: () => { disposed = true; try { registration?.dispose(); } catch { /* ignore */ } } };
+}
+
 function escapeMultiline(value: string): string {
   return value.replace(/\r\n/g, '\n').replace(/\n/g, '\\n');
 }
@@ -518,10 +554,8 @@ async function handleVirtualLoverAction(ctx: PluginContext, api: IrisAPI, action
 }
 
 export function registerVirtualLoverSettingsTab(ctx: PluginContext, api: IrisAPI): Disposable | undefined {
-  const registerTab = api.registerConsoleSettingsTab;
-  if (!registerTab) return undefined;
+  return registerConsoleSettingsTab(api, {
 
-  return registerTab({
     id: 'virtual-lover',
     label: 'Virtual Lover',
     icon: '07',

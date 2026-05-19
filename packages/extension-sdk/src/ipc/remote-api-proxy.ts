@@ -4,9 +4,9 @@
  * 为 `iris attach` 模式提供 Console 平台需要的 IrisAPI 子集，
  * 将方法调用通过 IPC 转发到服务端。
  *
- * Console 实际使用的 API 子属性：
+ * Console 实际使用的 API/私有桥接子属性：
  *   1. api.setLogLevel()
- *   2. api.getConsoleSettingsTabs()
+ *   2. api.__consoleGetSettingsTabs()   （Console attach 私有桥接，不属于公开 IrisAPI）
  *   3. api.agentNetwork
  *   4. api.listAgents()
  *   5. api.configManager (readEditableConfig, updateEditableConfig)
@@ -50,7 +50,7 @@ function callApi(
 export function createRemoteApiProxy(client: IPCClientLike, agentName: string = '__remote__', options?: RemoteApiProxyOptions): Record<string, any> {
   const targetAgentName = options?.targetAgentName ?? agentName;
   // 缓存存储
-  let _cachedSettingsTabs: unknown[] = [];
+  let _cachedConsoleSettingsTabs: unknown[] = [];
   let _cachedAgents: unknown[] = [];
   let _cachedPeers: string[] = [];
 
@@ -60,8 +60,8 @@ export function createRemoteApiProxy(client: IPCClientLike, agentName: string = 
         .catch((err) => logger.warn(`setLogLevel 失败: ${err.message}`));
     },
 
-    getConsoleSettingsTabs(): unknown[] {
-      return _cachedSettingsTabs;
+    __consoleGetSettingsTabs(): unknown[] {
+      return _cachedConsoleSettingsTabs;
     },
 
     listAgents(): unknown[] {
@@ -118,7 +118,7 @@ export function createRemoteApiProxy(client: IPCClientLike, agentName: string = 
 
     /**
      * 预加载同步方法需要的缓存数据。
-     * 在创建后调用一次，保证 getConsoleSettingsTabs/listAgents/listPeers
+     * 在创建后调用一次，保证 __consoleGetSettingsTabs/listAgents/listPeers
      * 首次调用时就能返回有效数据。
      */
     async initCaches(): Promise<void> {
@@ -127,7 +127,7 @@ export function createRemoteApiProxy(client: IPCClientLike, agentName: string = 
         callApi(client, targetAgentName, Methods.API_LIST_AGENTS).catch(() => []),
         callApi(client, targetAgentName, Methods.API_AGENT_NETWORK_LIST_PEERS).catch(() => []),
       ]);
-      _cachedSettingsTabs = tabs as unknown[] ?? [];
+      _cachedConsoleSettingsTabs = tabs as unknown[] ?? [];
       _cachedAgents = agents as unknown[] ?? [];
       _cachedPeers = peers as string[] ?? [];
     },

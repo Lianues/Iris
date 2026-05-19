@@ -34,12 +34,15 @@ describe('virtual-lover TUI settings tab', () => {
         evaluatePolicy: vi.fn(() => ({ allowed: true, skipped: false })),
         listRecentTargets: vi.fn(() => [{ platform: 'telegram', target: { kind: 'chat', id: '789' }, label: '最近私聊', lastActivityAt: Date.now() }]),
       };
+      const consoleSettingsTabService = {
+        register: vi.fn((tab: any) => { registered = tab; return { dispose() {} }; }),
+      };
       const api = {
-        registerConsoleSettingsTab: vi.fn((tab: any) => { registered = tab; }),
         router: {
           chat: vi.fn(async () => ({ content: { role: 'model', parts: [{ text: '预览消息' }] } })),
         },
         services: {
+          waitFor: vi.fn(async (id: string) => id === 'console:settings-tab' ? consoleSettingsTabService : undefined),
           has: vi.fn((id: string) => id === 'memory.spaces' || id === 'delivery.registry'),
           get: vi.fn((id: string) => id === 'delivery.registry' ? deliveryService : undefined),
         },
@@ -61,9 +64,10 @@ describe('virtual-lover TUI settings tab', () => {
         },
       } as any;
 
-      registerVirtualLoverSettingsTab(ctx, api);
+      await new Promise<void>((resolve) => { registerVirtualLoverSettingsTab(ctx, api); setTimeout(resolve, 0); });
 
-      expect(api.registerConsoleSettingsTab).toHaveBeenCalledOnce();
+      expect(api.services.waitFor).toHaveBeenCalledWith('console:settings-tab', 5000);
+      expect(consoleSettingsTabService.register).toHaveBeenCalledOnce();
       expect(registered.id).toBe('virtual-lover');
       const loaded = await registered.onLoad();
       expect(loaded.enabled).toBe(true);

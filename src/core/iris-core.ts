@@ -69,9 +69,10 @@ import { PluginEventBus } from '../extension/event-bus';
 import { patchMethod, patchPrototype } from '../extension/patch';
 import { registerExtensionPlatforms } from '../extension';
 import { ensureDevSourceSdkShims } from '../extension';
-import type { IrisAPI, InlinePluginEntry, PluginEntry, WebPanelDefinition, ConsoleSettingsTabDefinition, Disposable } from 'irises-extension-sdk';
+import type { IrisAPI, InlinePluginEntry, PluginEntry, WebPanelDefinition, Disposable } from 'irises-extension-sdk';
 import { BackendHandle, DELIVERY_REGISTRY_SERVICE_ID } from 'irises-extension-sdk';
-import { readEditableConfig, updateEditableConfig, LayeredConfigManager } from '../config/manage';
+import { CONSOLE_SETTINGS_TAB_SERVICE_ID, createConsoleSettingsTabService, createNetSettingsTab } from '../../extensions/console/src/settings-tab-service.js';
+import { LayeredConfigManager } from '../config/manage';
 import { applyRuntimeConfigReload, type RuntimeConfigReloadContext } from '../config/runtime';
 import { DEFAULTS, parseLLMConfig } from '../config/llm';
 import { parseSystemConfig } from '../config/system';
@@ -495,92 +496,13 @@ export class IrisCore {
     });
 
     // Console Settings Tab 注册表
-    const consoleSettingsTabs: ConsoleSettingsTabDefinition[] = [];
-    const registerConsoleSettingsTab = (tab: ConsoleSettingsTabDefinition): Disposable => {
-      let inserted = false;
-      if (!consoleSettingsTabs.some(t => t.id === tab.id)) {
-        consoleSettingsTabs.push(tab);
-        inserted = true;
-      }
-      return {
-        dispose: () => {
-          if (!inserted) return;
-          const index = consoleSettingsTabs.indexOf(tab);
-          if (index >= 0) consoleSettingsTabs.splice(index, 1);
-          inserted = false;
-        },
-      };
-    };
-
-    // 内置 Net 设置标签页
-    registerConsoleSettingsTab({
-      id: 'net',
-      label: '多端互联',
-      icon: '04',
-      fields: [
-        { key: 'enabled', label: '启用 Net 服务', type: 'toggle', defaultValue: false,
-          description: '启用后其他设备可通过 WebSocket 连接控制此 Iris 实例' },
-        { key: 'port', label: '端口', type: 'number', defaultValue: 9100 },
-        { key: 'host', label: '监听地址', type: 'text', defaultValue: '0.0.0.0' },
-        { key: 'token', label: '认证 Token', type: 'text',
-          description: '远程连接密码（首次自动生成，可自行修改）' },
-        { key: 'gatewayAgent', label: '远程网关 Agent', type: 'text', defaultValue: 'master',
-          description: '多 Agent 模式下只由该 Agent 启动远程入口；连接后仍可在远程端切换其他 Agent' },
-        { key: 'relay.url', label: '中继地址', type: 'text',
-          description: '不在同一局域网时，通过公网中继服务器连接（如 wss://relay.example.com:9001）' },
-        { key: 'relay.nodeId', label: '中继节点 ID', type: 'text',
-          description: '本机在中继上的唯一标识，远程连接时需要用到（如 my-vps）' },
-        { key: 'relay.token', label: '中继 Token', type: 'text',
-          description: '中继服务器的认证密码（与上面的认证 Token 不同）' },
-      ],
-      onLoad: async () => {
-        const raw = readEditableConfig(configDir) as Record<string, any>;
-        const net = raw.net ?? {};
-        // 没有 token 时预生成一个随机值，用户可直接保存或修改
-        let token = net.token ?? '';
-        if (!token) {
-          const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-          token = Array.from({ length: 24 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-        }
-        return {
-          enabled: net.enabled ?? false,
-          port: net.port ?? 9100,
-          host: net.host ?? '0.0.0.0',
-          token,
-          gatewayAgent: net.gatewayAgent ?? 'master',
-          'relay.url': net.relay?.url ?? '',
-          'relay.nodeId': net.relay?.nodeId ?? '',
-          'relay.token': net.relay?.token ?? '',
-        };
-      },
-      onSave: async (values) => {
-        try {
-          const netUpdate: Record<string, unknown> = {
-            enabled: values.enabled,
-            port: values.port,
-            host: values.host,
-            token: values.token,
-            gatewayAgent: values.gatewayAgent,
-          };
-          if (values['relay.url'] || values['relay.nodeId'] || values['relay.token']) {
-            netUpdate.relay = {
-              url: values['relay.url'] || undefined,
-              nodeId: values['relay.nodeId'] || undefined,
-              token: values['relay.token'] || undefined,
-            };
-          }
-          const merged = updateEditableConfig(configDir, { net: netUpdate });
-          const ctx: RuntimeConfigReloadContext = {
-            backend, pluginManager,  extensions, deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
-            onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
-          };
-          await applyRuntimeConfigReload(ctx, merged.mergedRaw);
-          return { success: true };
-        } catch (e) {
-          return { success: false, error: e instanceof Error ? e.message : String(e) };
-        }
-      },
-    });
+    const consoleSettingsTabService = createConsoleSettingsTabService();
+    if (!serviceRegistry.has(CONSOLE_SETTINGS_TAB_SERVICE_ID)) {
+      serviceRegistry.register(CONSOLE_SETTINGS_TAB_SERVICE_ID, consoleSettingsTabService, {
+        description: 'Console TUI Settings Tab 扩展服务',
+        version: '1.0.0',
+      });
+    }
 
     // ---- 配置文件监听（外部修改自动热重载） ----
     const stopConfigWatcher = (() => {
@@ -658,6 +580,31 @@ export class IrisCore {
       });
     }
 
+    const layeredConfigManager = Object.assign(
+      new LayeredConfigManager(globalDir, configDir),
+      {
+        applyRuntimeConfigReload: async (mergedConfig: Record<string, unknown>) => {
+          try {
+            const ctx: RuntimeConfigReloadContext = {
+              backend, pluginManager,  extensions, deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
+              onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
+            };
+            await applyRuntimeConfigReload(ctx, mergedConfig);
+            return { success: true };
+          } catch (e) {
+            return { success: false, error: e instanceof Error ? e.message : String(e) };
+          }
+        },
+        getLLMDefaults: () => DEFAULTS as Record<string, Record<string, unknown>>,
+        parseLLMConfig: (raw?: Record<string, unknown>) => parseLLMConfig(raw as any) as unknown as Record<string, unknown>,
+        parseSystemConfig: (raw?: Record<string, unknown>) => parseSystemConfig(raw as any) as unknown as Record<string, unknown>,
+        parseToolsConfig: (raw?: Record<string, unknown>) => parseToolsConfig(raw as any) as unknown as Record<string, unknown>,
+      },
+    );
+
+    const netSettingsTab = createNetSettingsTab(layeredConfigManager);
+    if (netSettingsTab) consoleSettingsTabService.register(netSettingsTab);
+
     const irisAPI = {
       backend,
       media: undefined,
@@ -673,27 +620,7 @@ export class IrisCore {
       // 读时返回 global + agent 合并后的完整配置（解决 settings UI 空白问题），
       // 写时只修改 agent 覆盖层，返回合并后的 mergedRaw（解决热重载不完整问题）。
       // 每个 IrisCore 持有独立实例（解决 Agent 切换后 configManager 未更新问题）。
-      configManager: Object.assign(
-        new LayeredConfigManager(globalDir, configDir),
-        {
-          applyRuntimeConfigReload: async (mergedConfig: Record<string, unknown>) => {
-            try {
-              const ctx: RuntimeConfigReloadContext = {
-                backend, pluginManager,  extensions, deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
-                onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
-              };
-              await applyRuntimeConfigReload(ctx, mergedConfig);
-              return { success: true };
-            } catch (e) {
-              return { success: false, error: e instanceof Error ? e.message : String(e) };
-            }
-          },
-          getLLMDefaults: () => DEFAULTS as Record<string, Record<string, unknown>>,
-          parseLLMConfig: (raw?: Record<string, unknown>) => parseLLMConfig(raw as any) as unknown as Record<string, unknown>,
-          parseSystemConfig: (raw?: Record<string, unknown>) => parseSystemConfig(raw as any) as unknown as Record<string, unknown>,
-          parseToolsConfig: (raw?: Record<string, unknown>) => parseToolsConfig(raw as any) as unknown as Record<string, unknown>,
-        },
-      ),
+      configManager: layeredConfigManager,
       isCompiledBinary,
       projectRoot: (await import('../paths')).projectRoot,
       dataDir: agentPaths?.dataDir || globalDataDir,
@@ -746,8 +673,6 @@ export class IrisCore {
       registerWebRoute: registerRoute,
       registerWebPanel: registerPanel,
       agentNetwork: options.agentNetwork,
-      registerConsoleSettingsTab,
-      getConsoleSettingsTabs: () => consoleSettingsTabs,
       listAgents: () => loadAgentDefinitions(),
       supportsVision: (modelName?: string) => {
         const cfg = modelName ? router.getModelConfig(modelName) : router.getCurrentConfig();

@@ -1,8 +1,8 @@
-import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolDiffPreviewResponseLike } from 'irises-extension-sdk';
+import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolDiffPreviewResponseLike, Disposable } from 'irises-extension-sdk';
 import type { MemoryItem } from './components/MemoryListView';
 import type { ExtensionItem } from './components/ExtensionListView';
 import type { AgentDefinitionLike } from 'irises-extension-sdk';
-import type { ConsoleSettingsTabDefinition } from 'irises-extension-sdk/plugin';
+import type { ConsoleSettingsTabDefinition } from './settings-tab-service';
 import type { SwitchModelResult, ThinkingEffortLevel } from './app-types';
 import type { AppHandle } from './hooks/use-app-handle';
 import type { ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
@@ -91,6 +91,8 @@ export interface AppProps {
   onUpdateExtension?: (name: string) => Promise<{ ok: boolean; message: string }>;
   /** 重新读取插件注册的 Settings Tab，用于 extension 热启用后刷新 /settings 与动态命令。 */
   onListPluginSettingsTabs?: () => ConsoleSettingsTabDefinition[];
+  /** 监听插件注册的 Settings Tab 变化（本地服务变化或远程缓存刷新） */
+  onPluginSettingsTabsChanged?: (listener: () => void) => Disposable;
   onRemoteConnect?: (name?: string) => void;
   onRemoteDisconnect?: () => void;
   /** 远程连接的主机地址（非空时 StatusBar 显示远程标识） */

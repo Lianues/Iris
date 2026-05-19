@@ -174,6 +174,7 @@ export function App({
   onPreviewUpdateExtension,
   onUpdateExtension,
   onListPluginSettingsTabs,
+  onPluginSettingsTabsChanged,
   onRemoteConnect,
   onRemoteDisconnect,
   remoteHost,
@@ -289,6 +290,11 @@ export function App({
   const refreshPluginSettingsTabs = useCallback(() => {
     setRuntimePluginSettingsTabs(onListPluginSettingsTabs?.() ?? pluginSettingsTabs ?? []);
   }, [onListPluginSettingsTabs, pluginSettingsTabs]);
+  useEffect(() => {
+    if (!onPluginSettingsTabsChanged) return;
+    const disposable = onPluginSettingsTabsChanged(() => refreshPluginSettingsTabs());
+    return () => disposable.dispose();
+  }, [onPluginSettingsTabsChanged, refreshPluginSettingsTabs]);
 
   const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState(false);
 
