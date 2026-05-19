@@ -303,7 +303,7 @@ export class EnvironmentManager {
         os: s.os,
         hostName: s.hostName,
         user: s.user,
-        workdir: s.workdir,
+        workdir: s.workdir ?? this.getConfig().remoteWorkdir,
       });
     }
     return list;

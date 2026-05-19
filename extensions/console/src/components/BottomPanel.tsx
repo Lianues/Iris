@@ -16,6 +16,7 @@ import { StatusBar } from './StatusBar';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { C } from '../theme';
 import type { ConsoleStatusSegmentSnapshot } from '../status-segment-service';
+import type { ConsolePathDisplaySnapshot } from '../path-display-service';
 
 interface BottomPanelProps {
   hasMessages: boolean;
@@ -52,6 +53,8 @@ interface BottomPanelProps {
   remoteHost?: string;
   /** 当前是否处于远程连接状态 */
   isRemote?: boolean;
+  /** 左下角路径显示快照（扩展 provider 可覆盖默认 cwd） */
+  pathDisplay?: ConsolePathDisplaySnapshot;
   /** 当前思考强度层级 */
   thinkingEffort: ThinkingEffortLevel;
   /** Shift+Left/Right 切换思考强度 */
@@ -103,6 +106,7 @@ export function BottomPanel({
   providerLevels,
   remoteHost,
   isRemote,
+  pathDisplay,
   pendingFiles,
   onRemoveFile,
   dynamicCommands,
@@ -187,6 +191,7 @@ export function BottomPanel({
         copyMode={copyMode}
         exitConfirmArmed={exitConfirmArmed}
         remoteHost={remoteHost}
+        pathDisplay={pathDisplay}
       />
     </box>
   );

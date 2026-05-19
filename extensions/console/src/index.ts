@@ -53,6 +53,7 @@ import type { ConsoleConfig } from './console-config';
 import { resolveConsoleConfig } from './console-config';
 import { CONSOLE_TOOL_DISPLAY_SERVICE_ID, consoleToolDisplayService } from './tool-display-service';
 import { CONSOLE_SLASH_COMMAND_SERVICE_ID, consoleSlashCommandService } from './slash-command-service';
+import { CONSOLE_PATH_DISPLAY_SERVICE_ID, consolePathDisplayService } from './path-display-service';
 import { CONSOLE_STATUS_SEGMENT_SERVICE_ID, consoleStatusSegmentService } from './status-segment-service';
 import type { ProgressSnapshotLike } from './progress-types';
 import {
@@ -671,6 +672,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     if (services && !services.has(CONSOLE_SLASH_COMMAND_SERVICE_ID)) {
       services.register(CONSOLE_SLASH_COMMAND_SERVICE_ID, consoleSlashCommandService, {
         description: 'Console TUI 斜杠指令扩展服务',
+        version: '1.0.0',
+      });
+    }
+    if (services && !services.has(CONSOLE_PATH_DISPLAY_SERVICE_ID)) {
+      services.register(CONSOLE_PATH_DISPLAY_SERVICE_ID, consolePathDisplayService, {
+        description: 'Console TUI 左下角路径显示扩展服务',
         version: '1.0.0',
       });
     }

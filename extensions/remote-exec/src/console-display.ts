@@ -4,6 +4,7 @@ import type { EnvironmentManager } from './environment.js';
 const CONSOLE_TOOL_DISPLAY_SERVICE_ID = 'console:tool-display';
 const CONSOLE_SLASH_COMMAND_SERVICE_ID = 'console:slash-command';
 const CONSOLE_STATUS_SEGMENT_SERVICE_ID = 'console:status-segment';
+const CONSOLE_PATH_DISPLAY_SERVICE_ID = 'console:path-display';
 
 interface DisplayProviderInput {
   toolName: string;
@@ -41,23 +42,38 @@ interface ConsoleStatusSegmentServiceLike {
   }): { dispose(): void };
 }
 
+interface ConsolePathDisplayServiceLike {
+  register(provider: {
+    id: string;
+    priority?: number;
+    getSnapshot(input: { sessionId?: string }): { id: string; path: string; color?: string; priority?: number } | undefined;
+    onDidChange?: (listener: () => void) => { dispose(): void };
+  }): { dispose(): void };
+}
+
 let displayRegistration: { dispose(): void } | undefined;
 let displayRegistering = false;
 let slashRegistrations: Array<{ dispose(): void }> = [];
 let slashRegistering = false;
 let statusRegistration: { dispose(): void } | undefined;
 let statusRegistering = false;
+let pathDisplayRegistration: { dispose(): void } | undefined;
+let pathDisplayRegistering = false;
 
 export function registerRemoteExecConsoleIntegration(api: IrisAPI, envMgr: EnvironmentManager): void {
   registerTransferFilesDisplay(api);
   registerEnvironmentSlashCommands(api, envMgr);
   registerEnvironmentStatusSegment(api, envMgr);
+  registerEnvironmentPathDisplay(api, envMgr);
 }
 
 export function disposeRemoteExecConsoleIntegration(): void {
   displayRegistration?.dispose();
   displayRegistration = undefined;
   displayRegistering = false;
+  try { pathDisplayRegistration?.dispose(); } catch { /* ignore */ }
+  pathDisplayRegistration = undefined;
+  pathDisplayRegistering = false;
   for (const registration of slashRegistrations.splice(0)) {
     try { registration.dispose(); } catch { /* ignore */ }
   }
@@ -184,6 +200,35 @@ function registerEnvironmentStatusSegment(api: IrisAPI, envMgr: EnvironmentManag
     })
     .catch(() => {})
     .finally(() => { statusRegistering = false; });
+}
+
+function registerEnvironmentPathDisplay(api: IrisAPI, envMgr: EnvironmentManager): void {
+  if (pathDisplayRegistration || pathDisplayRegistering) return;
+  pathDisplayRegistering = true;
+  void api.services.waitFor<ConsolePathDisplayServiceLike>(CONSOLE_PATH_DISPLAY_SERVICE_ID, 5000)
+    .then((service) => {
+      if (pathDisplayRegistration) return;
+      pathDisplayRegistration = service.register({
+        id: 'remote-exec.path',
+        priority: 100,
+        getSnapshot({ sessionId }) {
+          const state = envMgr.getActiveState(sessionId);
+          const workdir = state.summary?.workdir;
+          if (state.isLocal || !workdir) return undefined;
+          return {
+            id: 'remote-exec.path',
+            path: workdir,
+            color: 'warn',
+            priority: 100,
+          };
+        },
+        onDidChange(listener) {
+          return envMgr.onDidChange(listener);
+        },
+      });
+    })
+    .catch(() => {})
+    .finally(() => { pathDisplayRegistering = false; });
 }
 
 function errorMessage(err: unknown): string {

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { C } from '../theme';
+import type { ConsolePathDisplaySnapshot } from '../path-display-service';
 import { getTextWidth } from '../text-layout';
 import { ICONS } from '../terminal-compat';
 
@@ -14,6 +15,8 @@ interface HintBarProps {
   exitConfirmArmed: boolean;
   /** 远程连接的主机地址（非空时替换 cwd 显示远程提示） */
   remoteHost?: string;
+  /** 左下角路径显示快照（扩展 provider 可覆盖默认 cwd） */
+  pathDisplay?: ConsolePathDisplaySnapshot;
 }
 
 /* ---------- 路径截断工具 ---------- */
@@ -61,10 +64,19 @@ function hardTruncate(text: string, maxWidth: number): string {
   return result + ICONS.ellipsis;
 }
 
+function resolveDisplayColor(color?: string): string {
+  if (color === 'dim') return C.dim;
+  if (color === 'accent') return C.accent;
+  if (color === 'warn') return C.warn;
+  if (color === 'error') return C.error;
+  return color ?? C.dim;
+}
+
 /* ---------- 组件 ---------- */
 
-export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost }: HintBarProps) {
+export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, pathDisplay }: HintBarProps) {
   const cwd = process.cwd();
+  const effectivePath = pathDisplay?.path ?? cwd;
   const hasQueue = (queueSize ?? 0) > 0;
   const escAction = isGenerating ? 'esc 中断生成' : hasRunningBackgroundTasks ? 'esc 中断任务' : 'ctrl+j 换行';
 
@@ -90,7 +102,8 @@ export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queue
   const gap = 3; // CWD 与提示文本之间的最小间距
   const availableForCwd = usableWidth - hintWidth - gap;
 
-  const displayCwd = truncatePath(cwd, Math.max(availableForCwd, 20));
+  const displayPath = truncatePath(effectivePath, Math.max(availableForCwd, 20));
+  const displayColor = resolveDisplayColor(pathDisplay?.color);
 
   return (
     <box flexDirection="row" paddingTop={0} paddingRight={1}>
@@ -98,7 +111,7 @@ export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queue
         {remoteHost ? (
           <text fg={C.warn}>{ICONS.lightning} 远程模式 {ICONS.emDash} 所有操作和配置均作用于 {remoteHost}</text>
         ) : (
-          <text fg={C.dim}>{displayCwd}</text>
+          <text fg={displayColor}>{displayPath}</text>
         )}
       </box>
       {exitConfirmArmed ? (

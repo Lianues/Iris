@@ -39,6 +39,7 @@ import { useModelState } from './hooks/use-model-state';
 import { useTextInput } from './hooks/use-text-input';
 import { createUndoRedoStack, type UndoRedoStack } from './undo-redo';
 import { getSlashCommands, onSlashCommandsChanged } from './slash-command-service';
+import { getPathDisplay, onPathDisplayChanged } from './path-display-service';
 import { getStatusSegments, onStatusSegmentsChanged } from './status-segment-service';
 import { writeClipboardText } from './terminal-compat';
 import type { PromptInputController } from './components/InputBar';
@@ -244,6 +245,11 @@ export function App({
   const [statusSegmentVersion, setStatusSegmentVersion] = useState(0);
   useEffect(() => {
     const disposable = onStatusSegmentsChanged(() => setStatusSegmentVersion((v) => v + 1));
+    return () => disposable.dispose();
+  }, []);
+  const [pathDisplayVersion, setPathDisplayVersion] = useState(0);
+  useEffect(() => {
+    const disposable = onPathDisplayChanged(() => setPathDisplayVersion((v) => v + 1));
     return () => disposable.dispose();
   }, []);
 
@@ -706,6 +712,10 @@ export function App({
     // statusSegmentVersion 由 provider 的 onDidChange 推动刷新；getCurrentSessionId 读取 ConsolePlatform 的当前字段。
     [statusSegmentVersion, getCurrentSessionId, viewMode, appState.messages.length],
   );
+  const consolePathDisplay = useMemo(
+    () => getPathDisplay({ sessionId: getCurrentSessionId?.() }),
+    [pathDisplayVersion, getCurrentSessionId, viewMode, appState.messages.length],
+  );
 
   if (viewMode === 'settings') {
     return (
@@ -901,6 +911,7 @@ export function App({
         providerLevels={getProviderThinkingLevels(modelState.currentModelProvider)}
         remoteHost={remoteHost}
         isRemote={!!remoteHost}
+        pathDisplay={consolePathDisplay}
         pendingFiles={pendingFiles}
         onRemoveFile={handleRemoveFile}
         dynamicCommands={dynamicCommands}
