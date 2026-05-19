@@ -9838,7 +9838,7 @@ var require_public_api = __commonJS((exports) => {
   exports.parseDocument = parseDocument;
   exports.stringify = stringify;
 });
-// ../../packages/extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -9869,17 +9869,17 @@ function createExtensionLogger(extensionName, tag) {
     }
   };
 }
-// ../../packages/extension-sdk/dist/plugin/context.js
+// node_modules/irises-extension-sdk/dist/plugin/context.js
 function definePlugin(plugin) {
   return plugin;
 }
-// ../../packages/extension-sdk/dist/runtime-paths.js
+// node_modules/irises-extension-sdk/dist/runtime-paths.js
 import os from "node:os";
 import path from "node:path";
 function resolveDefaultDataDir(customDataDir) {
   return path.resolve(customDataDir || process.env.IRIS_DATA_DIR || path.join(os.homedir(), ".iris"));
 }
-// ../../packages/extension-sdk/dist/host-events.js
+// node_modules/irises-extension-sdk/dist/host-events.js
 import { EventEmitter } from "node:events";
 var HOST_EVENTS_SYMBOL = Symbol.for("irises.hostEvents");
 var hostEventsGlobal = globalThis;
@@ -9888,7 +9888,7 @@ var hostEvents = hostEventsGlobal[HOST_EVENTS_SYMBOL] ? hostEventsGlobal[HOST_EV
 // src/server.ts
 import net from "node:net";
 
-// ../../packages/extension-sdk/dist/ipc/framing.js
+// node_modules/irises-extension-sdk/dist/ipc/framing.js
 import { Transform } from "node:stream";
 var HEADER_SIZE = 4;
 var MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
@@ -9937,7 +9937,7 @@ class FrameDecoder extends Transform {
     }
   }
 }
-// ../../packages/extension-sdk/dist/ipc/protocol.js
+// node_modules/irises-extension-sdk/dist/ipc/protocol.js
 var Methods = {
   CHAT: "backend.chat",
   CLEAR_SESSION: "backend.clearSession",
@@ -9982,7 +9982,6 @@ var Methods = {
   HANDLE_APPLY: "handle.apply",
   HANDLE_ABORT: "handle.abort",
   API_SET_LOG_LEVEL: "api.setLogLevel",
-  API_GET_CONSOLE_SETTINGS_TABS: "api.getConsoleSettingsTabs",
   API_LIST_AGENTS: "api.listAgents",
   API_AGENT_NETWORK_LIST_PEERS: "api.agentNetwork.listPeers",
   API_AGENT_NETWORK_GET_PEER_DESCRIPTION: "api.agentNetwork.getPeerDescription",

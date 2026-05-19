@@ -1,28 +1,36 @@
-// ../../packages/extension-sdk/src/logger.ts
-var _logLevel = 1 /* INFO */;
+// node_modules/irises-extension-sdk/dist/logger.js
+var LogLevel;
+(function(LogLevel2) {
+  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
+  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
+  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
+  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
+  LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
+})(LogLevel || (LogLevel = {}));
+var _logLevel = LogLevel.INFO;
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= 0 /* DEBUG */)
+      if (_logLevel <= LogLevel.DEBUG)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= 1 /* INFO */)
+      if (_logLevel <= LogLevel.INFO)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= 2 /* WARN */)
+      if (_logLevel <= LogLevel.WARN)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= 3 /* ERROR */)
+      if (_logLevel <= LogLevel.ERROR)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
 
-// ../../packages/extension-sdk/src/plugin/context.ts
+// node_modules/irises-extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -30,6 +38,8 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
+// ../console/src/progress-service.ts
+var CONSOLE_PROGRESS_SERVICE_ID = "console:progress";
 // src/session.ts
 import { EventEmitter } from "events";
 var TERMINAL_STATUSES = new Set(["completed", "cancelled"]);
@@ -322,7 +332,6 @@ class SessionMilestoneManager extends EventEmitter {
 var logger = createPluginLogger("milestone");
 var EXTENSION_STATE_KEY = "milestone";
 var MILESTONE_EXTENSION_SERVICE_ID = "milestone:service";
-var CONSOLE_PROGRESS_SERVICE_ID = "console:progress";
 function getExtensionState(meta) {
   const raw = meta?.extensionState?.[EXTENSION_STATE_KEY];
   return raw && typeof raw === "object" ? raw : {};

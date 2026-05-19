@@ -34,7 +34,7 @@ var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
 // node_modules/silk-wasm/lib/index.cjs
 var require_lib = __commonJS((exports, module) => {
-  var __filename = "D:\\Iris\\extensions\\weixin\\node_modules\\silk-wasm\\lib\\index.cjs";
+  var __filename = "F:\\111\\Iris\\extensions\\weixin\\node_modules\\silk-wasm\\lib\\index.cjs";
   var __defProp2 = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;

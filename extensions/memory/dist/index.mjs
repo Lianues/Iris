@@ -620,7 +620,7 @@ var init_extract = __esm(() => {
 
 // src/index.ts
 import * as path3 from "path";
-// ../../packages/extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -652,7 +652,7 @@ function createExtensionLogger(extensionName, tag) {
   };
 }
 
-// ../../packages/extension-sdk/dist/plugin/context.js
+// node_modules/irises-extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -660,6 +660,25 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
+
+// node_modules/irises-extension-sdk/dist/plugin/service.js
+function waitForServiceAndRegister(services, serviceId, register, timeoutMs = 1e4) {
+  let disposed = false;
+  let registration;
+  services.waitFor(serviceId, timeoutMs).then((service) => {
+    if (disposed)
+      return;
+    registration = register(service);
+  }).catch(() => {});
+  return {
+    dispose() {
+      disposed = true;
+      registration?.dispose();
+    }
+  };
+}
+// ../console/src/settings-tab-service.ts
+var CONSOLE_SETTINGS_TAB_SERVICE_ID = "console:settings-tab";
 // src/sqlite/index.ts
 import * as fs from "fs";
 import * as path from "path";
@@ -1673,6 +1692,9 @@ function sanitizeSpaceId(id) {
 
 // src/index.ts
 var logger = createPluginLogger("memory");
+function registerSettingsTabWithConsoleService(api, tab) {
+  return waitForServiceAndRegister(api.services, CONSOLE_SETTINGS_TAB_SERVICE_ID, (service) => service.register(tab), 5000);
+}
 var agentStateMap = new Map;
 function getSessionState(state, sessionId) {
   let ss = state.sessionStates.get(sessionId);
@@ -1766,11 +1788,8 @@ async function runForcedConsolidation(state) {
   });
 }
 function registerSettingsTab(state, api, ctx) {
-  const registerTab = api.registerConsoleSettingsTab;
-  if (!registerTab)
-    return;
   state.settingsTabDisposable?.dispose();
-  state.settingsTabDisposable = registerTab({
+  state.settingsTabDisposable = registerSettingsTabWithConsoleService(api, {
     id: "memory",
     label: "记忆",
     icon: "05",

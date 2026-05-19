@@ -11100,12 +11100,23 @@ var require_bcrypt_pbkdf = __commonJS((exports, module) => {
   };
 });
 
+// node_modules/cpu-features/build/Release/cpufeatures.node
+var require_cpufeatures = __commonJS((exports, module) => {
+  module.exports = __require("./cpufeatures-2c04nnbs.node");
+});
+
+// node_modules/cpu-features/lib/index.js
+var require_lib2 = __commonJS((exports, module) => {
+  var binding = require_cpufeatures();
+  module.exports = binding.getCPUInfo;
+});
+
 // node_modules/ssh2/lib/protocol/constants.js
 var require_constants = __commonJS((exports, module) => {
   var crypto = __require("crypto");
   var cpuInfo;
   try {
-    cpuInfo = (()=>{throw new Error("Cannot require module "+"cpu-features");})()();
+    cpuInfo = require_lib2()();
   } catch {}
   var { bindingAvailable, CIPHER_INFO, MAC_INFO } = require_crypto();
   var eddsaSupported = (() => {
@@ -11704,12 +11715,12 @@ var require_utils = __commonJS((exports, module) => {
 
 // node_modules/ssh2/lib/protocol/crypto/build/Release/sshcrypto.node
 var require_sshcrypto = __commonJS((exports, module) => {
-  module.exports = __require("./sshcrypto-nz4yty39.node");
+  module.exports = __require("./sshcrypto-qj2ah1zq.node");
 });
 
 // node_modules/ssh2/lib/protocol/crypto/poly1305.js
 var require_poly1305 = __commonJS((exports, module) => {
-  var __dirname = "/root/Iris/extensions/remote-exec/node_modules/ssh2/lib/protocol/crypto", __filename = "/root/Iris/extensions/remote-exec/node_modules/ssh2/lib/protocol/crypto/poly1305.js";
+  var __dirname = "F:\\111\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib\\protocol\\crypto", __filename = "F:\\111\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib\\protocol\\crypto\\poly1305.js";
   var createPoly1305 = function() {
     var _scriptDir = typeof document !== "undefined" && document.currentScript ? document.currentScript.src : undefined;
     if (typeof __filename !== "undefined")
@@ -14482,7 +14493,7 @@ ${formatted}-----END ${type} KEY-----`;
 
 // node_modules/ssh2/lib/agent.js
 var require_agent = __commonJS((exports, module) => {
-  var __dirname = "/root/Iris/extensions/remote-exec/node_modules/ssh2/lib";
+  var __dirname = "F:\\111\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib";
   var { Socket } = __require("net");
   var { Duplex } = __require("stream");
   var { resolve } = __require("path");
@@ -25748,7 +25759,7 @@ var require_keygen = __commonJS((exports, module) => {
 });
 
 // node_modules/ssh2/lib/index.js
-var require_lib2 = __commonJS((exports, module) => {
+var require_lib3 = __commonJS((exports, module) => {
   var {
     AgentProtocol,
     BaseAgent,
@@ -26025,7 +26036,7 @@ function numberField(v) {
 }
 
 // src/transport.ts
-var import_ssh2 = __toESM(require_lib2(), 1);
+var import_ssh2 = __toESM(require_lib3(), 1);
 import { promises as fs } from "node:fs";
 
 class SshTransport {
@@ -26641,7 +26652,7 @@ class EnvironmentManager {
         os: s.os,
         hostName: s.hostName,
         user: s.user,
-        workdir: s.workdir
+        workdir: s.workdir ?? this.getConfig().remoteWorkdir
       });
     }
     return list;
@@ -27487,26 +27498,38 @@ class RemoteBashEndpoint {
     };
   }
 }
-
-// src/console-display.ts
-var CONSOLE_TOOL_DISPLAY_SERVICE_ID = "console:tool-display";
+// ../console/src/slash-command-service.ts
 var CONSOLE_SLASH_COMMAND_SERVICE_ID = "console:slash-command";
+// ../console/src/path-display-service.ts
+var CONSOLE_PATH_DISPLAY_SERVICE_ID = "console:path-display";
+// ../console/src/status-segment-service.ts
 var CONSOLE_STATUS_SEGMENT_SERVICE_ID = "console:status-segment";
+// ../console/src/tool-display-service.ts
+var CONSOLE_TOOL_DISPLAY_SERVICE_ID = "console:tool-display";
+// src/console-display.ts
 var displayRegistration;
 var displayRegistering = false;
 var slashRegistrations = [];
 var slashRegistering = false;
 var statusRegistration;
 var statusRegistering = false;
+var pathDisplayRegistration;
+var pathDisplayRegistering = false;
 function registerRemoteExecConsoleIntegration(api, envMgr) {
   registerTransferFilesDisplay(api);
   registerEnvironmentSlashCommands(api, envMgr);
   registerEnvironmentStatusSegment(api, envMgr);
+  registerEnvironmentPathDisplay(api, envMgr);
 }
 function disposeRemoteExecConsoleIntegration() {
   displayRegistration?.dispose();
   displayRegistration = undefined;
   displayRegistering = false;
+  try {
+    pathDisplayRegistration?.dispose();
+  } catch {}
+  pathDisplayRegistration = undefined;
+  pathDisplayRegistering = false;
   for (const registration of slashRegistrations.splice(0)) {
     try {
       registration.dispose();
@@ -27637,6 +27660,36 @@ function registerEnvironmentStatusSegment(api, envMgr) {
     });
   }).catch(() => {}).finally(() => {
     statusRegistering = false;
+  });
+}
+function registerEnvironmentPathDisplay(api, envMgr) {
+  if (pathDisplayRegistration || pathDisplayRegistering)
+    return;
+  pathDisplayRegistering = true;
+  api.services.waitFor(CONSOLE_PATH_DISPLAY_SERVICE_ID, 5000).then((service) => {
+    if (pathDisplayRegistration)
+      return;
+    pathDisplayRegistration = service.register({
+      id: "remote-exec.path",
+      priority: 100,
+      getSnapshot({ sessionId }) {
+        const state = envMgr.getActiveState(sessionId);
+        const workdir = state.summary?.workdir;
+        if (state.isLocal || !workdir)
+          return;
+        return {
+          id: "remote-exec.path",
+          path: workdir,
+          color: "warn",
+          priority: 100
+        };
+      },
+      onDidChange(listener) {
+        return envMgr.onDidChange(listener);
+      }
+    });
+  }).catch(() => {}).finally(() => {
+    pathDisplayRegistering = false;
   });
 }
 function errorMessage2(err) {

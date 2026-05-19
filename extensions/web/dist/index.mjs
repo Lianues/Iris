@@ -12642,6 +12642,9 @@ function createExtensionHandlers(installDir) {
           const manifest = await fetchRemoteManifest(requestedPath);
           return { requestedPath, manifest, files: getRemoteDistributionFiles(manifest) };
         }))).filter((r) => r.status === "fulfilled").map((r) => r.value);
+        if (remoteIndex.length > 0 && remoteEntries.length === 0) {
+          throw new Error("远程 extension manifest 全部读取失败");
+        }
         const installedMap = new Map(loadInstalledExtensions().map((e) => [e.name, e]));
         const embeddedMap = new Map(loadEmbeddedExtensions(installDir).map((e) => [e.name, e]));
         const results = [];

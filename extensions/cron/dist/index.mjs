@@ -1,6 +1,6 @@
-// ../../packages/extension-sdk/dist/scheduler.js
+// node_modules/irises-extension-sdk/dist/scheduler.js
 var SCHEDULER_SERVICE_ID = "scheduler.tasks";
-// ../../packages/extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -32,7 +32,7 @@ function createExtensionLogger(extensionName, tag) {
   };
 }
 
-// ../../packages/extension-sdk/dist/plugin/context.js
+// node_modules/irises-extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -40,12 +40,31 @@ function createPluginLogger(pluginName, tag) {
 function definePlugin(plugin) {
   return plugin;
 }
-// ../../packages/extension-sdk/dist/runtime-paths.js
+
+// node_modules/irises-extension-sdk/dist/plugin/service.js
+function waitForServiceAndRegister(services, serviceId, register, timeoutMs = 1e4) {
+  let disposed = false;
+  let registration;
+  services.waitFor(serviceId, timeoutMs).then((service) => {
+    if (disposed)
+      return;
+    registration = register(service);
+  }).catch(() => {});
+  return {
+    dispose() {
+      disposed = true;
+      registration?.dispose();
+    }
+  };
+}
+// node_modules/irises-extension-sdk/dist/runtime-paths.js
 import os from "node:os";
 import path from "node:path";
 function resolveDefaultDataDir(customDataDir) {
   return path.resolve(customDataDir || process.env.IRIS_DATA_DIR || path.join(os.homedir(), ".iris"));
 }
+// ../console/src/settings-tab-service.ts
+var CONSOLE_SETTINGS_TAB_SERVICE_ID = "console:settings-tab";
 // src/scheduler.ts
 import * as fs from "fs";
 import * as path2 from "path";
@@ -2321,6 +2340,9 @@ function createCronSchedulerService(scheduler2, api) {
 
 // src/index.ts
 var logger4 = createPluginLogger("cron");
+function registerSettingsTabWithConsoleService(api, tab) {
+  return waitForServiceAndRegister(api.services, CONSOLE_SETTINGS_TAB_SERVICE_ID, (service) => service.register(tab), 5000);
+}
 var schedulerInstance = null;
 var schedulerServiceDisposable;
 var lifecycleDisposables = [];
@@ -2495,12 +2517,7 @@ function registerWebRoutes(api) {
   return disposables;
 }
 function registerSettingsTab(api, ctx) {
-  const registerTab = api.registerConsoleSettingsTab;
-  if (!registerTab) {
-    logger4.info("Console Settings Tab 注册不可用，跳过");
-    return;
-  }
-  const disposable = registerTab({
+  const disposable = registerSettingsTabWithConsoleService(api, {
     id: "cron",
     label: "定时任务",
     icon: "06",

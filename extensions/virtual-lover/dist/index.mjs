@@ -1,18 +1,18 @@
-// ../../packages/extension-sdk/dist/message.js
+// node_modules/irises-extension-sdk/dist/message.js
 function isVisibleTextPart(part) {
   return "text" in part && part.thought !== true;
 }
 function extractText(parts) {
   return parts.filter((p) => isVisibleTextPart(p)).map((p) => p.text ?? "").join("");
 }
-// ../../packages/extension-sdk/dist/delivery.js
+// node_modules/irises-extension-sdk/dist/delivery.js
 var DELIVERY_REGISTRY_SERVICE_ID = "delivery.registry";
-// ../../packages/extension-sdk/dist/scheduler.js
+// node_modules/irises-extension-sdk/dist/scheduler.js
 var SCHEDULER_SERVICE_ID = "scheduler.tasks";
-// ../../packages/extension-sdk/dist/environment.js
+// node_modules/irises-extension-sdk/dist/environment.js
 var ENVIRONMENT_CONTEXT_SERVICE_ID = "environment.context";
 var WEATHER_SERVICE_ID = "environment.weather";
-// ../../packages/extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -44,13 +44,30 @@ function createExtensionLogger(extensionName, tag) {
   };
 }
 
-// ../../packages/extension-sdk/dist/plugin/context.js
+// node_modules/irises-extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
 }
 function definePlugin(plugin) {
   return plugin;
+}
+
+// node_modules/irises-extension-sdk/dist/plugin/service.js
+function waitForServiceAndRegister(services, serviceId, register, timeoutMs = 1e4) {
+  let disposed = false;
+  let registration;
+  services.waitFor(serviceId, timeoutMs).then((service) => {
+    if (disposed)
+      return;
+    registration = register(service);
+  }).catch(() => {});
+  return {
+    dispose() {
+      disposed = true;
+      registration?.dispose();
+    }
+  };
 }
 // src/config.ts
 var DEFAULT_PROACTIVE_INSTRUCTION = "请基于伴侣人设、说话风格、相处边界、可用记忆和环境上下文，生成一条自然、简短、不过度打扰的主动消息。只输出要发送给用户的消息正文，不要解释。消息应低压力、可忽略，不要求用户立刻回复。";
@@ -2236,6 +2253,8 @@ function sendError(res, error) {
   sendJson(res, 400, { error: message });
 }
 
+// ../console/src/settings-tab-service.ts
+var CONSOLE_SETTINGS_TAB_SERVICE_ID = "console:settings-tab";
 // src/strategies.ts
 var JOB_PREFIX = "[virtual-lover:";
 function getScheduler(api) {
@@ -2385,6 +2404,9 @@ async function syncVirtualLoverStrategies(api, config) {
 }
 
 // src/settings-tab.ts
+function registerSettingsTabWithConsoleService(api, tab) {
+  return waitForServiceAndRegister(api.services, CONSOLE_SETTINGS_TAB_SERVICE_ID, (service) => service.register(tab), 5000);
+}
 function escapeMultiline(value) {
   return value.replace(/\r\n/g, `
 `).replace(/\n/g, "\\n");
@@ -2843,10 +2865,7 @@ async function handleVirtualLoverAction(ctx, api, actionKey, values) {
   }
 }
 function registerVirtualLoverSettingsTab(ctx, api) {
-  const registerTab = api.registerConsoleSettingsTab;
-  if (!registerTab)
-    return;
-  return registerTab({
+  return registerSettingsTabWithConsoleService(api, {
     id: "virtual-lover",
     label: "Virtual Lover",
     icon: "07",

@@ -222,6 +222,659 @@ var init_terminal_compat = __esm(() => {
   HOURGLASS_SPINNER_INTERVAL_MS = terminalTier === "basic" ? 240 : 360;
 });
 
+// node_modules/irises-extension-sdk/dist/ipc/framing.js
+import { Transform } from "node:stream";
+function encodeFrame(data) {
+  const payload = Buffer.from(JSON.stringify(data), "utf-8");
+  const header = Buffer.alloc(HEADER_SIZE);
+  header.writeUInt32BE(payload.length, 0);
+  return Buffer.concat([header, payload]);
+}
+var HEADER_SIZE = 4, MAX_MESSAGE_SIZE, FrameDecoder;
+var init_framing = __esm(() => {
+  MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
+  FrameDecoder = class FrameDecoder extends Transform {
+    buffer = Buffer.alloc(0);
+    constructor() {
+      super({ readableObjectMode: true, writableObjectMode: false });
+    }
+    _transform(chunk, _encoding, callback) {
+      this.buffer = Buffer.concat([this.buffer, chunk]);
+      while (this.buffer.length >= HEADER_SIZE) {
+        const payloadLength = this.buffer.readUInt32BE(0);
+        if (payloadLength > MAX_MESSAGE_SIZE) {
+          this.buffer = Buffer.alloc(0);
+          callback(new Error(`IPC 帧超过最大大小: ${payloadLength} > ${MAX_MESSAGE_SIZE}`));
+          return;
+        }
+        const totalLength = HEADER_SIZE + payloadLength;
+        if (this.buffer.length < totalLength) {
+          break;
+        }
+        const payload = this.buffer.subarray(HEADER_SIZE, totalLength);
+        this.buffer = this.buffer.subarray(totalLength);
+        try {
+          const message = JSON.parse(payload.toString("utf-8"));
+          this.push(message);
+        } catch (err) {
+          callback(new Error(`IPC 帧 JSON 解析失败: ${err.message}`));
+          return;
+        }
+      }
+      callback();
+    }
+    _flush(callback) {
+      if (this.buffer.length > 0) {
+        callback(new Error(`IPC 流结束时有未处理的数据 (${this.buffer.length} 字节)`));
+      } else {
+        callback();
+      }
+    }
+  };
+});
+
+// node_modules/irises-extension-sdk/dist/ipc/protocol.js
+function isRequest(msg) {
+  return "id" in msg && "method" in msg;
+}
+function isResponse(msg) {
+  return "id" in msg && !("method" in msg);
+}
+function isNotification(msg) {
+  return !("id" in msg) && "method" in msg;
+}
+var ErrorCodes, Methods, Events, BACKEND_EVENT_TO_IPC, IPC_TO_BACKEND_EVENT;
+var init_protocol = __esm(() => {
+  ErrorCodes = {
+    PARSE_ERROR: -32700,
+    INVALID_REQUEST: -32600,
+    METHOD_NOT_FOUND: -32601,
+    INVALID_PARAMS: -32602,
+    INTERNAL_ERROR: -32603,
+    BACKEND_ERROR: -32000,
+    HANDLE_NOT_FOUND: -32001
+  };
+  Methods = {
+    CHAT: "backend.chat",
+    CLEAR_SESSION: "backend.clearSession",
+    SWITCH_MODEL: "backend.switchModel",
+    LIST_MODELS: "backend.listModels",
+    LIST_SESSION_METAS: "backend.listSessionMetas",
+    ABORT_CHAT: "backend.abortChat",
+    IS_STREAM_ENABLED: "backend.isStreamEnabled",
+    UNDO: "backend.undo",
+    REDO: "backend.redo",
+    CLEAR_REDO: "backend.clearRedo",
+    GET_HISTORY: "backend.getHistory",
+    LIST_SKILLS: "backend.listSkills",
+    LIST_MODES: "backend.listModes",
+    SWITCH_MODE: "backend.switchMode",
+    SUMMARIZE: "backend.summarize",
+    GET_TOOL_NAMES: "backend.getToolNames",
+    GET_CURRENT_MODEL_INFO: "backend.getCurrentModelInfo",
+    GET_DISABLED_TOOLS: "backend.getDisabledTools",
+    GET_ACTIVE_SESSION_ID: "backend.getActiveSessionId",
+    GET_TOOL_HANDLE: "backend.getToolHandle",
+    GET_TOOL_HANDLES: "backend.getToolHandles",
+    GET_TOOL_DIFF_PREVIEW: "backend.getToolDiffPreview",
+    RUN_COMMAND: "backend.runCommand",
+    RESET_CONFIG: "backend.resetConfigToDefaults",
+    GET_AGENT_TASKS: "backend.getAgentTasks",
+    GET_RUNNING_AGENT_TASKS: "backend.getRunningAgentTasks",
+    GET_AGENT_TASK: "backend.getAgentTask",
+    GET_TOOL_POLICIES: "backend.getToolPolicies",
+    GET_CWD: "backend.getCwd",
+    SET_CWD: "backend.setCwd",
+    ENABLE_AUTO_EDIT: "backend.enableAutoEdit",
+    DISABLE_AUTO_EDIT: "backend.disableAutoEdit",
+    TOGGLE_AUTO_EDIT: "backend.toggleAutoEdit",
+    GET_AUTO_EDIT_STATE: "backend.getAutoEditState",
+    IS_AUTO_EDIT_ACTIVE: "backend.isAutoEditActive",
+    GET_CONFIG: "server.getConfig",
+    GET_CONFIG_DIR: "server.getConfigDir",
+    SERVER_SHUTDOWN: "server.shutdown",
+    HANDLE_APPROVE: "handle.approve",
+    HANDLE_REJECT: "handle.reject",
+    HANDLE_APPLY: "handle.apply",
+    HANDLE_ABORT: "handle.abort",
+    API_SET_LOG_LEVEL: "api.setLogLevel",
+    API_LIST_AGENTS: "api.listAgents",
+    API_AGENT_NETWORK_LIST_PEERS: "api.agentNetwork.listPeers",
+    API_AGENT_NETWORK_GET_PEER_DESCRIPTION: "api.agentNetwork.getPeerDescription",
+    API_AGENT_NETWORK_GET_PEER_BACKEND_HANDLE: "api.agentNetwork.getPeerBackendHandle",
+    API_CONFIG_MANAGER_READ: "api.configManager.readEditableConfig",
+    API_CONFIG_MANAGER_UPDATE: "api.configManager.updateEditableConfig",
+    API_ROUTER_REMOVE_REQUEST_BODY_KEYS: "api.router.removeCurrentModelRequestBodyKeys",
+    API_ROUTER_PATCH_REQUEST_BODY: "api.router.patchCurrentModelRequestBody",
+    API_ROUTER_REMOVE_REQUEST_BODY_PATHS: "api.router.removeCurrentModelRequestBodyPaths",
+    AGENT_BACKEND_CALL: "agent.backend.call",
+    AGENT_API_CALL: "agent.api.call",
+    SUBSCRIBE: "client.subscribe",
+    UNSUBSCRIBE: "client.unsubscribe",
+    INIT_SESSION_CWD: "client.initSessionCwd",
+    HANDSHAKE: "client.handshake"
+  };
+  Events = {
+    RESPONSE: "event:response",
+    STREAM_START: "event:stream:start",
+    STREAM_CHUNK: "event:stream:chunk",
+    STREAM_END: "event:stream:end",
+    STREAM_PARTS: "event:stream:parts",
+    TOOL_EXECUTE: "event:tool:execute",
+    ERROR: "event:error",
+    USAGE: "event:usage",
+    DONE: "event:done",
+    TURN_START: "event:turn:start",
+    ASSISTANT_CONTENT: "event:assistant:content",
+    AUTO_COMPACT: "event:auto-compact",
+    ATTACHMENTS: "event:attachments",
+    RETRY: "event:retry",
+    USER_TOKEN: "event:user:token",
+    AGENT_NOTIFICATION: "event:agent:notification",
+    TASK_RESULT: "event:task:result",
+    NOTIFICATION_PAYLOADS: "event:notification:payloads",
+    MODELS_CHANGED: "event:models:changed",
+    AUTO_EDIT_UPDATE: "event:auto-edit:update",
+    HANDLE_STATE: "event:handle:state",
+    HANDLE_OUTPUT: "event:handle:output",
+    HANDLE_PROGRESS: "event:handle:progress",
+    HANDLE_STREAM: "event:handle:stream"
+  };
+  BACKEND_EVENT_TO_IPC = {
+    response: Events.RESPONSE,
+    "stream:start": Events.STREAM_START,
+    "stream:chunk": Events.STREAM_CHUNK,
+    "stream:end": Events.STREAM_END,
+    "stream:parts": Events.STREAM_PARTS,
+    "tool:execute": Events.TOOL_EXECUTE,
+    error: Events.ERROR,
+    usage: Events.USAGE,
+    done: Events.DONE,
+    "turn:start": Events.TURN_START,
+    "assistant:content": Events.ASSISTANT_CONTENT,
+    "auto-compact": Events.AUTO_COMPACT,
+    attachments: Events.ATTACHMENTS,
+    retry: Events.RETRY,
+    "user:token": Events.USER_TOKEN,
+    "agent:notification": Events.AGENT_NOTIFICATION,
+    "task:result": Events.TASK_RESULT,
+    "notification:payloads": Events.NOTIFICATION_PAYLOADS,
+    "models:changed": Events.MODELS_CHANGED,
+    "auto-edit:update": Events.AUTO_EDIT_UPDATE
+  };
+  IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
+});
+
+// node_modules/irises-extension-sdk/dist/ipc/remote-tool-handle.js
+import { EventEmitter } from "node:events";
+var logger, RemoteToolHandle;
+var init_remote_tool_handle = __esm(() => {
+  init_protocol();
+  init_logger();
+  logger = createExtensionLogger("RemoteToolHandle");
+  RemoteToolHandle = class RemoteToolHandle extends EventEmitter {
+    client;
+    handleId;
+    toolName;
+    toolId;
+    args;
+    approvalRequired;
+    _state;
+    _preview;
+    _output;
+    _outputHistory = [];
+    constructor(client, serialized) {
+      super();
+      this.client = client;
+      this.handleId = serialized.handleId;
+      this.toolName = serialized.toolName;
+      this.toolId = serialized.toolId;
+      this.args = serialized.args;
+      this._state = serialized.state;
+      this._preview = serialized.preview;
+      this.approvalRequired = serialized.approvalRequired ?? false;
+    }
+    get id() {
+      return this.handleId;
+    }
+    get status() {
+      return this._state;
+    }
+    get state() {
+      return this._state;
+    }
+    get preview() {
+      return this._preview;
+    }
+    get output() {
+      return this._output;
+    }
+    get depth() {
+      return 0;
+    }
+    get parentId() {
+      return;
+    }
+    getSnapshot() {
+      return {
+        id: this.handleId,
+        toolName: this.toolName,
+        toolId: this.toolId,
+        args: this.args,
+        status: this._state,
+        state: this._state,
+        output: this._output,
+        preview: this._preview,
+        approvalRequired: this.approvalRequired
+      };
+    }
+    getOutputHistory() {
+      return this._outputHistory;
+    }
+    getChildren() {
+      return [];
+    }
+    approve(approved = true) {
+      if (approved) {
+        this.client.call(Methods.HANDLE_APPROVE, [this.handleId, true]).catch((err) => logger.warn(`approve 失败: ${err.message}`));
+      } else {
+        this.reject();
+      }
+    }
+    reject() {
+      this.client.call(Methods.HANDLE_REJECT, [this.handleId]).catch((err) => logger.warn(`reject 失败: ${err.message}`));
+    }
+    apply(applied = true) {
+      this.client.call(Methods.HANDLE_APPLY, [this.handleId, applied]).catch((err) => logger.warn(`apply 失败: ${err.message}`));
+    }
+    abort() {
+      this.client.call(Methods.HANDLE_ABORT, [this.handleId]).catch((err) => logger.warn(`abort 失败: ${err.message}`));
+    }
+    _updateState(state) {
+      this._state = state;
+      this.emit("state", state);
+    }
+    _updateOutput(output) {
+      this._output = output;
+      this._outputHistory.push(output);
+      this.emit("output", output);
+    }
+    _updateProgress(progress) {
+      this.emit("progress", progress);
+    }
+    _appendStream(type, data) {
+      this.emit("message", type, data);
+    }
+    sessionId;
+  };
+});
+
+// node_modules/irises-extension-sdk/dist/ipc/remote-backend-handle.js
+import { EventEmitter as EventEmitter2 } from "node:events";
+var logger2, RemoteBackendHandle;
+var init_remote_backend_handle = __esm(() => {
+  init_remote_tool_handle();
+  init_logger();
+  init_protocol();
+  logger2 = createExtensionLogger("RemoteBackend");
+  RemoteBackendHandle = class RemoteBackendHandle extends EventEmitter2 {
+    client;
+    toolHandles = new Map;
+    notificationHandler;
+    targetAgentName;
+    constructor(client, options) {
+      super();
+      this.client = client;
+      this.targetAgentName = options?.agentName;
+      this.setupNotificationForwarding();
+    }
+    callRemote(method, params, options) {
+      if (!this.targetAgentName) {
+        return this.client.call(method, params, options);
+      }
+      return this.client.call(Methods.AGENT_BACKEND_CALL, [this.targetAgentName, method, params ?? []], options);
+    }
+    async chat(sessionId, text, images, documents, platform) {
+      return this.callRemote(Methods.CHAT, [sessionId, text, images, documents, platform], { timeout: 0 });
+    }
+    isStreamEnabled() {
+      return this._streamEnabled;
+    }
+    async clearSession(sessionId) {
+      await this.callRemote(Methods.CLEAR_SESSION, [sessionId]);
+    }
+    switchModel(modelName, platform) {
+      const optimistic = Array.isArray(this._cachedModels) ? this._cachedModels.find((model) => model?.modelName === modelName) : undefined;
+      this.callRemote(Methods.SWITCH_MODEL, [modelName, platform]).then((r) => {
+        if (r && typeof r === "object") {
+          const res = r;
+          this._cachedCurrentModelInfo = r;
+          this.refreshCaches();
+        }
+      }).catch((err) => logger2.warn(`switchModel 失败: ${err.message}`));
+      return { modelName, modelId: optimistic?.modelId ?? modelName };
+    }
+    listModels() {
+      return this._cachedModels;
+    }
+    async listSessionMetas() {
+      return await this.callRemote(Methods.LIST_SESSION_METAS) ?? [];
+    }
+    abortChat(sessionId) {
+      this.callRemote(Methods.ABORT_CHAT, [sessionId]).catch((err) => logger2.warn(`abortChat 失败: ${err.message}`));
+    }
+    getToolHandle(toolId) {
+      return this.toolHandles.get(toolId);
+    }
+    getToolHandles(sessionId) {
+      return Array.from(this.toolHandles.values()).filter((h) => h.sessionId === sessionId);
+    }
+    async getToolDiffPreview(toolId) {
+      return await this.callRemote(Methods.GET_TOOL_DIFF_PREVIEW, [toolId]);
+    }
+    async undo(sessionId, scope) {
+      return await this.callRemote(Methods.UNDO, [sessionId, scope]) ?? null;
+    }
+    async redo(sessionId) {
+      return await this.callRemote(Methods.REDO, [sessionId]) ?? null;
+    }
+    clearRedo(sessionId) {
+      this.callRemote(Methods.CLEAR_REDO, [sessionId]).catch((err) => logger2.warn(`clearRedo 失败: ${err.message}`));
+    }
+    async getHistory(sessionId) {
+      return await this.callRemote(Methods.GET_HISTORY, [sessionId]) ?? [];
+    }
+    listSkills() {
+      return this._cachedSkills;
+    }
+    listModes() {
+      return this._cachedModes;
+    }
+    switchMode(modeName) {
+      this.callRemote(Methods.SWITCH_MODE, [modeName]).then(() => this.refreshCaches()).catch((err) => logger2.warn(`switchMode 失败: ${err.message}`));
+      return true;
+    }
+    async summarize(sessionId) {
+      return this.callRemote(Methods.SUMMARIZE, [sessionId], { timeout: 0 });
+    }
+    getToolNames() {
+      return this._cachedToolNames;
+    }
+    getCurrentModelInfo() {
+      return this._cachedCurrentModelInfo;
+    }
+    getDisabledTools() {
+      return this._cachedDisabledTools;
+    }
+    getActiveSessionId() {
+      return;
+    }
+    async runCommand(cmd) {
+      return this.callRemote(Methods.RUN_COMMAND, [cmd], { timeout: 60000 });
+    }
+    resetConfigToDefaults() {
+      this.callRemote(Methods.RESET_CONFIG).catch((err) => logger2.warn(`resetConfig 失败: ${err.message}`));
+      return;
+    }
+    async getAgentTasks(sessionId) {
+      return await this.callRemote(Methods.GET_AGENT_TASKS, [sessionId]) ?? [];
+    }
+    async getRunningAgentTasks(sessionId) {
+      return await this.callRemote(Methods.GET_RUNNING_AGENT_TASKS, [sessionId]) ?? [];
+    }
+    async getAgentTask(taskId) {
+      return await this.callRemote(Methods.GET_AGENT_TASK, [taskId]) ?? undefined;
+    }
+    async getToolPolicies() {
+      return await this.callRemote(Methods.GET_TOOL_POLICIES);
+    }
+    getCwd() {
+      return this._cachedCwd;
+    }
+    setCwd(dirPath) {
+      this.callRemote(Methods.SET_CWD, [dirPath]).then(() => {
+        this._cachedCwd = dirPath;
+      }).catch((err) => logger2.warn(`setCwd 失败: ${err.message}`));
+    }
+    async enableAutoEdit(sessionId) {
+      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.ENABLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
+      this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    async disableAutoEdit(sessionId) {
+      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.DISABLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
+      this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    async toggleAutoEdit(sessionId) {
+      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.TOGGLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
+      this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    async getAutoEditState(sessionId) {
+      const state = sessionId ? this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.GET_AUTO_EDIT_STATE, [sessionId])) : null;
+      if (sessionId)
+        this.updateAutoEditCache(sessionId, state);
+      return state;
+    }
+    isAutoEditActive(sessionId) {
+      return !!sessionId && this._autoEditStates.get(sessionId) === true;
+    }
+    normalizeAutoEditState(sessionId, state) {
+      if (!state || typeof state !== "object") {
+        return null;
+      }
+      const record = state;
+      return {
+        ...record,
+        sessionId: typeof record.sessionId === "string" ? record.sessionId : sessionId,
+        active: record.active === true
+      };
+    }
+    updateAutoEditCache(sessionId, state) {
+      this._autoEditStates.set(sessionId, state?.active === true);
+    }
+    _streamEnabled = true;
+    _cachedModels = [];
+    _cachedSkills = [];
+    _cachedModes = [];
+    _cachedToolNames = [];
+    _cachedCurrentModelInfo = undefined;
+    _cachedDisabledTools = undefined;
+    _cachedCwd = process.cwd();
+    _autoEditStates = new Map;
+    async initCaches() {
+      const [models, skills, modes, toolNames, modelInfo, disabledTools, cwd, streamEnabled] = await Promise.all([
+        this.callRemote(Methods.LIST_MODELS).catch(() => []),
+        this.callRemote(Methods.LIST_SKILLS).catch(() => []),
+        this.callRemote(Methods.LIST_MODES).catch(() => []),
+        this.callRemote(Methods.GET_TOOL_NAMES).catch(() => []),
+        this.callRemote(Methods.GET_CURRENT_MODEL_INFO).catch(() => {
+          return;
+        }),
+        this.callRemote(Methods.GET_DISABLED_TOOLS).catch(() => {
+          return;
+        }),
+        this.callRemote(Methods.GET_CWD).catch(() => process.cwd()),
+        this.callRemote(Methods.IS_STREAM_ENABLED).catch(() => this._streamEnabled)
+      ]);
+      this._cachedModels = models ?? [];
+      this._cachedSkills = skills ?? [];
+      this._cachedModes = modes ?? [];
+      this._cachedToolNames = toolNames ?? [];
+      this._cachedCurrentModelInfo = modelInfo;
+      this._cachedDisabledTools = disabledTools;
+      this._cachedCwd = cwd || process.cwd();
+      this._streamEnabled = typeof streamEnabled === "boolean" ? streamEnabled : this._streamEnabled;
+    }
+    refreshCaches() {
+      this.initCaches().catch((err) => logger2.warn(`刷新缓存失败: ${err.message}`));
+    }
+    dispose() {
+      if (this.notificationHandler) {
+        this.client.offNotification(this.notificationHandler);
+        this.notificationHandler = undefined;
+      }
+      this.toolHandles.clear();
+      this.removeAllListeners();
+    }
+    setupNotificationForwarding() {
+      const handler = (method, params) => {
+        if (method === Events.HANDLE_STATE) {
+          const [handleId, state] = params;
+          this.toolHandles.get(handleId)?._updateState(state);
+          return;
+        }
+        if (method === Events.HANDLE_OUTPUT) {
+          const [handleId, output] = params;
+          this.toolHandles.get(handleId)?._updateOutput(output);
+          return;
+        }
+        if (method === Events.HANDLE_PROGRESS) {
+          const [handleId, progress] = params;
+          this.toolHandles.get(handleId)?._updateProgress(progress);
+          return;
+        }
+        if (method === Events.HANDLE_STREAM) {
+          const [handleId, type, data] = params;
+          this.toolHandles.get(handleId)?._appendStream(type, data);
+          return;
+        }
+        if (method === Events.MODELS_CHANGED) {
+          const [, models, currentModelInfo] = params;
+          if (Array.isArray(models)) {
+            this._cachedModels = models;
+          }
+          if (currentModelInfo !== undefined) {
+            this._cachedCurrentModelInfo = currentModelInfo;
+          }
+          this.emit("models:changed", ...params);
+          return;
+        }
+        if (method === Events.AUTO_EDIT_UPDATE) {
+          const [sessionId, active] = params;
+          this._autoEditStates.set(sessionId, active === true);
+        }
+        const backendEvent = IPC_TO_BACKEND_EVENT[method];
+        if (!backendEvent)
+          return;
+        if (backendEvent === "tool:execute") {
+          const [sessionId, serialized] = params;
+          const handle = new RemoteToolHandle(this.client, serialized);
+          handle.sessionId = sessionId;
+          this.toolHandles.set(handle.handleId, handle);
+          this.emit("tool:execute", sessionId, handle);
+          handle.on("state", (state) => {
+            if (["done", "error", "aborted"].includes(state)) {
+              this.toolHandles.delete(handle.handleId);
+            }
+          });
+          return;
+        }
+        this.emit(backendEvent, ...params);
+      };
+      this.notificationHandler = handler;
+      this.client.onNotification(handler);
+    }
+  };
+});
+
+// node_modules/irises-extension-sdk/dist/ipc/remote-api-proxy.js
+function callApi(client, targetAgentName, method, params) {
+  if (!targetAgentName) {
+    return client.call(method, params);
+  }
+  return client.call(Methods.AGENT_API_CALL, [targetAgentName, method, params ?? []]);
+}
+function createRemoteApiProxy(client, agentName = "__remote__", options) {
+  const targetAgentName = options?.targetAgentName ?? agentName;
+  let _cachedAgents = [];
+  let _cachedPeers = [];
+  const proxy = {
+    setLogLevel(level) {
+      callApi(client, targetAgentName, Methods.API_SET_LOG_LEVEL, [level]).catch((err) => logger3.warn(`setLogLevel 失败: ${err.message}`));
+    },
+    listAgents() {
+      return _cachedAgents;
+    },
+    agentNetwork: {
+      selfName: agentName,
+      listPeers() {
+        return _cachedPeers;
+      },
+      getPeerDescription(name) {
+        return;
+      },
+      getPeerBackendHandle(name) {
+        return new RemoteBackendHandle(client, { agentName: name });
+      },
+      getPeerAPI(name) {
+        return createRemoteApiProxy(client, name, { targetAgentName: name });
+      }
+    },
+    configManager: {
+      async readEditableConfig() {
+        return callApi(client, targetAgentName, Methods.API_CONFIG_MANAGER_READ);
+      },
+      async updateEditableConfig(...args) {
+        return callApi(client, targetAgentName, Methods.API_CONFIG_MANAGER_UPDATE, args);
+      }
+    },
+    router: {
+      removeCurrentModelRequestBodyKeys(...args) {
+        callApi(client, targetAgentName, Methods.API_ROUTER_REMOVE_REQUEST_BODY_KEYS, args).catch((err) => logger3.warn(`removeCurrentModelRequestBodyKeys 失败: ${err.message}`));
+      },
+      patchCurrentModelRequestBody(...args) {
+        callApi(client, targetAgentName, Methods.API_ROUTER_PATCH_REQUEST_BODY, args).catch((err) => logger3.warn(`patchCurrentModelRequestBody 失败: ${err.message}`));
+      },
+      removeCurrentModelRequestBodyPaths(...args) {
+        callApi(client, targetAgentName, Methods.API_ROUTER_REMOVE_REQUEST_BODY_PATHS, args).catch((err) => logger3.warn(`removeCurrentModelRequestBodyPaths 失败: ${err.message}`));
+      }
+    },
+    async initCaches() {
+      const [agents, peers] = await Promise.all([
+        callApi(client, targetAgentName, Methods.API_LIST_AGENTS).catch(() => []),
+        callApi(client, targetAgentName, Methods.API_AGENT_NETWORK_LIST_PEERS).catch(() => [])
+      ]);
+      _cachedAgents = agents ?? [];
+      _cachedPeers = peers ?? [];
+    }
+  };
+  return proxy;
+}
+var logger3;
+var init_remote_api_proxy = __esm(() => {
+  init_protocol();
+  init_remote_backend_handle();
+  init_logger();
+  logger3 = createExtensionLogger("RemoteApiProxy");
+});
+
+// node_modules/irises-extension-sdk/dist/ipc/index.js
+var exports_ipc = {};
+__export(exports_ipc, {
+  isResponse: () => isResponse,
+  isRequest: () => isRequest,
+  isNotification: () => isNotification,
+  encodeFrame: () => encodeFrame,
+  createRemoteApiProxy: () => createRemoteApiProxy,
+  RemoteToolHandle: () => RemoteToolHandle,
+  RemoteBackendHandle: () => RemoteBackendHandle,
+  Methods: () => Methods,
+  IPC_TO_BACKEND_EVENT: () => IPC_TO_BACKEND_EVENT,
+  FrameDecoder: () => FrameDecoder,
+  Events: () => Events,
+  ErrorCodes: () => ErrorCodes,
+  BACKEND_EVENT_TO_IPC: () => BACKEND_EVENT_TO_IPC
+});
+var init_ipc = __esm(() => {
+  init_framing();
+  init_protocol();
+  init_remote_backend_handle();
+  init_remote_tool_handle();
+  init_remote_api_proxy();
+});
+
 // src/remote-wizard.ts
 var exports_remote_wizard = {};
 __export(exports_remote_wizard, {
@@ -680,668 +1333,8 @@ var init_remote_wizard = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/framing.js
-import { Transform } from "node:stream";
-function encodeFrame(data) {
-  const payload = Buffer.from(JSON.stringify(data), "utf-8");
-  const header = Buffer.alloc(HEADER_SIZE);
-  header.writeUInt32BE(payload.length, 0);
-  return Buffer.concat([header, payload]);
-}
-var HEADER_SIZE = 4, MAX_MESSAGE_SIZE, FrameDecoder;
-var init_framing = __esm(() => {
-  MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
-  FrameDecoder = class FrameDecoder extends Transform {
-    buffer = Buffer.alloc(0);
-    constructor() {
-      super({ readableObjectMode: true, writableObjectMode: false });
-    }
-    _transform(chunk, _encoding, callback) {
-      this.buffer = Buffer.concat([this.buffer, chunk]);
-      while (this.buffer.length >= HEADER_SIZE) {
-        const payloadLength = this.buffer.readUInt32BE(0);
-        if (payloadLength > MAX_MESSAGE_SIZE) {
-          this.buffer = Buffer.alloc(0);
-          callback(new Error(`IPC 帧超过最大大小: ${payloadLength} > ${MAX_MESSAGE_SIZE}`));
-          return;
-        }
-        const totalLength = HEADER_SIZE + payloadLength;
-        if (this.buffer.length < totalLength) {
-          break;
-        }
-        const payload = this.buffer.subarray(HEADER_SIZE, totalLength);
-        this.buffer = this.buffer.subarray(totalLength);
-        try {
-          const message = JSON.parse(payload.toString("utf-8"));
-          this.push(message);
-        } catch (err) {
-          callback(new Error(`IPC 帧 JSON 解析失败: ${err.message}`));
-          return;
-        }
-      }
-      callback();
-    }
-    _flush(callback) {
-      if (this.buffer.length > 0) {
-        callback(new Error(`IPC 流结束时有未处理的数据 (${this.buffer.length} 字节)`));
-      } else {
-        callback();
-      }
-    }
-  };
-});
-
-// node_modules/irises-extension-sdk/dist/ipc/protocol.js
-function isRequest(msg) {
-  return "id" in msg && "method" in msg;
-}
-function isResponse(msg) {
-  return "id" in msg && !("method" in msg);
-}
-function isNotification(msg) {
-  return !("id" in msg) && "method" in msg;
-}
-var ErrorCodes, Methods, Events, BACKEND_EVENT_TO_IPC, IPC_TO_BACKEND_EVENT;
-var init_protocol = __esm(() => {
-  ErrorCodes = {
-    PARSE_ERROR: -32700,
-    INVALID_REQUEST: -32600,
-    METHOD_NOT_FOUND: -32601,
-    INVALID_PARAMS: -32602,
-    INTERNAL_ERROR: -32603,
-    BACKEND_ERROR: -32000,
-    HANDLE_NOT_FOUND: -32001
-  };
-  Methods = {
-    CHAT: "backend.chat",
-    CLEAR_SESSION: "backend.clearSession",
-    SWITCH_MODEL: "backend.switchModel",
-    LIST_MODELS: "backend.listModels",
-    LIST_SESSION_METAS: "backend.listSessionMetas",
-    ABORT_CHAT: "backend.abortChat",
-    IS_STREAM_ENABLED: "backend.isStreamEnabled",
-    UNDO: "backend.undo",
-    REDO: "backend.redo",
-    CLEAR_REDO: "backend.clearRedo",
-    GET_HISTORY: "backend.getHistory",
-    LIST_SKILLS: "backend.listSkills",
-    LIST_MODES: "backend.listModes",
-    SWITCH_MODE: "backend.switchMode",
-    SUMMARIZE: "backend.summarize",
-    GET_TOOL_NAMES: "backend.getToolNames",
-    GET_CURRENT_MODEL_INFO: "backend.getCurrentModelInfo",
-    GET_DISABLED_TOOLS: "backend.getDisabledTools",
-    GET_ACTIVE_SESSION_ID: "backend.getActiveSessionId",
-    GET_TOOL_HANDLE: "backend.getToolHandle",
-    GET_TOOL_HANDLES: "backend.getToolHandles",
-    GET_TOOL_DIFF_PREVIEW: "backend.getToolDiffPreview",
-    RUN_COMMAND: "backend.runCommand",
-    RESET_CONFIG: "backend.resetConfigToDefaults",
-    GET_AGENT_TASKS: "backend.getAgentTasks",
-    GET_RUNNING_AGENT_TASKS: "backend.getRunningAgentTasks",
-    GET_AGENT_TASK: "backend.getAgentTask",
-    GET_TOOL_POLICIES: "backend.getToolPolicies",
-    GET_CWD: "backend.getCwd",
-    SET_CWD: "backend.setCwd",
-    ENABLE_AUTO_EDIT: "backend.enableAutoEdit",
-    DISABLE_AUTO_EDIT: "backend.disableAutoEdit",
-    TOGGLE_AUTO_EDIT: "backend.toggleAutoEdit",
-    GET_AUTO_EDIT_STATE: "backend.getAutoEditState",
-    IS_AUTO_EDIT_ACTIVE: "backend.isAutoEditActive",
-    GET_CONFIG: "server.getConfig",
-    GET_CONFIG_DIR: "server.getConfigDir",
-    SERVER_SHUTDOWN: "server.shutdown",
-    HANDLE_APPROVE: "handle.approve",
-    HANDLE_REJECT: "handle.reject",
-    HANDLE_APPLY: "handle.apply",
-    HANDLE_ABORT: "handle.abort",
-    API_SET_LOG_LEVEL: "api.setLogLevel",
-    API_GET_CONSOLE_SETTINGS_TABS: "api.getConsoleSettingsTabs",
-    API_LIST_AGENTS: "api.listAgents",
-    API_AGENT_NETWORK_LIST_PEERS: "api.agentNetwork.listPeers",
-    API_AGENT_NETWORK_GET_PEER_DESCRIPTION: "api.agentNetwork.getPeerDescription",
-    API_AGENT_NETWORK_GET_PEER_BACKEND_HANDLE: "api.agentNetwork.getPeerBackendHandle",
-    API_CONFIG_MANAGER_READ: "api.configManager.readEditableConfig",
-    API_CONFIG_MANAGER_UPDATE: "api.configManager.updateEditableConfig",
-    API_ROUTER_REMOVE_REQUEST_BODY_KEYS: "api.router.removeCurrentModelRequestBodyKeys",
-    API_ROUTER_PATCH_REQUEST_BODY: "api.router.patchCurrentModelRequestBody",
-    API_ROUTER_REMOVE_REQUEST_BODY_PATHS: "api.router.removeCurrentModelRequestBodyPaths",
-    AGENT_BACKEND_CALL: "agent.backend.call",
-    AGENT_API_CALL: "agent.api.call",
-    SUBSCRIBE: "client.subscribe",
-    UNSUBSCRIBE: "client.unsubscribe",
-    INIT_SESSION_CWD: "client.initSessionCwd",
-    HANDSHAKE: "client.handshake"
-  };
-  Events = {
-    RESPONSE: "event:response",
-    STREAM_START: "event:stream:start",
-    STREAM_CHUNK: "event:stream:chunk",
-    STREAM_END: "event:stream:end",
-    STREAM_PARTS: "event:stream:parts",
-    TOOL_EXECUTE: "event:tool:execute",
-    ERROR: "event:error",
-    USAGE: "event:usage",
-    DONE: "event:done",
-    TURN_START: "event:turn:start",
-    ASSISTANT_CONTENT: "event:assistant:content",
-    AUTO_COMPACT: "event:auto-compact",
-    ATTACHMENTS: "event:attachments",
-    RETRY: "event:retry",
-    USER_TOKEN: "event:user:token",
-    AGENT_NOTIFICATION: "event:agent:notification",
-    TASK_RESULT: "event:task:result",
-    NOTIFICATION_PAYLOADS: "event:notification:payloads",
-    MODELS_CHANGED: "event:models:changed",
-    AUTO_EDIT_UPDATE: "event:auto-edit:update",
-    HANDLE_STATE: "event:handle:state",
-    HANDLE_OUTPUT: "event:handle:output",
-    HANDLE_PROGRESS: "event:handle:progress",
-    HANDLE_STREAM: "event:handle:stream"
-  };
-  BACKEND_EVENT_TO_IPC = {
-    response: Events.RESPONSE,
-    "stream:start": Events.STREAM_START,
-    "stream:chunk": Events.STREAM_CHUNK,
-    "stream:end": Events.STREAM_END,
-    "stream:parts": Events.STREAM_PARTS,
-    "tool:execute": Events.TOOL_EXECUTE,
-    error: Events.ERROR,
-    usage: Events.USAGE,
-    done: Events.DONE,
-    "turn:start": Events.TURN_START,
-    "assistant:content": Events.ASSISTANT_CONTENT,
-    "auto-compact": Events.AUTO_COMPACT,
-    attachments: Events.ATTACHMENTS,
-    retry: Events.RETRY,
-    "user:token": Events.USER_TOKEN,
-    "agent:notification": Events.AGENT_NOTIFICATION,
-    "task:result": Events.TASK_RESULT,
-    "notification:payloads": Events.NOTIFICATION_PAYLOADS,
-    "models:changed": Events.MODELS_CHANGED,
-    "auto-edit:update": Events.AUTO_EDIT_UPDATE
-  };
-  IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
-});
-
-// node_modules/irises-extension-sdk/dist/ipc/remote-tool-handle.js
-import { EventEmitter } from "node:events";
-var logger, RemoteToolHandle;
-var init_remote_tool_handle = __esm(() => {
-  init_protocol();
-  init_logger();
-  logger = createExtensionLogger("RemoteToolHandle");
-  RemoteToolHandle = class RemoteToolHandle extends EventEmitter {
-    client;
-    handleId;
-    toolName;
-    toolId;
-    args;
-    approvalRequired;
-    _state;
-    _preview;
-    _output;
-    _outputHistory = [];
-    constructor(client, serialized) {
-      super();
-      this.client = client;
-      this.handleId = serialized.handleId;
-      this.toolName = serialized.toolName;
-      this.toolId = serialized.toolId;
-      this.args = serialized.args;
-      this._state = serialized.state;
-      this._preview = serialized.preview;
-      this.approvalRequired = serialized.approvalRequired ?? false;
-    }
-    get id() {
-      return this.handleId;
-    }
-    get status() {
-      return this._state;
-    }
-    get state() {
-      return this._state;
-    }
-    get preview() {
-      return this._preview;
-    }
-    get output() {
-      return this._output;
-    }
-    get depth() {
-      return 0;
-    }
-    get parentId() {
-      return;
-    }
-    getSnapshot() {
-      return {
-        id: this.handleId,
-        toolName: this.toolName,
-        toolId: this.toolId,
-        args: this.args,
-        status: this._state,
-        state: this._state,
-        output: this._output,
-        preview: this._preview,
-        approvalRequired: this.approvalRequired
-      };
-    }
-    getOutputHistory() {
-      return this._outputHistory;
-    }
-    getChildren() {
-      return [];
-    }
-    approve(approved = true) {
-      if (approved) {
-        this.client.call(Methods.HANDLE_APPROVE, [this.handleId, true]).catch((err) => logger.warn(`approve 失败: ${err.message}`));
-      } else {
-        this.reject();
-      }
-    }
-    reject() {
-      this.client.call(Methods.HANDLE_REJECT, [this.handleId]).catch((err) => logger.warn(`reject 失败: ${err.message}`));
-    }
-    apply(applied = true) {
-      this.client.call(Methods.HANDLE_APPLY, [this.handleId, applied]).catch((err) => logger.warn(`apply 失败: ${err.message}`));
-    }
-    abort() {
-      this.client.call(Methods.HANDLE_ABORT, [this.handleId]).catch((err) => logger.warn(`abort 失败: ${err.message}`));
-    }
-    _updateState(state) {
-      this._state = state;
-      this.emit("state", state);
-    }
-    _updateOutput(output) {
-      this._output = output;
-      this._outputHistory.push(output);
-      this.emit("output", output);
-    }
-    _updateProgress(progress) {
-      this.emit("progress", progress);
-    }
-    _appendStream(type, data) {
-      this.emit("message", type, data);
-    }
-    sessionId;
-  };
-});
-
-// node_modules/irises-extension-sdk/dist/ipc/remote-backend-handle.js
-import { EventEmitter as EventEmitter2 } from "node:events";
-var logger2, RemoteBackendHandle;
-var init_remote_backend_handle = __esm(() => {
-  init_remote_tool_handle();
-  init_logger();
-  init_protocol();
-  logger2 = createExtensionLogger("RemoteBackend");
-  RemoteBackendHandle = class RemoteBackendHandle extends EventEmitter2 {
-    client;
-    toolHandles = new Map;
-    notificationHandler;
-    targetAgentName;
-    constructor(client, options) {
-      super();
-      this.client = client;
-      this.targetAgentName = options?.agentName;
-      this.setupNotificationForwarding();
-    }
-    callRemote(method, params, options) {
-      if (!this.targetAgentName) {
-        return this.client.call(method, params, options);
-      }
-      return this.client.call(Methods.AGENT_BACKEND_CALL, [this.targetAgentName, method, params ?? []], options);
-    }
-    async chat(sessionId, text, images, documents, platform) {
-      return this.callRemote(Methods.CHAT, [sessionId, text, images, documents, platform], { timeout: 0 });
-    }
-    isStreamEnabled() {
-      return this._streamEnabled;
-    }
-    async clearSession(sessionId) {
-      await this.callRemote(Methods.CLEAR_SESSION, [sessionId]);
-    }
-    switchModel(modelName, platform) {
-      const optimistic = Array.isArray(this._cachedModels) ? this._cachedModels.find((model) => model?.modelName === modelName) : undefined;
-      this.callRemote(Methods.SWITCH_MODEL, [modelName, platform]).then((r) => {
-        if (r && typeof r === "object") {
-          const res = r;
-          this._cachedCurrentModelInfo = r;
-          this.refreshCaches();
-        }
-      }).catch((err) => logger2.warn(`switchModel 失败: ${err.message}`));
-      return { modelName, modelId: optimistic?.modelId ?? modelName };
-    }
-    listModels() {
-      return this._cachedModels;
-    }
-    async listSessionMetas() {
-      return await this.callRemote(Methods.LIST_SESSION_METAS) ?? [];
-    }
-    abortChat(sessionId) {
-      this.callRemote(Methods.ABORT_CHAT, [sessionId]).catch((err) => logger2.warn(`abortChat 失败: ${err.message}`));
-    }
-    getToolHandle(toolId) {
-      return this.toolHandles.get(toolId);
-    }
-    getToolHandles(sessionId) {
-      return Array.from(this.toolHandles.values()).filter((h) => h.sessionId === sessionId);
-    }
-    async getToolDiffPreview(toolId) {
-      return await this.callRemote(Methods.GET_TOOL_DIFF_PREVIEW, [toolId]);
-    }
-    async undo(sessionId, scope) {
-      return await this.callRemote(Methods.UNDO, [sessionId, scope]) ?? null;
-    }
-    async redo(sessionId) {
-      return await this.callRemote(Methods.REDO, [sessionId]) ?? null;
-    }
-    clearRedo(sessionId) {
-      this.callRemote(Methods.CLEAR_REDO, [sessionId]).catch((err) => logger2.warn(`clearRedo 失败: ${err.message}`));
-    }
-    async getHistory(sessionId) {
-      return await this.callRemote(Methods.GET_HISTORY, [sessionId]) ?? [];
-    }
-    listSkills() {
-      return this._cachedSkills;
-    }
-    listModes() {
-      return this._cachedModes;
-    }
-    switchMode(modeName) {
-      this.callRemote(Methods.SWITCH_MODE, [modeName]).then(() => this.refreshCaches()).catch((err) => logger2.warn(`switchMode 失败: ${err.message}`));
-      return true;
-    }
-    async summarize(sessionId) {
-      return this.callRemote(Methods.SUMMARIZE, [sessionId], { timeout: 0 });
-    }
-    getToolNames() {
-      return this._cachedToolNames;
-    }
-    getCurrentModelInfo() {
-      return this._cachedCurrentModelInfo;
-    }
-    getDisabledTools() {
-      return this._cachedDisabledTools;
-    }
-    getActiveSessionId() {
-      return;
-    }
-    async runCommand(cmd) {
-      return this.callRemote(Methods.RUN_COMMAND, [cmd], { timeout: 60000 });
-    }
-    resetConfigToDefaults() {
-      this.callRemote(Methods.RESET_CONFIG).catch((err) => logger2.warn(`resetConfig 失败: ${err.message}`));
-      return;
-    }
-    async getAgentTasks(sessionId) {
-      return await this.callRemote(Methods.GET_AGENT_TASKS, [sessionId]) ?? [];
-    }
-    async getRunningAgentTasks(sessionId) {
-      return await this.callRemote(Methods.GET_RUNNING_AGENT_TASKS, [sessionId]) ?? [];
-    }
-    async getAgentTask(taskId) {
-      return await this.callRemote(Methods.GET_AGENT_TASK, [taskId]) ?? undefined;
-    }
-    async getToolPolicies() {
-      return await this.callRemote(Methods.GET_TOOL_POLICIES);
-    }
-    getCwd() {
-      return this._cachedCwd;
-    }
-    setCwd(dirPath) {
-      this.callRemote(Methods.SET_CWD, [dirPath]).then(() => {
-        this._cachedCwd = dirPath;
-      }).catch((err) => logger2.warn(`setCwd 失败: ${err.message}`));
-    }
-    async enableAutoEdit(sessionId) {
-      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.ENABLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
-      this.updateAutoEditCache(sessionId, state);
-      return state;
-    }
-    async disableAutoEdit(sessionId) {
-      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.DISABLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
-      this.updateAutoEditCache(sessionId, state);
-      return state;
-    }
-    async toggleAutoEdit(sessionId) {
-      const state = this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.TOGGLE_AUTO_EDIT, [sessionId])) ?? { sessionId, active: false };
-      this.updateAutoEditCache(sessionId, state);
-      return state;
-    }
-    async getAutoEditState(sessionId) {
-      const state = sessionId ? this.normalizeAutoEditState(sessionId, await this.callRemote(Methods.GET_AUTO_EDIT_STATE, [sessionId])) : null;
-      if (sessionId)
-        this.updateAutoEditCache(sessionId, state);
-      return state;
-    }
-    isAutoEditActive(sessionId) {
-      return !!sessionId && this._autoEditStates.get(sessionId) === true;
-    }
-    normalizeAutoEditState(sessionId, state) {
-      if (!state || typeof state !== "object") {
-        return null;
-      }
-      const record = state;
-      return {
-        ...record,
-        sessionId: typeof record.sessionId === "string" ? record.sessionId : sessionId,
-        active: record.active === true
-      };
-    }
-    updateAutoEditCache(sessionId, state) {
-      this._autoEditStates.set(sessionId, state?.active === true);
-    }
-    _streamEnabled = true;
-    _cachedModels = [];
-    _cachedSkills = [];
-    _cachedModes = [];
-    _cachedToolNames = [];
-    _cachedCurrentModelInfo = undefined;
-    _cachedDisabledTools = undefined;
-    _cachedCwd = process.cwd();
-    _autoEditStates = new Map;
-    async initCaches() {
-      const [models, skills, modes, toolNames, modelInfo, disabledTools, cwd, streamEnabled] = await Promise.all([
-        this.callRemote(Methods.LIST_MODELS).catch(() => []),
-        this.callRemote(Methods.LIST_SKILLS).catch(() => []),
-        this.callRemote(Methods.LIST_MODES).catch(() => []),
-        this.callRemote(Methods.GET_TOOL_NAMES).catch(() => []),
-        this.callRemote(Methods.GET_CURRENT_MODEL_INFO).catch(() => {
-          return;
-        }),
-        this.callRemote(Methods.GET_DISABLED_TOOLS).catch(() => {
-          return;
-        }),
-        this.callRemote(Methods.GET_CWD).catch(() => process.cwd()),
-        this.callRemote(Methods.IS_STREAM_ENABLED).catch(() => this._streamEnabled)
-      ]);
-      this._cachedModels = models ?? [];
-      this._cachedSkills = skills ?? [];
-      this._cachedModes = modes ?? [];
-      this._cachedToolNames = toolNames ?? [];
-      this._cachedCurrentModelInfo = modelInfo;
-      this._cachedDisabledTools = disabledTools;
-      this._cachedCwd = cwd || process.cwd();
-      this._streamEnabled = typeof streamEnabled === "boolean" ? streamEnabled : this._streamEnabled;
-    }
-    refreshCaches() {
-      this.initCaches().catch((err) => logger2.warn(`刷新缓存失败: ${err.message}`));
-    }
-    dispose() {
-      if (this.notificationHandler) {
-        this.client.offNotification(this.notificationHandler);
-        this.notificationHandler = undefined;
-      }
-      this.toolHandles.clear();
-      this.removeAllListeners();
-    }
-    setupNotificationForwarding() {
-      const handler = (method, params) => {
-        if (method === Events.HANDLE_STATE) {
-          const [handleId, state] = params;
-          this.toolHandles.get(handleId)?._updateState(state);
-          return;
-        }
-        if (method === Events.HANDLE_OUTPUT) {
-          const [handleId, output] = params;
-          this.toolHandles.get(handleId)?._updateOutput(output);
-          return;
-        }
-        if (method === Events.HANDLE_PROGRESS) {
-          const [handleId, progress] = params;
-          this.toolHandles.get(handleId)?._updateProgress(progress);
-          return;
-        }
-        if (method === Events.HANDLE_STREAM) {
-          const [handleId, type, data] = params;
-          this.toolHandles.get(handleId)?._appendStream(type, data);
-          return;
-        }
-        if (method === Events.MODELS_CHANGED) {
-          const [, models, currentModelInfo] = params;
-          if (Array.isArray(models)) {
-            this._cachedModels = models;
-          }
-          if (currentModelInfo !== undefined) {
-            this._cachedCurrentModelInfo = currentModelInfo;
-          }
-          this.emit("models:changed", ...params);
-          return;
-        }
-        if (method === Events.AUTO_EDIT_UPDATE) {
-          const [sessionId, active] = params;
-          this._autoEditStates.set(sessionId, active === true);
-        }
-        const backendEvent = IPC_TO_BACKEND_EVENT[method];
-        if (!backendEvent)
-          return;
-        if (backendEvent === "tool:execute") {
-          const [sessionId, serialized] = params;
-          const handle = new RemoteToolHandle(this.client, serialized);
-          handle.sessionId = sessionId;
-          this.toolHandles.set(handle.handleId, handle);
-          this.emit("tool:execute", sessionId, handle);
-          handle.on("state", (state) => {
-            if (["done", "error", "aborted"].includes(state)) {
-              this.toolHandles.delete(handle.handleId);
-            }
-          });
-          return;
-        }
-        this.emit(backendEvent, ...params);
-      };
-      this.notificationHandler = handler;
-      this.client.onNotification(handler);
-    }
-  };
-});
-
-// node_modules/irises-extension-sdk/dist/ipc/remote-api-proxy.js
-function callApi(client, targetAgentName, method, params) {
-  if (!targetAgentName) {
-    return client.call(method, params);
-  }
-  return client.call(Methods.AGENT_API_CALL, [targetAgentName, method, params ?? []]);
-}
-function createRemoteApiProxy(client, agentName = "__remote__", options) {
-  const targetAgentName = options?.targetAgentName ?? agentName;
-  let _cachedSettingsTabs = [];
-  let _cachedAgents = [];
-  let _cachedPeers = [];
-  const proxy = {
-    setLogLevel(level) {
-      callApi(client, targetAgentName, Methods.API_SET_LOG_LEVEL, [level]).catch((err) => logger3.warn(`setLogLevel 失败: ${err.message}`));
-    },
-    getConsoleSettingsTabs() {
-      return _cachedSettingsTabs;
-    },
-    listAgents() {
-      return _cachedAgents;
-    },
-    agentNetwork: {
-      selfName: agentName,
-      listPeers() {
-        return _cachedPeers;
-      },
-      getPeerDescription(name) {
-        return;
-      },
-      getPeerBackendHandle(name) {
-        return new RemoteBackendHandle(client, { agentName: name });
-      },
-      getPeerAPI(name) {
-        return createRemoteApiProxy(client, name, { targetAgentName: name });
-      }
-    },
-    configManager: {
-      async readEditableConfig() {
-        return callApi(client, targetAgentName, Methods.API_CONFIG_MANAGER_READ);
-      },
-      async updateEditableConfig(...args) {
-        return callApi(client, targetAgentName, Methods.API_CONFIG_MANAGER_UPDATE, args);
-      }
-    },
-    router: {
-      removeCurrentModelRequestBodyKeys(...args) {
-        callApi(client, targetAgentName, Methods.API_ROUTER_REMOVE_REQUEST_BODY_KEYS, args).catch((err) => logger3.warn(`removeCurrentModelRequestBodyKeys 失败: ${err.message}`));
-      },
-      patchCurrentModelRequestBody(...args) {
-        callApi(client, targetAgentName, Methods.API_ROUTER_PATCH_REQUEST_BODY, args).catch((err) => logger3.warn(`patchCurrentModelRequestBody 失败: ${err.message}`));
-      },
-      removeCurrentModelRequestBodyPaths(...args) {
-        callApi(client, targetAgentName, Methods.API_ROUTER_REMOVE_REQUEST_BODY_PATHS, args).catch((err) => logger3.warn(`removeCurrentModelRequestBodyPaths 失败: ${err.message}`));
-      }
-    },
-    async initCaches() {
-      const [tabs, agents, peers] = await Promise.all([
-        callApi(client, targetAgentName, Methods.API_GET_CONSOLE_SETTINGS_TABS).catch(() => []),
-        callApi(client, targetAgentName, Methods.API_LIST_AGENTS).catch(() => []),
-        callApi(client, targetAgentName, Methods.API_AGENT_NETWORK_LIST_PEERS).catch(() => [])
-      ]);
-      _cachedSettingsTabs = tabs ?? [];
-      _cachedAgents = agents ?? [];
-      _cachedPeers = peers ?? [];
-    }
-  };
-  return proxy;
-}
-var logger3;
-var init_remote_api_proxy = __esm(() => {
-  init_protocol();
-  init_remote_backend_handle();
-  init_logger();
-  logger3 = createExtensionLogger("RemoteApiProxy");
-});
-
-// node_modules/irises-extension-sdk/dist/ipc/index.js
-var exports_ipc = {};
-__export(exports_ipc, {
-  isResponse: () => isResponse,
-  isRequest: () => isRequest,
-  isNotification: () => isNotification,
-  encodeFrame: () => encodeFrame,
-  createRemoteApiProxy: () => createRemoteApiProxy,
-  RemoteToolHandle: () => RemoteToolHandle,
-  RemoteBackendHandle: () => RemoteBackendHandle,
-  Methods: () => Methods,
-  IPC_TO_BACKEND_EVENT: () => IPC_TO_BACKEND_EVENT,
-  FrameDecoder: () => FrameDecoder,
-  Events: () => Events,
-  ErrorCodes: () => ErrorCodes,
-  BACKEND_EVENT_TO_IPC: () => BACKEND_EVENT_TO_IPC
-});
-var init_ipc = __esm(() => {
-  init_framing();
-  init_protocol();
-  init_remote_backend_handle();
-  init_remote_tool_handle();
-  init_remote_api_proxy();
-});
-
 // src/index.ts
-import React14 from "react";
+import React15 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
@@ -1866,7 +1859,7 @@ function getCharacterCount(text) {
 }
 
 // src/App.tsx
-import { useCallback as useCallback11, useEffect as useEffect13, useMemo as useMemo9, useRef as useRef9, useState as useState16 } from "react";
+import { useCallback as useCallback11, useEffect as useEffect14, useMemo as useMemo9, useRef as useRef9, useState as useState17 } from "react";
 import { useRenderer } from "@opentui/react";
 
 // src/theme.ts
@@ -3147,8 +3140,20 @@ function hardTruncate(text, maxWidth) {
   }
   return result + ICONS.ellipsis;
 }
-function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost }) {
+function resolveDisplayColor(color) {
+  if (color === "dim")
+    return C.dim;
+  if (color === "accent")
+    return C.accent;
+  if (color === "warn")
+    return C.warn;
+  if (color === "error")
+    return C.error;
+  return color ?? C.dim;
+}
+function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, pathDisplay }) {
   const cwd = process.cwd();
+  const effectivePath = pathDisplay?.path ?? cwd;
   const hasQueue = (queueSize ?? 0) > 0;
   const escAction = isGenerating ? "esc 中断生成" : hasRunningBackgroundTasks ? "esc 中断任务" : "ctrl+j 换行";
   let hintStr;
@@ -3169,7 +3174,8 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
   const usableWidth = termWidth - 3;
   const gap = 3;
   const availableForCwd = usableWidth - hintWidth - gap;
-  const displayCwd = truncatePath(cwd, Math.max(availableForCwd, 20));
+  const displayPath = truncatePath(effectivePath, Math.max(availableForCwd, 20));
+  const displayColor = resolveDisplayColor(pathDisplay?.color);
   return /* @__PURE__ */ jsxDEV7("box", {
     flexDirection: "row",
     paddingTop: 0,
@@ -3188,8 +3194,8 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
             remoteHost
           ]
         }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV7("text", {
-          fg: C.dim,
-          children: displayCwd
+          fg: displayColor,
+          children: displayPath
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
       exitConfirmArmed ? /* @__PURE__ */ jsxDEV7("box", {
@@ -4080,6 +4086,7 @@ function BottomPanel({
   providerLevels,
   remoteHost,
   isRemote,
+  pathDisplay,
   pendingFiles,
   onRemoveFile,
   dynamicCommands,
@@ -4166,7 +4173,8 @@ function BottomPanel({
         queueSize,
         copyMode,
         exitConfirmArmed,
-        remoteHost
+        remoteHost,
+        pathDisplay
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -4348,8 +4356,11 @@ function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
 }
 
 // src/components/MessageItem.tsx
-import React8, { useEffect as useEffect7, useRef as useRef5, useState as useState7 } from "react";
+import React9, { useEffect as useEffect8, useRef as useRef5, useState as useState8 } from "react";
 import { useTerminalDimensions as useTerminalDimensions5 } from "@opentui/react";
+
+// src/components/ToolCall.tsx
+import { useEffect as useEffect7, useState as useState7 } from "react";
 
 // src/tool-renderers/default.tsx
 init_terminal_compat();
@@ -5302,34 +5313,6 @@ function formatToolError(error) {
   return error;
 }
 
-// src/tool-display-service.ts
-var CONSOLE_TOOL_DISPLAY_SERVICE_ID = "console:tool-display";
-var providers = new Map;
-var consoleToolDisplayService = {
-  register(toolName, provider) {
-    providers.set(toolName, provider);
-    let disposed = false;
-    return {
-      dispose() {
-        if (disposed)
-          return;
-        disposed = true;
-        if (providers.get(toolName) === provider)
-          providers.delete(toolName);
-      }
-    };
-  },
-  get(toolName) {
-    return providers.get(toolName);
-  },
-  list() {
-    return Array.from(providers.keys());
-  }
-};
-function getToolDisplayProvider(toolName) {
-  return providers.get(toolName);
-}
-
 // src/components/ToolCall.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV27 } from "@opentui/react/jsx-dev-runtime";
@@ -5401,14 +5384,68 @@ function getArgsSummary(toolName, args) {
       return "";
   }
 }
-function ToolCall({ invocation }) {
+function ToolCall({ invocation, toolDisplayService }) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
   const displayError = formatToolError(error);
+  const [asyncArgsSummary, setAsyncArgsSummary] = useState7();
+  const [asyncProgressLine, setAsyncProgressLine] = useState7();
+  const [asyncResultSummary, setAsyncResultSummary] = useState7();
   const displayResult = useResultWithResolvedDiffPreview(result);
   const progress = invocation.progress;
   const progressTokens = typeof progress?.tokens === "number" ? progress.tokens : undefined;
   const progressFrame = typeof progress?.frame === "number" ? progress.frame : undefined;
-  const displayProvider = getToolDisplayProvider(toolName);
+  const displayProvider = toolDisplayService?.get(toolName);
+  useEffect7(() => {
+    let cancelled = false;
+    if (!displayProvider?.getArgsSummaryAsync) {
+      setAsyncArgsSummary(undefined);
+      return;
+    }
+    displayProvider.getArgsSummaryAsync({ toolName, args }).then((value) => {
+      if (!cancelled)
+        setAsyncArgsSummary(value);
+    }).catch(() => {
+      if (!cancelled)
+        setAsyncArgsSummary(undefined);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [displayProvider, toolName, args]);
+  useEffect7(() => {
+    let cancelled = false;
+    if (!displayProvider?.getProgressLineAsync) {
+      setAsyncProgressLine(undefined);
+      return;
+    }
+    displayProvider.getProgressLineAsync({ toolName, args, progress }).then((value) => {
+      if (!cancelled)
+        setAsyncProgressLine(value);
+    }).catch(() => {
+      if (!cancelled)
+        setAsyncProgressLine(undefined);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [displayProvider, toolName, args, progress]);
+  useEffect7(() => {
+    let cancelled = false;
+    if (!displayProvider?.getResultSummaryAsync || !(TERMINAL_STATUSES.has(status) && displayResult != null)) {
+      setAsyncResultSummary(undefined);
+      return;
+    }
+    displayProvider.getResultSummaryAsync({ toolName, args, result: displayResult }).then((value) => {
+      if (!cancelled)
+        setAsyncResultSummary(value);
+    }).catch(() => {
+      if (!cancelled)
+        setAsyncResultSummary(undefined);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [displayProvider, toolName, args, displayResult, status]);
   const customProgressLine = displayProvider?.getProgressLine?.({ toolName, args, progress }) ?? "";
   const hasProgress = progress != null;
   const childStatus = typeof progress?.childStatus === "string" ? progress.childStatus : "";
@@ -5417,12 +5454,13 @@ function ToolCall({ invocation }) {
   const isFinal = TERMINAL_STATUSES.has(status);
   const isExecuting = status === "executing";
   const isAwaitingApproval = status === "awaiting_approval";
-  const argsSummary = displayProvider?.getArgsSummary?.({ toolName, args }) ?? getArgsSummary(toolName, args);
+  const argsSummary = displayProvider?.getArgsSummary?.({ toolName, args }) ?? asyncArgsSummary ?? getArgsSummary(toolName, args);
   const Renderer = isFinal && displayResult != null ? getToolRenderer(toolName) : null;
   const durationSec = (updatedAt - createdAt) / 1000;
   const duration = isFinal && durationSec > 0 ? durationSec.toFixed(1) + "s" : "";
-  const customResultSummary = isFinal && displayResult != null ? displayProvider?.getResultSummary?.({ toolName, args, result: displayResult }) ?? "" : "";
+  const customResultSummary = isFinal && displayResult != null ? displayProvider?.getResultSummary?.({ toolName, args, result: displayResult }) ?? asyncResultSummary ?? "" : "";
   const nameBg = status === "error" ? C.error : isAwaitingApproval ? C.warn : C.accent;
+  const progressLineText = customProgressLine || asyncProgressLine || "";
   return /* @__PURE__ */ jsxDEV27("box", {
     flexDirection: "column",
     children: [
@@ -5522,12 +5560,12 @@ function ToolCall({ invocation }) {
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      isExecuting && customProgressLine.length > 0 && /* @__PURE__ */ jsxDEV27("text", {
+      isExecuting && progressLineText.length > 0 && /* @__PURE__ */ jsxDEV27("text", {
         children: /* @__PURE__ */ jsxDEV27("span", {
           fg: C.accent,
           children: [
             "  ",
-            customProgressLine
+            progressLineText
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
@@ -5546,7 +5584,8 @@ function ToolCall({ invocation }) {
         flexDirection: "column",
         paddingLeft: 2,
         children: invocation.children.map((child) => /* @__PURE__ */ jsxDEV27(ToolCall, {
-          invocation: child
+          invocation: child,
+          toolDisplayService
         }, child.id, false, undefined, this))
       }, undefined, false, undefined, this),
       Renderer && displayResult != null && /* @__PURE__ */ jsxDEV27("box", {
@@ -5967,12 +6006,12 @@ function NotificationPayloadBlock({ payload }) {
     }, undefined, true, undefined, this)
   }, undefined, false, undefined, this);
 }
-var MessageItem = React8.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal }) {
+var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal, toolDisplayService }) {
   const { width: rawTermWidth } = useTerminalDimensions5();
   const termWidth = rawTermWidth - 1;
-  const [thoughtsExpanded, setThoughtsExpanded] = useState7(false);
+  const [thoughtsExpanded, setThoughtsExpanded] = useState8(false);
   const prevSignalRef = useRef5(thoughtsToggleSignal);
-  useEffect7(() => {
+  useEffect8(() => {
     const prev = prevSignalRef.current;
     prevSignalRef.current = thoughtsToggleSignal;
     if (prev != null && thoughtsToggleSignal != null && thoughtsToggleSignal !== prev) {
@@ -6210,7 +6249,8 @@ var MessageItem = React8.memo(function MessageItem2({ msg, liveTools, liveParts,
                       }, undefined, false, undefined, this)
                     }, undefined, false, undefined, this),
                     group.tools.map((inv) => /* @__PURE__ */ jsxDEV29(ToolCall, {
-                      invocation: inv
+                      invocation: inv,
+                      toolDisplayService
                     }, inv.id, false, undefined, this))
                   ]
                 }, undefined, true, undefined, this)
@@ -6312,7 +6352,8 @@ function ChatMessageList({
   queuedMessages,
   copyMode,
   onCopySelectionStart,
-  onCopySelectionSnapshot
+  onCopySelectionSnapshot,
+  toolDisplayService
 }) {
   const { height: termHeight } = useTerminalDimensions6();
   const captureSelectionSnapshot = (scrollBox) => {
@@ -6402,7 +6443,8 @@ function ChatMessageList({
               liveParts,
               isStreaming: isLastActive ? isStreaming : undefined,
               modelName,
-              thoughtsToggleSignal: index === lastAssistantIndex ? thoughtsToggleSignal : undefined
+              thoughtsToggleSignal: index === lastAssistantIndex ? thoughtsToggleSignal : undefined,
+              toolDisplayService
             }, undefined, false, undefined, this),
             isLastActive && isStreaming && streamingParts.length === 0 ? /* @__PURE__ */ jsxDEV30(GeneratingTimer, {
               isGenerating,
@@ -6439,7 +6481,8 @@ function ChatMessageList({
         paddingBottom: 1,
         children: /* @__PURE__ */ jsxDEV30(MessageItem, {
           msg: message,
-          modelName
+          modelName,
+          toolDisplayService
         }, undefined, false, undefined, this)
       }, message.id, false, undefined, this))
     ]
@@ -6447,7 +6490,7 @@ function ChatMessageList({
 }
 
 // src/components/DiffApprovalView.tsx
-import { useEffect as useEffect8, useMemo as useMemo7, useState as useState8 } from "react";
+import { useEffect as useEffect9, useMemo as useMemo7, useState as useState9 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV31 } from "@opentui/react/jsx-dev-runtime";
 function normalizePreviewIndex(index, itemCount) {
@@ -6488,9 +6531,9 @@ function DiffApprovalView({
   previewIndex = 0,
   getPreview
 }) {
-  const [preview, setPreview] = useState8(() => loadingPreview(invocation));
-  const [loading, setLoading] = useState8(false);
-  useEffect8(() => {
+  const [preview, setPreview] = useState9(() => loadingPreview(invocation));
+  const [loading, setLoading] = useState9(false);
+  useEffect9(() => {
     let cancelled = false;
     if (!getPreview) {
       setLoading(false);
@@ -6864,7 +6907,7 @@ function LogoScreen() {
 }
 
 // src/components/ToolDetailView.tsx
-import { useState as useState9, useCallback as useCallback3 } from "react";
+import { useState as useState10, useCallback as useCallback3 } from "react";
 import { useKeyboard as useKeyboard3 } from "@opentui/react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV35 } from "@opentui/react/jsx-dev-runtime";
@@ -6979,7 +7022,7 @@ function Divider({ label }) {
 function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort }) {
   const { invocation, output, children } = data;
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
-  const [selectedIdx, setSelectedIdx] = useState9(0);
+  const [selectedIdx, setSelectedIdx] = useState10(0);
   const displayResult = useResultWithResolvedDiffPreview(result);
   const isFinal = TERMINAL_STATUSES2.has(status);
   const isExecuting = status === "executing";
@@ -8556,7 +8599,7 @@ function ExtensionListView({
 }
 
 // src/components/SettingsView.tsx
-import { useCallback as useCallback4, useEffect as useEffect9, useMemo as useMemo8, useState as useState10 } from "react";
+import { useCallback as useCallback4, useEffect as useEffect10, useMemo as useMemo8, useState as useState11 } from "react";
 import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions9 } from "@opentui/react";
 init_terminal_compat();
 
@@ -9178,19 +9221,19 @@ var BUILTIN_SECTIONS = [
 ];
 function SettingsView({ initialSection = "general", onBack, onLoad, onSave, pluginTabs }) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions9();
-  const [loading, setLoading] = useState10(true);
-  const [saving, setSaving] = useState10(false);
-  const [draft, setDraft] = useState10(null);
-  const [baseline, setBaseline] = useState10(null);
-  const [selectedRowId, setSelectedRowId] = useState10("");
-  const [navFocused, setNavFocused] = useState10(true);
-  const [editor, setEditor] = useState10(null);
-  const [editorValue, setEditorValue] = useState10("");
-  const [statusText, setStatusText] = useState10("");
-  const [statusKind, setStatusKind] = useState10("info");
-  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState10(false);
-  const [pluginDraft, setPluginDraft] = useState10({});
-  const [pluginBaseline, setPluginBaseline] = useState10({});
+  const [loading, setLoading] = useState11(true);
+  const [saving, setSaving] = useState11(false);
+  const [draft, setDraft] = useState11(null);
+  const [baseline, setBaseline] = useState11(null);
+  const [selectedRowId, setSelectedRowId] = useState11("");
+  const [navFocused, setNavFocused] = useState11(true);
+  const [editor, setEditor] = useState11(null);
+  const [editorValue, setEditorValue] = useState11("");
+  const [statusText, setStatusText] = useState11("");
+  const [statusKind, setStatusKind] = useState11("info");
+  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState11(false);
+  const [pluginDraft, setPluginDraft] = useState11({});
+  const [pluginBaseline, setPluginBaseline] = useState11({});
   const sections = useMemo8(() => {
     const pluginSections = (pluginTabs ?? []).map((tab, i) => ({
       id: tab.id,
@@ -9279,7 +9322,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
   }, [selectableRows, selectedRowId]);
   const sectionSelectableRows = useMemo8(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
   const selectedSectionIndex = useMemo8(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
-  useEffect9(() => {
+  useEffect10(() => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -9321,7 +9364,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
       cancelled = true;
     };
   }, [onLoad, setStatus, pluginTabs]);
-  useEffect9(() => {
+  useEffect10(() => {
     if (rows.length === 0)
       return;
     if (selectedRowId && rows.some((row) => row.id === selectedRowId && row.target))
@@ -10110,7 +10153,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
 }
 
 // src/hooks/use-app-handle.ts
-import { useCallback as useCallback5, useEffect as useEffect10, useRef as useRef6, useState as useState11 } from "react";
+import { useCallback as useCallback5, useEffect as useEffect11, useRef as useRef6, useState as useState12 } from "react";
 
 // src/message-utils.ts
 var msgIdCounter = 0;
@@ -10235,30 +10278,30 @@ function clearRedo(stack) {
 
 // src/hooks/use-app-handle.ts
 function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef }) {
-  const [messages, setMessages] = useState11([]);
-  const [streamingParts, setStreamingParts] = useState11([]);
-  const [isStreaming, setIsStreaming] = useState11(false);
-  const [isGenerating, setIsGenerating] = useState11(false);
-  const [generatingLabel, setGeneratingLabelState] = useState11();
-  const [contextTokens, setContextTokens] = useState11(0);
-  const [retryInfo, setRetryInfo] = useState11(null);
-  const [pendingApprovals, setPendingApprovals] = useState11([]);
-  const [pendingApplies, setPendingApplies] = useState11([]);
-  const [planModeActive, setPlanModeActive] = useState11(false);
-  const [autoEditActive, setAutoEditActive] = useState11(false);
-  const [progressSnapshot, setProgressSnapshot] = useState11(null);
+  const [messages, setMessages] = useState12([]);
+  const [streamingParts, setStreamingParts] = useState12([]);
+  const [isStreaming, setIsStreaming] = useState12(false);
+  const [isGenerating, setIsGenerating] = useState12(false);
+  const [generatingLabel, setGeneratingLabelState] = useState12();
+  const [contextTokens, setContextTokens] = useState12(0);
+  const [retryInfo, setRetryInfo] = useState12(null);
+  const [pendingApprovals, setPendingApprovals] = useState12([]);
+  const [pendingApplies, setPendingApplies] = useState12([]);
+  const [planModeActive, setPlanModeActive] = useState12(false);
+  const [autoEditActive, setAutoEditActive] = useState12(false);
+  const [progressSnapshot, setProgressSnapshot] = useState12(null);
   const progressSnapshotRef = useRef6(null);
   const archivedProgressUpdatedAtRef = useRef6(null);
-  const [toolInvocations, setToolInvocationsState] = useState11([]);
-  const [backgroundTaskCount, setBackgroundTaskCount] = useState11(0);
-  const [delegateTaskCount, setDelegateTaskCount] = useState11(0);
+  const [toolInvocations, setToolInvocationsState] = useState12([]);
+  const [backgroundTaskCount, setBackgroundTaskCount] = useState12(0);
+  const [delegateTaskCount, setDelegateTaskCount] = useState12(0);
   const backgroundTaskTokenMapRef = useRef6(new Map);
-  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState11(0);
+  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState12(0);
   const spinnerFrameRef = useRef6(0);
-  const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState11(0);
-  const [toolDetailData, setToolDetailData] = useState11(null);
-  const [toolDetailStack, setToolDetailStack] = useState11([]);
-  const [toolListItems, setToolListItems] = useState11([]);
+  const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState12(0);
+  const [toolDetailData, setToolDetailData] = useState12(null);
+  const [toolDetailStack, setToolDetailStack] = useState12([]);
+  const [toolListItems, setToolListItems] = useState12([]);
   const streamPartsRef = useRef6([]);
   const toolInvocationsRef = useRef6([]);
   const throttleTimerRef = useRef6(null);
@@ -10271,13 +10314,13 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
     setPendingApprovals([]);
     setPendingApplies([]);
   }, []);
-  useEffect10(() => {
+  useEffect11(() => {
     return () => {
       if (throttleTimerRef.current)
         clearTimeout(throttleTimerRef.current);
     };
   }, []);
-  useEffect10(() => {
+  useEffect11(() => {
     const isCompletedProgressSnapshot = (snapshot) => {
       return !!snapshot && snapshot.items.length > 0 && snapshot.stats.open === 0;
     };
@@ -11810,19 +11853,19 @@ function useAppKeyboard({
 }
 
 // src/hooks/use-approval.ts
-import { useCallback as useCallback6, useEffect as useEffect11, useState as useState12 } from "react";
+import { useCallback as useCallback6, useEffect as useEffect12, useState as useState13 } from "react";
 function useApproval(pendingApprovals, pendingApplies) {
-  const [approvalChoice, setApprovalChoice] = useState12("approve");
-  const [approvalPage, setApprovalPage] = useState12("basic");
-  const [diffView, setDiffView] = useState12("unified");
-  const [showLineNumbers, setShowLineNumbers] = useState12(true);
-  const [wrapMode, setWrapMode] = useState12("word");
-  const [previewIndex, setPreviewIndex] = useState12(0);
-  useEffect11(() => {
+  const [approvalChoice, setApprovalChoice] = useState13("approve");
+  const [approvalPage, setApprovalPage] = useState13("basic");
+  const [diffView, setDiffView] = useState13("unified");
+  const [showLineNumbers, setShowLineNumbers] = useState13(true);
+  const [wrapMode, setWrapMode] = useState13("word");
+  const [previewIndex, setPreviewIndex] = useState13(0);
+  useEffect12(() => {
     setApprovalChoice("approve");
     setApprovalPage("basic");
   }, [pendingApprovals[0]?.id]);
-  useEffect11(() => {
+  useEffect12(() => {
     setApprovalChoice("approve");
     setDiffView("unified");
     setShowLineNumbers(true);
@@ -11867,87 +11910,6 @@ function useApproval(pendingApprovals, pendingApplies) {
 
 // src/hooks/use-command-dispatch.ts
 import { useCallback as useCallback7 } from "react";
-
-// src/slash-command-service.ts
-var CONSOLE_SLASH_COMMAND_SERVICE_ID = "console:slash-command";
-var commands = new Map;
-var listeners = new Set;
-function emitChange() {
-  for (const listener of [...listeners]) {
-    try {
-      listener();
-    } catch {}
-  }
-}
-function matchCommand(rawInput) {
-  const raw = rawInput.trim();
-  if (!raw.startsWith("/"))
-    return;
-  let best;
-  for (const command of commands.values()) {
-    const name = command.name.trim();
-    if (raw === name || raw.startsWith(`${name} `)) {
-      const arg = raw === name ? "" : raw.slice(name.length).trim();
-      if (!best || name.length > best.command.name.length)
-        best = { command, arg };
-    }
-  }
-  return best;
-}
-var consoleSlashCommandService = {
-  register(command) {
-    commands.set(command.name, command);
-    emitChange();
-    let disposed = false;
-    return {
-      dispose() {
-        if (disposed)
-          return;
-        disposed = true;
-        if (commands.get(command.name) === command) {
-          commands.delete(command.name);
-          emitChange();
-        }
-      }
-    };
-  },
-  list() {
-    return Array.from(commands.values()).map(({ handle: _handle, ...command }) => command);
-  },
-  canHandle(raw) {
-    return !!matchCommand(raw);
-  },
-  async dispatch(raw, context) {
-    const matched = matchCommand(raw);
-    if (!matched)
-      return;
-    const result = await matched.command.handle({
-      raw: raw.trim(),
-      name: matched.command.name,
-      arg: matched.arg,
-      sessionId: context?.sessionId
-    });
-    return result ?? {};
-  },
-  onDidChange(listener) {
-    listeners.add(listener);
-    return { dispose: () => {
-      listeners.delete(listener);
-    } };
-  }
-};
-function getSlashCommands() {
-  return consoleSlashCommandService.list();
-}
-function onSlashCommandsChanged(listener) {
-  return consoleSlashCommandService.onDidChange(listener);
-}
-function canHandleSlashCommand(raw) {
-  return consoleSlashCommandService.canHandle(raw);
-}
-function dispatchSlashCommand(raw, context) {
-  return consoleSlashCommandService.dispatch(raw, context);
-}
 
 // src/commit-command.ts
 function fence(text, fallback = "(无输出)") {
@@ -12042,6 +12004,7 @@ function runOptionalCommand(onRunCommand, command, fallback) {
 function useCommandDispatch({
   onSubmit,
   isGenerating,
+  slashCommandService,
   onFileAttach,
   onOpenFileBrowser,
   getCurrentSessionId,
@@ -12419,8 +12382,8 @@ function useCommandDispatch({
       onFileAttach(filePath);
       return;
     }
-    if (text.startsWith("/") && canHandleSlashCommand(text)) {
-      dispatchSlashCommand(text, { sessionId: getCurrentSessionId?.() }).then((result) => {
+    if (text.startsWith("/") && slashCommandService?.canHandle(text)) {
+      slashCommandService.dispatch(text, { sessionId: getCurrentSessionId?.() }).then((result) => {
         if (!result?.message)
           return;
         appendCommandMessage(setMessages, result.message, {
@@ -12451,6 +12414,7 @@ function useCommandDispatch({
     onRemoteDisconnect,
     isRemote,
     remoteHost,
+    slashCommandService,
     onResetConfig,
     isGenerating,
     onRunCommand,
@@ -12480,9 +12444,9 @@ function useCommandDispatch({
 }
 
 // src/hooks/use-exit-confirm.ts
-import { useCallback as useCallback8, useEffect as useEffect12, useRef as useRef7, useState as useState13 } from "react";
+import { useCallback as useCallback8, useEffect as useEffect13, useRef as useRef7, useState as useState14 } from "react";
 function useExitConfirm({ timeoutMs = 1500 } = {}) {
-  const [exitConfirmArmed, setExitConfirmArmed] = useState13(false);
+  const [exitConfirmArmed, setExitConfirmArmed] = useState14(false);
   const exitConfirmTimerRef = useRef7(null);
   const clearExitConfirm = useCallback8(() => {
     if (exitConfirmTimerRef.current) {
@@ -12500,7 +12464,7 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
       setExitConfirmArmed(false);
     }, timeoutMs);
   }, [timeoutMs]);
-  useEffect12(() => {
+  useEffect13(() => {
     return () => {
       if (exitConfirmTimerRef.current)
         clearTimeout(exitConfirmTimerRef.current);
@@ -12514,10 +12478,10 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
 }
 
 // src/hooks/use-message-queue.ts
-import { useCallback as useCallback9, useRef as useRef8, useState as useState14 } from "react";
+import { useCallback as useCallback9, useRef as useRef8, useState as useState15 } from "react";
 var queueIdCounter = 0;
 function useMessageQueue() {
-  const [queue, setQueue] = useState14([]);
+  const [queue, setQueue] = useState15([]);
   const queueRef = useRef8([]);
   const sync = useCallback9((next) => {
     queueRef.current = next;
@@ -12612,13 +12576,13 @@ function useMessageQueue() {
 }
 
 // src/hooks/use-model-state.ts
-import { useCallback as useCallback10, useState as useState15 } from "react";
+import { useCallback as useCallback10, useState as useState16 } from "react";
 function useModelState({ modelId, modelName, contextWindow, modelProvider, thinkingControlEnabled }) {
-  const [currentModelId, setCurrentModelId] = useState15(modelId);
-  const [currentModelName, setCurrentModelName] = useState15(modelName);
-  const [currentContextWindow, setCurrentContextWindow] = useState15(contextWindow);
-  const [currentModelProvider, setCurrentModelProvider] = useState15(modelProvider);
-  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState15(thinkingControlEnabled);
+  const [currentModelId, setCurrentModelId] = useState16(modelId);
+  const [currentModelName, setCurrentModelName] = useState16(modelName);
+  const [currentContextWindow, setCurrentContextWindow] = useState16(contextWindow);
+  const [currentModelProvider, setCurrentModelProvider] = useState16(modelProvider);
+  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState16(thinkingControlEnabled);
   const updateModel = useCallback10((result) => {
     if (result.modelId)
       setCurrentModelId(result.modelId);
@@ -12639,81 +12603,6 @@ function useModelState({ modelId, modelName, contextWindow, modelProvider, think
     currentThinkingControlEnabled,
     updateModel
   };
-}
-
-// src/status-segment-service.ts
-var CONSOLE_STATUS_SEGMENT_SERVICE_ID = "console:status-segment";
-var providers2 = new Map;
-var listeners2 = new Set;
-function emitChange2() {
-  for (const listener of [...listeners2]) {
-    try {
-      listener();
-    } catch {}
-  }
-}
-function disposeRegistered(entry) {
-  try {
-    entry?.changeSubscription?.dispose();
-  } catch {}
-}
-var consoleStatusSegmentService = {
-  register(provider) {
-    const existing = providers2.get(provider.id);
-    disposeRegistered(existing);
-    const entry = {
-      provider,
-      changeSubscription: provider.onDidChange?.(() => emitChange2())
-    };
-    providers2.set(provider.id, entry);
-    emitChange2();
-    let disposed = false;
-    return {
-      dispose() {
-        if (disposed)
-          return;
-        disposed = true;
-        const current = providers2.get(provider.id);
-        if (current === entry) {
-          disposeRegistered(current);
-          providers2.delete(provider.id);
-          emitChange2();
-        }
-      }
-    };
-  },
-  list(context = {}, align = "right") {
-    const result = [];
-    for (const entry of providers2.values()) {
-      const providerAlign = entry.provider.align ?? "right";
-      if (providerAlign !== align)
-        continue;
-      try {
-        const snapshot = entry.provider.getSnapshot(context);
-        if (!snapshot || !snapshot.text)
-          continue;
-        result.push({
-          ...snapshot,
-          id: snapshot.id || entry.provider.id,
-          align: snapshot.align ?? providerAlign,
-          priority: snapshot.priority ?? entry.provider.priority ?? 0
-        });
-      } catch {}
-    }
-    return result.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0) || a.id.localeCompare(b.id));
-  },
-  onDidChange(listener) {
-    listeners2.add(listener);
-    return { dispose: () => {
-      listeners2.delete(listener);
-    } };
-  }
-};
-function getStatusSegments(context, align = "right") {
-  return consoleStatusSegmentService.list(context, align);
-}
-function onStatusSegmentsChanged(listener) {
-  return consoleStatusSegmentService.onDidChange(listener);
 }
 
 // src/App.tsx
@@ -12843,69 +12732,87 @@ function App({
   onPreviewUpdateExtension,
   onUpdateExtension,
   onListPluginSettingsTabs,
+  onPluginSettingsTabsChanged,
   onRemoteConnect,
   onRemoteDisconnect,
+  slashCommandService,
+  pathDisplayService,
+  statusSegmentService,
+  toolDisplayService,
   remoteHost,
   modelProvider,
   thinkingControlEnabled,
   initWarningsColor,
   initWarningsIcon
 }) {
-  const [viewMode, setViewMode] = useState16("chat");
-  const [sessionList, setSessionList] = useState16([]);
-  const [selectedIndex, setSelectedIndex] = useState16(0);
-  const [settingsInitialSection, setSettingsInitialSection] = useState16("general");
-  const [modelList, setModelList] = useState16([]);
-  const [defaultModelName, setDefaultModelName] = useState16("");
-  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState16(null);
-  const [sessionStatusMessage, setSessionStatusMessage] = useState16(null);
-  const [sessionStatusIsError, setSessionStatusIsError] = useState16(false);
-  const [agentList, setAgentList] = useState16([]);
-  const [copyMode, setCopyMode] = useState16(false);
-  const [pendingConfirm, setPendingConfirm] = useState16(null);
-  const [confirmChoice, setConfirmChoice] = useState16("confirm");
+  const [viewMode, setViewMode] = useState17("chat");
+  const [sessionList, setSessionList] = useState17([]);
+  const [selectedIndex, setSelectedIndex] = useState17(0);
+  const [settingsInitialSection, setSettingsInitialSection] = useState17("general");
+  const [modelList, setModelList] = useState17([]);
+  const [defaultModelName, setDefaultModelName] = useState17("");
+  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState17(null);
+  const [sessionStatusMessage, setSessionStatusMessage] = useState17(null);
+  const [sessionStatusIsError, setSessionStatusIsError] = useState17(false);
+  const [agentList, setAgentList] = useState17([]);
+  const [copyMode, setCopyMode] = useState17(false);
+  const [pendingConfirm, setPendingConfirm] = useState17(null);
+  const [confirmChoice, setConfirmChoice] = useState17("confirm");
   const initialLevels = getProviderThinkingLevels(modelProvider);
   const initialMaxLevel = initialLevels[initialLevels.length - 1];
-  const [thinkingEffort, setThinkingEffort] = useState16(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
-  const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState16(0);
-  const [progressCollapsed, setProgressCollapsed] = useState16(false);
-  const [progressScrollOffset, setProgressScrollOffset] = useState16(0);
-  const [modelStatusMessage, setModelStatusMessage] = useState16(null);
-  const [modelStatusIsError, setModelStatusIsError] = useState16(false);
-  const [modelEditingField, setModelEditingField] = useState16(null);
-  const [modelEditTargetName, setModelEditTargetName] = useState16(null);
-  const [memoryList, setMemoryList] = useState16([]);
-  const [memoryFilter, setMemoryFilter] = useState16("all");
-  const [memoryExpandedId, setMemoryExpandedId] = useState16(null);
-  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState16(null);
-  const [extensionList, setExtensionList] = useState16([]);
-  const [extensionTogglingName, setExtensionTogglingName] = useState16(null);
-  const [extensionStatusMessage, setExtensionStatusMessage] = useState16(null);
-  const [extensionStatusIsError, setExtensionStatusIsError] = useState16(false);
-  const [extensionGitInputMode, setExtensionGitInputMode] = useState16(false);
-  const [extensionScopePickMode, setExtensionScopePickMode] = useState16(false);
-  const [extensionInstallScope, setExtensionInstallScope] = useState16("agent");
-  const [extensionPendingDeleteName, setExtensionPendingDeleteName] = useState16(null);
-  const [extensionPendingUpdateName, setExtensionPendingUpdateName] = useState16(null);
-  const [extensionBusy, setExtensionBusy] = useState16(false);
-  const [pendingFiles, setPendingFiles] = useState16([]);
-  const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState16(pluginSettingsTabs ?? []);
-  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState16(() => getSlashCommands());
-  useEffect13(() => {
+  const [thinkingEffort, setThinkingEffort] = useState17(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
+  const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState17(0);
+  const [progressCollapsed, setProgressCollapsed] = useState17(false);
+  const [progressScrollOffset, setProgressScrollOffset] = useState17(0);
+  const [modelStatusMessage, setModelStatusMessage] = useState17(null);
+  const [modelStatusIsError, setModelStatusIsError] = useState17(false);
+  const [modelEditingField, setModelEditingField] = useState17(null);
+  const [modelEditTargetName, setModelEditTargetName] = useState17(null);
+  const [memoryList, setMemoryList] = useState17([]);
+  const [memoryFilter, setMemoryFilter] = useState17("all");
+  const [memoryExpandedId, setMemoryExpandedId] = useState17(null);
+  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState17(null);
+  const [extensionList, setExtensionList] = useState17([]);
+  const [extensionTogglingName, setExtensionTogglingName] = useState17(null);
+  const [extensionStatusMessage, setExtensionStatusMessage] = useState17(null);
+  const [extensionStatusIsError, setExtensionStatusIsError] = useState17(false);
+  const [extensionGitInputMode, setExtensionGitInputMode] = useState17(false);
+  const [extensionScopePickMode, setExtensionScopePickMode] = useState17(false);
+  const [extensionInstallScope, setExtensionInstallScope] = useState17("agent");
+  const [extensionPendingDeleteName, setExtensionPendingDeleteName] = useState17(null);
+  const [extensionPendingUpdateName, setExtensionPendingUpdateName] = useState17(null);
+  const [extensionBusy, setExtensionBusy] = useState17(false);
+  const [pendingFiles, setPendingFiles] = useState17([]);
+  const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState17(pluginSettingsTabs ?? []);
+  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState17(() => slashCommandService?.list() ?? []);
+  useEffect14(() => {
     setRuntimePluginSettingsTabs(pluginSettingsTabs ?? []);
   }, [pluginSettingsTabs]);
-  useEffect13(() => {
-    const disposable = onSlashCommandsChanged(() => setRuntimeSlashCommands(getSlashCommands()));
-    setRuntimeSlashCommands(getSlashCommands());
+  useEffect14(() => {
+    if (!slashCommandService) {
+      setRuntimeSlashCommands([]);
+      return;
+    }
+    const disposable = slashCommandService.onDidChange(() => setRuntimeSlashCommands(slashCommandService.list()));
+    setRuntimeSlashCommands(slashCommandService.list());
     return () => disposable.dispose();
-  }, []);
-  const [statusSegmentVersion, setStatusSegmentVersion] = useState16(0);
-  useEffect13(() => {
-    const disposable = onStatusSegmentsChanged(() => setStatusSegmentVersion((v) => v + 1));
+  }, [slashCommandService]);
+  const [statusSegmentVersion, setStatusSegmentVersion] = useState17(0);
+  useEffect14(() => {
+    if (!statusSegmentService)
+      return;
+    const disposable = statusSegmentService.onDidChange(() => setStatusSegmentVersion((v) => v + 1));
     return () => disposable.dispose();
-  }, []);
-  const [fileBrowserPath, setFileBrowserPath] = useState16("");
-  const [fileBrowserEntries, setFileBrowserEntries] = useState16([]);
+  }, [statusSegmentService]);
+  const [pathDisplayVersion, setPathDisplayVersion] = useState17(0);
+  useEffect14(() => {
+    if (!pathDisplayService)
+      return;
+    const disposable = pathDisplayService.onDidChange(() => setPathDisplayVersion((v) => v + 1));
+    return () => disposable.dispose();
+  }, [pathDisplayService]);
+  const [fileBrowserPath, setFileBrowserPath] = useState17("");
+  const [fileBrowserEntries, setFileBrowserEntries] = useState17([]);
   const disabledExtensionNames = useMemo9(() => new Set(extensionList.filter((item) => (item.originalStatus ?? item.status) === "disabled").map((item) => item.name)), [extensionList]);
   const activePluginSettingsTabs = useMemo9(() => runtimePluginSettingsTabs.filter((tab) => !disabledExtensionNames.has(tab.id)), [runtimePluginSettingsTabs, disabledExtensionNames]);
   const dynamicCommands = useMemo9(() => {
@@ -12925,8 +12832,14 @@ function App({
   const refreshPluginSettingsTabs = useCallback11(() => {
     setRuntimePluginSettingsTabs(onListPluginSettingsTabs?.() ?? pluginSettingsTabs ?? []);
   }, [onListPluginSettingsTabs, pluginSettingsTabs]);
-  const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState16(false);
-  const [queueEditingId, setQueueEditingId] = useState16(null);
+  useEffect14(() => {
+    if (!onPluginSettingsTabsChanged)
+      return;
+    const disposable = onPluginSettingsTabsChanged(() => refreshPluginSettingsTabs());
+    return () => disposable.dispose();
+  }, [onPluginSettingsTabsChanged, refreshPluginSettingsTabs]);
+  const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState17(false);
+  const [queueEditingId, setQueueEditingId] = useState17(null);
   const [queueEditState, queueEditActions] = useTextInput("");
   const [modelEditState, modelEditActions] = useTextInput("");
   const [extensionGitInputState, extensionGitInputActions] = useTextInput("");
@@ -12990,7 +12903,7 @@ function App({
       return newLevel;
     });
   }, [onThinkingEffortChange, modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
-  useEffect13(() => {
+  useEffect14(() => {
     if (modelState.currentThinkingControlEnabled === false)
       return;
     const levels = getProviderThinkingLevels(modelState.currentModelProvider);
@@ -13002,7 +12915,7 @@ function App({
       return maxLevel;
     });
   }, [modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
-  useEffect13(() => {
+  useEffect14(() => {
     if (thinkingControlEnabled !== false && initialMaxLevel !== "not-set") {
       onThinkingEffortChange?.(initialMaxLevel);
     }
@@ -13019,6 +12932,7 @@ function App({
   const handleSubmit = useCommandDispatch({
     onSubmit: queueAwareSubmit,
     isGenerating: appState.isGenerating,
+    slashCommandService,
     onFileAttach: handleFileAttach,
     onOpenFileBrowser: handleOpenFileBrowser,
     getCurrentSessionId,
@@ -13067,12 +12981,12 @@ function App({
     queueClear: messageQueue.clear,
     queueSize: messageQueue.size
   });
-  useEffect13(() => {
+  useEffect14(() => {
     if (!renderer)
       return;
     renderer.useMouse = true;
   }, [renderer]);
-  useEffect13(() => {
+  useEffect14(() => {
     if (!renderer)
       return;
     const handleSelection = (selection) => {
@@ -13093,7 +13007,7 @@ function App({
     };
   }, [renderer, copyMode]);
   const prevViewModeRef = useRef9(viewMode);
-  useEffect13(() => {
+  useEffect14(() => {
     const prev = prevViewModeRef.current;
     prevViewModeRef.current = viewMode;
     if (prev === "queue-list" && viewMode === "chat" && !appState.isGenerating && messageQueue.size > 0) {
@@ -13103,12 +13017,12 @@ function App({
       }
     }
   }, [viewMode, appState.isGenerating, messageQueue, onSubmit]);
-  useEffect13(() => {
+  useEffect14(() => {
     const total = appState.progressSnapshot?.items.length ?? 0;
     const maxOffset = Math.max(0, total - PROGRESS_PANEL_MAX_ITEMS);
     setProgressScrollOffset((prev) => Math.min(Math.max(0, prev), maxOffset));
   }, [appState.progressSnapshot?.items.length]);
-  useEffect13(() => {
+  useEffect14(() => {
     const snapshot = appState.progressSnapshot;
     if (!snapshot || snapshot.items.length === 0) {
       setProgressCollapsed(false);
@@ -13142,7 +13056,7 @@ function App({
       return next;
     });
   }, [appState.progressSnapshot, onSaveProgressUiState]);
-  useEffect13(() => {
+  useEffect14(() => {
     if (viewMode === "model-list")
       return;
     setModelStatusMessage(null);
@@ -13151,21 +13065,21 @@ function App({
     setModelEditTargetName(null);
     modelEditActions.setValue("");
   }, [viewMode]);
-  useEffect13(() => {
+  useEffect14(() => {
     if (viewMode === "session-list")
       return;
     setSessionPendingDeleteId(null);
     setSessionStatusMessage(null);
     setSessionStatusIsError(false);
   }, [viewMode]);
-  useEffect13(() => {
+  useEffect14(() => {
     if (appState.toolDetailData && viewMode !== "tool-detail") {
       setViewMode("tool-detail");
     } else if (!appState.toolDetailData && viewMode === "tool-detail") {
       setViewMode("chat");
     }
   }, [appState.toolDetailData, viewMode]);
-  useEffect13(() => {
+  useEffect14(() => {
     if (appState.toolListItems.length > 0 && viewMode !== "tool-list" && viewMode !== "tool-detail") {
       setSelectedIndex(0);
       setViewMode("tool-list");
@@ -13295,7 +13209,8 @@ function App({
   const activeProgress = appState.progressSnapshot?.items.find((item) => item.status === "in_progress");
   const progressGeneratingLabel = activeProgress ? `${activeProgress.activeForm ?? activeProgress.title}...` : undefined;
   const effectiveGeneratingLabel = appState.generatingLabel ?? progressGeneratingLabel;
-  const rightStatusSegments = useMemo9(() => getStatusSegments({ sessionId: getCurrentSessionId?.() }, "right"), [statusSegmentVersion, getCurrentSessionId, viewMode, appState.messages.length]);
+  const rightStatusSegments = useMemo9(() => statusSegmentService?.list({ sessionId: getCurrentSessionId?.() }, "right") ?? [], [statusSegmentVersion, statusSegmentService, getCurrentSessionId, viewMode, appState.messages.length]);
+  const consolePathDisplay = useMemo9(() => pathDisplayService?.resolve({ sessionId: getCurrentSessionId?.() }), [pathDisplayVersion, pathDisplayService, getCurrentSessionId, viewMode, appState.messages.length]);
   if (viewMode === "settings") {
     return /* @__PURE__ */ jsxDEV43(SettingsView, {
       initialSection: settingsInitialSection,
@@ -13438,6 +13353,7 @@ function App({
         queuedMessages: messageQueue.queue,
         copyMode,
         onCopySelectionStart: resetCopySelectionBuffer,
+        toolDisplayService,
         onCopySelectionSnapshot: captureCopySelectionSnapshot
       }, undefined, false, undefined, this) : null,
       /* @__PURE__ */ jsxDEV43(BottomPanel, {
@@ -13472,6 +13388,7 @@ function App({
         providerLevels: getProviderThinkingLevels(modelState.currentModelProvider),
         remoteHost,
         isRemote: !!remoteHost,
+        pathDisplay: consolePathDisplay,
         pendingFiles,
         onRemoveFile: handleRemoveFile,
         dynamicCommands,
@@ -13760,63 +13677,589 @@ function resolveConsoleConfig(raw) {
   };
 }
 
-// src/progress-service.ts
-var CONSOLE_PROGRESS_SERVICE_ID = "console:progress";
-var providers3 = new Map;
-var providerDisposers = new Map;
-var changeListeners = new Set;
-var updateListeners = new Set;
-function emitChange3() {
-  for (const listener of changeListeners)
-    listener();
+// src/service-registry-utils.ts
+function disposeSilently(disposable) {
+  try {
+    disposable?.dispose();
+  } catch {}
 }
-function emitUpdate(providerId, sessionId, snapshot) {
-  for (const listener of updateListeners)
-    listener(providerId, sessionId, snapshot);
+function createListenerSignal() {
+  const listeners = new Set;
+  return {
+    on(listener) {
+      listeners.add(listener);
+      return { dispose: () => {
+        listeners.delete(listener);
+      } };
+    },
+    emit(...args) {
+      for (const listener of [...listeners]) {
+        try {
+          listener(...args);
+        } catch {}
+      }
+    },
+    clear() {
+      listeners.clear();
+    }
+  };
 }
-function orderedProviders() {
-  return Array.from(providers3.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id.localeCompare(b.id));
+function createKeyedRegistry() {
+  const map = new Map;
+  return {
+    get(key) {
+      return map.get(key);
+    },
+    keys() {
+      return map.keys();
+    },
+    values() {
+      return map.values();
+    },
+    replace(key, value) {
+      map.set(key, value);
+    },
+    deleteIf(key, value) {
+      if (map.get(key) !== value)
+        return false;
+      return map.delete(key);
+    },
+    delete(key) {
+      return map.delete(key);
+    },
+    clear() {
+      map.clear();
+    }
+  };
 }
-var consoleProgressService = {
-  register(provider) {
-    providers3.set(provider.id, provider);
-    providerDisposers.get(provider.id)?.dispose();
-    providerDisposers.set(provider.id, provider.onDidUpdate?.((sessionId, snapshot) => emitUpdate(provider.id, sessionId, snapshot)));
-    emitChange3();
-    let disposed = false;
-    return {
-      dispose() {
-        if (disposed)
-          return;
-        disposed = true;
-        const current = providers3.get(provider.id);
-        if (current === provider) {
-          providers3.delete(provider.id);
-          providerDisposers.get(provider.id)?.dispose();
-          providerDisposers.delete(provider.id);
-          emitChange3();
+function comparePriorityThenId(direction = "asc") {
+  return (a, b) => {
+    const delta = (a.priority ?? 0) - (b.priority ?? 0);
+    const ordered = direction === "asc" ? delta : -delta;
+    return ordered || a.id.localeCompare(b.id);
+  };
+}
+
+// src/tool-display-service.ts
+var CONSOLE_TOOL_DISPLAY_SERVICE_ID = "console:tool-display";
+function createConsoleToolDisplayService() {
+  const providers = createKeyedRegistry();
+  return {
+    register(toolName, provider) {
+      providers.replace(toolName, provider);
+      let disposed = false;
+      return {
+        dispose() {
+          if (disposed)
+            return;
+          disposed = true;
+          providers.deleteIf(toolName, provider);
+        }
+      };
+    },
+    get(toolName) {
+      return providers.get(toolName);
+    },
+    list() {
+      return Array.from(providers.keys());
+    }
+  };
+}
+
+// src/slash-command-service.ts
+var CONSOLE_SLASH_COMMAND_SERVICE_ID = "console:slash-command";
+function createConsoleSlashCommandService() {
+  const commands = createKeyedRegistry();
+  const changes = createListenerSignal();
+  function matchCommand(rawInput) {
+    const raw = rawInput.trim();
+    if (!raw.startsWith("/"))
+      return;
+    let best;
+    for (const command of commands.values()) {
+      const name = command.name.trim();
+      if (raw === name || raw.startsWith(`${name} `)) {
+        const arg = raw === name ? "" : raw.slice(name.length).trim();
+        if (!best || name.length > best.command.name.length) {
+          best = { command, arg };
         }
       }
-    };
-  },
-  getProvider(id) {
-    return providers3.get(id);
-  },
-  getActiveProvider() {
-    return orderedProviders()[0];
-  },
-  listProviders() {
-    return orderedProviders();
-  },
-  onDidChange(listener) {
-    changeListeners.add(listener);
-    return { dispose: () => changeListeners.delete(listener) };
-  },
-  onDidUpdate(listener) {
-    updateListeners.add(listener);
-    return { dispose: () => updateListeners.delete(listener) };
+    }
+    return best;
   }
-};
+  return {
+    register(command) {
+      commands.replace(command.name, command);
+      changes.emit();
+      let disposed = false;
+      return {
+        dispose() {
+          if (disposed)
+            return;
+          disposed = true;
+          if (commands.deleteIf(command.name, command)) {
+            changes.emit();
+          }
+        }
+      };
+    },
+    list() {
+      return Array.from(commands.values()).map(({ handle: _handle, ...command }) => command);
+    },
+    canHandle(raw) {
+      return !!matchCommand(raw);
+    },
+    async dispatch(raw, context) {
+      const matched = matchCommand(raw);
+      if (!matched)
+        return;
+      const result = await matched.command.handle({
+        raw: raw.trim(),
+        name: matched.command.name,
+        arg: matched.arg,
+        sessionId: context?.sessionId
+      });
+      return result ?? {};
+    },
+    onDidChange(listener) {
+      return changes.on(listener);
+    }
+  };
+}
+
+// src/path-display-service.ts
+var CONSOLE_PATH_DISPLAY_SERVICE_ID = "console:path-display";
+function createConsolePathDisplayService() {
+  const providers = createKeyedRegistry();
+  const changes = createListenerSignal();
+  return {
+    register(provider) {
+      disposeSilently(providers.get(provider.id)?.changeSubscription);
+      const entry = {
+        provider,
+        changeSubscription: provider.onDidChange?.(() => changes.emit())
+      };
+      providers.replace(provider.id, entry);
+      changes.emit();
+      let disposed = false;
+      return {
+        dispose() {
+          if (disposed)
+            return;
+          disposed = true;
+          if (providers.deleteIf(provider.id, entry)) {
+            disposeSilently(entry.changeSubscription);
+            changes.emit();
+          }
+        }
+      };
+    },
+    resolve(context = {}) {
+      const candidates = [];
+      for (const entry of providers.values()) {
+        try {
+          const snapshot = entry.provider.getSnapshot(context);
+          if (!snapshot || !snapshot.path)
+            continue;
+          candidates.push({
+            ...snapshot,
+            id: snapshot.id || entry.provider.id,
+            priority: snapshot.priority ?? entry.provider.priority ?? 0
+          });
+        } catch {}
+      }
+      if (candidates.length === 0)
+        return;
+      candidates.sort(comparePriorityThenId("desc"));
+      return candidates[0];
+    },
+    onDidChange(listener) {
+      return changes.on(listener);
+    }
+  };
+}
+
+// src/settings-tab-service.ts
+var CONSOLE_SETTINGS_TAB_SERVICE_ID = "console:settings-tab";
+
+// src/status-segment-service.ts
+var CONSOLE_STATUS_SEGMENT_SERVICE_ID = "console:status-segment";
+function createConsoleStatusSegmentService() {
+  const providers = createKeyedRegistry();
+  const changes = createListenerSignal();
+  return {
+    register(provider) {
+      disposeSilently(providers.get(provider.id)?.changeSubscription);
+      const entry = {
+        provider,
+        changeSubscription: provider.onDidChange?.(() => changes.emit())
+      };
+      providers.replace(provider.id, entry);
+      changes.emit();
+      let disposed = false;
+      return {
+        dispose() {
+          if (disposed)
+            return;
+          disposed = true;
+          if (providers.deleteIf(provider.id, entry)) {
+            disposeSilently(entry.changeSubscription);
+            changes.emit();
+          }
+        }
+      };
+    },
+    list(context = {}, align = "right") {
+      const result = [];
+      for (const entry of providers.values()) {
+        const providerAlign = entry.provider.align ?? "right";
+        if (providerAlign !== align)
+          continue;
+        try {
+          const snapshot = entry.provider.getSnapshot(context);
+          if (!snapshot || !snapshot.text)
+            continue;
+          result.push({
+            ...snapshot,
+            id: snapshot.id || entry.provider.id,
+            align: snapshot.align ?? providerAlign,
+            priority: snapshot.priority ?? entry.provider.priority ?? 0
+          });
+        } catch {}
+      }
+      return result.sort(comparePriorityThenId("asc"));
+    },
+    onDidChange(listener) {
+      return changes.on(listener);
+    }
+  };
+}
+
+// src/progress-service.ts
+var CONSOLE_PROGRESS_SERVICE_ID = "console:progress";
+function createConsoleProgressService() {
+  const providers = createKeyedRegistry();
+  const providerSubscriptions = new Map;
+  const changes = createListenerSignal();
+  const updates = createListenerSignal();
+  function orderedProviders() {
+    return Array.from(providers.values()).sort(comparePriorityThenId("desc"));
+  }
+  return {
+    register(provider) {
+      disposeSilently(providerSubscriptions.get(provider.id));
+      providers.replace(provider.id, provider);
+      providerSubscriptions.set(provider.id, provider.onDidUpdate?.((sessionId, snapshot) => updates.emit(provider.id, sessionId, snapshot)));
+      changes.emit();
+      let disposed = false;
+      return {
+        dispose() {
+          if (disposed)
+            return;
+          disposed = true;
+          if (providers.deleteIf(provider.id, provider)) {
+            disposeSilently(providerSubscriptions.get(provider.id));
+            providerSubscriptions.delete(provider.id);
+            changes.emit();
+          }
+        }
+      };
+    },
+    getProvider(id) {
+      return providers.get(id);
+    },
+    getActiveProvider() {
+      return orderedProviders()[0];
+    },
+    listProviders() {
+      return orderedProviders();
+    },
+    onDidChange(listener) {
+      return changes.on(listener);
+    },
+    onDidUpdate(listener) {
+      return updates.on(listener);
+    }
+  };
+}
+
+// src/ipc-bridge.ts
+init_ipc();
+var CONSOLE_GET_SETTINGS_TABS_METHOD = "console.getSettingsTabs";
+var CONSOLE_LIST_SLASH_COMMANDS_METHOD = "console.listSlashCommands";
+var CONSOLE_DISPATCH_SLASH_COMMAND_METHOD = "console.dispatchSlashCommand";
+var CONSOLE_RESOLVE_PATH_DISPLAY_METHOD = "console.resolvePathDisplay";
+var CONSOLE_LIST_STATUS_SEGMENTS_METHOD = "console.listStatusSegments";
+var CONSOLE_RENDER_TOOL_DISPLAY_METHOD = "console.renderToolDisplay";
+var CONSOLE_PROGRESS_LOAD_LATEST_METHOD = "console.progress.loadLatest";
+var CONSOLE_PROGRESS_LOAD_HISTORY_METHOD = "console.progress.loadHistory";
+var CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD = "console.progress.loadUiState";
+var CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD = "console.progress.saveUiState";
+function hasConsoleRemoteBridge(api) {
+  return typeof api?.__consoleDispatchSlashCommand === "function";
+}
+function getCachedConsoleRemoteSettingsTabs(api) {
+  const tabs = api?.__consoleGetSettingsTabs?.();
+  return Array.isArray(tabs) ? tabs : [];
+}
+function getCachedConsoleRemoteSlashCommands(api) {
+  const commands = api?.__consoleGetSlashCommands?.();
+  return Array.isArray(commands) ? commands : [];
+}
+function attachConsoleRemoteBridge(api, client, options) {
+  const targetAgentName = options?.targetAgentName;
+  let cachedSettingsTabs = [];
+  let cachedSlashCommands = [];
+  const originalInitCaches = typeof api.initCaches === "function" ? api.initCaches.bind(api) : undefined;
+  const callBridge = (method, params) => {
+    if (!targetAgentName) {
+      return client.call(method, params);
+    }
+    return client.call(Methods.AGENT_API_CALL, [targetAgentName, method, params ?? []]);
+  };
+  const bridge = {
+    __consoleGetSettingsTabs() {
+      return cachedSettingsTabs;
+    },
+    __consoleGetSlashCommands() {
+      return cachedSlashCommands;
+    },
+    __consoleDispatchSlashCommand(raw, context) {
+      return callBridge(CONSOLE_DISPATCH_SLASH_COMMAND_METHOD, [raw, context]);
+    },
+    __consoleResolvePathDisplay(context) {
+      return callBridge(CONSOLE_RESOLVE_PATH_DISPLAY_METHOD, [context]);
+    },
+    __consoleListStatusSegments(context, align) {
+      return callBridge(CONSOLE_LIST_STATUS_SEGMENTS_METHOD, [context, align]);
+    },
+    __consoleRenderToolDisplay(toolName, kind, input) {
+      return callBridge(CONSOLE_RENDER_TOOL_DISPLAY_METHOD, [toolName, kind, input]);
+    },
+    __consoleLoadLatestProgress(sessionId) {
+      return callBridge(CONSOLE_PROGRESS_LOAD_LATEST_METHOD, [sessionId]);
+    },
+    __consoleLoadProgressHistory(sessionId) {
+      return callBridge(CONSOLE_PROGRESS_LOAD_HISTORY_METHOD, [sessionId]);
+    },
+    __consoleLoadProgressUiState(sessionId) {
+      return callBridge(CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD, [sessionId]);
+    },
+    __consoleSaveProgressUiState(sessionId, state) {
+      return callBridge(CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD, [sessionId, state]);
+    },
+    async initCaches() {
+      await originalInitCaches?.();
+      const [tabs, slashCommands] = await Promise.all([
+        callBridge(CONSOLE_GET_SETTINGS_TABS_METHOD).catch(() => []),
+        callBridge(CONSOLE_LIST_SLASH_COMMANDS_METHOD).catch(() => [])
+      ]);
+      cachedSettingsTabs = Array.isArray(tabs) ? tabs : [];
+      cachedSlashCommands = Array.isArray(slashCommands) ? slashCommands : [];
+    }
+  };
+  return Object.assign(api, bridge);
+}
+
+// src/remote-console-service-proxies.ts
+function createMatchCommand(commandsSource) {
+  return function matchCommand(rawInput) {
+    const raw = rawInput.trim();
+    if (!raw.startsWith("/"))
+      return;
+    let best;
+    for (const command of commandsSource()) {
+      const name = command.name.trim();
+      if (raw === name || raw.startsWith(`${name} `)) {
+        const arg = raw === name ? "" : raw.slice(name.length).trim();
+        if (!best || name.length > best.command.name.length)
+          best = { command, arg };
+      }
+    }
+    return best;
+  };
+}
+function contextKey(value) {
+  try {
+    return JSON.stringify(value ?? {});
+  } catch {
+    return String(value);
+  }
+}
+function createRemoteConsoleServicesBundle(api) {
+  const slashChanged = createListenerSignal();
+  const pathChanged = createListenerSignal();
+  const statusChanged = createListenerSignal();
+  const progressChanged = createListenerSignal();
+  const progressUpdated = createListenerSignal();
+  const pathCache = new Map;
+  const pathPending = new Set;
+  const statusCache = new Map;
+  const statusPending = new Set;
+  const getSlashCommands = () => getCachedConsoleRemoteSlashCommands(api);
+  const matchSlashCommand = createMatchCommand(getSlashCommands);
+  const refreshSlashCommands = async () => {
+    await api.initCaches?.();
+    slashChanged.emit();
+  };
+  const fetchPathDisplay = async (context) => {
+    const key = contextKey(context);
+    if (pathPending.has(key) || !api.__consoleResolvePathDisplay)
+      return;
+    pathPending.add(key);
+    try {
+      pathCache.set(key, await api.__consoleResolvePathDisplay(context));
+    } catch {
+      pathCache.set(key, undefined);
+    } finally {
+      pathPending.delete(key);
+      pathChanged.emit();
+    }
+  };
+  const fetchStatusSegments = async (context, align = "right") => {
+    const key = contextKey({ context, align });
+    if (statusPending.has(key) || !api.__consoleListStatusSegments)
+      return;
+    statusPending.add(key);
+    try {
+      statusCache.set(key, await api.__consoleListStatusSegments(context, align));
+    } catch {
+      statusCache.set(key, []);
+    } finally {
+      statusPending.delete(key);
+      statusChanged.emit();
+    }
+  };
+  const progressProvider = {
+    id: "remote-console.progress",
+    async loadLatest(sessionId) {
+      const snapshot = await api.__consoleLoadLatestProgress?.(sessionId);
+      if (snapshot)
+        progressUpdated.emit(progressProvider.id, sessionId, snapshot);
+      return snapshot;
+    },
+    loadHistory(sessionId) {
+      return api.__consoleLoadProgressHistory?.(sessionId) ?? [];
+    },
+    loadUiState(sessionId) {
+      return api.__consoleLoadProgressUiState?.(sessionId);
+    },
+    async saveUiState(sessionId, state) {
+      await api.__consoleSaveProgressUiState?.(sessionId, state);
+      progressChanged.emit();
+    }
+  };
+  const progressService = {
+    register() {
+      return { dispose() {} };
+    },
+    getProvider(id) {
+      return id === progressProvider.id ? progressProvider : undefined;
+    },
+    getActiveProvider() {
+      return progressProvider;
+    },
+    listProviders() {
+      return [progressProvider];
+    },
+    onDidChange(listener) {
+      return progressChanged.on(listener);
+    },
+    onDidUpdate(listener) {
+      return progressUpdated.on(listener);
+    }
+  };
+  const toolDisplayProviders = new Map;
+  const toolDisplayService = {
+    register() {
+      return { dispose() {} };
+    },
+    get(toolName) {
+      let provider = toolDisplayProviders.get(toolName);
+      if (!provider) {
+        provider = {
+          async getArgsSummaryAsync(input) {
+            return await api.__consoleRenderToolDisplay?.(toolName, "args", input) ?? undefined;
+          },
+          async getProgressLineAsync(input) {
+            return await api.__consoleRenderToolDisplay?.(toolName, "progress", input) ?? undefined;
+          },
+          async getResultSummaryAsync(input) {
+            return await api.__consoleRenderToolDisplay?.(toolName, "result", input) ?? undefined;
+          }
+        };
+        toolDisplayProviders.set(toolName, provider);
+      }
+      if (!provider) {
+        return;
+      }
+      return provider;
+    },
+    list() {
+      return [];
+    }
+  };
+  return {
+    slashCommand: {
+      register() {
+        return { dispose() {} };
+      },
+      list() {
+        return getSlashCommands();
+      },
+      canHandle(raw) {
+        return !!matchSlashCommand(raw);
+      },
+      async dispatch(raw, context) {
+        const result = await api.__consoleDispatchSlashCommand?.(raw, context);
+        await refreshSlashCommands().catch(() => {});
+        pathCache.delete(contextKey({ sessionId: context?.sessionId }));
+        fetchPathDisplay({ sessionId: context?.sessionId });
+        fetchStatusSegments({ sessionId: context?.sessionId }, "right");
+        return result ?? {};
+      },
+      onDidChange(listener) {
+        return slashChanged.on(listener);
+      }
+    },
+    pathDisplay: {
+      register() {
+        return { dispose() {} };
+      },
+      resolve(context = {}) {
+        const key = contextKey(context);
+        if (!pathCache.has(key) && !pathPending.has(key))
+          fetchPathDisplay(context);
+        return pathCache.get(key);
+      },
+      onDidChange(listener) {
+        return pathChanged.on(listener);
+      }
+    },
+    statusSegment: {
+      register() {
+        return { dispose() {} };
+      },
+      list(context = {}, align = "right") {
+        const key = contextKey({ context, align });
+        const cached = statusCache.get(key);
+        if (!cached && !statusPending.has(key))
+          fetchStatusSegments(context, align);
+        return cached ?? [];
+      },
+      onDidChange(listener) {
+        return statusChanged.on(listener);
+      }
+    },
+    toolDisplay: toolDisplayService,
+    progress: progressService,
+    async refreshSession(sessionId) {
+      await refreshSlashCommands().catch(() => {});
+      await fetchPathDisplay({ sessionId });
+      await fetchStatusSegments({ sessionId }, "right");
+    }
+  };
+}
 
 // src/extension-toggle.ts
 function readConsolePluginEntries(raw) {
@@ -14346,6 +14789,13 @@ class ConsolePlatform extends PlatformAdapter {
   originalApi = null;
   originalSettingsController = null;
   originalAgentName;
+  remotePluginSettingsTabs = [];
+  pluginSettingsTabListeners = new Set;
+  pluginSettingsTabServiceDisposable;
+  progressServiceChangeDisposable;
+  progressServiceUpdateDisposable;
+  localConsoleServices = new WeakMap;
+  remoteConsoleServices = new WeakMap;
   backendListenerDisposers = [];
   _isGenerating = false;
   sessionLoadEpoch = 0;
@@ -14376,44 +14826,163 @@ class ConsolePlatform extends PlatformAdapter {
       services: options.api?.services,
       extensions: options.extensions
     });
-    const services = options.api?.services;
-    if (services && !services.has(CONSOLE_TOOL_DISPLAY_SERVICE_ID)) {
-      services.register(CONSOLE_TOOL_DISPLAY_SERVICE_ID, consoleToolDisplayService, {
-        description: "Console TUI 工具显示扩展服务",
-        version: "1.0.0"
-      });
-    }
-    if (services && !services.has(CONSOLE_SLASH_COMMAND_SERVICE_ID)) {
-      services.register(CONSOLE_SLASH_COMMAND_SERVICE_ID, consoleSlashCommandService, {
-        description: "Console TUI 斜杠指令扩展服务",
-        version: "1.0.0"
-      });
-    }
-    if (services && !services.has(CONSOLE_STATUS_SEGMENT_SERVICE_ID)) {
-      services.register(CONSOLE_STATUS_SEGMENT_SERVICE_ID, consoleStatusSegmentService, {
-        description: "Console TUI 状态栏扩展片段服务",
-        version: "1.0.0"
-      });
-    }
-    if (services && !services.has(CONSOLE_PROGRESS_SERVICE_ID)) {
-      services.register(CONSOLE_PROGRESS_SERVICE_ID, consoleProgressService, {
-        description: "Console TUI 通用进度面板服务",
-        version: "1.0.0"
-      });
-    }
-    consoleProgressService.onDidChange(() => {
-      this.syncProgress();
-    });
-    consoleProgressService.onDidUpdate((_providerId, sid, snapshot) => {
-      if (sid === this.sessionId)
-        this.appHandle?.setProgress(snapshot);
-    });
+    this.getConsoleServicesBundle();
+    this.bindPluginSettingsTabService();
+    this.remotePluginSettingsTabs = getCachedConsoleRemoteSettingsTabs(this.api);
   }
   getPlanModeService() {
     return this.api?.services?.get?.(PLAN_MODE_SERVICE_ID);
   }
   getRemoteExecEnvironmentService() {
     return this.api?.services?.get?.(REMOTE_EXEC_ENVIRONMENT_SERVICE_ID);
+  }
+  getLocalConsoleSettingsTabService() {
+    const currentApi = this.api;
+    return currentApi?.services?.get?.(CONSOLE_SETTINGS_TAB_SERVICE_ID);
+  }
+  hasRemotePluginSettingsTabSource() {
+    return hasConsoleRemoteBridge(this.api) || this._isRemote;
+  }
+  listPluginSettingsTabs() {
+    if (this.hasRemotePluginSettingsTabSource()) {
+      if (this.remotePluginSettingsTabs.length > 0)
+        return [...this.remotePluginSettingsTabs];
+      return getCachedConsoleRemoteSettingsTabs(this.api);
+    }
+    return this.getLocalConsoleSettingsTabService()?.list?.() ?? [];
+  }
+  getRemoteConsoleServicesBundle() {
+    const currentApi = this.api;
+    if (!hasConsoleRemoteBridge(currentApi))
+      return;
+    const existing = this.remoteConsoleServices.get(currentApi);
+    if (existing)
+      return existing;
+    const bundle = createRemoteConsoleServicesBundle(currentApi);
+    this.remoteConsoleServices.set(currentApi, bundle);
+    return bundle;
+  }
+  getConsoleServicesBundle() {
+    return this.getLocalConsoleServicesBundle() ?? this.getRemoteConsoleServicesBundle();
+  }
+  getLocalConsoleServicesBundle() {
+    const currentApi = this.api;
+    const services = currentApi?.services;
+    if (!services)
+      return;
+    const existing = this.localConsoleServices.get(services);
+    if (existing)
+      return existing;
+    const bundle = {
+      toolDisplay: createConsoleToolDisplayService(),
+      slashCommand: createConsoleSlashCommandService(),
+      pathDisplay: createConsolePathDisplayService(),
+      statusSegment: createConsoleStatusSegmentService(),
+      progress: createConsoleProgressService(),
+      registrations: []
+    };
+    if (!services.has(CONSOLE_TOOL_DISPLAY_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_TOOL_DISPLAY_SERVICE_ID, bundle.toolDisplay, {
+        description: "Console TUI 工具显示扩展服务",
+        version: "1.0.0"
+      }));
+    } else {
+      bundle.toolDisplay = services.get(CONSOLE_TOOL_DISPLAY_SERVICE_ID);
+    }
+    if (!services.has(CONSOLE_SLASH_COMMAND_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_SLASH_COMMAND_SERVICE_ID, bundle.slashCommand, {
+        description: "Console TUI 斜杠指令扩展服务",
+        version: "1.0.0"
+      }));
+    } else {
+      bundle.slashCommand = services.get(CONSOLE_SLASH_COMMAND_SERVICE_ID);
+    }
+    if (!services.has(CONSOLE_PATH_DISPLAY_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_PATH_DISPLAY_SERVICE_ID, bundle.pathDisplay, {
+        description: "Console TUI 左下角路径显示扩展服务",
+        version: "1.0.0"
+      }));
+    } else {
+      bundle.pathDisplay = services.get(CONSOLE_PATH_DISPLAY_SERVICE_ID);
+    }
+    if (!services.has(CONSOLE_STATUS_SEGMENT_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_STATUS_SEGMENT_SERVICE_ID, bundle.statusSegment, {
+        description: "Console TUI 状态栏扩展片段服务",
+        version: "1.0.0"
+      }));
+    } else {
+      bundle.statusSegment = services.get(CONSOLE_STATUS_SEGMENT_SERVICE_ID);
+    }
+    if (!services.has(CONSOLE_PROGRESS_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_PROGRESS_SERVICE_ID, bundle.progress, {
+        description: "Console TUI 通用进度面板服务",
+        version: "1.0.0"
+      }));
+    } else {
+      bundle.progress = services.get(CONSOLE_PROGRESS_SERVICE_ID);
+    }
+    this.localConsoleServices.set(services, bundle);
+    return bundle;
+  }
+  getLocalProgressService() {
+    return this.getConsoleServicesBundle()?.progress;
+  }
+  bindProgressService() {
+    try {
+      this.progressServiceChangeDisposable?.dispose();
+    } catch {}
+    try {
+      this.progressServiceUpdateDisposable?.dispose();
+    } catch {}
+    const progressService = this.getLocalProgressService();
+    this.progressServiceChangeDisposable = progressService?.onDidChange(() => {
+      this.syncProgress();
+    });
+    this.progressServiceUpdateDisposable = progressService?.onDidUpdate((_providerId, sid, snapshot) => {
+      if (sid === this.sessionId)
+        this.appHandle?.setProgress(snapshot);
+    });
+  }
+  emitPluginSettingsTabsChanged() {
+    for (const listener of [...this.pluginSettingsTabListeners]) {
+      try {
+        listener();
+      } catch {}
+    }
+  }
+  bindPluginSettingsTabService() {
+    try {
+      this.pluginSettingsTabServiceDisposable?.dispose();
+    } catch {}
+    this.pluginSettingsTabServiceDisposable = this.getLocalConsoleSettingsTabService()?.onDidChange(() => this.emitPluginSettingsTabsChanged());
+  }
+  onPluginSettingsTabsChanged(listener) {
+    this.pluginSettingsTabListeners.add(listener);
+    return {
+      dispose: () => {
+        this.pluginSettingsTabListeners.delete(listener);
+      }
+    };
+  }
+  async refreshRemoteConsoleServices(sessionId = this.sessionId) {
+    try {
+      await this.getRemoteConsoleServicesBundle()?.refreshSession?.(sessionId);
+    } catch {}
+  }
+  async refreshRemotePluginSettingsTabsCache() {
+    if (!this.hasRemotePluginSettingsTabSource())
+      return;
+    const api = this.api;
+    try {
+      if (typeof api?.initCaches === "function") {
+        await api.initCaches();
+      }
+      this.remotePluginSettingsTabs = getCachedConsoleRemoteSettingsTabs(api);
+    } catch {
+      this.remotePluginSettingsTabs = [];
+    }
+    this.emitPluginSettingsTabsChanged();
+    await this.refreshRemoteConsoleServices(this.sessionId);
   }
   async restoreRemoteExecEnvironmentForSession(sessionId, validate) {
     const service = this.getRemoteExecEnvironmentService();
@@ -14465,7 +15034,7 @@ class ConsolePlatform extends PlatformAdapter {
   }
   async syncProgress() {
     try {
-      const provider = consoleProgressService.getActiveProvider();
+      const provider = this.getLocalProgressService()?.getActiveProvider();
       const snapshot = await provider?.loadLatest?.(this.sessionId);
       this.appHandle?.setProgress(snapshot ?? null);
     } catch {
@@ -14506,6 +15075,9 @@ class ConsolePlatform extends PlatformAdapter {
   }
   async start() {
     this.api?.setLogLevel?.(LogLevel.SILENT);
+    this.getConsoleServicesBundle();
+    this.bindPluginSettingsTabService();
+    this.bindProgressService();
     configureBundledOpenTuiTreeSitter(this.isCompiledBinary);
     this.onBackend("assistant:content", (sid, content) => {
       if (sid === this.sessionId) {
@@ -14589,6 +15161,7 @@ class ConsolePlatform extends PlatformAdapter {
         this.appHandle?.finalizeResponse(durationMs);
         this.appHandle?.clearNotificationContext();
         this.syncPlanModeStatus();
+        this.refreshRemoteConsoleServices(sid);
       }
     });
     this.onBackend("turn:start", (sid, _turnId, mode) => {
@@ -14717,7 +15290,8 @@ ${summaryText}`;
         };
         process.on("SIGCONT", this._sigcontHandler);
       }
-      const element = React14.createElement(App, {
+      const consoleServices = this.getConsoleServicesBundle();
+      const element = React15.createElement(App, {
         onReady: (handle) => {
           this.appHandle = handle;
           this.syncPlanModeStatus();
@@ -14837,9 +15411,14 @@ ${summaryText}`;
         onDeleteExtension: (name) => this.handleDeleteExtension(name),
         onPreviewUpdateExtension: (name) => this.handlePreviewUpdateExtension(name),
         onUpdateExtension: (name) => this.handleUpdateExtension(name),
-        onListPluginSettingsTabs: () => this.api?.getConsoleSettingsTabs?.() ?? [],
+        onListPluginSettingsTabs: () => this.listPluginSettingsTabs(),
+        onPluginSettingsTabsChanged: (listener) => this.onPluginSettingsTabsChanged(listener),
         onRemoteConnect: (name) => this.handleRemoteConnect(name),
         onRemoteDisconnect: () => this.handleRemoteDisconnect(),
+        slashCommandService: consoleServices?.slashCommand,
+        pathDisplayService: consoleServices?.pathDisplay,
+        statusSegmentService: consoleServices?.statusSegment,
+        toolDisplayService: consoleServices?.toolDisplay,
         remoteHost: this._remoteHost || undefined,
         onThinkingEffortChange: (level) => this.applyThinkingEffort(level),
         agentName: this.agentName,
@@ -14852,13 +15431,25 @@ ${summaryText}`;
         initWarnings: this.initWarnings,
         initWarningsColor: this.initWarningsColor,
         initWarningsIcon: this.initWarningsIcon,
-        pluginSettingsTabs: this.api?.getConsoleSettingsTabs?.() ?? []
+        pluginSettingsTabs: this.listPluginSettingsTabs()
       });
       createRoot(this.renderer).render(element);
     });
   }
   async stop(options = {}) {
     this.disposeBackendListeners();
+    try {
+      this.pluginSettingsTabServiceDisposable?.dispose();
+    } catch {}
+    this.pluginSettingsTabServiceDisposable = undefined;
+    try {
+      this.progressServiceChangeDisposable?.dispose();
+    } catch {}
+    try {
+      this.progressServiceUpdateDisposable?.dispose();
+    } catch {}
+    this.progressServiceChangeDisposable = undefined;
+    this.progressServiceUpdateDisposable = undefined;
     if (!this.renderer)
       return;
     const r = this.renderer;
@@ -14927,11 +15518,14 @@ ${summaryText}`;
       this.sessionId = generateSessionId();
       this.currentToolIds.clear();
       this._activeHandles.clear();
-      const peerAPI = network.getPeerAPI?.(targetName);
+      const rawPeerAPI = network.getPeerAPI?.(targetName);
+      const peerAPI = this.remoteClient && rawPeerAPI ? attachConsoleRemoteBridge(rawPeerAPI, this.remoteClient, { targetAgentName: targetName }) : rawPeerAPI;
       if (peerAPI) {
         if (typeof peerAPI.initCaches === "function")
           await peerAPI.initCaches();
         this.api = peerAPI;
+        this.remotePluginSettingsTabs = getCachedConsoleRemoteSettingsTabs(peerAPI);
+        this.bindPluginSettingsTabService();
         this.settingsController = new ConsoleSettingsController({
           backend: targetHandle,
           configManager: peerAPI.configManager,
@@ -14960,10 +15554,11 @@ ${summaryText}`;
         remoteBackend._streamEnabled = handshake.streamEnabled;
         await remoteBackend.initCaches();
         await wsClient.subscribe("*");
-        remoteApi = createRemoteApiProxy2(wsClient, handshake.agentName);
+        remoteApi = attachConsoleRemoteBridge(createRemoteApiProxy2(wsClient, handshake.agentName), wsClient, { targetAgentName: handshake.agentName });
         if (typeof remoteApi.initCaches === "function") {
           await remoteApi.initCaches();
         }
+        this.remotePluginSettingsTabs = getCachedConsoleRemoteSettingsTabs(remoteApi);
       } catch (initErr) {
         wsClient.disconnect();
         throw initErr;
@@ -14973,6 +15568,7 @@ ${summaryText}`;
       this.originalSettingsController = this.settingsController;
       this.originalAgentName = this.agentName;
       this.remoteClient = wsClient;
+      this.bindPluginSettingsTabService();
       this.backend = remoteBackend;
       this.api = remoteApi;
       this.settingsController = new ConsoleSettingsController({
@@ -14988,6 +15584,7 @@ ${summaryText}`;
       } catch {
         this._remoteHost = url;
       }
+      this.emitPluginSettingsTabsChanged();
       const modelInfo = remoteBackend.getCurrentModelInfo?.();
       if (modelInfo) {
         this.modelName = modelInfo.modelName ?? this.modelName;
@@ -15148,6 +15745,8 @@ ${summaryText}`;
     this.agentName = this.originalAgentName;
     this.originalAgentName = undefined;
     this._isRemote = false;
+    this.remotePluginSettingsTabs = [];
+    this.emitPluginSettingsTabsChanged();
     this._remoteHost = "";
     this.initWarnings = [`已断开远程连接 (${disconnectedHost})，已回到本地`];
     this.initWarningsColor = "#74b9ff";
@@ -15193,6 +15792,7 @@ ${summaryText}`;
     this.appHandle?.setProgress(null);
     this.clearRemoteExecSession(this.sessionId);
     this.appHandle?.setAutoEditActive(false);
+    this.refreshRemoteConsoleServices(this.sessionId);
   }
   openToolDetail(toolId) {
     if (!toolId) {
@@ -15394,21 +15994,21 @@ ${summaryText}`;
   }
   async loadProgressArchives(sessionId) {
     try {
-      return await consoleProgressService.getActiveProvider()?.loadHistory?.(sessionId) ?? [];
+      return await this.getLocalProgressService()?.getActiveProvider()?.loadHistory?.(sessionId) ?? [];
     } catch {
       return [];
     }
   }
   async loadProgressUiState(sessionId) {
     try {
-      return await consoleProgressService.getActiveProvider()?.loadUiState?.(sessionId);
+      return await this.getLocalProgressService()?.getActiveProvider()?.loadUiState?.(sessionId);
     } catch {
       return;
     }
   }
   async saveProgressUiState(sessionId, state) {
     try {
-      await consoleProgressService.getActiveProvider()?.saveUiState?.(sessionId, state);
+      await this.getLocalProgressService()?.getActiveProvider()?.saveUiState?.(sessionId, state);
     } catch {}
   }
   async handleLoadSession(id) {
@@ -15419,6 +16019,7 @@ ${summaryText}`;
     const userInputEpochAtLoadStart = this.userInputEpoch;
     const envRestorePromise = this.restoreRemoteExecEnvironmentForSession(id, true);
     this.syncPlanModeStatus();
+    await this.refreshRemoteConsoleServices(id);
     await this.syncProgress();
     this.syncAutoEditStatus();
     const history = await this.backend.getHistory?.(id) ?? [];
@@ -15793,7 +16394,10 @@ ${summaryText}`;
       ...api.extensions,
       getRemoteRequestPath: (extensionName) => this.remoteExtensionRequestPaths.get(extensionName)
     } : undefined;
-    return handleConsoleToggleExtension({ ...api, extensions }, name, desiredEnabled);
+    const result = await handleConsoleToggleExtension({ ...api, extensions }, name, desiredEnabled);
+    if (result.ok)
+      await this.refreshRemotePluginSettingsTabsCache();
+    return result;
   }
   async handleInstallGitExtension(target, scope = "agent") {
     const ext = this.api?.extensions;
@@ -15808,17 +16412,23 @@ ${summaryText}`;
       const hasPlugin = pkg ? this.hasPluginContribution(pkg.manifest) : true;
       const scopeLabel = scope === "global" ? "全局" : "此 agent";
       if (!hasPlugin) {
-        return { ok: true, message: `已拉取安装到${scopeLabel} "${result.name}@${result.version}"。平台扩展通常需要重启或配置 platform.yaml 后生效。` };
+        const response2 = { ok: true, message: `已拉取安装到${scopeLabel} "${result.name}@${result.version}"。平台扩展通常需要重启或配置 platform.yaml 后生效。` };
+        await this.refreshRemotePluginSettingsTabsCache();
+        return response2;
       }
       const active = this.api?.pluginManager?.listPlugins?.() ?? [];
       const alreadyActive = active.some((item) => item.name === result.name);
       if (alreadyActive) {
         this.setPluginConfigEnabled(result.name, true);
-        return { ok: true, message: `已覆盖安装到${scopeLabel} "${result.name}@${result.version}"。当前运行实例已加载同名插件，重启后使用新代码。` };
+        const response2 = { ok: true, message: `已覆盖安装到${scopeLabel} "${result.name}@${result.version}"。当前运行实例已加载同名插件，重启后使用新代码。` };
+        await this.refreshRemotePluginSettingsTabsCache();
+        return response2;
       }
       await ext.activate(result.name);
       this.setPluginConfigEnabled(result.name, true);
-      return { ok: true, message: `已拉取安装到${scopeLabel}并启用 "${result.name}@${result.version}"` };
+      const response = { ok: true, message: `已拉取安装到${scopeLabel}并启用 "${result.name}@${result.version}"` };
+      await this.refreshRemotePluginSettingsTabsCache();
+      return response;
     } catch (err) {
       return { ok: false, message: `Git 拉取失败: ${err instanceof Error ? err.message : String(err)}` };
     }
@@ -15841,7 +16451,9 @@ ${summaryText}`;
     try {
       await ext.remove(name, scope ? { scope } : undefined);
       this.removePluginConfigEntry(name);
-      return { ok: true, message: `已删除 "${name}"` };
+      const response = { ok: true, message: `已删除 "${name}"` };
+      await this.refreshRemotePluginSettingsTabsCache();
+      return response;
     } catch (err) {
       return { ok: false, message: `删除失败: ${err instanceof Error ? err.message : String(err)}` };
     }
@@ -15880,7 +16492,9 @@ ${summaryText}`;
     }
     try {
       const result = await ext.updateGit(name, { scope });
-      return { ok: true, message: `已升级 "${result.name}@${result.version}" 到 ${result.gitCommit ?? "最新 commit"}。当前运行中的插件可能需要重启后完全生效。` };
+      const response = { ok: true, message: `已升级 "${result.name}@${result.version}" 到 ${result.gitCommit ?? "最新 commit"}。当前运行中的插件可能需要重启后完全生效。` };
+      await this.refreshRemotePluginSettingsTabsCache();
+      return response;
     } catch (err) {
       return { ok: false, message: `升级失败: ${err instanceof Error ? err.message : String(err)}` };
     }
