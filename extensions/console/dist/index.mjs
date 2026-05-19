@@ -16,7 +16,7 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// ../../packages/extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/dist/logger.js
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
@@ -680,7 +680,7 @@ var init_remote_wizard = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/framing.js
+// node_modules/irises-extension-sdk/dist/ipc/framing.js
 import { Transform } from "node:stream";
 function encodeFrame(data) {
   const payload = Buffer.from(JSON.stringify(data), "utf-8");
@@ -731,7 +731,7 @@ var init_framing = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/protocol.js
+// node_modules/irises-extension-sdk/dist/ipc/protocol.js
 function isRequest(msg) {
   return "id" in msg && "method" in msg;
 }
@@ -864,7 +864,7 @@ var init_protocol = __esm(() => {
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-tool-handle.js
+// node_modules/irises-extension-sdk/dist/ipc/remote-tool-handle.js
 import { EventEmitter } from "node:events";
 var logger, RemoteToolHandle;
 var init_remote_tool_handle = __esm(() => {
@@ -968,7 +968,7 @@ var init_remote_tool_handle = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-backend-handle.js
+// node_modules/irises-extension-sdk/dist/ipc/remote-backend-handle.js
 import { EventEmitter as EventEmitter2 } from "node:events";
 var logger2, RemoteBackendHandle;
 var init_remote_backend_handle = __esm(() => {
@@ -1238,7 +1238,7 @@ var init_remote_backend_handle = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-api-proxy.js
+// node_modules/irises-extension-sdk/dist/ipc/remote-api-proxy.js
 function callApi(client, targetAgentName, method, params) {
   if (!targetAgentName) {
     return client.call(method, params);
@@ -1315,7 +1315,7 @@ var init_remote_api_proxy = __esm(() => {
   logger3 = createExtensionLogger("RemoteApiProxy");
 });
 
-// ../../packages/extension-sdk/dist/ipc/index.js
+// node_modules/irises-extension-sdk/dist/ipc/index.js
 var exports_ipc = {};
 __export(exports_ipc, {
   isResponse: () => isResponse,
@@ -1345,7 +1345,7 @@ import React14 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// ../../packages/extension-sdk/dist/platform.js
+// node_modules/irises-extension-sdk/dist/platform.js
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1490,9 +1490,9 @@ class PlatformAdapter {
   }
 }
 
-// ../../packages/extension-sdk/dist/index.js
+// node_modules/irises-extension-sdk/dist/index.js
 init_logger();
-// ../../packages/extension-sdk/dist/utils/dependencies.js
+// node_modules/irises-extension-sdk/dist/utils/dependencies.js
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
@@ -1629,11 +1629,7 @@ async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
     installArgs: args
   };
 }
-// ../../packages/extension-sdk/dist/utils/git.js
-import * as fs2 from "node:fs";
-import * as path2 from "node:path";
-
-// ../../packages/extension-sdk/dist/utils/paths.js
+// node_modules/irises-extension-sdk/dist/utils/paths.js
 function normalizeText(value) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -1648,8 +1644,104 @@ function normalizeRelativeFilePath(input, label = "文件路径") {
   }
   return parts.join("/");
 }
+function normalizeRequestedExtensionPath(requested, label) {
+  const trimmed = requested.trim();
+  if (!trimmed) {
+    throw new Error(`${label}不能为空`);
+  }
+  let normalized = trimmed.replace(/\\/g, "/").trim();
+  normalized = normalized.replace(/^\.\//, "").replace(/^\/+/, "");
+  if (normalized === "extensions" || normalized === "extensions/") {
+    throw new Error(`${label}不能为空`);
+  }
+  if (normalized.startsWith("extensions/")) {
+    normalized = normalized.slice("extensions/".length);
+  }
+  return normalizeRelativeFilePath(normalized, label);
+}
+function encodeRepoPathForUrl(repoPath) {
+  return repoPath.split("/").map((part) => encodeURIComponent(part)).join("/");
+}
 
-// ../../packages/extension-sdk/dist/utils/git.js
+// node_modules/irises-extension-sdk/dist/utils/manifest.js
+var MANIFEST_FILE = "manifest.json";
+function parseExtensionManifest(raw, sourceLabel) {
+  if (!raw || typeof raw !== "object") {
+    throw new Error(`extension manifest 格式无效，应为对象: ${sourceLabel}`);
+  }
+  const manifest = raw;
+  if (!normalizeText(manifest.name)) {
+    throw new Error(`extension manifest 缺少 name: ${sourceLabel}`);
+  }
+  if (!normalizeText(manifest.version)) {
+    throw new Error(`extension manifest 缺少 version: ${sourceLabel}`);
+  }
+  return manifest;
+}
+
+// node_modules/irises-extension-sdk/dist/utils/remote.js
+var DEFAULT_REMOTE_EXTENSION_INDEX_URL = "https://raw.githubusercontent.com/Lianues/Iris/main/extensions/index.json";
+var DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL = "https://raw.githubusercontent.com/Lianues/Iris/main";
+var DEFAULT_REMOTE_EXTENSIONS_SUBDIR = "extensions";
+var DEFAULT_REMOTE_EXTENSION_REQUEST_TIMEOUT_MS = 15000;
+function getRemoteExtensionRequestTimeoutMs() {
+  const raw = Number(process.env.IRIS_EXTENSION_REMOTE_TIMEOUT_MS?.trim());
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_REMOTE_EXTENSION_REQUEST_TIMEOUT_MS;
+}
+function getRemoteExtensionIndexUrl(options) {
+  const configured = options?.remoteIndexUrl?.trim() || process.env.IRIS_EXTENSION_REMOTE_INDEX_URL?.trim();
+  return configured || DEFAULT_REMOTE_EXTENSION_INDEX_URL;
+}
+function getRemoteRawBaseUrl(options) {
+  const configured = options?.remoteRawBaseUrl?.trim() || process.env.IRIS_EXTENSION_REMOTE_RAW_BASE_URL?.trim();
+  return configured || DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL;
+}
+function getRemoteExtensionsSubdir(options) {
+  const configured = options?.remoteExtensionsSubdir?.trim() || process.env.IRIS_EXTENSION_REMOTE_SUBDIR?.trim();
+  return normalizeRelativeFilePath(configured || DEFAULT_REMOTE_EXTENSIONS_SUBDIR, "远程 extension 根目录");
+}
+async function fetchWithTimeout(url, label) {
+  const timeoutMs = getRemoteExtensionRequestTimeoutMs();
+  const controller = new AbortController;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    const message = error instanceof Error && error.name === "AbortError" ? `${label} 请求超时（${timeoutMs}ms）: ${url}` : `${label} 请求失败: ${error instanceof Error ? error.message : String(error)}: ${url}`;
+    throw new Error(message);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function fetchJson(url, label) {
+  const response = await fetchWithTimeout(url, label);
+  if (!response.ok) {
+    throw new Error(`${label} 读取失败 (${response.status} ${response.statusText}): ${url}`);
+  }
+  return await response.json();
+}
+async function fetchRemoteIndex(options) {
+  const raw = await fetchJson(getRemoteExtensionIndexUrl(options), "远程 extension 索引");
+  if (!Array.isArray(raw.extensions)) {
+    throw new Error("远程 extension 索引返回格式无效");
+  }
+  return raw.extensions.map((entry) => normalizeRequestedExtensionPath(String(entry), "远程 extension 路径"));
+}
+function buildRemoteExtensionPath(requested, options) {
+  return `${getRemoteExtensionsSubdir(options)}/${requested}`;
+}
+function buildRemoteExtensionFileUrl(requestedPath, relativePath, options) {
+  const repoPath = `${buildRemoteExtensionPath(requestedPath, options)}/${relativePath}`;
+  return `${getRemoteRawBaseUrl(options)}/${encodeRepoPathForUrl(repoPath)}`;
+}
+async function fetchRemoteManifest(requestedPath, options) {
+  const manifestUrl = buildRemoteExtensionFileUrl(requestedPath, MANIFEST_FILE, options);
+  const raw = await fetchJson(manifestUrl, "extension manifest");
+  return parseExtensionManifest(raw, `${buildRemoteExtensionPath(requestedPath, options)}/${MANIFEST_FILE}`);
+}
+// node_modules/irises-extension-sdk/dist/utils/git.js
+import * as fs2 from "node:fs";
+import * as path2 from "node:path";
 var GIT_INSTALL_METADATA_FILE = ".iris-extension-install.json";
 function stripGitPlusProtocol(url) {
   return url.startsWith("git+") ? url.slice("git+".length) : url;
@@ -4408,39 +4500,9 @@ init_terminal_compat();
 // src/tool-renderers/diff-preview.tsx
 init_terminal_compat();
 import { useTerminalDimensions as useTerminalDimensions4 } from "@opentui/react";
-import { jsxDEV as jsxDEV18, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
-var DEFAULT_MAX_ITEMS = 3;
-var DEFAULT_MAX_LINES = 80;
-function isRecord(value) {
-  return value != null && typeof value === "object" && !Array.isArray(value);
-}
-function isDiffPreviewResponse(value) {
-  return isRecord(value) && typeof value.toolName === "string" && Array.isArray(value.items);
-}
-function extractResultDiffPreview(result) {
-  if (!isRecord(result))
-    return;
-  const ui = result.__ui;
-  return isDiffPreviewResponse(ui?.diffPreview) ? ui.diffPreview : undefined;
-}
-function createInlineDiffPreview(input) {
-  if (typeof input.diff !== "string" || input.diff.trim().length === 0)
-    return;
-  const filePath = input.filePath || "patch";
-  return {
-    toolName: input.toolName,
-    title: "Diff 预览",
-    toolLabel: input.toolName,
-    summary: [],
-    items: [{
-      filePath,
-      label: input.label ?? filePath,
-      diff: input.diff,
-      added: input.added ?? 0,
-      removed: input.removed ?? 0
-    }]
-  };
-}
+
+// src/tool-renderers/diff-preview-layout.ts
+init_terminal_compat();
 function normalizeDiffText(diff) {
   return diff.replace(/\r\n/g, `
 `).replace(/\r/g, `
@@ -4484,7 +4546,7 @@ function extractDisplayHunkHeader(header) {
   const m = header.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
   return m ? m[0] : header;
 }
-function formatLineNumber(value, width) {
+function formatDiffPreviewLineNumber(value, width) {
   if (width <= 0)
     return "";
   if (value === undefined || !Number.isFinite(value)) {
@@ -4492,13 +4554,12 @@ function formatLineNumber(value, width) {
   }
   return String(value).padStart(width, " ");
 }
-function classifyDiffLine(rawLine, hunkIndex, hunkStatus) {
+function classifyDiffLine(rawLine, hunkStatus) {
   const displayLine = rawLine.startsWith("@@") && hunkStatus?.correctedHeader ? extractDisplayHunkHeader(hunkStatus.correctedHeader) : rawLine.startsWith("@@") ? extractDisplayHunkHeader(rawLine) : rawLine;
   if (displayLine.startsWith("@@")) {
     return {
       kind: "hunk",
       text: displayLine,
-      hunkIndex,
       hunkStatus
     };
   }
@@ -4524,7 +4585,7 @@ function estimateRenderableLines(item) {
   return normalizeDiffText(item.diff).split(`
 `).filter((line) => line.length > 0 && !isUnifiedFileHeader(line)).length;
 }
-function collectRenderLines(preview, maxItems, maxLines, hunkStatuses) {
+function collectRenderLines(preview, maxItems, hunkStatuses) {
   const lines = [];
   let hiddenLines = 0;
   let hiddenItems = 0;
@@ -4532,10 +4593,6 @@ function collectRenderLines(preview, maxItems, maxLines, hunkStatuses) {
   let currentOldLine;
   let currentNewLine;
   let hunkCounter = 0;
-  const pushLine = (line) => {
-    lines.push(line);
-    return true;
-  };
   for (const item of preview.items ?? []) {
     if (!item.diff && !item.message)
       continue;
@@ -4545,8 +4602,7 @@ function collectRenderLines(preview, maxItems, maxLines, hunkStatuses) {
       continue;
     }
     renderedItems++;
-    const header = `${item.filePath || item.label || "diff"}${formatStats(item)}`;
-    pushLine({ kind: "file", text: header });
+    lines.push({ kind: "file", text: `${item.filePath || item.label || "diff"}${formatStats(item)}` });
     if (item.diff) {
       const diffLines = normalizeDiffText(item.diff).split(`
 `);
@@ -4577,16 +4633,104 @@ function collectRenderLines(preview, maxItems, maxLines, hunkStatuses) {
             currentNewLine = currentNewLine !== undefined ? currentNewLine + 1 : undefined;
           }
         }
-        pushLine({ ...classifyDiffLine(rawLine, currentHunkIndex, hunkStatus), oldLineNumber, newLineNumber });
+        lines.push({ ...classifyDiffLine(rawLine, hunkStatus), oldLineNumber, newLineNumber });
         if (rawLine.startsWith("@@") && hunkStatus?.fallbackMessage) {
-          pushLine({ kind: "message", text: `fallback: ${hunkStatus.fallbackMessage}` });
+          lines.push({ kind: "message", text: `fallback: ${hunkStatus.fallbackMessage}` });
         }
       }
     } else if (item.message) {
-      pushLine({ kind: "message", text: item.message });
+      lines.push({ kind: "message", text: item.message });
     }
   }
   return { lines, hiddenLines, hiddenItems };
+}
+function layoutCompactDiffPreview({
+  preview,
+  terminalWidth,
+  maxItems,
+  maxLines,
+  hunkStatuses = []
+}) {
+  if (!preview || !Array.isArray(preview.items) || preview.items.length === 0)
+    return;
+  const { lines, hiddenLines, hiddenItems } = collectRenderLines(preview, maxItems, hunkStatuses);
+  if (lines.length === 0)
+    return;
+  const lineNumberWidth = lines.reduce((max, line) => {
+    const oldWidth = line.oldLineNumber !== undefined ? String(line.oldLineNumber).length : 0;
+    const newWidth = line.newLineNumber !== undefined ? String(line.newLineNumber).length : 0;
+    return Math.max(max, oldWidth, newWidth);
+  }, 0);
+  const safeTerminalWidth = Math.max(20, terminalWidth || 80);
+  const standaloneLineWidth = Math.max(12, safeTerminalWidth - 2);
+  const lineNumberColumnsWidth = lineNumberWidth > 0 ? getTextWidth(`${" ".repeat(lineNumberWidth)} ${" ".repeat(lineNumberWidth)}`) : 0;
+  const separatorText = ` ${BORDER_CHARS.vertical} `;
+  const separatorWidth = getTextWidth(separatorText);
+  const prefixWidth = lineNumberColumnsWidth + separatorWidth;
+  const availableTextWidth = Math.max(12, safeTerminalWidth - prefixWidth - 6);
+  const rowLimit = Math.max(1, maxLines);
+  const rows = [];
+  let clippedRows = 0;
+  for (const [index, line] of lines.entries()) {
+    const renderText = line.kind === "hunk" && line.hunkStatus?.success !== undefined ? `${line.hunkStatus.success ? "✓" : "✗"} ${line.text}` : line.text;
+    const wrappedSegments = wrapToWidth(renderText, line.kind === "file" || line.kind === "hunk" || line.kind === "message" ? standaloneLineWidth : availableTextWidth);
+    if (rows.length >= rowLimit) {
+      clippedRows += wrappedSegments.length;
+      continue;
+    }
+    const visibleSegmentCount = Math.min(rowLimit - rows.length, wrappedSegments.length);
+    for (let segmentIndex = 0;segmentIndex < visibleSegmentCount; segmentIndex++) {
+      rows.push({
+        key: `diff-preview.${index}.${segmentIndex}`,
+        kind: line.kind,
+        text: wrappedSegments[segmentIndex],
+        hunkStatus: line.hunkStatus,
+        showGutter: line.kind === "ctx" || line.kind === "add" || line.kind === "del",
+        oldLineNumber: segmentIndex === 0 ? line.oldLineNumber : undefined,
+        newLineNumber: segmentIndex === 0 ? line.newLineNumber : undefined
+      });
+    }
+    if (visibleSegmentCount < wrappedSegments.length) {
+      clippedRows += wrappedSegments.length - visibleSegmentCount;
+    }
+  }
+  return { rows, hiddenLines, hiddenItems, clippedRows, lineNumberWidth, separatorText };
+}
+
+// src/tool-renderers/diff-preview.tsx
+import { jsxDEV as jsxDEV18, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
+var DEFAULT_MAX_ITEMS = 3;
+var DEFAULT_MAX_LINES = 80;
+function isRecord(value) {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+function isDiffPreviewResponse(value) {
+  return isRecord(value) && typeof value.toolName === "string" && Array.isArray(value.items);
+}
+function extractResultDiffPreview(result) {
+  if (!isRecord(result))
+    return;
+  const ui = result.__ui;
+  const diffPreview = ui?.diffPreview;
+  return isDiffPreviewResponse(diffPreview) ? diffPreview : undefined;
+}
+function createInlineDiffPreview(input) {
+  if (typeof input.diff !== "string" || input.diff.trim().length === 0)
+    return;
+  const filePath = input.filePath || "patch";
+  return {
+    toolName: input.toolName,
+    title: "Diff 预览",
+    toolLabel: input.toolName,
+    summary: [],
+    items: [{
+      filePath,
+      label: input.label ?? filePath,
+      diff: input.diff,
+      added: input.added ?? 0,
+      removed: input.removed ?? 0
+    }]
+  };
 }
 function getLineColor(kind, hunkStatus) {
   switch (kind) {
@@ -4616,56 +4760,25 @@ function CompactDiffPreview({
   hunkStatuses = []
 }) {
   const { width: terminalWidth } = useTerminalDimensions4();
-  if (!preview || !Array.isArray(preview.items) || preview.items.length === 0)
+  const layout = layoutCompactDiffPreview({ preview, terminalWidth, maxItems, maxLines, hunkStatuses });
+  if (!layout || layout.rows.length === 0)
     return null;
-  const { lines, hiddenLines, hiddenItems } = collectRenderLines(preview, maxItems, maxLines, hunkStatuses);
-  if (lines.length === 0)
-    return null;
-  const lineNumberWidth = lines.reduce((max, line) => {
-    const oldWidth = line.oldLineNumber !== undefined ? String(line.oldLineNumber).length : 0;
-    const newWidth = line.newLineNumber !== undefined ? String(line.newLineNumber).length : 0;
-    return Math.max(max, oldWidth, newWidth);
-  }, 0);
-  const safeTerminalWidth = Math.max(20, terminalWidth || 80);
-  const standaloneLineWidth = Math.max(12, safeTerminalWidth - 2);
-  const lineNumberColumnsWidth = lineNumberWidth > 0 ? getTextWidth(`${" ".repeat(lineNumberWidth)} ${" ".repeat(lineNumberWidth)}`) : 0;
-  const separatorText = ` ${BORDER_CHARS.vertical} `;
-  const separatorWidth = getTextWidth(separatorText);
-  const prefixWidth = lineNumberColumnsWidth + separatorWidth;
-  const availableTextWidth = Math.max(12, safeTerminalWidth - prefixWidth - 6);
-  const rows = [];
-  let clippedRows = 0;
-  for (const [index, line] of lines.entries()) {
-    const renderText = line.kind === "hunk" && line.hunkStatus?.success !== undefined ? `${line.hunkStatus.success ? "✓" : "✗"} ${line.text}` : line.text;
-    const wrappedSegments = wrapToWidth(renderText, line.kind === "file" || line.kind === "hunk" || line.kind === "message" ? standaloneLineWidth : availableTextWidth);
-    for (let segmentIndex = 0;segmentIndex < wrappedSegments.length; segmentIndex++) {
-      if (rows.length >= maxLines) {
-        clippedRows += wrappedSegments.length - segmentIndex;
-        break;
-      }
-      rows.push({
-        key: `diff-preview.${index}.${segmentIndex}`,
-        kind: line.kind,
-        text: wrappedSegments[segmentIndex],
-        hunkStatus: line.hunkStatus,
-        showGutter: line.kind === "ctx" || line.kind === "add" || line.kind === "del",
-        oldLineNumber: segmentIndex === 0 ? line.oldLineNumber : undefined,
-        newLineNumber: segmentIndex === 0 ? line.newLineNumber : undefined
-      });
-    }
-    if (rows.length >= maxLines)
-      break;
-  }
-  if (rows.length === 0)
-    return null;
+  const {
+    rows,
+    hiddenLines,
+    hiddenItems,
+    clippedRows,
+    lineNumberWidth,
+    separatorText
+  } = layout;
   return /* @__PURE__ */ jsxDEV18("box", {
     flexDirection: "column",
     children: [
       rows.map((row) => /* @__PURE__ */ jsxDEV18("text", {
         wrapMode: "none",
         children: row.showGutter ? (() => {
-          const oldNum = lineNumberWidth > 0 ? formatLineNumber(row.oldLineNumber, lineNumberWidth) : "";
-          const newNum = lineNumberWidth > 0 ? formatLineNumber(row.newLineNumber, lineNumberWidth) : "";
+          const oldNum = lineNumberWidth > 0 ? formatDiffPreviewLineNumber(row.oldLineNumber, lineNumberWidth) : "";
+          const newNum = lineNumberWidth > 0 ? formatDiffPreviewLineNumber(row.newLineNumber, lineNumberWidth) : "";
           const numberColumns = lineNumberWidth > 0 ? `${oldNum} ${newNum}` : "";
           return /* @__PURE__ */ jsxDEV18(Fragment5, {
             children: [
@@ -8127,7 +8240,8 @@ var SOURCE_BADGES = {
   installed: { label: "G", color: "#74b9ff" },
   "agent-installed": { label: "A", color: "#ff7675" },
   embedded: { label: "E", color: "#a29bfe" },
-  workspace: { label: "W", color: "#fdcb6e" }
+  workspace: { label: "W", color: "#fdcb6e" },
+  remote: { label: "R", color: "#00cec9" }
 };
 var GIT_INPUT_PLACEHOLDER = "https://github.com/user/repo.git#main:extensions/demo";
 function clamp2(value, min, max) {
@@ -13765,6 +13879,8 @@ async function handleConsoleToggleExtension(api, name, desiredEnabled) {
     const pkg = packages.find((item) => item.manifest.name === name);
     const hasPlugin = pkg ? hasConsolePluginContribution(pkg.manifest) : true;
     const isWorkspace = pkg?.source === "workspace";
+    const remoteRequestPath = ext.getRemoteRequestPath?.(name) ?? (pkg?.source === "remote" ? pkg.requestedPath ?? name : undefined);
+    const isRemote = !!remoteRequestPath && pkg?.source !== "workspace" && pkg?.source !== "installed" && pkg?.source !== "agent-installed" && pkg?.source !== "embedded";
     const active = api?.pluginManager?.listPlugins?.() ?? [];
     const isActive = active.some((p) => p.name === name);
     const shouldEnable = desiredEnabled ?? !isActive;
@@ -13784,6 +13900,37 @@ async function handleConsoleToggleExtension(api, name, desiredEnabled) {
       return { ok: true, message: `已禁用 "${name}"` };
     }
     let installedDeps = [];
+    if (isRemote) {
+      if (!ext.installRemote) {
+        return { ok: false, message: "远程 extension 安装 API 不可用" };
+      }
+      const installed = await ext.installRemote(remoteRequestPath);
+      const installedName = typeof installed?.name === "string" && installed.name.trim() ? installed.name.trim() : name;
+      if (installed?.targetDir) {
+        const depsResult = await ensureExtensionRuntimeDependencies(installed.targetDir);
+        if (depsResult.installed)
+          installedDeps = depsResult.missingDependencies;
+      }
+      const refreshedPackages = ext.discover?.() ?? ext.discoverAll?.() ?? [];
+      const installedPkg = refreshedPackages.find((item) => item.manifest.name === installedName);
+      const installedHasPlugin = installedPkg ? hasConsolePluginContribution(installedPkg.manifest) : hasPlugin;
+      if (installedHasPlugin) {
+        await ext.activate?.({ name: installedName, type: "local", enabled: true });
+        const existingInstalledEntry = pluginEntries.find((p) => p.name === installedName);
+        if (existingInstalledEntry) {
+          existingInstalledEntry.enabled = true;
+        } else {
+          pluginEntries.push({ name: installedName, type: "local", enabled: true });
+        }
+        configManager.updateEditableConfig(buildConsolePluginsConfigUpdate(raw, pluginEntries));
+      }
+      const versionText = installed?.version ? `@${installed.version}` : "";
+      const depsText = installedDeps.length > 0 ? `已安装依赖 ${installedDeps.join(", ")}，` : "";
+      if (!installedHasPlugin) {
+        return { ok: true, message: `${depsText}已下载安装远程平台扩展 "${installedName}${versionText}"；请在 platform.yaml 中选择该平台，必要时重启 Iris。` };
+      }
+      return { ok: true, message: `${depsText}已下载安装并启用远程插件 "${installedName}${versionText}"` };
+    }
     if (pkg?.rootDir) {
       const depsResult = await ensureExtensionRuntimeDependencies(pkg.rootDir);
       if (depsResult.installed)
@@ -14195,6 +14342,7 @@ class ConsolePlatform extends PlatformAdapter {
   _pendingDocuments = [];
   _pendingAudio = [];
   _pendingVideo = [];
+  remoteExtensionRequestPaths = new Map;
   constructor(backend, options) {
     super();
     this.backend = backend;
@@ -14672,7 +14820,7 @@ ${summaryText}`;
         onListMemories: () => this.handleListMemories(),
         onDeleteMemory: (id) => this.handleDeleteMemory(id),
         onListExtensions: () => this.handleListExtensions(),
-        onToggleExtension: (name) => this.handleToggleExtension(name),
+        onToggleExtension: (name, enabled) => this.handleToggleExtension(name, enabled),
         onInstallGitExtension: (target, scope) => this.handleInstallGitExtension(target, scope),
         onDeleteExtension: (name) => this.handleDeleteExtension(name),
         onPreviewUpdateExtension: (name) => this.handlePreviewUpdateExtension(name),
@@ -15436,6 +15584,52 @@ ${summaryText}`;
       return false;
     }
   }
+  hasRemoteInstallApi() {
+    return typeof this.api?.extensions?.installRemote === "function";
+  }
+  async loadRemoteExtensionItems(localNames) {
+    this.remoteExtensionRequestPaths.clear();
+    if (!this.hasRemoteInstallApi())
+      return [];
+    try {
+      const remoteIndex = await fetchRemoteIndex();
+      const remoteEntries = (await Promise.allSettled(remoteIndex.map(async (requestedPath) => {
+        const manifest = await fetchRemoteManifest(requestedPath);
+        return { requestedPath, manifest };
+      }))).filter((item) => item.status === "fulfilled").map((item) => item.value);
+      if (remoteIndex.length > 0 && remoteEntries.length === 0) {
+        throw new Error("远程 extension manifest 全部读取失败");
+      }
+      const seenRemoteNames = new Set;
+      const results = [];
+      for (const entry of remoteEntries) {
+        const name = typeof entry.manifest.name === "string" ? entry.manifest.name.trim() : "";
+        const version = typeof entry.manifest.version === "string" ? entry.manifest.version.trim() : "";
+        if (!name || !version)
+          continue;
+        if (localNames.has(name) || seenRemoteNames.has(name))
+          continue;
+        seenRemoteNames.add(name);
+        this.remoteExtensionRequestPaths.set(name, entry.requestedPath);
+        const hasPlatforms = Array.isArray(entry.manifest.platforms) && entry.manifest.platforms.length > 0;
+        const hasPlugin = !!entry.manifest.plugin || !!entry.manifest.entry || !hasPlatforms;
+        results.push({
+          name,
+          version,
+          description: typeof entry.manifest.description === "string" ? entry.manifest.description : "",
+          status: "available",
+          originalStatus: "available",
+          hasPlugin,
+          source: "remote",
+          requestedPath: entry.requestedPath
+        });
+      }
+      return results;
+    } catch (err) {
+      console.warn("[ConsolePlatform] 远程 extension 列表读取失败:", err);
+      return [];
+    }
+  }
   async handleListExtensions() {
     const ext = this.api?.extensions;
     const configManager = this.api?.configManager;
@@ -15451,7 +15645,7 @@ ${summaryText}`;
       const active = this.api?.pluginManager?.listPlugins?.() ?? [];
       const activeNames = new Set(active.map((p) => p.name));
       const allPackages = ext.discoverAll?.() ?? packages;
-      return allPackages.map((pkg) => {
+      const localItems = allPackages.map((pkg) => {
         const name = pkg.manifest.name;
         const hasPlatforms = Array.isArray(pkg.manifest.platforms) && pkg.manifest.platforms.length > 0;
         const hasPlugin = !!pkg.manifest.plugin || !!pkg.manifest.entry || !hasPlatforms;
@@ -15488,7 +15682,9 @@ ${summaryText}`;
           gitCommit: gitMetadata?.commit,
           gitSubdir: gitMetadata?.subdir
         };
-      }).sort((a, b) => {
+      });
+      const remoteItems = await this.loadRemoteExtensionItems(new Set(localItems.map((item) => item.name)));
+      return [...localItems, ...remoteItems].sort((a, b) => {
         const groupA = a.hasPlugin ? 0 : 1;
         const groupB = b.hasPlugin ? 0 : 1;
         return groupA === groupB ? a.name.localeCompare(b.name) : groupA - groupB;
@@ -15580,7 +15776,12 @@ ${summaryText}`;
     configManager.updateEditableConfig(this.buildPluginsConfigUpdate(raw, nextEntries));
   }
   async handleToggleExtension(name, desiredEnabled) {
-    return handleConsoleToggleExtension(this.api, name, desiredEnabled);
+    const api = this.api;
+    const extensions = api?.extensions ? {
+      ...api.extensions,
+      getRemoteRequestPath: (extensionName) => this.remoteExtensionRequestPaths.get(extensionName)
+    } : undefined;
+    return handleConsoleToggleExtension({ ...api, extensions }, name, desiredEnabled);
   }
   async handleInstallGitExtension(target, scope = "agent") {
     const ext = this.api?.extensions;
