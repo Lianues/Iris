@@ -20,6 +20,7 @@ import { createCliRenderer, capture as opentuiCapture, type CliRenderer } from '
 import { createRoot } from '@opentui/react';
 import {
   PlatformAdapter,
+  type ServiceRegistryLike,
   type ForegroundPlatform,
   LogLevel,
   type Content,
@@ -51,18 +52,20 @@ import { attachCompiledResizeWatcher } from './resize-watcher';
 import { ICONS } from './terminal-compat';
 import type { ConsoleConfig } from './console-config';
 import { resolveConsoleConfig } from './console-config';
-import { CONSOLE_TOOL_DISPLAY_SERVICE_ID, consoleToolDisplayService } from './tool-display-service';
-import { CONSOLE_SLASH_COMMAND_SERVICE_ID, consoleSlashCommandService } from './slash-command-service';
-import { CONSOLE_PATH_DISPLAY_SERVICE_ID, consolePathDisplayService } from './path-display-service';
+import { CONSOLE_TOOL_DISPLAY_SERVICE_ID, createConsoleToolDisplayService, type ConsoleToolDisplayService } from './tool-display-service';
+import { CONSOLE_SLASH_COMMAND_SERVICE_ID, createConsoleSlashCommandService, type ConsoleSlashCommandService } from './slash-command-service';
+import { CONSOLE_PATH_DISPLAY_SERVICE_ID, createConsolePathDisplayService, type ConsolePathDisplayService } from './path-display-service';
 import { CONSOLE_SETTINGS_TAB_SERVICE_ID, type ConsoleSettingsTabDefinition, type ConsoleSettingsTabService } from './settings-tab-service';
-import { CONSOLE_STATUS_SEGMENT_SERVICE_ID, consoleStatusSegmentService } from './status-segment-service';
+import { CONSOLE_STATUS_SEGMENT_SERVICE_ID, createConsoleStatusSegmentService, type ConsoleStatusSegmentService } from './status-segment-service';
 import type { ProgressSnapshotLike } from './progress-types';
 import {
   CONSOLE_PROGRESS_SERVICE_ID,
-  consoleProgressService,
+  createConsoleProgressService,
   type ConsoleProgressArchiveLike,
+  type ConsoleProgressService,
   type ConsoleProgressUiStateLike,
 } from './progress-service';
+import { createRemoteConsoleServicesBundle, type RemoteConsoleBridgeApi, type RemoteConsoleServicesBundle } from './remote-console-service-proxies';
 import { handleConsoleToggleExtension } from './extension-toggle';
 import { attachResultDiffPreview } from './tool-renderers/diff-preview-meta.js';
 
@@ -128,6 +131,15 @@ interface PlanModeServiceLike {
   isActive(sessionId?: string): boolean;
   getState(sessionId?: string): { planFilePath: string; active: boolean } | null;
   readPlan(sessionId: string): string | null;
+}
+
+interface ConsoleLocalServicesBundle {
+  toolDisplay: ConsoleToolDisplayService;
+  slashCommand: ConsoleSlashCommandService;
+  pathDisplay: ConsolePathDisplayService;
+  statusSegment: ConsoleStatusSegmentService;
+  progress: ConsoleProgressService;
+  registrations: Disposable[];
 }
 
 interface PlanCommandResult {
@@ -629,6 +641,14 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private pluginSettingsTabListeners = new Set<() => void>();
   /** 本地 Console Settings Tab 服务订阅 */
   private pluginSettingsTabServiceDisposable?: Disposable;
+  /** 当前本地 progress 服务变化订阅 */
+  private progressServiceChangeDisposable?: Disposable;
+  /** 当前本地 progress 服务更新订阅 */
+  private progressServiceUpdateDisposable?: Disposable;
+  /** 每个本地 ServiceRegistry 对应一组独立的 Console 服务实例，避免多 Agent 串状态 */
+  private localConsoleServices = new WeakMap<ServiceRegistryLike, ConsoleLocalServicesBundle>();
+  /** 每个远端 API 代理对应一组本地只读 Console 服务代理 */
+  private remoteConsoleServices = new WeakMap<object, RemoteConsoleServicesBundle>();
   /** Backend 事件监听清理函数；start/stop 之间有效，避免切换 Agent 后重复监听 */
   private backendListenerDisposers: Array<() => void> = [];
   /** 当前是否正在生成响应（用于阻止 addErrorMessage 破坏流式占位消息） */
@@ -669,46 +689,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       services: options.api?.services,
       extensions: options.extensions,
     });
-    const services = options.api?.services;
-    if (services && !services.has(CONSOLE_TOOL_DISPLAY_SERVICE_ID)) {
-      services.register(CONSOLE_TOOL_DISPLAY_SERVICE_ID, consoleToolDisplayService, {
-        description: 'Console TUI 工具显示扩展服务',
-        version: '1.0.0',
-      });
-    }
-    if (services && !services.has(CONSOLE_SLASH_COMMAND_SERVICE_ID)) {
-      services.register(CONSOLE_SLASH_COMMAND_SERVICE_ID, consoleSlashCommandService, {
-        description: 'Console TUI 斜杠指令扩展服务',
-        version: '1.0.0',
-      });
-    }
-    if (services && !services.has(CONSOLE_PATH_DISPLAY_SERVICE_ID)) {
-      services.register(CONSOLE_PATH_DISPLAY_SERVICE_ID, consolePathDisplayService, {
-        description: 'Console TUI 左下角路径显示扩展服务',
-        version: '1.0.0',
-      });
-    }
-    if (services && !services.has(CONSOLE_STATUS_SEGMENT_SERVICE_ID)) {
-      services.register(CONSOLE_STATUS_SEGMENT_SERVICE_ID, consoleStatusSegmentService, {
-        description: 'Console TUI 状态栏扩展片段服务',
-        version: '1.0.0',
-      });
-    }
-    if (services && !services.has(CONSOLE_PROGRESS_SERVICE_ID)) {
-      services.register(CONSOLE_PROGRESS_SERVICE_ID, consoleProgressService, {
-        description: 'Console TUI 通用进度面板服务',
-        version: '1.0.0',
-      });
-    }
-    consoleProgressService.onDidChange(() => { void this.syncProgress(); });
+    void this.getConsoleServicesBundle();
     this.bindPluginSettingsTabService();
     if (typeof (this.api as any)?.__consoleGetSettingsTabs === 'function') {
       const cached = (this.api as any).__consoleGetSettingsTabs?.();
       this.remotePluginSettingsTabs = Array.isArray(cached) ? [...cached] : [];
     }
-    consoleProgressService.onDidUpdate((_providerId, sid, snapshot) => {
-      if (sid === this.sessionId) this.appHandle?.setProgress(snapshot);
-    });
   }
 
   private getPlanModeService(): PlanModeServiceLike | undefined {
@@ -720,8 +706,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   }
 
   private getLocalConsoleSettingsTabService(): ConsoleSettingsTabService | undefined {
-    const baseApi = (this.originalApi ?? this.api) as any;
-    return baseApi?.services?.get?.(CONSOLE_SETTINGS_TAB_SERVICE_ID) as ConsoleSettingsTabService | undefined;
+    const currentApi = this.api as any;
+    return currentApi?.services?.get?.(CONSOLE_SETTINGS_TAB_SERVICE_ID) as ConsoleSettingsTabService | undefined;
   }
 
   private hasRemotePluginSettingsTabSource(): boolean {
@@ -735,6 +721,96 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       return Array.isArray(direct) ? [...direct] : [];
     }
     return this.getLocalConsoleSettingsTabService()?.list?.() ?? [];
+  }
+
+  private getRemoteConsoleServicesBundle(): RemoteConsoleServicesBundle | undefined {
+    const currentApi = this.api as RemoteConsoleBridgeApi | undefined;
+    if (!currentApi || typeof (currentApi as any).__consoleDispatchSlashCommand !== 'function') return undefined;
+    const existing = this.remoteConsoleServices.get(currentApi as object);
+    if (existing) return existing;
+    const bundle = createRemoteConsoleServicesBundle(currentApi);
+    this.remoteConsoleServices.set(currentApi as object, bundle);
+    return bundle;
+  }
+
+  private getConsoleServicesBundle(): ConsoleLocalServicesBundle | RemoteConsoleServicesBundle | undefined {
+    return this.getLocalConsoleServicesBundle() ?? this.getRemoteConsoleServicesBundle();
+  }
+
+  private getLocalConsoleServicesBundle(): ConsoleLocalServicesBundle | undefined {
+    const currentApi = this.api as any;
+    const services = currentApi?.services as ServiceRegistryLike | undefined;
+    if (!services) return undefined;
+
+    const existing = this.localConsoleServices.get(services);
+    if (existing) return existing;
+
+    const bundle: ConsoleLocalServicesBundle = {
+      toolDisplay: createConsoleToolDisplayService(),
+      slashCommand: createConsoleSlashCommandService(),
+      pathDisplay: createConsolePathDisplayService(),
+      statusSegment: createConsoleStatusSegmentService(),
+      progress: createConsoleProgressService(),
+      registrations: [],
+    };
+
+    if (!services.has(CONSOLE_TOOL_DISPLAY_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_TOOL_DISPLAY_SERVICE_ID, bundle.toolDisplay, {
+        description: 'Console TUI 工具显示扩展服务',
+        version: '1.0.0',
+      }));
+    } else {
+      bundle.toolDisplay = services.get(CONSOLE_TOOL_DISPLAY_SERVICE_ID) as ConsoleToolDisplayService;
+    }
+    if (!services.has(CONSOLE_SLASH_COMMAND_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_SLASH_COMMAND_SERVICE_ID, bundle.slashCommand, {
+        description: 'Console TUI 斜杠指令扩展服务',
+        version: '1.0.0',
+      }));
+    } else {
+      bundle.slashCommand = services.get(CONSOLE_SLASH_COMMAND_SERVICE_ID) as ConsoleSlashCommandService;
+    }
+    if (!services.has(CONSOLE_PATH_DISPLAY_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_PATH_DISPLAY_SERVICE_ID, bundle.pathDisplay, {
+        description: 'Console TUI 左下角路径显示扩展服务',
+        version: '1.0.0',
+      }));
+    } else {
+      bundle.pathDisplay = services.get(CONSOLE_PATH_DISPLAY_SERVICE_ID) as ConsolePathDisplayService;
+    }
+    if (!services.has(CONSOLE_STATUS_SEGMENT_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_STATUS_SEGMENT_SERVICE_ID, bundle.statusSegment, {
+        description: 'Console TUI 状态栏扩展片段服务',
+        version: '1.0.0',
+      }));
+    } else {
+      bundle.statusSegment = services.get(CONSOLE_STATUS_SEGMENT_SERVICE_ID) as ConsoleStatusSegmentService;
+    }
+    if (!services.has(CONSOLE_PROGRESS_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_PROGRESS_SERVICE_ID, bundle.progress, {
+        description: 'Console TUI 通用进度面板服务',
+        version: '1.0.0',
+      }));
+    } else {
+      bundle.progress = services.get(CONSOLE_PROGRESS_SERVICE_ID) as ConsoleProgressService;
+    }
+
+    this.localConsoleServices.set(services, bundle);
+    return bundle;
+  }
+
+  private getLocalProgressService(): ConsoleProgressService | undefined {
+    return this.getConsoleServicesBundle()?.progress;
+  }
+
+  private bindProgressService(): void {
+    try { this.progressServiceChangeDisposable?.dispose(); } catch { /* ignore */ }
+    try { this.progressServiceUpdateDisposable?.dispose(); } catch { /* ignore */ }
+    const progressService = this.getLocalProgressService();
+    this.progressServiceChangeDisposable = progressService?.onDidChange(() => { void this.syncProgress(); });
+    this.progressServiceUpdateDisposable = progressService?.onDidUpdate((_providerId, sid, snapshot) => {
+      if (sid === this.sessionId) this.appHandle?.setProgress(snapshot);
+    });
   }
 
   private emitPluginSettingsTabsChanged(): void {
@@ -755,6 +831,14 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     };
   }
 
+  private async refreshRemoteConsoleServices(sessionId: string = this.sessionId): Promise<void> {
+    try {
+      await this.getRemoteConsoleServicesBundle()?.refreshSession?.(sessionId);
+    } catch {
+      // 远端 Console 私有桥接刷新失败不影响主流程。
+    }
+  }
+
   private async refreshRemotePluginSettingsTabsCache(): Promise<void> {
     if (!this.hasRemotePluginSettingsTabSource()) return;
     const api = this.api as any;
@@ -769,6 +853,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.remotePluginSettingsTabs = [];
     }
     this.emitPluginSettingsTabsChanged();
+    await this.refreshRemoteConsoleServices(this.sessionId);
   }
 
   private async restoreRemoteExecEnvironmentForSession(sessionId: string, validate: boolean): Promise<RemoteExecEnvironmentRestoreResultLike | undefined> {
@@ -822,7 +907,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async syncProgress(): Promise<void> {
     try {
-      const provider = consoleProgressService.getActiveProvider();
+      const provider = this.getLocalProgressService()?.getActiveProvider();
       const snapshot = await provider?.loadLatest?.(this.sessionId);
       this.appHandle?.setProgress(snapshot ?? null);
     } catch {
@@ -866,7 +951,9 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   async start(): Promise<void> {
     this.api?.setLogLevel?.(LogLevel.SILENT);
+    void this.getConsoleServicesBundle();
     this.bindPluginSettingsTabService();
+    this.bindProgressService();
 
     configureBundledOpenTuiTreeSitter(this.isCompiledBinary);
 
@@ -967,6 +1054,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         this.appHandle?.finalizeResponse(durationMs);
         this.appHandle?.clearNotificationContext();
         this.syncPlanModeStatus();
+        void this.refreshRemoteConsoleServices(sid);
       }
     });
 
@@ -1131,6 +1219,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         process.on('SIGCONT', this._sigcontHandler);
       }
 
+      const consoleServices = this.getConsoleServicesBundle();
       const element = React.createElement(App, {
         onReady: (handle: AppHandle) => {
           this.appHandle = handle;
@@ -1255,6 +1344,10 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onPluginSettingsTabsChanged: (listener: () => void) => this.onPluginSettingsTabsChanged(listener),
         onRemoteConnect: (name?: string) => this.handleRemoteConnect(name),
         onRemoteDisconnect: () => this.handleRemoteDisconnect(),
+        slashCommandService: consoleServices?.slashCommand,
+        pathDisplayService: consoleServices?.pathDisplay,
+        statusSegmentService: consoleServices?.statusSegment,
+        toolDisplayService: consoleServices?.toolDisplay,
         remoteHost: this._remoteHost || undefined,
         onThinkingEffortChange: (level: import('./app-types').ThinkingEffortLevel) => this.applyThinkingEffort(level),
         agentName: this.agentName,
@@ -1281,6 +1374,10 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.disposeBackendListeners();
     try { this.pluginSettingsTabServiceDisposable?.dispose(); } catch { /* ignore */ }
     this.pluginSettingsTabServiceDisposable = undefined;
+    try { this.progressServiceChangeDisposable?.dispose(); } catch { /* ignore */ }
+    try { this.progressServiceUpdateDisposable?.dispose(); } catch { /* ignore */ }
+    this.progressServiceChangeDisposable = undefined;
+    this.progressServiceUpdateDisposable = undefined;
 
     // 幂等保护：onExit 和 shutdown() 都会调用 stop()，
     // 双重 destroy() 会向已恢复的终端重复写入 ANSI 转义序列导致异常。
@@ -1738,6 +1835,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.appHandle?.setProgress(null);
     this.clearRemoteExecSession(this.sessionId);
     this.appHandle?.setAutoEditActive(false);
+    void this.refreshRemoteConsoleServices(this.sessionId);
   }
 
   /** 打开工具详情 */
@@ -1991,7 +2089,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async loadProgressArchives(sessionId: string): Promise<ConsoleProgressArchiveLike[]> {
     try {
-      return await consoleProgressService.getActiveProvider()?.loadHistory?.(sessionId) ?? [];
+      return await this.getLocalProgressService()?.getActiveProvider()?.loadHistory?.(sessionId) ?? [];
     } catch {
       return [];
     }
@@ -1999,7 +2097,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async loadProgressUiState(sessionId: string): Promise<{ expanded: boolean; updatedAt?: number; snapshotUpdatedAt?: number } | undefined> {
     try {
-      return await consoleProgressService.getActiveProvider()?.loadUiState?.(sessionId);
+      return await this.getLocalProgressService()?.getActiveProvider()?.loadUiState?.(sessionId);
     } catch {
       return undefined;
     }
@@ -2007,7 +2105,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async saveProgressUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void> {
     try {
-      await consoleProgressService.getActiveProvider()?.saveUiState?.(sessionId, state);
+      await this.getLocalProgressService()?.getActiveProvider()?.saveUiState?.(sessionId, state);
     } catch {
       // UI 偏好保存失败不影响对话主流程。
     }
@@ -2023,6 +2121,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     const userInputEpochAtLoadStart = this.userInputEpoch;
     const envRestorePromise = this.restoreRemoteExecEnvironmentForSession(id, true);
     this.syncPlanModeStatus();
+    await this.refreshRemoteConsoleServices(id);
     await this.syncProgress();
     this.syncAutoEditStatus();
 

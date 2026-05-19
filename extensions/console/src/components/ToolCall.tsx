@@ -4,18 +4,20 @@
  * 工具调用卡片
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Spinner } from './Spinner';
 import type { ToolInvocation, ToolStatus } from 'irises-extension-sdk';
 import { getToolRenderer } from '../tool-renderers';
 import { useResultWithResolvedDiffPreview } from '../tool-renderers/use-diff-preview-result.js';
 import { formatToolError } from '../tool-errors';
-import { getToolDisplayProvider } from '../tool-display-service';
+import type { ConsoleToolDisplayService } from '../tool-display-service';
 import { C } from '../theme';
 import { SPINNER_FRAMES, ICONS } from '../terminal-compat';
 
 interface ToolCallProps {
   invocation: ToolInvocation;
+  /** 当前 Console 工具显示服务实例 */
+  toolDisplayService?: ConsoleToolDisplayService;
 }
 
 const TERMINAL_STATUSES = new Set<ToolStatus>(['success', 'warning', 'error']);
@@ -90,9 +92,12 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
   }
 }
 
-export function ToolCall({ invocation }: ToolCallProps) {
+export function ToolCall({ invocation, toolDisplayService }: ToolCallProps) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
   const displayError = formatToolError(error);
+  const [asyncArgsSummary, setAsyncArgsSummary] = useState<string | undefined>();
+  const [asyncProgressLine, setAsyncProgressLine] = useState<string | undefined>();
+  const [asyncResultSummary, setAsyncResultSummary] = useState<string | undefined>();
 
   const displayResult = useResultWithResolvedDiffPreview(result);
 
@@ -101,7 +106,31 @@ export function ToolCall({ invocation }: ToolCallProps) {
   const progress = invocation.progress as Record<string, unknown> | undefined;
   const progressTokens = typeof progress?.tokens === 'number' ? progress.tokens : undefined;
   const progressFrame = typeof progress?.frame === 'number' ? progress.frame : undefined;
-  const displayProvider = getToolDisplayProvider(toolName);
+  const displayProvider = toolDisplayService?.get(toolName);
+  useEffect(() => {
+    let cancelled = false;
+    if (!displayProvider?.getArgsSummaryAsync) { setAsyncArgsSummary(undefined); return; }
+    void displayProvider.getArgsSummaryAsync({ toolName, args }).then((value) => {
+      if (!cancelled) setAsyncArgsSummary(value);
+    }).catch(() => { if (!cancelled) setAsyncArgsSummary(undefined); });
+    return () => { cancelled = true; };
+  }, [displayProvider, toolName, args]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!displayProvider?.getProgressLineAsync) { setAsyncProgressLine(undefined); return; }
+    void displayProvider.getProgressLineAsync({ toolName, args, progress }).then((value) => {
+      if (!cancelled) setAsyncProgressLine(value);
+    }).catch(() => { if (!cancelled) setAsyncProgressLine(undefined); });
+    return () => { cancelled = true; };
+  }, [displayProvider, toolName, args, progress]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!displayProvider?.getResultSummaryAsync || !(TERMINAL_STATUSES.has(status) && displayResult != null)) { setAsyncResultSummary(undefined); return; }
+    void displayProvider.getResultSummaryAsync({ toolName, args, result: displayResult }).then((value) => {
+      if (!cancelled) setAsyncResultSummary(value);
+    }).catch(() => { if (!cancelled) setAsyncResultSummary(undefined); });
+    return () => { cancelled = true; };
+  }, [displayProvider, toolName, args, displayResult, status]);
   const customProgressLine = displayProvider?.getProgressLine?.({ toolName, args, progress }) ?? '';
   const hasProgress = progress != null;
   // sub_agent 专用：实时状态行
@@ -116,15 +145,16 @@ export function ToolCall({ invocation }: ToolCallProps) {
   const isExecuting = status === 'executing';
   const isAwaitingApproval = status === 'awaiting_approval';
 
-  const argsSummary = displayProvider?.getArgsSummary?.({ toolName, args }) ?? getArgsSummary(toolName, args);
+  const argsSummary = displayProvider?.getArgsSummary?.({ toolName, args }) ?? asyncArgsSummary ?? getArgsSummary(toolName, args);
   const Renderer = isFinal && displayResult != null ? getToolRenderer(toolName) : null;
   const durationSec = (updatedAt - createdAt) / 1000;
   const duration = isFinal && durationSec > 0 ? durationSec.toFixed(1) + 's' : '';
   const customResultSummary = isFinal && displayResult != null
-    ? displayProvider?.getResultSummary?.({ toolName, args, result: displayResult }) ?? ''
+    ? displayProvider?.getResultSummary?.({ toolName, args, result: displayResult }) ?? asyncResultSummary ?? ''
     : '';
 
   const nameBg = status === 'error' ? C.error : isAwaitingApproval ? C.warn : C.accent;
+  const progressLineText = customProgressLine || asyncProgressLine || '';
 
   return (
     <box flexDirection="column">
@@ -154,8 +184,8 @@ export function ToolCall({ invocation }: ToolCallProps) {
       {status === 'error' && displayError && (
         <text fg={C.error}><em>  {displayError}</em></text>
       )}
-      {isExecuting && customProgressLine.length > 0 && (
-        <text><span fg={C.accent}>  {customProgressLine}</span></text>
+      {isExecuting && progressLineText.length > 0 && (
+        <text><span fg={C.accent}>  {progressLineText}</span></text>
       )}
       {/* sub_agent 执行中：显示当前子工具 或 LLM 文本预览 */}
       {isExecuting && toolName === 'sub_agent' && subAgentStatusLine.length > 0 && (
@@ -164,7 +194,7 @@ export function ToolCall({ invocation }: ToolCallProps) {
       {invocation.children && invocation.children.length > 0 && (
         <box flexDirection="column" paddingLeft={2}>
           {invocation.children.map(child => (
-            <ToolCall key={child.id} invocation={child} />
+            <ToolCall key={child.id} invocation={child} toolDisplayService={toolDisplayService} />
           ))}
         </box>
       )}

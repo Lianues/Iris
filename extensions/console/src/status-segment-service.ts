@@ -30,26 +30,27 @@ export interface ConsoleStatusSegmentService {
   onDidChange(listener: () => void): Disposable;
 }
 
-interface RegisteredProvider {
-  provider: ConsoleStatusSegmentProvider;
-  changeSubscription?: Disposable;
-}
-
-const providers = new Map<string, RegisteredProvider>();
-const listeners = new Set<() => void>();
-
-function emitChange(): void {
-  for (const listener of [...listeners]) {
-    try { listener(); } catch { /* ignore */ }
+export function createConsoleStatusSegmentService(): ConsoleStatusSegmentService {
+  interface RegisteredProvider {
+    provider: ConsoleStatusSegmentProvider;
+    changeSubscription?: Disposable;
   }
-}
 
-function disposeRegistered(entry: RegisteredProvider | undefined): void {
-  try { entry?.changeSubscription?.dispose(); } catch { /* ignore */ }
-}
+  const providers = new Map<string, RegisteredProvider>();
+  const listeners = new Set<() => void>();
 
-export const consoleStatusSegmentService: ConsoleStatusSegmentService = {
-  register(provider) {
+  function emitChange(): void {
+    for (const listener of [...listeners]) {
+      try { listener(); } catch { /* ignore */ }
+    }
+  }
+
+  function disposeRegistered(entry: RegisteredProvider | undefined): void {
+    try { entry?.changeSubscription?.dispose(); } catch { /* ignore */ }
+  }
+
+  return {
+    register(provider) {
     const existing = providers.get(provider.id);
     disposeRegistered(existing);
 
@@ -73,9 +74,9 @@ export const consoleStatusSegmentService: ConsoleStatusSegmentService = {
         }
       },
     };
-  },
+    },
 
-  list(context: ConsoleStatusContext = {}, align: 'left' | 'right' = 'right') {
+    list(context: ConsoleStatusContext = {}, align: 'left' | 'right' = 'right') {
     const result: ConsoleStatusSegmentSnapshot[] = [];
     for (const entry of providers.values()) {
       const providerAlign = entry.provider.align ?? 'right';
@@ -94,18 +95,11 @@ export const consoleStatusSegmentService: ConsoleStatusSegmentService = {
       }
     }
     return result.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0) || a.id.localeCompare(b.id));
-  },
+    },
 
-  onDidChange(listener) {
+    onDidChange(listener) {
     listeners.add(listener);
     return { dispose: () => { listeners.delete(listener); } };
-  },
-};
-
-export function getStatusSegments(context?: ConsoleStatusContext, align: 'left' | 'right' = 'right'): ConsoleStatusSegmentSnapshot[] {
-  return consoleStatusSegmentService.list(context, align);
-}
-
-export function onStatusSegmentsChanged(listener: () => void): Disposable {
-  return consoleStatusSegmentService.onDidChange(listener);
+    },
+  };
 }

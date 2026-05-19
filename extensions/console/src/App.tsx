@@ -38,9 +38,6 @@ import { useMessageQueue } from './hooks/use-message-queue';
 import { useModelState } from './hooks/use-model-state';
 import { useTextInput } from './hooks/use-text-input';
 import { createUndoRedoStack, type UndoRedoStack } from './undo-redo';
-import { getSlashCommands, onSlashCommandsChanged } from './slash-command-service';
-import { getPathDisplay, onPathDisplayChanged } from './path-display-service';
-import { getStatusSegments, onStatusSegmentsChanged } from './status-segment-service';
 import { writeClipboardText } from './terminal-compat';
 import type { PromptInputController } from './components/InputBar';
 
@@ -177,6 +174,10 @@ export function App({
   onPluginSettingsTabsChanged,
   onRemoteConnect,
   onRemoteDisconnect,
+  slashCommandService,
+  pathDisplayService,
+  statusSegmentService,
+  toolDisplayService,
   remoteHost,
   modelProvider,
   thinkingControlEnabled,
@@ -233,26 +234,32 @@ export function App({
   const [pendingFiles, setPendingFiles] = useState<import('./components/InputBar').PendingFile[]>([]);
 
   const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState(pluginSettingsTabs ?? []);
-  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState<Command[]>(() => getSlashCommands());
+  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState<Command[]>(() => slashCommandService?.list() ?? []);
   useEffect(() => {
     setRuntimePluginSettingsTabs(pluginSettingsTabs ?? []);
   }, [pluginSettingsTabs]);
   useEffect(() => {
-    const disposable = onSlashCommandsChanged(() => setRuntimeSlashCommands(getSlashCommands()));
-    setRuntimeSlashCommands(getSlashCommands());
+    if (!slashCommandService) {
+      setRuntimeSlashCommands([]);
+      return;
+    }
+    const disposable = slashCommandService.onDidChange(() => setRuntimeSlashCommands(slashCommandService.list()));
+    setRuntimeSlashCommands(slashCommandService.list());
     return () => disposable.dispose();
-  }, []);
+  }, [slashCommandService]);
 
   const [statusSegmentVersion, setStatusSegmentVersion] = useState(0);
   useEffect(() => {
-    const disposable = onStatusSegmentsChanged(() => setStatusSegmentVersion((v) => v + 1));
+    if (!statusSegmentService) return;
+    const disposable = statusSegmentService.onDidChange(() => setStatusSegmentVersion((v) => v + 1));
     return () => disposable.dispose();
-  }, []);
+  }, [statusSegmentService]);
   const [pathDisplayVersion, setPathDisplayVersion] = useState(0);
   useEffect(() => {
-    const disposable = onPathDisplayChanged(() => setPathDisplayVersion((v) => v + 1));
+    if (!pathDisplayService) return;
+    const disposable = pathDisplayService.onDidChange(() => setPathDisplayVersion((v) => v + 1));
     return () => disposable.dispose();
-  }, []);
+  }, [pathDisplayService]);
 
   // 文件浏览器状态
   const [fileBrowserPath, setFileBrowserPath] = useState('');
@@ -423,6 +430,7 @@ export function App({
   const handleSubmit = useCommandDispatch({
     onSubmit: queueAwareSubmit,
     isGenerating: appState.isGenerating,
+    slashCommandService,
     onFileAttach: handleFileAttach,
     onOpenFileBrowser: handleOpenFileBrowser,
     getCurrentSessionId,
@@ -714,13 +722,13 @@ export function App({
   const progressGeneratingLabel = activeProgress ? `${activeProgress.activeForm ?? activeProgress.title}...` : undefined;
   const effectiveGeneratingLabel = appState.generatingLabel ?? progressGeneratingLabel;
   const rightStatusSegments = useMemo(
-    () => getStatusSegments({ sessionId: getCurrentSessionId?.() }, 'right'),
+    () => statusSegmentService?.list({ sessionId: getCurrentSessionId?.() }, 'right') ?? [],
     // statusSegmentVersion 由 provider 的 onDidChange 推动刷新；getCurrentSessionId 读取 ConsolePlatform 的当前字段。
-    [statusSegmentVersion, getCurrentSessionId, viewMode, appState.messages.length],
+    [statusSegmentVersion, statusSegmentService, getCurrentSessionId, viewMode, appState.messages.length],
   );
   const consolePathDisplay = useMemo(
-    () => getPathDisplay({ sessionId: getCurrentSessionId?.() }),
-    [pathDisplayVersion, getCurrentSessionId, viewMode, appState.messages.length],
+    () => pathDisplayService?.resolve({ sessionId: getCurrentSessionId?.() }),
+    [pathDisplayVersion, pathDisplayService, getCurrentSessionId, viewMode, appState.messages.length],
   );
 
   if (viewMode === 'settings') {
@@ -881,6 +889,7 @@ export function App({
           queuedMessages={messageQueue.queue}
           copyMode={copyMode}
           onCopySelectionStart={resetCopySelectionBuffer}
+          toolDisplayService={toolDisplayService}
           onCopySelectionSnapshot={captureCopySelectionSnapshot}
         />
       ) : null}

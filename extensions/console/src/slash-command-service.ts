@@ -31,31 +31,32 @@ export interface ConsoleSlashCommandService {
   onDidChange(listener: () => void): Disposable;
 }
 
-const commands = new Map<string, ConsoleSlashCommandDefinition>();
-const listeners = new Set<() => void>();
+export function createConsoleSlashCommandService(): ConsoleSlashCommandService {
+  const commands = new Map<string, ConsoleSlashCommandDefinition>();
+  const listeners = new Set<() => void>();
 
-function emitChange(): void {
-  for (const listener of [...listeners]) {
-    try { listener(); } catch { /* ignore */ }
-  }
-}
-
-function matchCommand(rawInput: string): { command: ConsoleSlashCommandDefinition; arg: string } | undefined {
-  const raw = rawInput.trim();
-  if (!raw.startsWith('/')) return undefined;
-  let best: { command: ConsoleSlashCommandDefinition; arg: string } | undefined;
-  for (const command of commands.values()) {
-    const name = command.name.trim();
-    if (raw === name || raw.startsWith(`${name} `)) {
-      const arg = raw === name ? '' : raw.slice(name.length).trim();
-      if (!best || name.length > best.command.name.length) best = { command, arg };
+  function emitChange(): void {
+    for (const listener of [...listeners]) {
+      try { listener(); } catch { /* ignore */ }
     }
   }
-  return best;
-}
 
-export const consoleSlashCommandService: ConsoleSlashCommandService = {
-  register(command) {
+  function matchCommand(rawInput: string): { command: ConsoleSlashCommandDefinition; arg: string } | undefined {
+    const raw = rawInput.trim();
+    if (!raw.startsWith('/')) return undefined;
+    let best: { command: ConsoleSlashCommandDefinition; arg: string } | undefined;
+    for (const command of commands.values()) {
+      const name = command.name.trim();
+      if (raw === name || raw.startsWith(`${name} `)) {
+        const arg = raw === name ? '' : raw.slice(name.length).trim();
+        if (!best || name.length > best.command.name.length) best = { command, arg };
+      }
+    }
+    return best;
+  }
+
+  return {
+    register(command) {
     commands.set(command.name, command);
     emitChange();
     let disposed = false;
@@ -69,14 +70,14 @@ export const consoleSlashCommandService: ConsoleSlashCommandService = {
         }
       },
     };
-  },
-  list() {
+    },
+    list() {
     return Array.from(commands.values()).map(({ handle: _handle, ...command }) => command);
-  },
-  canHandle(raw) {
+    },
+    canHandle(raw) {
     return !!matchCommand(raw);
-  },
-  async dispatch(raw, context) {
+    },
+    async dispatch(raw, context) {
     const matched = matchCommand(raw);
     if (!matched) return undefined;
     const result = await matched.command.handle({
@@ -86,25 +87,10 @@ export const consoleSlashCommandService: ConsoleSlashCommandService = {
       sessionId: context?.sessionId,
     });
     return result ?? {};
-  },
-  onDidChange(listener) {
+    },
+    onDidChange(listener) {
     listeners.add(listener);
     return { dispose: () => { listeners.delete(listener); } };
-  },
-};
-
-export function getSlashCommands(): Command[] {
-  return consoleSlashCommandService.list();
-}
-
-export function onSlashCommandsChanged(listener: () => void): Disposable {
-  return consoleSlashCommandService.onDidChange(listener);
-}
-
-export function canHandleSlashCommand(raw: string): boolean {
-  return consoleSlashCommandService.canHandle(raw);
-}
-
-export function dispatchSlashCommand(raw: string, context?: ConsoleSlashCommandDispatchContext): Promise<ConsoleSlashCommandResult | undefined> {
-  return consoleSlashCommandService.dispatch(raw, context);
+    },
+  };
 }

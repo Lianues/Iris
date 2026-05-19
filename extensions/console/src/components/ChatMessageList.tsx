@@ -8,6 +8,7 @@ import type { MutableRefObject } from 'react';
 import type { ProgressSnapshotLike } from '../progress-types';
 import { ProgressListView } from './ProgressListView';
 import type { QueuedMessage } from '../hooks/use-message-queue';
+import type { ConsoleToolDisplayService } from '../tool-display-service';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -39,6 +40,8 @@ interface ChatMessageListProps {
   onCopySelectionStart?: () => void;
   /** F6 复制模式下，拖选/滚轮过程中记录当前可见选区快照 */
   onCopySelectionSnapshot?: (text: string) => void;
+  /** 当前 Console 工具显示服务实例 */
+  toolDisplayService?: ConsoleToolDisplayService;
 }
 
 export function ChatMessageList({
@@ -60,6 +63,7 @@ export function ChatMessageList({
   copyMode,
   onCopySelectionStart,
   onCopySelectionSnapshot,
+  toolDisplayService,
 }: ChatMessageListProps) {
   const { height: termHeight } = useTerminalDimensions();
 
@@ -159,6 +163,7 @@ export function ChatMessageList({
               isStreaming={isLastActive ? isStreaming : undefined}
               modelName={modelName}
               thoughtsToggleSignal={index === lastAssistantIndex ? thoughtsToggleSignal : undefined}
+              toolDisplayService={toolDisplayService}
             />
             {isLastActive && isStreaming && streamingParts.length === 0 ? (
               <GeneratingTimer isGenerating={isGenerating} retryInfo={retryInfo} label={generatingLabel} paused={timerPaused} />
@@ -190,6 +195,7 @@ export function ChatMessageList({
           <MessageItem
             msg={message}
             modelName={modelName}
+            toolDisplayService={toolDisplayService}
           />
         </box>
       ))}

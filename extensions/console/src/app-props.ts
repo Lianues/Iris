@@ -6,6 +6,10 @@ import type { ConsoleSettingsTabDefinition } from './settings-tab-service';
 import type { SwitchModelResult, ThinkingEffortLevel } from './app-types';
 import type { AppHandle } from './hooks/use-app-handle';
 import type { ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
+import type { ConsoleSlashCommandService } from './slash-command-service';
+import type { ConsolePathDisplayService } from './path-display-service';
+import type { ConsoleStatusSegmentService } from './status-segment-service';
+import type { ConsoleToolDisplayService } from './tool-display-service';
 
 export interface ProgressUiStateSnapshot {
   expanded: boolean;
@@ -95,6 +99,14 @@ export interface AppProps {
   onPluginSettingsTabsChanged?: (listener: () => void) => Disposable;
   onRemoteConnect?: (name?: string) => void;
   onRemoteDisconnect?: () => void;
+  /** 当前 Console slash command 服务实例 */
+  slashCommandService?: ConsoleSlashCommandService;
+  /** 当前 Console 左下角路径显示服务实例 */
+  pathDisplayService?: ConsolePathDisplayService;
+  /** 当前 Console 状态段服务实例 */
+  statusSegmentService?: ConsoleStatusSegmentService;
+  /** 当前 Console 工具显示服务实例 */
+  toolDisplayService?: ConsoleToolDisplayService;
   /** 远程连接的主机地址（非空时 StatusBar 显示远程标识） */
   remoteHost?: string;
   onThinkingEffortChange?: (level: ThinkingEffortLevel) => void;

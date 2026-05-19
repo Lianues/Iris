@@ -7,18 +7,21 @@ export interface ConsoleToolDisplayProvider {
     toolName: string;
     args: Record<string, unknown>;
   }): string | undefined;
+  getArgsSummaryAsync?(input: { toolName: string; args: Record<string, unknown> }): Promise<string | undefined>;
 
   getProgressLine?(input: {
     toolName: string;
     args: Record<string, unknown>;
     progress?: Record<string, unknown>;
   }): string | undefined;
+  getProgressLineAsync?(input: { toolName: string; args: Record<string, unknown>; progress?: Record<string, unknown> }): Promise<string | undefined>;
 
   getResultSummary?(input: {
     toolName: string;
     args: Record<string, unknown>;
     result: unknown;
   }): string | undefined;
+  getResultSummaryAsync?(input: { toolName: string; args: Record<string, unknown>; result: unknown }): Promise<string | undefined>;
 }
 
 export interface ConsoleToolDisplayService {
@@ -27,10 +30,11 @@ export interface ConsoleToolDisplayService {
   list(): string[];
 }
 
-const providers = new Map<string, ConsoleToolDisplayProvider>();
+export function createConsoleToolDisplayService(): ConsoleToolDisplayService {
+  const providers = new Map<string, ConsoleToolDisplayProvider>();
 
-export const consoleToolDisplayService: ConsoleToolDisplayService = {
-  register(toolName, provider) {
+  return {
+    register(toolName, provider) {
     providers.set(toolName, provider);
     let disposed = false;
     return {
@@ -40,15 +44,12 @@ export const consoleToolDisplayService: ConsoleToolDisplayService = {
         if (providers.get(toolName) === provider) providers.delete(toolName);
       },
     };
-  },
-  get(toolName) {
+    },
+    get(toolName) {
     return providers.get(toolName);
-  },
-  list() {
+    },
+    list() {
     return Array.from(providers.keys());
-  },
-};
-
-export function getToolDisplayProvider(toolName: string): ConsoleToolDisplayProvider | undefined {
-  return providers.get(toolName);
+    },
+  };
 }

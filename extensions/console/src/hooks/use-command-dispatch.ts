@@ -13,7 +13,7 @@ import { appendCommandMessage } from '../message-utils';
 import { clearRedo, performRedo, performUndo, type UndoRedoStack } from '../undo-redo';
 import type { UseModelStateReturn } from './use-model-state';
 import type { MemoryItem, MemoryFilter } from '../components/MemoryListView';
-import { canHandleSlashCommand, dispatchSlashCommand } from '../slash-command-service';
+import type { ConsoleSlashCommandService } from '../slash-command-service';
 import { buildGitCommitPrompt, isGitPorcelainEmpty } from '../commit-command';
 
 type SetMessages = Dispatch<SetStateAction<ChatMessage[]>>;
@@ -32,6 +32,7 @@ interface UseCommandDispatchOptions {
   onSubmit: (text: string) => void;
   /** 当前是否正在生成；用于把命令反馈插到活跃 assistant 回复之前，避免破坏流式挂载目标 */
   isGenerating?: boolean;
+  slashCommandService?: ConsoleSlashCommandService;
   /** 附加文件（图片/文档/音频/视频）到下一条消息 */
   onFileAttach: (filePath: string) => void;
   /** 打开文件浏览器视图 */
@@ -107,6 +108,7 @@ function runOptionalCommand(
 export function useCommandDispatch({
   onSubmit,
   isGenerating,
+  slashCommandService,
   onFileAttach,
   onOpenFileBrowser,
   getCurrentSessionId,
@@ -544,8 +546,8 @@ export function useCommandDispatch({
       return;
     }
 
-    if (text.startsWith('/') && canHandleSlashCommand(text)) {
-      void dispatchSlashCommand(text, { sessionId: getCurrentSessionId?.() }).then((result) => {
+    if (text.startsWith('/') && slashCommandService?.canHandle(text)) {
+      void slashCommandService.dispatch(text, { sessionId: getCurrentSessionId?.() }).then((result) => {
         if (!result?.message) return;
         appendCommandMessage(setMessages, result.message, {
           isError: result.isError,
@@ -580,6 +582,7 @@ export function useCommandDispatch({
     onRemoteDisconnect,
     isRemote,
     remoteHost,
+    slashCommandService,
     onResetConfig,
     isGenerating,
     onRunCommand,

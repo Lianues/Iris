@@ -28,26 +28,27 @@ export interface ConsolePathDisplayService {
   onDidChange(listener: () => void): Disposable;
 }
 
-interface RegisteredProvider {
-  provider: ConsolePathDisplayProvider;
-  changeSubscription?: Disposable;
-}
-
-const providers = new Map<string, RegisteredProvider>();
-const listeners = new Set<() => void>();
-
-function emitChange(): void {
-  for (const listener of [...listeners]) {
-    try { listener(); } catch { /* ignore */ }
+export function createConsolePathDisplayService(): ConsolePathDisplayService {
+  interface RegisteredProvider {
+    provider: ConsolePathDisplayProvider;
+    changeSubscription?: Disposable;
   }
-}
 
-function disposeRegistered(entry: RegisteredProvider | undefined): void {
-  try { entry?.changeSubscription?.dispose(); } catch { /* ignore */ }
-}
+  const providers = new Map<string, RegisteredProvider>();
+  const listeners = new Set<() => void>();
 
-export const consolePathDisplayService: ConsolePathDisplayService = {
-  register(provider) {
+  function emitChange(): void {
+    for (const listener of [...listeners]) {
+      try { listener(); } catch { /* ignore */ }
+    }
+  }
+
+  function disposeRegistered(entry: RegisteredProvider | undefined): void {
+    try { entry?.changeSubscription?.dispose(); } catch { /* ignore */ }
+  }
+
+  return {
+    register(provider) {
     const existing = providers.get(provider.id);
     disposeRegistered(existing);
 
@@ -71,9 +72,9 @@ export const consolePathDisplayService: ConsolePathDisplayService = {
         }
       },
     };
-  },
+    },
 
-  resolve(context = {}) {
+    resolve(context = {}) {
     const candidates: ConsolePathDisplaySnapshot[] = [];
     for (const entry of providers.values()) {
       try {
@@ -91,18 +92,11 @@ export const consolePathDisplayService: ConsolePathDisplayService = {
     if (candidates.length === 0) return undefined;
     candidates.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id.localeCompare(b.id));
     return candidates[0];
-  },
+    },
 
-  onDidChange(listener) {
+    onDidChange(listener) {
     listeners.add(listener);
     return { dispose: () => { listeners.delete(listener); } };
-  },
-};
-
-export function getPathDisplay(context?: ConsolePathDisplayContext): ConsolePathDisplaySnapshot | undefined {
-  return consolePathDisplayService.resolve(context);
-}
-
-export function onPathDisplayChanged(listener: () => void): Disposable {
-  return consolePathDisplayService.onDidChange(listener);
+    },
+  };
 }

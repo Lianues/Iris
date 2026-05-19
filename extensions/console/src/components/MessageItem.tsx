@@ -14,6 +14,7 @@ import { ToolCall } from './ToolCall';
 import { ProgressListView } from './ProgressListView';
 import { C } from '../theme';
 import { ICONS } from '../terminal-compat';
+import type { ConsoleToolDisplayService } from '../tool-display-service';
 
 /** 截断文件路径：保留头尾，中间用 … 替代 */
 function truncateMiddle(text: string, maxChars: number): string {
@@ -129,6 +130,8 @@ interface MessageItemProps {
   modelName?: string;
   /** Ctrl+O 信号：每次递增时切换本条消息的 thinking 展开状态 */
   thoughtsToggleSignal?: number;
+  /** 当前 Console 工具显示服务实例 */
+  toolDisplayService?: ConsoleToolDisplayService;
 }
 
 /**
@@ -206,7 +209,7 @@ function NotificationPayloadBlock({ payload }: { payload: NotificationPayload })
 }
 
 export const MessageItem = React.memo(function MessageItem(
-  { msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal }: MessageItemProps
+  { msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal, toolDisplayService }: MessageItemProps
 ) {
   const { width: rawTermWidth } = useTerminalDimensions();
   // scrollbox 有 paddingRight={1} 为滚动条预留空间，内容实际可用宽度需减 1
@@ -374,7 +377,7 @@ export const MessageItem = React.memo(function MessageItem(
               <box key={`tools-${group.startIndex}`} flexDirection="column" width="100%" marginTop={(isConsecutiveTools || isAfterThought) ? 0 : (gi > 0 ? 1 : 0)}>
                 <box flexDirection="column" backgroundColor={C.toolPendingBg} paddingLeft={1}>
                   <text fg={C.accent}><strong>{`${ICONS.separator} tools`}</strong></text>
-                  {group.tools.map(inv => <ToolCall key={inv.id} invocation={inv} />)}
+                  {group.tools.map(inv => <ToolCall key={inv.id} invocation={inv} toolDisplayService={toolDisplayService} />)}
                 </box>
               </box>
             );

@@ -35,25 +35,26 @@ export interface ConsoleProgressService {
   onDidUpdate(listener: (providerId: string, sessionId: string, snapshot: ProgressSnapshotLike) => void): Disposable;
 }
 
-const providers = new Map<string, ConsoleProgressProvider>();
-const providerDisposers = new Map<string, Disposable | undefined>();
-const changeListeners = new Set<() => void>();
-const updateListeners = new Set<(providerId: string, sessionId: string, snapshot: ProgressSnapshotLike) => void>();
+export function createConsoleProgressService(): ConsoleProgressService {
+  const providers = new Map<string, ConsoleProgressProvider>();
+  const providerDisposers = new Map<string, Disposable | undefined>();
+  const changeListeners = new Set<() => void>();
+  const updateListeners = new Set<(providerId: string, sessionId: string, snapshot: ProgressSnapshotLike) => void>();
 
-function emitChange(): void {
-  for (const listener of changeListeners) listener();
-}
+  function emitChange(): void {
+    for (const listener of changeListeners) listener();
+  }
 
-function emitUpdate(providerId: string, sessionId: string, snapshot: ProgressSnapshotLike): void {
-  for (const listener of updateListeners) listener(providerId, sessionId, snapshot);
-}
+  function emitUpdate(providerId: string, sessionId: string, snapshot: ProgressSnapshotLike): void {
+    for (const listener of updateListeners) listener(providerId, sessionId, snapshot);
+  }
 
-function orderedProviders(): ConsoleProgressProvider[] {
-  return Array.from(providers.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id.localeCompare(b.id));
-}
+  function orderedProviders(): ConsoleProgressProvider[] {
+    return Array.from(providers.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id.localeCompare(b.id));
+  }
 
-export const consoleProgressService: ConsoleProgressService = {
-  register(provider) {
+  return {
+    register(provider) {
     providers.set(provider.id, provider);
     providerDisposers.get(provider.id)?.dispose();
     providerDisposers.set(provider.id, provider.onDidUpdate?.((sessionId, snapshot) => emitUpdate(provider.id, sessionId, snapshot)));
@@ -72,22 +73,23 @@ export const consoleProgressService: ConsoleProgressService = {
         }
       },
     };
-  },
-  getProvider(id) {
+    },
+    getProvider(id) {
     return providers.get(id);
-  },
-  getActiveProvider() {
+    },
+    getActiveProvider() {
     return orderedProviders()[0];
-  },
-  listProviders() {
+    },
+    listProviders() {
     return orderedProviders();
-  },
-  onDidChange(listener) {
+    },
+    onDidChange(listener) {
     changeListeners.add(listener);
     return { dispose: () => changeListeners.delete(listener) };
-  },
-  onDidUpdate(listener) {
+    },
+    onDidUpdate(listener) {
     updateListeners.add(listener);
     return { dispose: () => updateListeners.delete(listener) };
-  },
-};
+    },
+  };
+}
