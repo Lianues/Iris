@@ -4,8 +4,8 @@
  * 允许插件声明式注册自己的配置 schema（字段定义、默认值、验证规则），
  * 宿主/平台可统一查询所有已注册的配置 schema 并渲染各自的设置 UI。
  *
- * 这是对现有 registerConsoleSettingsTab 的通用化升级：
- * - registerConsoleSettingsTab 仅限 Console TUI 平台使用
+ * 这是对早期 Console 专用 settings-tab 机制的通用化升级：
+ * - console:settings-tab 服务仅限 Console TUI 平台使用
  * - ConfigContribution 是平台无关的通用配置注册，任何平台都可以消费
  *
  * 使用示例：

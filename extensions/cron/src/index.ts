@@ -50,7 +50,7 @@ interface ConsoleSettingsTabServiceLike {
   register(tab: ConsoleSettingsTabDefinitionLike): Disposable;
 }
 
-function registerConsoleSettingsTab(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
+function registerSettingsTabWithConsoleService(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
   let disposed = false;
   let registration: Disposable | undefined;
   void api.services.waitFor<ConsoleSettingsTabServiceLike>(CONSOLE_SETTINGS_TAB_SERVICE_ID, 5000).then((service) => {
@@ -346,7 +346,7 @@ function registerWebRoutes(api: IrisAPI): Disposable[] {
  * - 当前任务：jobsSummary（只读）
  */
 function registerSettingsTab(api: IrisAPI, ctx: PluginContext): Disposable | undefined {
-  const disposable = registerConsoleSettingsTab(api, {
+  const disposable = registerSettingsTabWithConsoleService(api, {
     id: 'cron',
     label: '定时任务',
     icon: '06',

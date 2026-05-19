@@ -41,7 +41,7 @@ interface ConsoleSettingsTabServiceLike {
   register(tab: ConsoleSettingsTabDefinitionLike): Disposable;
 }
 
-function registerConsoleSettingsTab(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
+function registerSettingsTabWithConsoleService(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
   let disposed = false;
   let registration: Disposable | undefined;
   void api.services.waitFor<ConsoleSettingsTabServiceLike>(CONSOLE_SETTINGS_TAB_SERVICE_ID, 5000).then((service) => {
@@ -554,7 +554,7 @@ async function handleVirtualLoverAction(ctx: PluginContext, api: IrisAPI, action
 }
 
 export function registerVirtualLoverSettingsTab(ctx: PluginContext, api: IrisAPI): Disposable | undefined {
-  return registerConsoleSettingsTab(api, {
+  return registerSettingsTabWithConsoleService(api, {
 
     id: 'virtual-lover',
     label: 'Virtual Lover',

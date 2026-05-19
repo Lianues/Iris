@@ -123,7 +123,7 @@ export function createRemoteApiProxy(client: IPCClientLike, agentName: string = 
      */
     async initCaches(): Promise<void> {
       const [tabs, agents, peers] = await Promise.all([
-        callApi(client, targetAgentName, Methods.API_GET_CONSOLE_SETTINGS_TABS).catch(() => []),
+        callApi(client, targetAgentName, Methods.CONSOLE_GET_SETTINGS_TABS).catch(() => []),
         callApi(client, targetAgentName, Methods.API_LIST_AGENTS).catch(() => []),
         callApi(client, targetAgentName, Methods.API_AGENT_NETWORK_LIST_PEERS).catch(() => []),
       ]);

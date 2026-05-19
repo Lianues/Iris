@@ -56,7 +56,7 @@ interface ConsoleSettingsTabServiceLike {
   register(tab: ConsoleSettingsTabDefinitionLike): Disposable;
 }
 
-function registerConsoleSettingsTab(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
+function registerSettingsTabWithConsoleService(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
   let disposed = false;
   let registration: Disposable | undefined;
   void api.services.waitFor<ConsoleSettingsTabServiceLike>(CONSOLE_SETTINGS_TAB_SERVICE_ID, 5000).then((service) => {
@@ -239,7 +239,7 @@ async function runForcedConsolidation(state: AgentMemoryState): Promise<{ ok: bo
 
 function registerSettingsTab(state: AgentMemoryState, api: IrisAPI, ctx: PluginContext): void {
   state.settingsTabDisposable?.dispose();
-  state.settingsTabDisposable = registerConsoleSettingsTab(api, {
+  state.settingsTabDisposable = registerSettingsTabWithConsoleService(api, {
     id: 'memory',
     label: '记忆',
     icon: '05',

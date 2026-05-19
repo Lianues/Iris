@@ -186,12 +186,12 @@ iris attach
 | `handle.apply` | 确认 diff 应用 |
 | `handle.abort` | 中止工具执行 |
 
-### API 子集（Console 使用）
+### API 子集与 Console 私有桥接（attach 使用）
 
 | 方法 | 说明 |
 |------|------|
 | `api.setLogLevel` | 设置日志级别 |
-| `api.getConsoleSettingsTabs` | 获取设置面板 |
+| `console.getSettingsTabs` | 获取 Console Settings Tab 列表（attach 私有桥接） |
 | `api.listAgents` | 列出 Agent |
 | `api.agentNetwork.*` | Agent 网络操作 |
 | `api.configManager.*` | 配置读写 |

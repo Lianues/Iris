@@ -517,7 +517,7 @@ export class IPCServer extends EventEmitter {
           this.api?.setLogLevel?.(...params);
           result = null;
           break;
-        case Methods.API_GET_CONSOLE_SETTINGS_TABS:
+        case Methods.CONSOLE_GET_SETTINGS_TABS:
           result = this.api?.services?.get?.('console:settings-tab')?.list?.() ?? [];
           break;
         case Methods.API_LIST_AGENTS:
@@ -716,7 +716,7 @@ export class IPCServer extends EventEmitter {
       case Methods.API_SET_LOG_LEVEL:
         api.setLogLevel?.(...params);
         return null;
-      case Methods.API_GET_CONSOLE_SETTINGS_TABS:
+      case Methods.CONSOLE_GET_SETTINGS_TABS:
         return api.services?.get?.('console:settings-tab')?.list?.() ?? [];
       case Methods.API_LIST_AGENTS:
         return api.listAgents?.() ?? [];

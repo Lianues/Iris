@@ -116,9 +116,9 @@ export const Methods = {
   HANDLE_APPLY: 'handle.apply',
   HANDLE_ABORT: 'handle.abort',
 
-  // ---- API 子集（Console 使用）----
+  // ---- API 子集 / Console 私有桥接（attach 模式使用）----
   API_SET_LOG_LEVEL: 'api.setLogLevel',
-  API_GET_CONSOLE_SETTINGS_TABS: 'api.getConsoleSettingsTabs',
+  CONSOLE_GET_SETTINGS_TABS: 'console.getSettingsTabs',
   API_LIST_AGENTS: 'api.listAgents',
   API_AGENT_NETWORK_LIST_PEERS: 'api.agentNetwork.listPeers',
   API_AGENT_NETWORK_GET_PEER_DESCRIPTION: 'api.agentNetwork.getPeerDescription',

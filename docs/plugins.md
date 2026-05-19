@@ -679,10 +679,9 @@ interface IrisAPI {
   eventBus: PluginEventBus;           // 插件间共享事件总线
   patchMethod: typeof patchMethod;    // 安全替换对象方法
   patchPrototype: typeof patchPrototype; // 安全替换类原型方法
+  services: ServiceRegistryLike;      // 通用服务注册中心；Console 扩展点通过它暴露
   registerWebRoute?: (method, path, handler) => void; // 向 Web 平台注册路由；若 Web 尚未创建会先排队，绑定后自动注册
   registerWebPanel?: (panel: WebPanelDefinition) => void; // 向 Web 平台注册扩展面板页面
-  registerConsoleSettingsTab?: (tab: ConsoleSettingsTabDefinition) => void; // 向 Console Settings 注册插件 Tab
-  getConsoleSettingsTabs?: () => ConsoleSettingsTabDefinition[];            // 获取所有已注册的 Console Settings Tab
 
   // --- 配置与环境 ---
   configManager?: ConfigManagerLike;   // 配置读写与热重载
@@ -893,17 +892,13 @@ ctx.onReady((api) => {
 
 ---
 
-## Console Settings Tab 注册
+## Console Settings Tab 服务（`console:settings-tab`）
 
-插件可以向 Console TUI 的 Settings 界面注册自定义配置 Tab。注册采用声明式表单 schema，插件声明字段列表和类型，Console 自动渲染对应的 TUI 表单。插件 Tab 的数据流与内置配置完全解耦，各插件自带 `onLoad` / `onSave` 回调。
+Console 相关扩展点不再挂在 `IrisAPI` 根接口上，而是通过 `ServiceRegistry` 暴露。插件如果想向 Console TUI 的 Settings 界面注入自定义配置 Tab，需要等待 `console:settings-tab` 服务并注册。
 
-### 类型定义
+### 数据契约
 
-```typescript
-import type { ConsoleSettingsTabDefinition, ConsoleSettingsField } from 'irises-extension-sdk/plugin';
-```
-
-字段类型 `ConsoleSettingsField`：
+`console:settings-tab` 的 payload 仍然是声明式表单 schema。常用字段如下：
 
 | 属性 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -915,16 +910,17 @@ import type { ConsoleSettingsTabDefinition, ConsoleSettingsField } from 'irises-
 | `description` | `string` | 否 | 字段说明（显示为独立的提示行） |
 | `group` | `string` | 否 | 分组标题（非空时在该字段前插入分组头行） |
 
-Tab 定义 `ConsoleSettingsTabDefinition`：
+Tab 定义的核心字段：
 
 | 属性 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `id` | `string` | 是 | Tab 唯一标识 |
 | `label` | `string` | 是 | Tab 显示标签 |
 | `icon` | `string` | 否 | Tab 序号图标（如 `'04'`），缺省按内置 tab 数量自动递增 |
-| `fields` | `ConsoleSettingsField[]` | 是 | 表单字段列表 |
+| `fields` | `Field[]` | 是 | 表单字段列表 |
 | `onLoad` | `() => Promise<Record<string, unknown>>` | 是 | 加载当前值（Settings 打开时调用） |
 | `onSave` | `(values) => Promise<{ success; error? }>` | 是 | 保存修改（用户按 S 时调用） |
+| `onAction` | `(actionKey, values) => Promise<{ success; ... }>` | 否 | 处理 action 行（如测试按钮） |
 
 ### 字段类型与 TUI 交互
 
@@ -935,70 +931,70 @@ Tab 定义 `ConsoleSettingsTabDefinition`：
 | `text` | 字符串文本 | Enter 进入编辑模式 |
 | `select` | 当前选项标签 | Enter 循环切换选项 |
 | `readonly` | 灰色文本 | 不可编辑 |
+| `action` | 操作按钮 | Enter 执行插件提供的动作 |
 
 这些渲染方式与内置 tab 的字段完全一致。
 
 ### 注册时机
 
-在 `onReady` 回调中注册。此时 Bootstrap 已完成，Console 平台的 `start()` 尚未调用，时序安全。
+在 `onReady` 回调中等待 `console:settings-tab` 服务并注册。由于该服务只在 Console 相关场景下出现，插件应当容忍超时或服务缺席。
 
 ```typescript
+const CONSOLE_SETTINGS_TAB_SERVICE_ID = 'console:settings-tab';
+
+interface ConsoleSettingsTabServiceLike {
+  register(tab: {
+    id: string;
+    label: string;
+    icon?: string;
+    fields: Array<{
+      key: string;
+      label: string;
+      type: 'toggle' | 'number' | 'text' | 'select' | 'readonly' | 'action';
+      options?: { label: string; value: string }[];
+      defaultValue?: unknown;
+      description?: string;
+      group?: string;
+    }>;
+    onLoad: () => Promise<Record<string, unknown>>;
+    onSave: (values: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
+  }): { dispose(): void };
+}
+
 ctx.onReady((api) => {
-  api.registerConsoleSettingsTab?.({
-    id: 'my-plugin',
-    label: '我的插件',
-    fields: [
-      { key: 'enabled', label: '启用', type: 'toggle', defaultValue: true },
-      { key: 'apiUrl', label: 'API 地址', type: 'text', defaultValue: 'https://example.com' },
-      { key: 'timeout', label: '超时（ms）', type: 'number', defaultValue: 5000 },
-      {
-        key: 'mode', label: '运行模式', type: 'select',
-        options: [
-          { label: '自动', value: 'auto' },
-          { label: '手动', value: 'manual' },
-        ],
-        defaultValue: 'auto',
+  void api.services.waitFor<ConsoleSettingsTabServiceLike>(CONSOLE_SETTINGS_TAB_SERVICE_ID, 5000)
+    .then((service) => service.register({
+      id: 'my-plugin',
+      label: '我的插件',
+      fields: [
+        { key: 'enabled', label: '启用', type: 'toggle', defaultValue: true },
+        { key: 'apiUrl', label: 'API 地址', type: 'text', defaultValue: 'https://example.com' },
+      ],
+      async onLoad() {
+        return loadMyConfig();
       },
-      { key: 'retryEnabled', label: '启用重试', type: 'toggle', defaultValue: false, group: '高级设置' },
-      { key: 'maxRetries', label: '最大重试次数', type: 'number', defaultValue: 3, description: '设为 0 表示不重试' },
-    ],
-    async onLoad() {
-      // 从插件自己的配置文件读取当前值
-      return loadMyConfig();
-    },
-    async onSave(values) {
-      // 将用户修改写回配置文件
-      try {
-        await saveMyConfig(values);
-        return { success: true };
-      } catch (err) {
-        return { success: false, error: String(err) };
-      }
-    },
-  });
+      async onSave(values) {
+        try {
+          await saveMyConfig(values);
+          return { success: true };
+        } catch (err) {
+          return { success: false, error: String(err) };
+        }
+      },
+    }))
+    .catch(() => {
+      // 当前运行场景不是 Console，或 Console 服务尚未出现
+    });
 });
 ```
 
 注册后，Console Settings 界面的左栏导航会自动出现新的 Tab，用户可通过数字键快速切换。
 
-### 数据流
+### 说明
 
-插件 Tab 的数据流与内置 Settings（模型、工具、MCP）完全独立：
-
-- Settings 打开时：先加载内置 snapshot，再并行调用每个插件 Tab 的 `onLoad()`
-- 用户编辑插件 Tab 字段时：修改独立的 `pluginDraft` 状态，不影响内置 snapshot
-- 用户按 S 保存时：先保存内置配置，再依次调用每个插件 Tab 的 `onSave(values)`
-- 未保存检测（dirty flag）同时覆盖内置配置和插件配置的变更
-
-`ConsoleSettingsController` 和 `ConsoleSettingsSnapshot` 不受影响，不需要改动。
-
-### 读取已注册的 Tab
-
-通过 `getConsoleSettingsTabs()` 可以获取所有已注册的 Tab 列表。Console 平台在 `start()` 时调用此方法获取 Tab 定义并传入 SettingsView 组件。
-
-```typescript
-const tabs = api.getConsoleSettingsTabs?.() ?? [];
-```
+- `console:settings-tab` 只在启用了 Console 能力的场景下出现
+- 插件应通过 `api.services` 等待/发现该服务，而不是依赖 `IrisAPI` 根上的专用方法
+- Tab 的数据流仍与内置 Settings（模型、工具、MCP）完全独立：`onLoad` 负责读取，`onSave` 负责写回
 
 ## 插件间通信
 
@@ -1266,5 +1262,5 @@ plugins:
 - `PluginInfo.type` 中的 `inline` 表示运行时注入插件，不是 `plugins.yaml` 中可填写的 `type` 值
 - `plugins.yaml` 中 `config` 与插件目录 `config.yaml` 之间是浅合并，不是深合并
 - 插件通过 `PluginContext` 和 `IrisAPI` 可以做到任何事情，包括替换内部方法、注册命令、注册路由、发射自定义事件。请确保插件代码可信
-- `registerConsoleSettingsTab` 只在启用了 Console 平台时才会渲染 Tab；Tab id 不能与内置 section（`general` / `tools` / `mcp`）重名
+- `console:settings-tab` 服务只在启用了 Console 能力的场景中出现；Tab id 不能与内置 section（`general` / `tools` / `mcp`）重名
 - Console Settings Tab 的 `onLoad` / `onSave` 抛出的错误会被捕获并在状态栏显示，不会导致界面崩溃
