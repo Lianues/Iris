@@ -22,19 +22,8 @@ import {
   isRequest,
 } from './protocol';
 import {
-  CONSOLE_DISPATCH_SLASH_COMMAND_METHOD,
-  CONSOLE_GET_SETTINGS_TABS_METHOD,
-  CONSOLE_LIST_SLASH_COMMANDS_METHOD,
-  CONSOLE_LIST_STATUS_SEGMENTS_METHOD,
-  CONSOLE_PROGRESS_LOAD_HISTORY_METHOD,
-  CONSOLE_PROGRESS_LOAD_LATEST_METHOD,
-  CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD,
-  CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD,
-  CONSOLE_RENDER_TOOL_DISPLAY_METHOD,
-  CONSOLE_RESOLVE_PATH_DISPLAY_METHOD,
-} from '../../extensions/console/src/ipc-bridge.js';
-import {
   dispatchConsoleBridgeMethod,
+  isConsoleBridgeMethod,
 } from '../../extensions/console/src/ipc-bridge-server.js';
 
 const logger = createLogger('IPCServer');
@@ -315,6 +304,9 @@ export class IPCServer extends EventEmitter {
     try {
       let result: unknown;
 
+      if (isConsoleBridgeMethod(req.method)) {
+        result = await dispatchConsoleBridgeMethod(this.api, req.method, params);
+      } else {
       switch (req.method) {
         // ---- Backend 核心方法 ----
         case Methods.CHAT:
@@ -532,18 +524,6 @@ export class IPCServer extends EventEmitter {
           this.api?.setLogLevel?.(...params);
           result = null;
           break;
-        case CONSOLE_GET_SETTINGS_TABS_METHOD:
-        case CONSOLE_LIST_SLASH_COMMANDS_METHOD:
-        case CONSOLE_DISPATCH_SLASH_COMMAND_METHOD:
-        case CONSOLE_RESOLVE_PATH_DISPLAY_METHOD:
-        case CONSOLE_LIST_STATUS_SEGMENTS_METHOD:
-        case CONSOLE_RENDER_TOOL_DISPLAY_METHOD:
-        case CONSOLE_PROGRESS_LOAD_LATEST_METHOD:
-        case CONSOLE_PROGRESS_LOAD_HISTORY_METHOD:
-        case CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD:
-        case CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD:
-          result = await dispatchConsoleBridgeMethod(this.api, req.method, params);
-          break;
         case Methods.API_LIST_AGENTS:
           result = this.api?.listAgents?.() ?? [];
           break;
@@ -602,6 +582,7 @@ export class IPCServer extends EventEmitter {
             error: { code: ErrorCodes.METHOD_NOT_FOUND, message: `未知方法: ${req.method}` },
           });
           return;
+      }
       }
 
       conn.send({ jsonrpc: '2.0', id: req.id, result });
@@ -736,21 +717,13 @@ export class IPCServer extends EventEmitter {
     method: string,
     params: unknown[],
   ): Promise<unknown> {
+    if (isConsoleBridgeMethod(method)) {
+      return await dispatchConsoleBridgeMethod(api, method, params);
+    }
     switch (method) {
       case Methods.API_SET_LOG_LEVEL:
         api.setLogLevel?.(...params);
         return null;
-      case CONSOLE_GET_SETTINGS_TABS_METHOD:
-      case CONSOLE_LIST_SLASH_COMMANDS_METHOD:
-      case CONSOLE_DISPATCH_SLASH_COMMAND_METHOD:
-      case CONSOLE_RESOLVE_PATH_DISPLAY_METHOD:
-      case CONSOLE_LIST_STATUS_SEGMENTS_METHOD:
-      case CONSOLE_RENDER_TOOL_DISPLAY_METHOD:
-      case CONSOLE_PROGRESS_LOAD_LATEST_METHOD:
-      case CONSOLE_PROGRESS_LOAD_HISTORY_METHOD:
-      case CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD:
-      case CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD:
-        return await dispatchConsoleBridgeMethod(api, method, params);
       case Methods.API_LIST_AGENTS:
         return api.listAgents?.() ?? [];
       case Methods.API_AGENT_NETWORK_LIST_PEERS:

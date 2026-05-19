@@ -66,6 +66,23 @@ export function renderConsoleToolDisplay(apiLike: ConsoleServiceApiLike, toolNam
     : undefined;
 }
 
+const CONSOLE_BRIDGE_METHOD_SET = new Set<string>([
+  CONSOLE_GET_SETTINGS_TABS_METHOD,
+  CONSOLE_LIST_SLASH_COMMANDS_METHOD,
+  CONSOLE_DISPATCH_SLASH_COMMAND_METHOD,
+  CONSOLE_RESOLVE_PATH_DISPLAY_METHOD,
+  CONSOLE_LIST_STATUS_SEGMENTS_METHOD,
+  CONSOLE_RENDER_TOOL_DISPLAY_METHOD,
+  CONSOLE_PROGRESS_LOAD_LATEST_METHOD,
+  CONSOLE_PROGRESS_LOAD_HISTORY_METHOD,
+  CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD,
+  CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD,
+]);
+
+export function isConsoleBridgeMethod(method: string): boolean {
+  return CONSOLE_BRIDGE_METHOD_SET.has(method);
+}
+
 export async function dispatchConsoleBridgeMethod(apiLike: ConsoleServiceApiLike, method: string, params: unknown[]): Promise<unknown> {
   switch (method) {
     case CONSOLE_GET_SETTINGS_TABS_METHOD:
