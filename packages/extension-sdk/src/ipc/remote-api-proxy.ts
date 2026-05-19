@@ -4,18 +4,12 @@
  * 为 `iris attach` 模式提供 Console 平台需要的 IrisAPI 子集，
  * 将方法调用通过 IPC 转发到服务端。
  *
- * Console 实际使用的 API/私有桥接子属性：
+ * 这里仅提供平台无关的通用 API 子集：
  *   1. api.setLogLevel()
- *   2. api.__consoleGetSettingsTabs()   （Console attach 私有桥接，不属于公开 IrisAPI）
- *   3. api.__consoleGetSlashCommands()
- *   4. api.__consoleDispatchSlashCommand()
- *   5. api.__consoleResolvePathDisplay() / __consoleListStatusSegments()
- *   6. api.__consoleRenderToolDisplay()
- *   7. api.__consoleLoadLatestProgress() / history / uiState
- *   8. api.agentNetwork
- *   9. api.listAgents()
- *  10. api.configManager (readEditableConfig, updateEditableConfig)
- *  11. api.router (removeCurrentModelRequestBodyKeys, patchCurrentModelRequestBody)
+ *   2. api.agentNetwork
+ *   3. api.listAgents()
+ *   4. api.configManager (readEditableConfig, updateEditableConfig)
+ *   5. api.router (removeCurrentModelRequestBodyKeys, patchCurrentModelRequestBody)
  *
  * 同步/异步阻抗匹配策略：
  *   同步方法通过 initCaches() 预加载，后续调用返回缓存值。
@@ -55,8 +49,6 @@ function callApi(
 export function createRemoteApiProxy(client: IPCClientLike, agentName: string = '__remote__', options?: RemoteApiProxyOptions): Record<string, any> {
   const targetAgentName = options?.targetAgentName ?? agentName;
   // 缓存存储
-  let _cachedConsoleSettingsTabs: unknown[] = [];
-  let _cachedConsoleSlashCommands: unknown[] = [];
   let _cachedAgents: unknown[] = [];
   let _cachedPeers: string[] = [];
 
@@ -64,46 +56,6 @@ export function createRemoteApiProxy(client: IPCClientLike, agentName: string = 
     setLogLevel(level: unknown): void {
       callApi(client, targetAgentName, Methods.API_SET_LOG_LEVEL, [level])
         .catch((err) => logger.warn(`setLogLevel 失败: ${err.message}`));
-    },
-
-    __consoleGetSettingsTabs(): unknown[] {
-      return _cachedConsoleSettingsTabs;
-    },
-
-    __consoleGetSlashCommands(): unknown[] {
-      return _cachedConsoleSlashCommands;
-    },
-
-    __consoleDispatchSlashCommand(raw: string, context?: unknown): Promise<unknown> {
-      return callApi(client, targetAgentName, Methods.CONSOLE_DISPATCH_SLASH_COMMAND, [raw, context]);
-    },
-
-    __consoleResolvePathDisplay(context?: unknown): Promise<unknown> {
-      return callApi(client, targetAgentName, Methods.CONSOLE_RESOLVE_PATH_DISPLAY, [context]);
-    },
-
-    __consoleListStatusSegments(context?: unknown, align?: 'left' | 'right'): Promise<unknown> {
-      return callApi(client, targetAgentName, Methods.CONSOLE_LIST_STATUS_SEGMENTS, [context, align]);
-    },
-
-    __consoleRenderToolDisplay(toolName: string, kind: 'args' | 'progress' | 'result', input: unknown): Promise<unknown> {
-      return callApi(client, targetAgentName, Methods.CONSOLE_RENDER_TOOL_DISPLAY, [toolName, kind, input]);
-    },
-
-    __consoleLoadLatestProgress(sessionId: string): Promise<unknown> {
-      return callApi(client, targetAgentName, Methods.CONSOLE_PROGRESS_LOAD_LATEST, [sessionId]);
-    },
-
-    __consoleLoadProgressHistory(sessionId: string): Promise<unknown> {
-      return callApi(client, targetAgentName, Methods.CONSOLE_PROGRESS_LOAD_HISTORY, [sessionId]);
-    },
-
-    __consoleLoadProgressUiState(sessionId: string): Promise<unknown> {
-      return callApi(client, targetAgentName, Methods.CONSOLE_PROGRESS_LOAD_UI_STATE, [sessionId]);
-    },
-
-    __consoleSaveProgressUiState(sessionId: string, state: unknown): Promise<unknown> {
-      return callApi(client, targetAgentName, Methods.CONSOLE_PROGRESS_SAVE_UI_STATE, [sessionId, state]);
     },
 
     listAgents(): unknown[] {
@@ -160,18 +112,14 @@ export function createRemoteApiProxy(client: IPCClientLike, agentName: string = 
 
     /**
      * 预加载同步方法需要的缓存数据。
-     * 在创建后调用一次，保证 __consoleGetSettingsTabs/__consoleGetSlashCommands/listAgents/listPeers
+     * 在创建后调用一次，保证 listAgents/listPeers
      * 首次调用时就能返回有效数据。
      */
     async initCaches(): Promise<void> {
-      const [tabs, slashCommands, agents, peers] = await Promise.all([
-        callApi(client, targetAgentName, Methods.CONSOLE_GET_SETTINGS_TABS).catch(() => []),
-        callApi(client, targetAgentName, Methods.CONSOLE_LIST_SLASH_COMMANDS).catch(() => []),
+      const [agents, peers] = await Promise.all([
         callApi(client, targetAgentName, Methods.API_LIST_AGENTS).catch(() => []),
         callApi(client, targetAgentName, Methods.API_AGENT_NETWORK_LIST_PEERS).catch(() => []),
       ]);
-      _cachedConsoleSettingsTabs = tabs as unknown[] ?? [];
-      _cachedConsoleSlashCommands = slashCommands as unknown[] ?? [];
       _cachedAgents = agents as unknown[] ?? [];
       _cachedPeers = peers as string[] ?? [];
     },

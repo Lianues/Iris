@@ -10,6 +10,7 @@
 
 import { definePlugin, createPluginLogger, SCHEDULER_SERVICE_ID, waitForServiceAndRegister } from 'irises-extension-sdk';
 import type { Disposable, PluginContext, IrisAPI } from 'irises-extension-sdk';
+import { CONSOLE_SETTINGS_TAB_SERVICE_ID, type ConsoleSettingsTabDefinition, type ConsoleSettingsTabService } from '../../console/src/service-contracts.js';
 import { CronScheduler } from './scheduler.js';
 import {
   manageScheduledTasksTool,
@@ -24,34 +25,9 @@ import { createCronSchedulerService } from './service.js';
 
 
 const logger = createPluginLogger('cron');
-const CONSOLE_SETTINGS_TAB_SERVICE_ID = 'console:settings-tab';
 
-type ConsoleSettingsFieldLike = {
-  key: string;
-  label: string;
-  type: 'toggle' | 'number' | 'text' | 'select' | 'readonly' | 'action';
-  options?: { label: string; value: string }[];
-  defaultValue?: unknown;
-  description?: string;
-  group?: string;
-};
-
-type ConsoleSettingsTabDefinitionLike = {
-  id: string;
-  label: string;
-  icon?: string;
-  fields: ConsoleSettingsFieldLike[];
-  onLoad: () => Promise<Record<string, unknown>>;
-  onSave: (values: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
-  onAction?: (actionKey: string, values: Record<string, unknown>) => Promise<{ success: boolean; error?: string; message?: string; data?: unknown; patch?: Record<string, unknown> }> | { success: boolean; error?: string; message?: string; data?: unknown; patch?: Record<string, unknown> };
-};
-
-interface ConsoleSettingsTabServiceLike {
-  register(tab: ConsoleSettingsTabDefinitionLike): Disposable;
-}
-
-function registerSettingsTabWithConsoleService(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
-  return waitForServiceAndRegister<ConsoleSettingsTabServiceLike>(
+function registerSettingsTabWithConsoleService(api: IrisAPI, tab: ConsoleSettingsTabDefinition): Disposable {
+  return waitForServiceAndRegister<ConsoleSettingsTabService>(
     api.services,
     CONSOLE_SETTINGS_TAB_SERVICE_ID,
     (service) => service.register(tab),

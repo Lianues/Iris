@@ -116,18 +116,8 @@ export const Methods = {
   HANDLE_APPLY: 'handle.apply',
   HANDLE_ABORT: 'handle.abort',
 
-  // ---- API 子集 / Console 私有桥接（attach 模式使用）----
+  // ---- API 子集（attach / 远程平台通用）----
   API_SET_LOG_LEVEL: 'api.setLogLevel',
-  CONSOLE_GET_SETTINGS_TABS: 'console.getSettingsTabs',
-  CONSOLE_LIST_SLASH_COMMANDS: 'console.listSlashCommands',
-  CONSOLE_DISPATCH_SLASH_COMMAND: 'console.dispatchSlashCommand',
-  CONSOLE_RESOLVE_PATH_DISPLAY: 'console.resolvePathDisplay',
-  CONSOLE_LIST_STATUS_SEGMENTS: 'console.listStatusSegments',
-  CONSOLE_RENDER_TOOL_DISPLAY: 'console.renderToolDisplay',
-  CONSOLE_PROGRESS_LOAD_LATEST: 'console.progress.loadLatest',
-  CONSOLE_PROGRESS_LOAD_HISTORY: 'console.progress.loadHistory',
-  CONSOLE_PROGRESS_LOAD_UI_STATE: 'console.progress.loadUiState',
-  CONSOLE_PROGRESS_SAVE_UI_STATE: 'console.progress.saveUiState',
   API_LIST_AGENTS: 'api.listAgents',
   API_AGENT_NETWORK_LIST_PEERS: 'api.agentNetwork.listPeers',
   API_AGENT_NETWORK_GET_PEER_DESCRIPTION: 'api.agentNetwork.getPeerDescription',

@@ -14,6 +14,7 @@ import { RemoteBackendHandle } from './ipc/remote-backend-handle';
 import { createRemoteApiProxy } from './ipc/remote-api-proxy';
 import { Methods } from './ipc/protocol';
 import type { HandshakeResult } from './ipc/protocol';
+import { attachConsoleRemoteBridge } from '../extensions/console/src/ipc-bridge';
 
 // ============ 参数解析 ============
 
@@ -92,7 +93,7 @@ export async function runAttach(argv: string[]): Promise<void> {
   const remoteConfigDir = await client.call(Methods.GET_CONFIG_DIR).catch(() => '') as string;
 
   // 4. 创建远程 API 代理并预加载缓存
-  const api = createRemoteApiProxy(client, handshake.agentName);
+  const api = attachConsoleRemoteBridge(createRemoteApiProxy(client, handshake.agentName), client, { targetAgentName: handshake.agentName });
   if (typeof api.initCaches === 'function') {
     await api.initCaches();
   }

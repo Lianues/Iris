@@ -8,6 +8,10 @@ import {
   type ToolExecutionHandleLike,
 } from 'irises-extension-sdk';
 import {
+  CONSOLE_PROGRESS_SERVICE_ID,
+  type ConsoleProgressService,
+} from '../../console/src/service-contracts.js';
+import {
   SessionMilestoneManager,
   type MilestoneArchiveEntry,
   type MilestoneSnapshot,
@@ -19,7 +23,6 @@ import {
 const logger = createPluginLogger('milestone');
 const EXTENSION_STATE_KEY = 'milestone';
 export const MILESTONE_EXTENSION_SERVICE_ID = 'milestone:service';
-const CONSOLE_PROGRESS_SERVICE_ID = 'console:progress';
 
 export interface MilestoneExtensionService {
   update(sessionId: string, updates: MilestoneUpdateInput[], options?: { replaceAll?: boolean }): MilestoneSnapshot;
@@ -31,18 +34,6 @@ export interface MilestoneExtensionService {
   loadUiState(sessionId: string): Promise<MilestoneUiState | undefined>;
   setUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void>;
   onDidUpdate(listener: (sessionId: string, snapshot: MilestoneSnapshot) => void): { dispose(): void };
-}
-
-interface ConsoleProgressServiceLike {
-  register(provider: {
-    id: string;
-    priority?: number;
-    loadLatest(sessionId: string): Promise<MilestoneSnapshot | undefined> | MilestoneSnapshot | undefined;
-    loadHistory?(sessionId: string): Promise<MilestoneArchiveEntry[]> | MilestoneArchiveEntry[];
-    loadUiState?(sessionId: string): Promise<MilestoneUiState | undefined> | MilestoneUiState | undefined;
-    saveUiState?(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void> | void;
-    onDidUpdate?(listener: (sessionId: string, snapshot: MilestoneSnapshot) => void): { dispose(): void };
-  }): { dispose(): void };
 }
 
 interface PersistedMilestoneState {
@@ -779,7 +770,7 @@ export const milestonePlugin = definePlugin({
 
     ctx.onPlatformsReady((_platforms, api) => {
       const service = api.services.get<MilestoneExtensionService>(MILESTONE_EXTENSION_SERVICE_ID);
-      const consoleProgress = api.services.get<ConsoleProgressServiceLike>(CONSOLE_PROGRESS_SERVICE_ID);
+      const consoleProgress = api.services.get<ConsoleProgressService>(CONSOLE_PROGRESS_SERVICE_ID);
       if (!service || !consoleProgress) return;
       ctx.trackDisposable(consoleProgress.register({
         id: 'milestone',

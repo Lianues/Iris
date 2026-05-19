@@ -21,19 +21,11 @@ import type {
 } from './status-segment-service';
 import type { ConsoleToolDisplayProvider, ConsoleToolDisplayService } from './tool-display-service';
 import type { ProgressSnapshotLike } from './progress-types';
-
-export interface RemoteConsoleBridgeApi {
-  initCaches?(): Promise<void>;
-  __consoleGetSlashCommands?(): Command[];
-  __consoleDispatchSlashCommand?(raw: string, context?: ConsoleSlashCommandDispatchContext): Promise<ConsoleSlashCommandResult | undefined>;
-  __consoleResolvePathDisplay?(context?: ConsolePathDisplayContext): Promise<ConsolePathDisplaySnapshot | undefined>;
-  __consoleListStatusSegments?(context?: ConsoleStatusContext, align?: 'left' | 'right'): Promise<ConsoleStatusSegmentSnapshot[]>;
-  __consoleRenderToolDisplay?(toolName: string, kind: 'args' | 'progress' | 'result', input: Record<string, unknown>): Promise<string | undefined>;
-  __consoleLoadLatestProgress?(sessionId: string): Promise<ProgressSnapshotLike | undefined>;
-  __consoleLoadProgressHistory?(sessionId: string): Promise<ConsoleProgressArchiveLike[]>;
-  __consoleLoadProgressUiState?(sessionId: string): Promise<ConsoleProgressUiStateLike | undefined>;
-  __consoleSaveProgressUiState?(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void>;
-}
+import {
+  getCachedConsoleRemoteSlashCommands,
+  type ConsoleRemoteBridgeApi,
+} from './ipc-bridge';
+import { createListenerSignal } from './service-registry-utils';
 
 export interface RemoteConsoleServicesBundle {
   slashCommand: ConsoleSlashCommandService;
@@ -42,21 +34,6 @@ export interface RemoteConsoleServicesBundle {
   toolDisplay: ConsoleToolDisplayService;
   progress: ConsoleProgressService;
   refreshSession?(sessionId?: string): Promise<void>;
-}
-
-function createListeners<T extends (...args: any[]) => void>() {
-  const listeners = new Set<T>();
-  return {
-    add(listener: T) {
-      listeners.add(listener);
-      return { dispose: () => { listeners.delete(listener); } };
-    },
-    emit(...args: Parameters<T>) {
-      for (const listener of [...listeners]) {
-        try { listener(...args); } catch { /* ignore */ }
-      }
-    },
-  };
 }
 
 function createMatchCommand(commandsSource: () => Command[]) {
@@ -83,19 +60,19 @@ function contextKey(value: unknown): string {
   }
 }
 
-export function createRemoteConsoleServicesBundle(api: RemoteConsoleBridgeApi): RemoteConsoleServicesBundle {
-  const slashChanged = createListeners<() => void>();
-  const pathChanged = createListeners<() => void>();
-  const statusChanged = createListeners<() => void>();
-  const progressChanged = createListeners<() => void>();
-  const progressUpdated = createListeners<(providerId: string, sessionId: string, snapshot: ProgressSnapshotLike) => void>();
+export function createRemoteConsoleServicesBundle(api: ConsoleRemoteBridgeApi): RemoteConsoleServicesBundle {
+  const slashChanged = createListenerSignal<[]>();
+  const pathChanged = createListenerSignal<[]>();
+  const statusChanged = createListenerSignal<[]>();
+  const progressChanged = createListenerSignal<[]>();
+  const progressUpdated = createListenerSignal<[string, string, ProgressSnapshotLike]>();
 
   const pathCache = new Map<string, ConsolePathDisplaySnapshot | undefined>();
   const pathPending = new Set<string>();
   const statusCache = new Map<string, ConsoleStatusSegmentSnapshot[]>();
   const statusPending = new Set<string>();
 
-  const getSlashCommands = () => Array.isArray(api.__consoleGetSlashCommands?.()) ? [...api.__consoleGetSlashCommands()] : [];
+  const getSlashCommands = () => getCachedConsoleRemoteSlashCommands(api);
   const matchSlashCommand = createMatchCommand(getSlashCommands);
 
   const refreshSlashCommands = async () => {
@@ -164,10 +141,10 @@ export function createRemoteConsoleServicesBundle(api: RemoteConsoleBridgeApi): 
       return [progressProvider];
     },
     onDidChange(listener) {
-      return progressChanged.add(listener);
+      return progressChanged.on(listener);
     },
     onDidUpdate(listener) {
-      return progressUpdated.add(listener);
+      return progressUpdated.on(listener);
     },
   };
 
@@ -222,7 +199,7 @@ export function createRemoteConsoleServicesBundle(api: RemoteConsoleBridgeApi): 
         return result ?? {};
       },
       onDidChange(listener) {
-        return slashChanged.add(listener);
+        return slashChanged.on(listener);
       },
     },
     pathDisplay: {
@@ -235,7 +212,7 @@ export function createRemoteConsoleServicesBundle(api: RemoteConsoleBridgeApi): 
         return pathCache.get(key);
       },
       onDidChange(listener) {
-        return pathChanged.add(listener);
+        return pathChanged.on(listener);
       },
     },
     statusSegment: {
@@ -249,7 +226,7 @@ export function createRemoteConsoleServicesBundle(api: RemoteConsoleBridgeApi): 
         return cached ?? [];
       },
       onDidChange(listener) {
-        return statusChanged.add(listener);
+        return statusChanged.on(listener);
       },
     },
     toolDisplay: toolDisplayService,

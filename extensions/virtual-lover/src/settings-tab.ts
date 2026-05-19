@@ -8,6 +8,7 @@ import {
   type PluginContext,
   waitForServiceAndRegister,
 } from 'irises-extension-sdk';
+import { CONSOLE_SETTINGS_TAB_SERVICE_ID, type ConsoleSettingsTabDefinition, type ConsoleSettingsTabService } from '../../console/src/service-contracts.js';
 import { parseVirtualLoverConfig, type VirtualLoverConfig } from './config.js';
 import { loadPromptBundle, writeFragment } from './state.js';
 import { sendProactiveMessage } from './proactive.js';
@@ -16,34 +17,8 @@ import { MEMORY_SPACES_SERVICE_ID, type MemorySpacesServiceLike } from './memory
 import { syncVirtualLoverStrategies } from './strategies.js';
 import { scheduleVirtualLoverFollowup } from './followup.js';
 
-const CONSOLE_SETTINGS_TAB_SERVICE_ID = 'console:settings-tab';
-
-type ConsoleSettingsFieldLike = {
-  key: string;
-  label: string;
-  type: 'toggle' | 'number' | 'text' | 'select' | 'readonly' | 'action';
-  options?: { label: string; value: string }[];
-  defaultValue?: unknown;
-  description?: string;
-  group?: string;
-};
-
-type ConsoleSettingsTabDefinitionLike = {
-  id: string;
-  label: string;
-  icon?: string;
-  fields: ConsoleSettingsFieldLike[];
-  onLoad: () => Promise<Record<string, unknown>>;
-  onSave: (values: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
-  onAction?: (actionKey: string, values: Record<string, unknown>) => Promise<{ success: boolean; error?: string; message?: string; data?: unknown; patch?: Record<string, unknown> }> | { success: boolean; error?: string; message?: string; data?: unknown; patch?: Record<string, unknown> };
-};
-
-interface ConsoleSettingsTabServiceLike {
-  register(tab: ConsoleSettingsTabDefinitionLike): Disposable;
-}
-
-function registerSettingsTabWithConsoleService(api: IrisAPI, tab: ConsoleSettingsTabDefinitionLike): Disposable {
-  return waitForServiceAndRegister<ConsoleSettingsTabServiceLike>(
+function registerSettingsTabWithConsoleService(api: IrisAPI, tab: ConsoleSettingsTabDefinition): Disposable {
+  return waitForServiceAndRegister<ConsoleSettingsTabService>(
     api.services,
     CONSOLE_SETTINGS_TAB_SERVICE_ID,
     (service) => service.register(tab),

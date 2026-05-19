@@ -192,6 +192,10 @@ iris attach
 |------|------|
 | `api.setLogLevel` | 设置日志级别 |
 | `console.getSettingsTabs` | 获取 Console Settings Tab 列表（attach 私有桥接） |
+| `console.listSlashCommands` / `console.dispatchSlashCommand` | 获取并执行 Console slash command |
+| `console.resolvePathDisplay` / `console.listStatusSegments` | 读取 Console 路径显示与状态段 |
+| `console.renderToolDisplay` | 读取 Console 工具显示摘要（args/progress/result） |
+| `console.progress.*` | 读取/保存 Console 进度面板数据 |
 | `api.listAgents` | 列出 Agent |
 | `api.agentNetwork.*` | Agent 网络操作 |
 | `api.configManager.*` | 配置读写 |

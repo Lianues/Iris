@@ -65,7 +65,13 @@ import {
   type ConsoleProgressService,
   type ConsoleProgressUiStateLike,
 } from './progress-service';
-import { createRemoteConsoleServicesBundle, type RemoteConsoleBridgeApi, type RemoteConsoleServicesBundle } from './remote-console-service-proxies';
+import { createRemoteConsoleServicesBundle, type RemoteConsoleServicesBundle } from './remote-console-service-proxies';
+import {
+  attachConsoleRemoteBridge,
+  getCachedConsoleRemoteSettingsTabs,
+  hasConsoleRemoteBridge,
+  type ConsoleRemoteBridgeApi,
+} from './ipc-bridge';
 import { handleConsoleToggleExtension } from './extension-toggle';
 import { attachResultDiffPreview } from './tool-renderers/diff-preview-meta.js';
 
@@ -691,10 +697,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     });
     void this.getConsoleServicesBundle();
     this.bindPluginSettingsTabService();
-    if (typeof (this.api as any)?.__consoleGetSettingsTabs === 'function') {
-      const cached = (this.api as any).__consoleGetSettingsTabs?.();
-      this.remotePluginSettingsTabs = Array.isArray(cached) ? [...cached] : [];
-    }
+    this.remotePluginSettingsTabs = getCachedConsoleRemoteSettingsTabs(this.api);
   }
 
   private getPlanModeService(): PlanModeServiceLike | undefined {
@@ -711,21 +714,20 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   }
 
   private hasRemotePluginSettingsTabSource(): boolean {
-    return typeof (this.api as any)?.__consoleGetSettingsTabs === 'function' || this._isRemote;
+    return hasConsoleRemoteBridge(this.api) || this._isRemote;
   }
 
   private listPluginSettingsTabs(): ConsoleSettingsTabDefinition[] {
     if (this.hasRemotePluginSettingsTabSource()) {
       if (this.remotePluginSettingsTabs.length > 0) return [...this.remotePluginSettingsTabs];
-      const direct = (this.api as any)?.__consoleGetSettingsTabs?.();
-      return Array.isArray(direct) ? [...direct] : [];
+      return getCachedConsoleRemoteSettingsTabs(this.api);
     }
     return this.getLocalConsoleSettingsTabService()?.list?.() ?? [];
   }
 
   private getRemoteConsoleServicesBundle(): RemoteConsoleServicesBundle | undefined {
-    const currentApi = this.api as RemoteConsoleBridgeApi | undefined;
-    if (!currentApi || typeof (currentApi as any).__consoleDispatchSlashCommand !== 'function') return undefined;
+    const currentApi = this.api as ConsoleRemoteBridgeApi | undefined;
+    if (!hasConsoleRemoteBridge(currentApi)) return undefined;
     const existing = this.remoteConsoleServices.get(currentApi as object);
     if (existing) return existing;
     const bundle = createRemoteConsoleServicesBundle(currentApi);
@@ -846,9 +848,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       if (typeof api?.initCaches === 'function') {
         await api.initCaches();
       }
-      this.remotePluginSettingsTabs = Array.isArray(api?.__consoleGetSettingsTabs?.())
-        ? [...api.__consoleGetSettingsTabs()]
-        : [];
+      this.remotePluginSettingsTabs = getCachedConsoleRemoteSettingsTabs(api);
     } catch {
       this.remotePluginSettingsTabs = [];
     }
@@ -1490,11 +1490,14 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this._activeHandles.clear();
 
       // 分层配置修复：切换 Agent 后重建 settingsController
-      const peerAPI = network.getPeerAPI?.(targetName) as any;
+      const rawPeerAPI = network.getPeerAPI?.(targetName) as any;
+      const peerAPI = this.remoteClient && rawPeerAPI
+        ? attachConsoleRemoteBridge(rawPeerAPI, this.remoteClient, { targetAgentName: targetName })
+        : rawPeerAPI;
       if (peerAPI) {
         if (typeof peerAPI.initCaches === 'function') await peerAPI.initCaches();
         this.api = peerAPI;
-        this.remotePluginSettingsTabs = Array.isArray(peerAPI?.__consoleGetSettingsTabs?.()) ? [...peerAPI.__consoleGetSettingsTabs()] : [];
+        this.remotePluginSettingsTabs = getCachedConsoleRemoteSettingsTabs(peerAPI);
         this.bindPluginSettingsTabService();
         this.settingsController = new ConsoleSettingsController({
           backend: targetHandle,
@@ -1538,13 +1541,11 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         await remoteBackend.initCaches();
         await wsClient.subscribe('*');
 
-        remoteApi = createRemoteApiProxy(wsClient, handshake.agentName);
+        remoteApi = attachConsoleRemoteBridge(createRemoteApiProxy(wsClient, handshake.agentName), wsClient, { targetAgentName: handshake.agentName });
         if (typeof remoteApi.initCaches === 'function') {
           await remoteApi.initCaches();
         }
-        this.remotePluginSettingsTabs = Array.isArray(remoteApi?.__consoleGetSettingsTabs?.())
-          ? [...remoteApi.__consoleGetSettingsTabs()]
-          : [];
+        this.remotePluginSettingsTabs = getCachedConsoleRemoteSettingsTabs(remoteApi);
       } catch (initErr) {
         wsClient.disconnect();
         throw initErr;

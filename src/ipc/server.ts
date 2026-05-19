@@ -21,6 +21,21 @@ import {
   ErrorCodes, Methods, BACKEND_EVENT_TO_IPC, Events,
   isRequest,
 } from './protocol';
+import {
+  CONSOLE_DISPATCH_SLASH_COMMAND_METHOD,
+  CONSOLE_GET_SETTINGS_TABS_METHOD,
+  CONSOLE_LIST_SLASH_COMMANDS_METHOD,
+  CONSOLE_LIST_STATUS_SEGMENTS_METHOD,
+  CONSOLE_PROGRESS_LOAD_HISTORY_METHOD,
+  CONSOLE_PROGRESS_LOAD_LATEST_METHOD,
+  CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD,
+  CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD,
+  CONSOLE_RENDER_TOOL_DISPLAY_METHOD,
+  CONSOLE_RESOLVE_PATH_DISPLAY_METHOD,
+} from '../../extensions/console/src/ipc-bridge.js';
+import {
+  dispatchConsoleBridgeMethod,
+} from '../../extensions/console/src/ipc-bridge-server.js';
 
 const logger = createLogger('IPCServer');
 const SERVER_SHUTDOWN_METHOD = 'server.shutdown';
@@ -517,43 +532,17 @@ export class IPCServer extends EventEmitter {
           this.api?.setLogLevel?.(...params);
           result = null;
           break;
-        case Methods.CONSOLE_GET_SETTINGS_TABS:
-          result = this.api?.services?.get?.('console:settings-tab')?.list?.() ?? [];
-          break;
-        case Methods.CONSOLE_LIST_SLASH_COMMANDS:
-          result = this.api?.services?.get?.('console:slash-command')?.list?.() ?? [];
-          break;
-        case Methods.CONSOLE_DISPATCH_SLASH_COMMAND:
-          result = await this.api?.services?.get?.('console:slash-command')?.dispatch?.(params[0], params[1] ?? {});
-          break;
-        case Methods.CONSOLE_RESOLVE_PATH_DISPLAY:
-          result = this.api?.services?.get?.('console:path-display')?.resolve?.(params[0] ?? {});
-          break;
-        case Methods.CONSOLE_LIST_STATUS_SEGMENTS:
-          result = this.api?.services?.get?.('console:status-segment')?.list?.(params[0] ?? {}, params[1] ?? 'right') ?? [];
-          break;
-        case Methods.CONSOLE_RENDER_TOOL_DISPLAY: {
-          const toolDisplay = this.api?.services?.get?.('console:tool-display');
-          const provider = toolDisplay?.get?.(params[0]);
-          const mode = params[1];
-          const input = params[2];
-          result = mode === 'args' ? provider?.getArgsSummary?.(input)
-            : mode === 'progress' ? provider?.getProgressLine?.(input)
-            : mode === 'result' ? provider?.getResultSummary?.(input)
-            : undefined;
-          break;
-        }
-        case Methods.CONSOLE_PROGRESS_LOAD_LATEST:
-          result = await this.api?.services?.get?.('console:progress')?.getActiveProvider?.()?.loadLatest?.(params[0]);
-          break;
-        case Methods.CONSOLE_PROGRESS_LOAD_HISTORY:
-          result = await this.api?.services?.get?.('console:progress')?.getActiveProvider?.()?.loadHistory?.(params[0]) ?? [];
-          break;
-        case Methods.CONSOLE_PROGRESS_LOAD_UI_STATE:
-          result = await this.api?.services?.get?.('console:progress')?.getActiveProvider?.()?.loadUiState?.(params[0]);
-          break;
-        case Methods.CONSOLE_PROGRESS_SAVE_UI_STATE:
-          result = await this.api?.services?.get?.('console:progress')?.getActiveProvider?.()?.saveUiState?.(params[0], params[1]);
+        case CONSOLE_GET_SETTINGS_TABS_METHOD:
+        case CONSOLE_LIST_SLASH_COMMANDS_METHOD:
+        case CONSOLE_DISPATCH_SLASH_COMMAND_METHOD:
+        case CONSOLE_RESOLVE_PATH_DISPLAY_METHOD:
+        case CONSOLE_LIST_STATUS_SEGMENTS_METHOD:
+        case CONSOLE_RENDER_TOOL_DISPLAY_METHOD:
+        case CONSOLE_PROGRESS_LOAD_LATEST_METHOD:
+        case CONSOLE_PROGRESS_LOAD_HISTORY_METHOD:
+        case CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD:
+        case CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD:
+          result = await dispatchConsoleBridgeMethod(this.api, req.method, params);
           break;
         case Methods.API_LIST_AGENTS:
           result = this.api?.listAgents?.() ?? [];
@@ -751,34 +740,17 @@ export class IPCServer extends EventEmitter {
       case Methods.API_SET_LOG_LEVEL:
         api.setLogLevel?.(...params);
         return null;
-      case Methods.CONSOLE_GET_SETTINGS_TABS:
-        return api.services?.get?.('console:settings-tab')?.list?.() ?? [];
-      case Methods.CONSOLE_LIST_SLASH_COMMANDS:
-        return api.services?.get?.('console:slash-command')?.list?.() ?? [];
-      case Methods.CONSOLE_DISPATCH_SLASH_COMMAND:
-        return await api.services?.get?.('console:slash-command')?.dispatch?.(params[0], params[1] ?? {});
-      case Methods.CONSOLE_RESOLVE_PATH_DISPLAY:
-        return api.services?.get?.('console:path-display')?.resolve?.(params[0] ?? {});
-      case Methods.CONSOLE_LIST_STATUS_SEGMENTS:
-        return api.services?.get?.('console:status-segment')?.list?.(params[0] ?? {}, params[1] ?? 'right') ?? [];
-      case Methods.CONSOLE_RENDER_TOOL_DISPLAY: {
-        const toolDisplay = api.services?.get?.('console:tool-display');
-        const provider = toolDisplay?.get?.(params[0]);
-        const mode = params[1];
-        const input = params[2];
-        return mode === 'args' ? provider?.getArgsSummary?.(input)
-          : mode === 'progress' ? provider?.getProgressLine?.(input)
-          : mode === 'result' ? provider?.getResultSummary?.(input)
-          : undefined;
-      }
-      case Methods.CONSOLE_PROGRESS_LOAD_LATEST:
-        return await api.services?.get?.('console:progress')?.getActiveProvider?.()?.loadLatest?.(params[0]);
-      case Methods.CONSOLE_PROGRESS_LOAD_HISTORY:
-        return await api.services?.get?.('console:progress')?.getActiveProvider?.()?.loadHistory?.(params[0]) ?? [];
-      case Methods.CONSOLE_PROGRESS_LOAD_UI_STATE:
-        return await api.services?.get?.('console:progress')?.getActiveProvider?.()?.loadUiState?.(params[0]);
-      case Methods.CONSOLE_PROGRESS_SAVE_UI_STATE:
-        return await api.services?.get?.('console:progress')?.getActiveProvider?.()?.saveUiState?.(params[0], params[1]);
+      case CONSOLE_GET_SETTINGS_TABS_METHOD:
+      case CONSOLE_LIST_SLASH_COMMANDS_METHOD:
+      case CONSOLE_DISPATCH_SLASH_COMMAND_METHOD:
+      case CONSOLE_RESOLVE_PATH_DISPLAY_METHOD:
+      case CONSOLE_LIST_STATUS_SEGMENTS_METHOD:
+      case CONSOLE_RENDER_TOOL_DISPLAY_METHOD:
+      case CONSOLE_PROGRESS_LOAD_LATEST_METHOD:
+      case CONSOLE_PROGRESS_LOAD_HISTORY_METHOD:
+      case CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD:
+      case CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD:
+        return await dispatchConsoleBridgeMethod(api, method, params);
       case Methods.API_LIST_AGENTS:
         return api.listAgents?.() ?? [];
       case Methods.API_AGENT_NETWORK_LIST_PEERS:

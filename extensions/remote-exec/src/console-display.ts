@@ -1,54 +1,21 @@
 import type { IrisAPI } from 'irises-extension-sdk';
 import type { EnvironmentManager } from './environment.js';
-
-const CONSOLE_TOOL_DISPLAY_SERVICE_ID = 'console:tool-display';
-const CONSOLE_SLASH_COMMAND_SERVICE_ID = 'console:slash-command';
-const CONSOLE_STATUS_SEGMENT_SERVICE_ID = 'console:status-segment';
-const CONSOLE_PATH_DISPLAY_SERVICE_ID = 'console:path-display';
+import {
+  CONSOLE_PATH_DISPLAY_SERVICE_ID,
+  CONSOLE_SLASH_COMMAND_SERVICE_ID,
+  CONSOLE_STATUS_SEGMENT_SERVICE_ID,
+  CONSOLE_TOOL_DISPLAY_SERVICE_ID,
+  type ConsolePathDisplayService,
+  type ConsoleSlashCommandService,
+  type ConsoleStatusSegmentService,
+  type ConsoleToolDisplayService,
+} from '../../console/src/service-contracts.js';
 
 interface DisplayProviderInput {
   toolName: string;
   args: Record<string, unknown>;
   progress?: Record<string, unknown>;
   result?: unknown;
-}
-
-interface ConsoleToolDisplayServiceLike {
-  register(toolName: string, provider: {
-    getArgsSummary?: (input: DisplayProviderInput) => string | undefined;
-    getProgressLine?: (input: DisplayProviderInput) => string | undefined;
-    getResultSummary?: (input: DisplayProviderInput) => string | undefined;
-  }): { dispose(): void };
-}
-
-interface ConsoleSlashCommandServiceLike {
-  register(command: {
-    name: string;
-    description: string;
-    acceptsArgs?: boolean;
-    color?: string;
-    getArgSuggestions?: (input: { arg: string; raw: string }) => Array<{ value: string; description?: string; color?: string }>;
-    handle(input: { raw: string; name: string; arg: string; sessionId?: string }): { message?: string; isError?: boolean; label?: string } | Promise<{ message?: string; isError?: boolean; label?: string } | void> | void;
-  }): { dispose(): void };
-}
-
-interface ConsoleStatusSegmentServiceLike {
-  register(provider: {
-    id: string;
-    align?: 'left' | 'right';
-    priority?: number;
-    getSnapshot(input: { sessionId?: string }): { id: string; text: string; color?: string; priority?: number; align?: 'left' | 'right' } | undefined;
-    onDidChange?: (listener: () => void) => { dispose(): void };
-  }): { dispose(): void };
-}
-
-interface ConsolePathDisplayServiceLike {
-  register(provider: {
-    id: string;
-    priority?: number;
-    getSnapshot(input: { sessionId?: string }): { id: string; path: string; color?: string; priority?: number } | undefined;
-    onDidChange?: (listener: () => void) => { dispose(): void };
-  }): { dispose(): void };
 }
 
 let displayRegistration: { dispose(): void } | undefined;
@@ -86,7 +53,7 @@ export function disposeRemoteExecConsoleIntegration(): void {
 function registerTransferFilesDisplay(api: IrisAPI): void {
   if (displayRegistration || displayRegistering) return;
   displayRegistering = true;
-  void api.services.waitFor<ConsoleToolDisplayServiceLike>(CONSOLE_TOOL_DISPLAY_SERVICE_ID, 5000)
+  void api.services.waitFor<ConsoleToolDisplayService>(CONSOLE_TOOL_DISPLAY_SERVICE_ID, 5000)
     .then((service) => {
       if (displayRegistration) return;
       displayRegistration = service.register('transfer_files', {
@@ -102,7 +69,7 @@ function registerTransferFilesDisplay(api: IrisAPI): void {
 function registerEnvironmentSlashCommands(api: IrisAPI, envMgr: EnvironmentManager): void {
   if (slashRegistrations.length > 0 || slashRegistering) return;
   slashRegistering = true;
-  void api.services.waitFor<ConsoleSlashCommandServiceLike>(CONSOLE_SLASH_COMMAND_SERVICE_ID, 5000)
+  void api.services.waitFor<ConsoleSlashCommandService>(CONSOLE_SLASH_COMMAND_SERVICE_ID, 5000)
     .then((service) => {
       if (slashRegistrations.length > 0) return;
       const switchTo = async (name: string, sessionId?: string) => {
@@ -176,7 +143,7 @@ function registerEnvironmentSlashCommands(api: IrisAPI, envMgr: EnvironmentManag
 function registerEnvironmentStatusSegment(api: IrisAPI, envMgr: EnvironmentManager): void {
   if (statusRegistration || statusRegistering) return;
   statusRegistering = true;
-  void api.services.waitFor<ConsoleStatusSegmentServiceLike>(CONSOLE_STATUS_SEGMENT_SERVICE_ID, 5000)
+  void api.services.waitFor<ConsoleStatusSegmentService>(CONSOLE_STATUS_SEGMENT_SERVICE_ID, 5000)
     .then((service) => {
       if (statusRegistration) return;
       statusRegistration = service.register({
@@ -205,7 +172,7 @@ function registerEnvironmentStatusSegment(api: IrisAPI, envMgr: EnvironmentManag
 function registerEnvironmentPathDisplay(api: IrisAPI, envMgr: EnvironmentManager): void {
   if (pathDisplayRegistration || pathDisplayRegistering) return;
   pathDisplayRegistering = true;
-  void api.services.waitFor<ConsolePathDisplayServiceLike>(CONSOLE_PATH_DISPLAY_SERVICE_ID, 5000)
+  void api.services.waitFor<ConsolePathDisplayService>(CONSOLE_PATH_DISPLAY_SERVICE_ID, 5000)
     .then((service) => {
       if (pathDisplayRegistration) return;
       pathDisplayRegistration = service.register({
