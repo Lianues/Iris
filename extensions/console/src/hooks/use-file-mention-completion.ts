@@ -31,7 +31,7 @@ export function useFileMentionCompletion(options: UseFileMentionCompletionOption
   }, [cursor, disabled, onListFiles, value]);
 
   useEffect(() => {
-    if (!token || files) return;
+    if (!token) return;
 
     const requestId = ++requestIdRef.current;
     let cancelled = false;
@@ -55,7 +55,7 @@ export function useFileMentionCompletion(options: UseFileMentionCompletionOption
     return () => {
       cancelled = true;
     };
-  }, [files, onListFiles, token]);
+  }, [onListFiles, token]);
 
   const candidates = useMemo(() => {
     if (!token || !files) return [];
