@@ -31,7 +31,11 @@ export function useFileMentionCompletion(options: UseFileMentionCompletionOption
   }, [cursor, disabled, onListFiles, value]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || token.query.length === 0) {
+      requestIdRef.current++;
+      setLoading(false);
+      return;
+    }
 
     const requestId = ++requestIdRef.current;
     let cancelled = false;
@@ -58,7 +62,7 @@ export function useFileMentionCompletion(options: UseFileMentionCompletionOption
   }, [onListFiles, token]);
 
   const candidates = useMemo(() => {
-    if (!token || !files) return [];
+    if (!token || token.query.length === 0 || !files) return [];
     return filterFileMentionCandidates(files, token.query);
   }, [files, token]);
 

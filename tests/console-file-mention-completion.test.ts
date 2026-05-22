@@ -115,4 +115,14 @@ describe('console file mention wiring regressions', () => {
 
     expect(source).toContain('inputActions.replaceRange(fileMention.token.start, fileMention.token.end, current.path)');
   });
+
+  it('single @ does not fetch or show file mention candidates', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/hooks/use-file-mention-completion.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain('!token || token.query.length === 0');
+    expect(source).toContain('!token || token.query.length === 0 || !files');
+  });
 });
