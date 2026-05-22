@@ -42,6 +42,7 @@
 - 阶段 1 已完成并提交：`c72eb09 feat(console): add file mention completion core`。
 - 阶段 2 已完成并提交：`28caa3b feat(console): support undoable text range replacement`。
 - 阶段 3 和阶段 4 已作为一个集成提交完成：`6a18470 feat(console): add at-file completion UI`。这两阶段在 `InputBar` prop、hook 和 UI 交互上互相依赖，合并提交避免留下中间不可编译状态。
+- cwd 变化后的候选刷新修正已提交：`beb1b0a fix(console): refresh file mention candidates per cwd`。
 - 已新增源码结构回归测试，覆盖 `InputBar` 不直接 import `fs` / `path`、远程模式不传入文件补全回调、文件候选 Tab 使用 `replaceRange`。
 - 已用真实当前仓库 cwd 做 smoke check：`@console-at` 的候选包含 `.limcode/plan/console-at-file-completion.md`。
 - 未在本非交互式执行环境启动完整 Console TUI；本地交互项用纯逻辑单测、源码结构回归测试和当前 cwd smoke check 替代验证。
@@ -59,6 +60,12 @@ npm run build:extensions
 ```
 
 结果：命令整体失败，原因是既有 `computer-use` extension 的 Bun 构建无法解析 `irises-extension-sdk`（提示 `Could not resolve: "irises-extension-sdk". Maybe you need to "bun install"?`）。同一轮构建中本次修改涉及的 `console` extension 已成功 bundle，并通过 `validate-extension-bundle` runtime import 校验。
+
+```bash
+npm --prefix extensions/console run build
+```
+
+结果：通过，Console extension bundle 成功，并通过 `validate-extension-bundle` runtime import 校验。
 
 ## 阶段 1：补全核心逻辑和文件枚举
 
