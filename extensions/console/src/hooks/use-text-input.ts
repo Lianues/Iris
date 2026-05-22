@@ -27,6 +27,7 @@ export interface TextInputKey {
 export interface TextInputActions {
   handleKey: (key: TextInputKey) => boolean;
   insert: (text: string) => void;
+  replaceRange: (start: number, end: number, text: string) => void;
   setValue: (value: string) => void;
   set: (value: string, cursor: number) => void;
 }
@@ -171,6 +172,15 @@ export function insertTextInputValue(state: TextInputState, text: string): TextI
   });
 }
 
+export function replaceTextInputRange(state: TextInputState, start: number, end: number, text: string): TextInputState {
+  const from = Math.max(0, Math.min(start, state.value.length));
+  const to = Math.max(from, Math.min(end, state.value.length));
+  return withUndoHistory(state, {
+    value: state.value.slice(0, from) + text + state.value.slice(to),
+    cursor: from + text.length,
+  });
+}
+
 export function useTextInput(initialValue = ''): [TextInputState, TextInputActions] {
   const [state, setState] = useState<TextInputState>(() => resetHistory(initialValue, initialValue.length));
 
@@ -194,6 +204,10 @@ export function useTextInput(initialValue = ''): [TextInputState, TextInputActio
     setState((current) => insertTextInputValue(current, text));
   }, []);
 
+  const replaceRange = useCallback((start: number, end: number, text: string) => {
+    setState((current) => replaceTextInputRange(current, start, end, text));
+  }, []);
+
   const setValue = useCallback((value: string) => {
     setState(resetHistory(value, value.length));
   }, []);
@@ -202,5 +216,5 @@ export function useTextInput(initialValue = ''): [TextInputState, TextInputActio
     setState(resetHistory(value, cursor));
   }, []);
 
-  return [state, { handleKey, insert, setValue, set }];
+  return [state, { handleKey, insert, replaceRange, setValue, set }];
 }
