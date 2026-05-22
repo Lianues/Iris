@@ -14,6 +14,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import { COMMANDS, type Command, type CommandArgSuggestion, getCommandInput, isExactCommandValue } from '../input-commands';
+import { useFileMentionCompletion } from '../hooks/use-file-mention-completion';
 import { useTextInput } from '../hooks/use-text-input';
 import { useCursorBlink } from '../hooks/use-cursor-blink';
 import { usePaste } from '../hooks/use-paste';
@@ -81,6 +82,8 @@ interface InputBarProps {
   thinkingControlEnabled?: boolean;
   /** 移除指定索引的待发送文件 */
   onRemoveFile: (index: number) => void;
+  /** 获取当前会话 cwd 下可用于 @ 文件补全的相对文件路径 */
+  onListFileMentionFiles?: () => readonly string[] | Promise<readonly string[]>;
   /** 当前是否处于远程连接状态 */
   isRemote?: boolean;
   dynamicCommands?: Command[];
@@ -94,9 +97,11 @@ function isPrioritySubmitShortcut(key: any): boolean {
     || key.raw === '\x13';
 }
 
-export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef }: InputBarProps) {
+export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [fileSelectedIndex, setFileSelectedIndex] = useState(0);
+  const [fileMentionDismissedKey, setFileMentionDismissedKey] = useState<string | null>(null);
   const [queuePromptFrame, setQueuePromptFrame] = useState(0);
   const cursorVisible = useCursorBlink();
   const { width: termWidth, height: termHeight } = useTerminalDimensions();
@@ -191,6 +196,20 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
 
   const showCommands = commandQuery.length > 0 && !commandsDismissed;
   const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && value.startsWith(`${activeArgCommand.name} `);
+  const fileMention = useFileMentionCompletion({
+    value,
+    cursor: inputState.cursor,
+    disabled: inputDisabled || !!isRemote || value.startsWith('/'),
+    onListFiles: onListFileMentionFiles,
+  });
+  const fileMentionKey = fileMention.token
+    ? `${fileMention.token.start}:${fileMention.token.end}:${fileMention.token.query}`
+    : null;
+  const showFileMentionSuggestions = !!fileMention.token
+    && fileMention.candidates.length > 0
+    && fileMentionDismissedKey !== fileMentionKey
+    && !showCommands
+    && !showArgSuggestions;
 
   const filtered = useMemo(() => {
     if (!showCommands) return [];
@@ -214,6 +233,14 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     setSelectedIndex((prev) => Math.min(prev, filtered.length - 1));
   }, [showCommands, filtered.length, exactMatchIndex, showArgSuggestions, argSuggestions.length]);
 
+  useEffect(() => {
+    if (!showFileMentionSuggestions) {
+      setFileSelectedIndex(0);
+      return;
+    }
+    setFileSelectedIndex((prev) => Math.min(prev, fileMention.candidates.length - 1));
+  }, [fileMention.candidates.length, showFileMentionSuggestions]);
+
   const maxSlashPanelRows = useMemo(() => {
     const rowsByViewport = Math.floor(termHeight * SLASH_PANEL_MAX_HEIGHT_RATIO);
     return Math.max(SLASH_PANEL_MIN_VISIBLE_ROWS, rowsByViewport);
@@ -235,11 +262,26 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     buildSuggestionWindow(argSuggestionRows, selectedIndex, maxSlashPanelRows)
   ), [argSuggestionRows, selectedIndex, maxSlashPanelRows]);
 
+  const fileSuggestionRows = useMemo<IndexedSuggestion<{ path: string }>[]>(() => (
+    fileMention.candidates.map((item, index) => ({ item, index }))
+  ), [fileMention.candidates]);
+
+  const visibleFileRows = useMemo(() => (
+    buildSuggestionWindow(fileSuggestionRows, fileSelectedIndex, maxSlashPanelRows)
+  ), [fileSuggestionRows, fileSelectedIndex, maxSlashPanelRows]);
+
   const applySelection = (index: number) => {
     const count = showArgSuggestions ? argSuggestions.length : filtered.length;
     if (count === 0) return;
     const normalizedIndex = ((index % count) + count) % count;
     setSelectedIndex(normalizedIndex);
+  };
+
+  const applyFileSelection = (index: number) => {
+    const count = fileMention.candidates.length;
+    if (count === 0) return;
+    const normalizedIndex = ((index % count) + count) % count;
+    setFileSelectedIndex(normalizedIndex);
   };
 
   useKeyboard((key) => {
@@ -289,6 +331,21 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
             // 补全当前选中项的文本到输入栏
             inputActions.setValue(getCommandInput(current));
           }
+        }
+        return;
+      }
+    }
+
+    // @ 文件候选导航。它使用独立 selectedIndex，避免污染 slash 命令候选状态。
+    if (showFileMentionSuggestions && fileMention.token && fileMention.candidates.length > 0) {
+      if (key.name === 'up') { key.preventDefault?.(); applyFileSelection(fileSelectedIndex + 1); return; }
+      if (key.name === 'down') { key.preventDefault?.(); applyFileSelection(fileSelectedIndex - 1); return; }
+      if (key.name === 'tab') {
+        key.preventDefault?.();
+        const current = fileMention.candidates[fileSelectedIndex];
+        if (current) {
+          inputActions.replaceRange(fileMention.token.start, fileMention.token.end, current.path);
+          setFileSelectedIndex(0);
         }
         return;
       }
@@ -346,6 +403,12 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
         key.preventDefault?.();
         setCommandsDismissed(true);
         setSelectedIndex(0);
+        return;
+      }
+      if (showFileMentionSuggestions) {
+        key.preventDefault?.();
+        setFileMentionDismissedKey(fileMentionKey);
+        setFileSelectedIndex(0);
       }
       return;
     }
@@ -390,6 +453,9 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     : 0;
   const maxArgLen = argSuggestions.length > 0
     ? Math.max(...argSuggestions.map((item) => item.value.length))
+    : 0;
+  const maxFileLen = fileMention.candidates.length > 0
+    ? Math.max(...fileMention.candidates.map((item) => item.path.length))
     : 0;
 
   // ── 输入区域滚动判定 ──────────────────────────────────────
@@ -530,6 +596,45 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
                     ? <strong><span fg={cmd.color ?? C.text}>{padded}</span></strong>
                     : <span fg={cmd.color ?? C.textSec}>{padded}</span>}
                   <span fg={isSelected ? C.textSec : C.dim}>  {cmd.description}</span>
+                </text>
+              </box>
+            );
+          })}
+        </box>
+      )}
+      {!showArgSuggestions && !showCommands && showFileMentionSuggestions && (
+        <box
+          position="absolute"
+          left={0}
+          width="100%"
+          bottom={slashPanelBottom}
+          zIndex={100}
+          height={visibleFileRows.length + SLASH_PANEL_BORDER_ROWS}
+          shouldFill
+          flexDirection="column"
+          backgroundColor={C.panelBg}
+          paddingX={1}
+          border
+          borderStyle="single"
+          borderColor={C.border}
+        >
+          {[...visibleFileRows].reverse().map(({ item, index }) => {
+            const padded = item.path.padEnd(maxFileLen);
+            const isSelected = index === fileSelectedIndex;
+            return (
+              <box
+                key={`${item.path}-${index}`}
+                width="100%"
+                height={1}
+                overflow="hidden"
+                paddingLeft={1}
+                backgroundColor={isSelected ? C.border : C.panelBg}
+              >
+                <text>
+                  <span fg={isSelected ? C.accent : C.dim}>{isSelected ? `${ICONS.triangleRight} ` : '  '}</span>
+                  {isSelected
+                    ? <strong><span fg={C.text}>{padded}</span></strong>
+                    : <span fg={C.textSec}>{padded}</span>}
                 </text>
               </box>
             );

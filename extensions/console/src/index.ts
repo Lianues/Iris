@@ -74,6 +74,7 @@ import {
 } from './ipc-bridge';
 import { handleConsoleToggleExtension } from './extension-toggle';
 import { attachResultDiffPreview } from './tool-renderers/diff-preview-meta.js';
+import { listFileMentionFiles as listLocalFileMentionFiles } from './file-mention-files';
 
 /**
  * 从 shell 命令生成可记忆的命令模式。
@@ -674,6 +675,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private _pendingVideo: import('irises-extension-sdk').VideoInput[] = [];
   /** Console /extension 列表中远程可安装项的 name → requestedPath 映射。 */
   private remoteExtensionRequestPaths = new Map<string, string>();
+  /** 本地 @ 文件补全枚举缓存，避免每次按键都扫描 cwd。 */
+  private fileMentionCache: { cwd: string; files: string[] } | null = null;
   constructor(backend: IrisBackendLike, options: ConsolePlatformOptions) {
     super();
     this.backend = backend;
@@ -1234,6 +1237,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onLoadProgressUiState: (sessionId: string) => this.loadProgressUiState(sessionId),
         onSaveProgressUiState: (sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }) => this.saveProgressUiState(sessionId, state),
         onRemoveFile: (index: number) => this.handleRemoveFile(index),
+        onListFileMentionFiles: this._isRemote ? undefined : () => this.listFileMentionFiles(),
         onFileBrowserSelect: (dirPath: string, entry: any, showHidden: boolean) => {
           this.handleFileBrowserSelect(dirPath, entry, showHidden);
         },
@@ -1981,6 +1985,21 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private handleRunCommand(cmd: string): { output: string; cwd: string } {
     return (this.backend.runCommand?.(cmd) ?? { output: '', cwd: '' }) as { output: string; cwd: string };
+  }
+
+  private getCurrentCwd(): string {
+    const backendWithCwd = this.backend as IrisBackendLike & { getCwd?: () => string };
+    const realProcess = require('process') as typeof import('process');
+    return backendWithCwd.getCwd?.() || realProcess.cwd();
+  }
+
+  private listFileMentionFiles(): string[] {
+    if (this._isRemote) return [];
+    const cwd = this.getCurrentCwd();
+    if (this.fileMentionCache?.cwd === cwd) return this.fileMentionCache.files;
+    const files = listLocalFileMentionFiles(cwd);
+    this.fileMentionCache = { cwd, files };
+    return files;
   }
 
   private handleListModels(): { models: IrisModelInfoLike[]; defaultModelName: string } {

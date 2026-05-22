@@ -82,3 +82,37 @@ describe('console file mention file listing', () => {
     ]);
   });
 });
+
+describe('console file mention wiring regressions', () => {
+  it('InputBar receives candidates through props and does not scan the filesystem', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/components/InputBar.tsx'),
+      'utf8',
+    );
+
+    expect(source).toContain('onListFileMentionFiles');
+    expect(source).toContain('useFileMentionCompletion');
+    expect(source).not.toMatch(/from ['"]node:fs['"]/);
+    expect(source).not.toMatch(/from ['"]node:path['"]/);
+  });
+
+  it('ConsolePlatform disables the file mention callback while remote is active', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/index.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain('onListFileMentionFiles: this._isRemote ? undefined : () => this.listFileMentionFiles()');
+    expect(source).toContain('backendWithCwd.getCwd?.()');
+    expect(source).toContain('listLocalFileMentionFiles(cwd)');
+  });
+
+  it('file mention Tab completion uses undoable range replacement', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/components/InputBar.tsx'),
+      'utf8',
+    );
+
+    expect(source).toContain('inputActions.replaceRange(fileMention.token.start, fileMention.token.end, current.path)');
+  });
+});

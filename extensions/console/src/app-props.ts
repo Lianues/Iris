@@ -29,6 +29,8 @@ export interface AppProps {
   onSaveProgressUiState?: (sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }) => Promise<void> | void;
   /** 移除指定索引的待发送文件附件 */
   onRemoveFile?: (index: number) => void;
+  /** 获取当前会话 cwd 下可用于 @ 文件补全的相对文件路径 */
+  onListFileMentionFiles?: () => readonly string[] | Promise<readonly string[]>;
   /** 文件浏览器操作回调 */
   onFileBrowserSelect?: (dirPath: string, entry: any, showHidden: boolean) => void;
   onFileBrowserGoUp?: (dirPath: string, showHidden: boolean) => void;

@@ -20,6 +20,7 @@ describe('console slash panel layout regressions', () => {
     expect(source).toContain('SLASH_PANEL_BORDER_ROWS');
     expect(source).toContain('height={visibleCommandRows.length + SLASH_PANEL_BORDER_ROWS}');
     expect(source).toContain('height={visibleArgRows.length + SLASH_PANEL_BORDER_ROWS}');
+    expect(source).toContain('height={visibleFileRows.length + SLASH_PANEL_BORDER_ROWS}');
     expect(source).toContain('避免候选过多时撑高 BottomPanel');
   });
 
