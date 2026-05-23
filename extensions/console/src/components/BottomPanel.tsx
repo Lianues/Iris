@@ -67,6 +67,8 @@ interface BottomPanelProps {
   pendingFiles: PendingFile[];
   /** 移除指定索引的待发送文件 */
   onRemoveFile: (index: number) => void;
+  /** 获取当前会话 cwd 下可用于 @ 文件补全的相对文件路径 */
+  onListFileMentionFiles?: () => readonly string[] | Promise<readonly string[]>;
   dynamicCommands?: Command[];
   /** 右侧状态栏扩展片段（显示在 ctx 右侧） */
   statusSegments?: ConsoleStatusSegmentSnapshot[];
@@ -109,6 +111,7 @@ export function BottomPanel({
   pathDisplay,
   pendingFiles,
   onRemoveFile,
+  onListFileMentionFiles,
   dynamicCommands,
   statusSegments,
   supportsHeadlessTransition,
@@ -160,6 +163,7 @@ export function BottomPanel({
             onCycleThinkingEffort={onCycleThinkingEffort}
             pendingFiles={pendingFiles}
             onRemoveFile={onRemoveFile}
+            onListFileMentionFiles={onListFileMentionFiles}
             isRemote={isRemote}
             dynamicCommands={dynamicCommands}
             supportsHeadlessTransition={supportsHeadlessTransition}

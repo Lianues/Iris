@@ -116,6 +116,7 @@ export function App({
   onLoadProgressUiState,
   onSaveProgressUiState,
   onRemoveFile: onRemoveFileProp,
+  onListFileMentionFiles,
   onFileBrowserSelect,
   onFileBrowserGoUp,
   onFileBrowserToggleHidden,
@@ -929,6 +930,7 @@ export function App({
         pathDisplay={consolePathDisplay}
         pendingFiles={pendingFiles}
         onRemoveFile={handleRemoveFile}
+        onListFileMentionFiles={onListFileMentionFiles}
         dynamicCommands={dynamicCommands}
         statusSegments={rightStatusSegments}
         supportsHeadlessTransition={supportsHeadlessTransition}

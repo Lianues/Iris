@@ -1859,7 +1859,7 @@ function getCharacterCount(text) {
 }
 
 // src/App.tsx
-import { useCallback as useCallback11, useEffect as useEffect14, useMemo as useMemo9, useRef as useRef9, useState as useState17 } from "react";
+import { useCallback as useCallback11, useEffect as useEffect15, useMemo as useMemo10, useRef as useRef10, useState as useState18 } from "react";
 import { useRenderer } from "@opentui/react";
 
 // src/theme.ts
@@ -2173,6 +2173,14 @@ function insertTextInputValue(state, text) {
     cursor: state.cursor + text.length
   });
 }
+function replaceTextInputRange(state, start, end, text) {
+  const from = Math.max(0, Math.min(start, state.value.length));
+  const to = Math.max(from, Math.min(end, state.value.length));
+  return withUndoHistory(state, {
+    value: state.value.slice(0, from) + text + state.value.slice(to),
+    cursor: from + text.length
+  });
+}
 function useTextInput(initialValue = "") {
   const [state, setState] = useState(() => resetHistory(initialValue, initialValue.length));
   const handleKey = useCallback((key) => {
@@ -2185,13 +2193,16 @@ function useTextInput(initialValue = "") {
   const insert = useCallback((text) => {
     setState((current) => insertTextInputValue(current, text));
   }, []);
+  const replaceRange = useCallback((start, end, text) => {
+    setState((current) => replaceTextInputRange(current, start, end, text));
+  }, []);
   const setValue = useCallback((value) => {
     setState(resetHistory(value, value.length));
   }, []);
   const set = useCallback((value, cursor) => {
     setState(resetHistory(value, cursor));
   }, []);
-  return [state, { handleKey, insert, setValue, set }];
+  return [state, { handleKey, insert, replaceRange, setValue, set }];
 }
 
 // src/text-layout.ts
@@ -3230,7 +3241,7 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
 }
 
 // src/components/InputBar.tsx
-import { useEffect as useEffect4, useMemo as useMemo3, useRef as useRef2, useState as useState4 } from "react";
+import { useEffect as useEffect5, useMemo as useMemo4, useRef as useRef3, useState as useState5 } from "react";
 import { useKeyboard as useKeyboard2, useTerminalDimensions as useTerminalDimensions3 } from "@opentui/react";
 
 // src/input-commands.ts
@@ -3285,20 +3296,139 @@ function isExactCommandValue(value, cmd) {
   return value === cmd.name || value === getCommandInput(cmd);
 }
 
+// src/hooks/use-file-mention-completion.ts
+import { useEffect as useEffect3, useMemo as useMemo3, useRef, useState as useState4 } from "react";
+
+// src/file-mention-completion.ts
+var DEFAULT_FILE_MENTION_LIMIT = 30;
+function basename(filePath) {
+  const normalized = filePath.replace(/\\/g, "/");
+  const slash = normalized.lastIndexOf("/");
+  return slash >= 0 ? normalized.slice(slash + 1) : normalized;
+}
+function isSubsequence(needle, haystack) {
+  if (!needle)
+    return true;
+  let cursor = 0;
+  for (const ch of haystack) {
+    if (ch === needle[cursor])
+      cursor++;
+    if (cursor === needle.length)
+      return true;
+  }
+  return false;
+}
+function matchRank(filePath, query) {
+  const normalizedPath = filePath.toLowerCase();
+  const fileName = basename(normalizedPath);
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery)
+    return 0;
+  if (fileName.includes(normalizedQuery))
+    return 0;
+  if (normalizedPath.includes(normalizedQuery))
+    return 1;
+  if (isSubsequence(normalizedQuery, fileName))
+    return 2;
+  if (isSubsequence(normalizedQuery, normalizedPath))
+    return 3;
+  return null;
+}
+function findFileMentionToken(value, cursor) {
+  const safeCursor = Math.max(0, Math.min(cursor, value.length));
+  const prefix = value.slice(0, safeCursor);
+  const match = /(^|\s)@([^\s@]*)$/.exec(prefix);
+  if (!match)
+    return null;
+  const query = match[2] ?? "";
+  const start = safeCursor - query.length - 1;
+  return { start, end: safeCursor, query };
+}
+function normalizeFileMentionPath(filePath) {
+  return filePath.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+function filterFileMentionCandidates(files, query, limit = DEFAULT_FILE_MENTION_LIMIT) {
+  const ranked = [];
+  files.forEach((filePath, index) => {
+    const normalized = normalizeFileMentionPath(filePath);
+    const rank = matchRank(normalized, query);
+    if (rank == null)
+      return;
+    ranked.push({ candidate: { path: normalized }, rank, index });
+  });
+  return ranked.sort((a, b) => {
+    if (a.rank !== b.rank)
+      return a.rank - b.rank;
+    if (a.candidate.path.length !== b.candidate.path.length) {
+      return a.candidate.path.length - b.candidate.path.length;
+    }
+    const byName = basename(a.candidate.path).localeCompare(basename(b.candidate.path));
+    if (byName !== 0)
+      return byName;
+    const byPath = a.candidate.path.localeCompare(b.candidate.path);
+    return byPath !== 0 ? byPath : a.index - b.index;
+  }).slice(0, Math.max(0, limit)).map((entry) => entry.candidate);
+}
+
+// src/hooks/use-file-mention-completion.ts
+function useFileMentionCompletion(options) {
+  const { value, cursor, disabled, onListFiles } = options;
+  const [files, setFiles] = useState4(null);
+  const [loading, setLoading] = useState4(false);
+  const requestIdRef = useRef(0);
+  const token = useMemo3(() => {
+    if (disabled || !onListFiles)
+      return null;
+    return findFileMentionToken(value, cursor);
+  }, [cursor, disabled, onListFiles, value]);
+  useEffect3(() => {
+    if (!token || token.query.length === 0) {
+      requestIdRef.current++;
+      setLoading(false);
+      return;
+    }
+    const requestId = ++requestIdRef.current;
+    let cancelled = false;
+    setLoading(true);
+    Promise.resolve().then(() => onListFiles?.() ?? []).then((nextFiles) => {
+      if (cancelled || requestId !== requestIdRef.current)
+        return;
+      setFiles(nextFiles);
+    }).catch(() => {
+      if (cancelled || requestId !== requestIdRef.current)
+        return;
+      setFiles([]);
+    }).finally(() => {
+      if (cancelled || requestId !== requestIdRef.current)
+        return;
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [onListFiles, token]);
+  const candidates = useMemo3(() => {
+    if (!token || token.query.length === 0 || !files)
+      return [];
+    return filterFileMentionCandidates(files, token.query);
+  }, [files, token]);
+  return { token, candidates, loading };
+}
+
 // src/hooks/use-paste.ts
-import { useEffect as useEffect3, useCallback as useCallback2, useLayoutEffect, useRef } from "react";
+import { useEffect as useEffect4, useCallback as useCallback2, useLayoutEffect, useRef as useRef2 } from "react";
 import { decodePasteBytes } from "@opentui/core";
 import { useAppContext } from "@opentui/react";
 function usePaste(handler) {
   const { keyHandler } = useAppContext();
-  const handlerRef = useRef(handler);
+  const handlerRef = useRef2(handler);
   useLayoutEffect(() => {
     handlerRef.current = handler;
   });
   const stableHandler = useCallback2((event) => {
     handlerRef.current(decodePasteBytes(event.bytes));
   }, []);
-  useEffect3(() => {
+  useEffect4(() => {
     keyHandler?.on("paste", stableHandler);
     return () => {
       keyHandler?.off("paste", stableHandler);
@@ -3334,39 +3464,41 @@ function isPlanModeToggleShortcut(key) {
 function isPrioritySubmitShortcut(key) {
   return key.ctrl && key.name === "s" || key.sequence === "\x13" || key.raw === "\x13";
 }
-function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef }) {
+function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef }) {
   const [inputState, inputActions] = useTextInput("");
-  const [selectedIndex, setSelectedIndex] = useState4(0);
-  const [queuePromptFrame, setQueuePromptFrame] = useState4(0);
+  const [selectedIndex, setSelectedIndex] = useState5(0);
+  const [fileSelectedIndex, setFileSelectedIndex] = useState5(0);
+  const [fileMentionDismissedKey, setFileMentionDismissedKey] = useState5(null);
+  const [queuePromptFrame, setQueuePromptFrame] = useState5(0);
   const cursorVisible = useCursorBlink();
   const { width: termWidth, height: termHeight } = useTerminalDimensions3();
-  const visibleCommands = useMemo3(() => {
+  const visibleCommands = useMemo4(() => {
     const commands = [...COMMANDS, ...dynamicCommands];
     const seen = new Set;
     return commands.filter((cmd) => (!cmd.remoteOnly || isRemote) && (!cmd.requiresHeadlessSupport || supportsHeadlessTransition) && !seen.has(cmd.name) && seen.add(cmd.name));
   }, [isRemote, supportsHeadlessTransition, dynamicCommands]);
-  const pasteGuardRef = useRef2(false);
-  const lastKeyTimeRef = useRef2(0);
-  const rapidKeyCountRef = useRef2(0);
+  const pasteGuardRef = useRef3(false);
+  const lastKeyTimeRef = useRef3(0);
+  const rapidKeyCountRef = useRef3(0);
   const value = inputState.value;
   const inputDisabled = disabled;
   const isQueueMode = !disabled && isGenerating;
-  const exactMatchIndex = useMemo3(() => {
+  const exactMatchIndex = useMemo4(() => {
     return visibleCommands.findIndex((cmd) => isExactCommandValue(value, cmd));
   }, [value, visibleCommands]);
-  const activeArgCommand = useMemo3(() => {
+  const activeArgCommand = useMemo4(() => {
     if (inputDisabled || !value.startsWith("/"))
       return;
     return visibleCommands.filter((cmd) => cmd.acceptsArgs && (value === cmd.name || value.startsWith(`${cmd.name} `))).sort((a, b) => b.name.length - a.name.length)[0];
   }, [inputDisabled, value, visibleCommands]);
-  const argQuery = useMemo3(() => {
+  const argQuery = useMemo4(() => {
     if (!activeArgCommand)
       return "";
     if (value === activeArgCommand.name)
       return "";
     return value.slice(activeArgCommand.name.length).trimStart();
   }, [activeArgCommand, value]);
-  const argSuggestions = useMemo3(() => {
+  const argSuggestions = useMemo4(() => {
     if (!activeArgCommand?.getArgSuggestions)
       return [];
     const all = activeArgCommand.getArgSuggestions({ arg: argQuery, raw: value });
@@ -3375,7 +3507,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       return all;
     return all.filter((item) => item.value.toLowerCase().includes(q));
   }, [activeArgCommand, argQuery, value]);
-  const commandQuery = useMemo3(() => {
+  const commandQuery = useMemo4(() => {
     if (inputDisabled)
       return "";
     if (!value.startsWith("/"))
@@ -3386,11 +3518,11 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       return "";
     return value;
   }, [inputDisabled, value, exactMatchIndex, activeArgCommand]);
-  const [commandsDismissed, setCommandsDismissed] = useState4(false);
-  useEffect4(() => {
+  const [commandsDismissed, setCommandsDismissed] = useState5(false);
+  useEffect5(() => {
     setCommandsDismissed(false);
   }, [commandQuery]);
-  useEffect4(() => {
+  useEffect5(() => {
     if (!inputControllerRef)
       return;
     const controller = {
@@ -3409,14 +3541,22 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
   }, [inputControllerRef, inputActions, value]);
   const showCommands = commandQuery.length > 0 && !commandsDismissed;
   const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && value.startsWith(`${activeArgCommand.name} `);
-  const filtered = useMemo3(() => {
+  const fileMention = useFileMentionCompletion({
+    value,
+    cursor: inputState.cursor,
+    disabled: inputDisabled || !!isRemote || value.startsWith("/"),
+    onListFiles: onListFileMentionFiles
+  });
+  const fileMentionKey = fileMention.token ? `${fileMention.token.start}:${fileMention.token.end}:${fileMention.token.query}` : null;
+  const showFileMentionSuggestions = !!fileMention.token && fileMention.candidates.length > 0 && fileMentionDismissedKey !== fileMentionKey && !showCommands && !showArgSuggestions;
+  const filtered = useMemo4(() => {
     if (!showCommands)
       return [];
     if (exactMatchIndex >= 0)
       return visibleCommands;
     return visibleCommands.filter((cmd) => cmd.name.startsWith(commandQuery.trim()));
   }, [showCommands, exactMatchIndex, commandQuery, visibleCommands]);
-  useEffect4(() => {
+  useEffect5(() => {
     if (showArgSuggestions) {
       setSelectedIndex((prev) => Math.min(prev, argSuggestions.length - 1));
       return;
@@ -3431,20 +3571,36 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
     }
     setSelectedIndex((prev) => Math.min(prev, filtered.length - 1));
   }, [showCommands, filtered.length, exactMatchIndex, showArgSuggestions, argSuggestions.length]);
-  const maxSlashPanelRows = useMemo3(() => {
+  useEffect5(() => {
+    if (!showFileMentionSuggestions) {
+      setFileSelectedIndex(0);
+      return;
+    }
+    setFileSelectedIndex((prev) => Math.min(prev, fileMention.candidates.length - 1));
+  }, [fileMention.candidates.length, showFileMentionSuggestions]);
+  const maxSlashPanelRows = useMemo4(() => {
     const rowsByViewport = Math.floor(termHeight * SLASH_PANEL_MAX_HEIGHT_RATIO);
     return Math.max(SLASH_PANEL_MIN_VISIBLE_ROWS, rowsByViewport);
   }, [termHeight]);
-  const commandSuggestionRows = useMemo3(() => filtered.map((cmd, index) => ({ item: cmd, index })), [filtered]);
-  const argSuggestionRows = useMemo3(() => argSuggestions.map((item, index) => ({ item, index })), [argSuggestions]);
-  const visibleCommandRows = useMemo3(() => buildSuggestionWindow(commandSuggestionRows, selectedIndex, maxSlashPanelRows), [commandSuggestionRows, selectedIndex, maxSlashPanelRows]);
-  const visibleArgRows = useMemo3(() => buildSuggestionWindow(argSuggestionRows, selectedIndex, maxSlashPanelRows), [argSuggestionRows, selectedIndex, maxSlashPanelRows]);
+  const commandSuggestionRows = useMemo4(() => filtered.map((cmd, index) => ({ item: cmd, index })), [filtered]);
+  const argSuggestionRows = useMemo4(() => argSuggestions.map((item, index) => ({ item, index })), [argSuggestions]);
+  const visibleCommandRows = useMemo4(() => buildSuggestionWindow(commandSuggestionRows, selectedIndex, maxSlashPanelRows), [commandSuggestionRows, selectedIndex, maxSlashPanelRows]);
+  const visibleArgRows = useMemo4(() => buildSuggestionWindow(argSuggestionRows, selectedIndex, maxSlashPanelRows), [argSuggestionRows, selectedIndex, maxSlashPanelRows]);
+  const fileSuggestionRows = useMemo4(() => fileMention.candidates.map((item, index) => ({ item, index })), [fileMention.candidates]);
+  const visibleFileRows = useMemo4(() => buildSuggestionWindow(fileSuggestionRows, fileSelectedIndex, maxSlashPanelRows), [fileSuggestionRows, fileSelectedIndex, maxSlashPanelRows]);
   const applySelection = (index) => {
     const count = showArgSuggestions ? argSuggestions.length : filtered.length;
     if (count === 0)
       return;
     const normalizedIndex = (index % count + count) % count;
     setSelectedIndex(normalizedIndex);
+  };
+  const applyFileSelection = (index) => {
+    const count = fileMention.candidates.length;
+    if (count === 0)
+      return;
+    const normalizedIndex = (index % count + count) % count;
+    setFileSelectedIndex(normalizedIndex);
   };
   useKeyboard2((key) => {
     if (inputDisabled)
@@ -3498,6 +3654,27 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         return;
       }
     }
+    if (showFileMentionSuggestions && fileMention.token && fileMention.candidates.length > 0) {
+      if (key.name === "up") {
+        key.preventDefault?.();
+        applyFileSelection(fileSelectedIndex + 1);
+        return;
+      }
+      if (key.name === "down") {
+        key.preventDefault?.();
+        applyFileSelection(fileSelectedIndex - 1);
+        return;
+      }
+      if (key.name === "tab") {
+        key.preventDefault?.();
+        const current = fileMention.candidates[fileSelectedIndex];
+        if (current) {
+          inputActions.replaceRange(fileMention.token.start, fileMention.token.end, current.path);
+          setFileSelectedIndex(0);
+        }
+        return;
+      }
+    }
     if (isPrioritySubmitShortcut(key)) {
       key.preventDefault?.();
       key.stopPropagation?.();
@@ -3546,6 +3723,12 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         key.preventDefault?.();
         setCommandsDismissed(true);
         setSelectedIndex(0);
+        return;
+      }
+      if (showFileMentionSuggestions) {
+        key.preventDefault?.();
+        setFileMentionDismissedKey(fileMentionKey);
+        setFileSelectedIndex(0);
       }
       return;
     }
@@ -3570,7 +3753,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       pasteGuardRef.current = false;
     }, 150);
   });
-  useEffect4(() => {
+  useEffect5(() => {
     if (!isQueueMode) {
       setQueuePromptFrame(0);
       return;
@@ -3582,6 +3765,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
   }, [isQueueMode]);
   const maxLen = filtered.length > 0 ? Math.max(...filtered.map((cmd) => cmd.name.length)) : 0;
   const maxArgLen = argSuggestions.length > 0 ? Math.max(...argSuggestions.map((item) => item.value.length)) : 0;
+  const maxFileLen = fileMention.candidates.length > 0 ? Math.max(...fileMention.candidates.map((item) => item.path.length)) : 0;
   const MAX_VISIBLE_INPUT_LINES = 8;
   const promptColor = inputDisabled ? C.dim : isQueueMode ? C.warn : C.accent;
   const queuePromptChar = HOURGLASS_SPINNER_FRAMES[queuePromptFrame % HOURGLASS_SPINNER_FRAMES.length];
@@ -3590,7 +3774,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
   const placeholder = isQueueMode ? `输入消息（将排队发送）${ICONS.ellipsis}` : `输入消息${ICONS.ellipsis}`;
   const inputChromeWidth = 6 + promptVisualWidth;
   const baseAvailableWidth = Math.max(1, termWidth - inputChromeWidth);
-  const visualLineCount = useMemo3(() => {
+  const visualLineCount = useMemo4(() => {
     if (!value)
       return 1;
     const lines = value.split(`
@@ -3733,6 +3917,49 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
               ]
             }, undefined, true, undefined, this)
           }, cmd.name, false, undefined, this);
+        })
+      }, undefined, false, undefined, this),
+      !showArgSuggestions && !showCommands && showFileMentionSuggestions && /* @__PURE__ */ jsxDEV8("box", {
+        position: "absolute",
+        left: 0,
+        width: "100%",
+        bottom: slashPanelBottom,
+        zIndex: 100,
+        height: visibleFileRows.length + SLASH_PANEL_BORDER_ROWS,
+        shouldFill: true,
+        flexDirection: "column",
+        backgroundColor: C.panelBg,
+        paddingX: 1,
+        border: true,
+        borderStyle: "single",
+        borderColor: C.border,
+        children: [...visibleFileRows].reverse().map(({ item, index }) => {
+          const padded = item.path.padEnd(maxFileLen);
+          const isSelected = index === fileSelectedIndex;
+          return /* @__PURE__ */ jsxDEV8("box", {
+            width: "100%",
+            height: 1,
+            overflow: "hidden",
+            paddingLeft: 1,
+            backgroundColor: isSelected ? C.border : C.panelBg,
+            children: /* @__PURE__ */ jsxDEV8("text", {
+              children: [
+                /* @__PURE__ */ jsxDEV8("span", {
+                  fg: isSelected ? C.accent : C.dim,
+                  children: isSelected ? `${ICONS.triangleRight} ` : "  "
+                }, undefined, false, undefined, this),
+                isSelected ? /* @__PURE__ */ jsxDEV8("strong", {
+                  children: /* @__PURE__ */ jsxDEV8("span", {
+                    fg: C.text,
+                    children: padded
+                  }, undefined, false, undefined, this)
+                }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV8("span", {
+                  fg: C.textSec,
+                  children: padded
+                }, undefined, false, undefined, this)
+              ]
+            }, undefined, true, undefined, this)
+          }, `${item.path}-${index}`, false, undefined, this);
         })
       }, undefined, false, undefined, this),
       pendingFiles.length > 0 && /* @__PURE__ */ jsxDEV8("box", {
@@ -4089,6 +4316,7 @@ function BottomPanel({
   pathDisplay,
   pendingFiles,
   onRemoveFile,
+  onListFileMentionFiles,
   dynamicCommands,
   statusSegments,
   supportsHeadlessTransition,
@@ -4144,6 +4372,7 @@ function BottomPanel({
             onCycleThinkingEffort,
             pendingFiles,
             onRemoveFile,
+            onListFileMentionFiles,
             isRemote,
             dynamicCommands,
             supportsHeadlessTransition,
@@ -4256,20 +4485,20 @@ function AgentListView({ agents, selectedIndex, currentAgentName }) {
 }
 
 // src/components/ChatMessageList.tsx
-import { useMemo as useMemo6 } from "react";
+import { useMemo as useMemo7 } from "react";
 import { useTerminalDimensions as useTerminalDimensions6 } from "@opentui/react";
 
 // src/components/GeneratingTimer.tsx
-import { useState as useState6, useEffect as useEffect6, useRef as useRef4 } from "react";
+import { useState as useState7, useEffect as useEffect7, useRef as useRef5 } from "react";
 
 // src/components/Spinner.tsx
-import { useState as useState5, useEffect as useEffect5, useRef as useRef3 } from "react";
+import { useState as useState6, useEffect as useEffect6, useRef as useRef4 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV13 } from "@opentui/react/jsx-dev-runtime";
 function Spinner({ color = C.accent, frames = SPINNER_FRAMES, intervalMs = SPINNER_INTERVAL_MS }) {
-  const [frame, setFrame] = useState5(0);
-  const mountedRef = useRef3(true);
-  useEffect5(() => {
+  const [frame, setFrame] = useState6(0);
+  const mountedRef = useRef4(true);
+  useEffect6(() => {
     mountedRef.current = true;
     const timer = setInterval(() => {
       if (mountedRef.current) {
@@ -4290,15 +4519,15 @@ function Spinner({ color = C.accent, frames = SPINNER_FRAMES, intervalMs = SPINN
 // src/components/GeneratingTimer.tsx
 import { jsxDEV as jsxDEV14 } from "@opentui/react/jsx-dev-runtime";
 function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
-  const [time, setTime] = useState6(0);
-  const timerRef = useRef4(null);
+  const [time, setTime] = useState7(0);
+  const timerRef = useRef5(null);
   const active = isGenerating && !paused;
-  useEffect6(() => {
+  useEffect7(() => {
     if (isGenerating) {
       setTime(0);
     }
   }, [isGenerating]);
-  useEffect6(() => {
+  useEffect7(() => {
     if (active) {
       timerRef.current = setInterval(() => {
         setTime((t) => +(t + 0.1).toFixed(1));
@@ -4356,11 +4585,11 @@ function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
 }
 
 // src/components/MessageItem.tsx
-import React9, { useEffect as useEffect8, useRef as useRef5, useState as useState8 } from "react";
+import React9, { useEffect as useEffect9, useRef as useRef6, useState as useState9 } from "react";
 import { useTerminalDimensions as useTerminalDimensions5 } from "@opentui/react";
 
 // src/components/ToolCall.tsx
-import { useEffect as useEffect7, useState as useState7 } from "react";
+import { useEffect as useEffect8, useState as useState8 } from "react";
 
 // src/tool-renderers/default.tsx
 init_terminal_compat();
@@ -4451,7 +4680,7 @@ function ShellRenderer({ result }) {
 // src/tool-renderers/read-file.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV17 } from "@opentui/react/jsx-dev-runtime";
-function basename(p) {
+function basename2(p) {
   return p.split("/").pop() || p;
 }
 function ReadFileRenderer({ result }) {
@@ -4489,7 +4718,7 @@ function ReadFileRenderer({ result }) {
     }, undefined, false, undefined, this);
   }
   const totalLines = items.reduce((sum, item) => sum + (item.lineCount ?? 0), 0);
-  const names = items.map((item) => basename(item.path ?? "?")).join(", ");
+  const names = items.map((item) => basename2(item.path ?? "?")).join(", ");
   return /* @__PURE__ */ jsxDEV17("text", {
     fg: "#888",
     children: /* @__PURE__ */ jsxDEV17("em", {
@@ -5296,10 +5525,10 @@ function getToolDetailRenderer(toolName) {
 }
 
 // src/tool-renderers/use-diff-preview-result.ts
-import { useMemo as useMemo4 } from "react";
+import { useMemo as useMemo5 } from "react";
 function useResultWithResolvedDiffPreview(result) {
-  const embeddedDiffPreview = useMemo4(() => result != null ? extractResultDiffPreview(result) : undefined, [result]);
-  return useMemo4(() => attachResultDiffPreview(result, embeddedDiffPreview), [result, embeddedDiffPreview]);
+  const embeddedDiffPreview = useMemo5(() => result != null ? extractResultDiffPreview(result) : undefined, [result]);
+  return useMemo5(() => attachResultDiffPreview(result, embeddedDiffPreview), [result, embeddedDiffPreview]);
 }
 
 // src/tool-errors.ts
@@ -5387,15 +5616,15 @@ function getArgsSummary(toolName, args) {
 function ToolCall({ invocation, toolDisplayService }) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
   const displayError = formatToolError(error);
-  const [asyncArgsSummary, setAsyncArgsSummary] = useState7();
-  const [asyncProgressLine, setAsyncProgressLine] = useState7();
-  const [asyncResultSummary, setAsyncResultSummary] = useState7();
+  const [asyncArgsSummary, setAsyncArgsSummary] = useState8();
+  const [asyncProgressLine, setAsyncProgressLine] = useState8();
+  const [asyncResultSummary, setAsyncResultSummary] = useState8();
   const displayResult = useResultWithResolvedDiffPreview(result);
   const progress = invocation.progress;
   const progressTokens = typeof progress?.tokens === "number" ? progress.tokens : undefined;
   const progressFrame = typeof progress?.frame === "number" ? progress.frame : undefined;
   const displayProvider = toolDisplayService?.get(toolName);
-  useEffect7(() => {
+  useEffect8(() => {
     let cancelled = false;
     if (!displayProvider?.getArgsSummaryAsync) {
       setAsyncArgsSummary(undefined);
@@ -5412,7 +5641,7 @@ function ToolCall({ invocation, toolDisplayService }) {
       cancelled = true;
     };
   }, [displayProvider, toolName, args]);
-  useEffect7(() => {
+  useEffect8(() => {
     let cancelled = false;
     if (!displayProvider?.getProgressLineAsync) {
       setAsyncProgressLine(undefined);
@@ -5429,7 +5658,7 @@ function ToolCall({ invocation, toolDisplayService }) {
       cancelled = true;
     };
   }, [displayProvider, toolName, args, progress]);
-  useEffect7(() => {
+  useEffect8(() => {
     let cancelled = false;
     if (!displayProvider?.getResultSummaryAsync || !(TERMINAL_STATUSES.has(status) && displayResult != null)) {
       setAsyncResultSummary(undefined);
@@ -5597,7 +5826,7 @@ function ToolCall({ invocation, toolDisplayService }) {
 }
 
 // src/components/ProgressListView.tsx
-import { useMemo as useMemo5 } from "react";
+import { useMemo as useMemo6 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV28, Fragment as Fragment6 } from "@opentui/react/jsx-dev-runtime";
 var PROGRESS_PANEL_MAX_ITEMS = 8;
@@ -5690,7 +5919,7 @@ function ProgressListView({
   const itemLimit = isCompletedSnapshot ? Math.max(1, items.length) : normalizeMaxItems(maxItems);
   const canCollapse = (stats?.open ?? 0) > 0;
   const effectiveCollapsed = canCollapse && collapsed;
-  const { sorted, visibleItems, hiddenBeforeCount, hiddenAfterCount, effectiveScrollOffset, visibleCount } = useMemo5(() => {
+  const { sorted, visibleItems, hiddenBeforeCount, hiddenAfterCount, effectiveScrollOffset, visibleCount } = useMemo6(() => {
     const all = [...items].sort(compareProgressItems);
     const effectiveOffset = clampScrollOffset(scrollOffset, all.length, itemLimit);
     const visible = effectiveCollapsed ? [] : all.slice(effectiveOffset, effectiveOffset + itemLimit);
@@ -6009,9 +6238,9 @@ function NotificationPayloadBlock({ payload }) {
 var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal, toolDisplayService }) {
   const { width: rawTermWidth } = useTerminalDimensions5();
   const termWidth = rawTermWidth - 1;
-  const [thoughtsExpanded, setThoughtsExpanded] = useState8(false);
-  const prevSignalRef = useRef5(thoughtsToggleSignal);
-  useEffect8(() => {
+  const [thoughtsExpanded, setThoughtsExpanded] = useState9(false);
+  const prevSignalRef = useRef6(thoughtsToggleSignal);
+  useEffect9(() => {
     const prev = prevSignalRef.current;
     prevSignalRef.current = thoughtsToggleSignal;
     if (prev != null && thoughtsToggleSignal != null && thoughtsToggleSignal !== prev) {
@@ -6368,7 +6597,7 @@ function ChatMessageList({
       captureSelectionSnapshot(scrollBox);
     }, 0);
   };
-  const scrollAccel = useMemo6(() => {
+  const scrollAccel = useMemo7(() => {
     const chatViewportHeight = Math.max(5, termHeight - 8);
     const step = Math.max(1, Math.round(chatViewportHeight / 5));
     return { tick: () => step, reset: () => {} };
@@ -6391,7 +6620,7 @@ function ChatMessageList({
       break;
     }
   }
-  const queuedPreviewMessages = useMemo6(() => (queuedMessages ?? []).map((msg) => ({
+  const queuedPreviewMessages = useMemo7(() => (queuedMessages ?? []).map((msg) => ({
     id: `queued-preview-${msg.id}`,
     role: "user",
     parts: [{ type: "text", text: msg.text }],
@@ -6490,7 +6719,7 @@ function ChatMessageList({
 }
 
 // src/components/DiffApprovalView.tsx
-import { useEffect as useEffect9, useMemo as useMemo7, useState as useState9 } from "react";
+import { useEffect as useEffect10, useMemo as useMemo8, useState as useState10 } from "react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV31 } from "@opentui/react/jsx-dev-runtime";
 function normalizePreviewIndex(index, itemCount) {
@@ -6531,9 +6760,9 @@ function DiffApprovalView({
   previewIndex = 0,
   getPreview
 }) {
-  const [preview, setPreview] = useState9(() => loadingPreview(invocation));
-  const [loading, setLoading] = useState9(false);
-  useEffect9(() => {
+  const [preview, setPreview] = useState10(() => loadingPreview(invocation));
+  const [loading, setLoading] = useState10(false);
+  useEffect10(() => {
     let cancelled = false;
     if (!getPreview) {
       setLoading(false);
@@ -6564,7 +6793,7 @@ function DiffApprovalView({
   const normalizedPreviewIndex = normalizePreviewIndex(previewIndex, items.length);
   const currentItem = items[normalizedPreviewIndex];
   const toolLabel = preview.toolLabel ?? preview.toolName ?? invocation.toolName;
-  const summaryLines = useMemo7(() => {
+  const summaryLines = useMemo8(() => {
     if (loading && preview.summary.length === 0)
       return ["正在加载 diff 预览…"];
     return preview.summary ?? [];
@@ -6907,7 +7136,7 @@ function LogoScreen() {
 }
 
 // src/components/ToolDetailView.tsx
-import { useState as useState10, useCallback as useCallback3 } from "react";
+import { useState as useState11, useCallback as useCallback3 } from "react";
 import { useKeyboard as useKeyboard3 } from "@opentui/react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV35 } from "@opentui/react/jsx-dev-runtime";
@@ -7022,7 +7251,7 @@ function Divider({ label }) {
 function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort }) {
   const { invocation, output, children } = data;
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
-  const [selectedIdx, setSelectedIdx] = useState10(0);
+  const [selectedIdx, setSelectedIdx] = useState11(0);
   const displayResult = useResultWithResolvedDiffPreview(result);
   const isFinal = TERMINAL_STATUSES2.has(status);
   const isExecuting = status === "executing";
@@ -8599,7 +8828,7 @@ function ExtensionListView({
 }
 
 // src/components/SettingsView.tsx
-import { useCallback as useCallback4, useEffect as useEffect10, useMemo as useMemo8, useState as useState11 } from "react";
+import { useCallback as useCallback4, useEffect as useEffect11, useMemo as useMemo9, useState as useState12 } from "react";
 import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions9 } from "@opentui/react";
 init_terminal_compat();
 
@@ -9221,20 +9450,20 @@ var BUILTIN_SECTIONS = [
 ];
 function SettingsView({ initialSection = "general", onBack, onLoad, onSave, pluginTabs }) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions9();
-  const [loading, setLoading] = useState11(true);
-  const [saving, setSaving] = useState11(false);
-  const [draft, setDraft] = useState11(null);
-  const [baseline, setBaseline] = useState11(null);
-  const [selectedRowId, setSelectedRowId] = useState11("");
-  const [navFocused, setNavFocused] = useState11(true);
-  const [editor, setEditor] = useState11(null);
-  const [editorValue, setEditorValue] = useState11("");
-  const [statusText, setStatusText] = useState11("");
-  const [statusKind, setStatusKind] = useState11("info");
-  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState11(false);
-  const [pluginDraft, setPluginDraft] = useState11({});
-  const [pluginBaseline, setPluginBaseline] = useState11({});
-  const sections = useMemo8(() => {
+  const [loading, setLoading] = useState12(true);
+  const [saving, setSaving] = useState12(false);
+  const [draft, setDraft] = useState12(null);
+  const [baseline, setBaseline] = useState12(null);
+  const [selectedRowId, setSelectedRowId] = useState12("");
+  const [navFocused, setNavFocused] = useState12(true);
+  const [editor, setEditor] = useState12(null);
+  const [editorValue, setEditorValue] = useState12("");
+  const [statusText, setStatusText] = useState12("");
+  const [statusKind, setStatusKind] = useState12("info");
+  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState12(false);
+  const [pluginDraft, setPluginDraft] = useState12({});
+  const [pluginBaseline, setPluginBaseline] = useState12({});
+  const sections = useMemo9(() => {
     const pluginSections = (pluginTabs ?? []).map((tab, i) => ({
       id: tab.id,
       label: tab.label,
@@ -9253,12 +9482,12 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
     setStatusText(text);
     setStatusKind(kind);
   }, []);
-  const isDirty = useMemo8(() => {
+  const isDirty = useMemo9(() => {
     const builtinDirty = getEditableFingerprint(draft) !== getEditableFingerprint(baseline);
     const pluginDirty = JSON.stringify(pluginDraft) !== JSON.stringify(pluginBaseline);
     return builtinDirty || pluginDirty;
   }, [draft, baseline, pluginDraft, pluginBaseline]);
-  const rows = useMemo8(() => {
+  const rows = useMemo9(() => {
     if (!draft)
       return [];
     const builtinRows = buildRows(draft, termWidth);
@@ -9313,16 +9542,16 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
     }
     return builtinRows;
   }, [draft, termWidth, pluginTabs, pluginDraft]);
-  const selectableRows = useMemo8(() => rows.filter((row) => row.target), [rows]);
-  const selectedRow = useMemo8(() => rows.find((row) => row.id === selectedRowId), [rows, selectedRowId]);
-  const currentSection = useMemo8(() => selectedRow?.section ?? initialSection, [selectedRow, initialSection]);
-  const sectionRows = useMemo8(() => rows.filter((r) => r.section === currentSection && r.kind !== "section"), [rows, currentSection]);
-  const selectedSelectableIndex = useMemo8(() => {
+  const selectableRows = useMemo9(() => rows.filter((row) => row.target), [rows]);
+  const selectedRow = useMemo9(() => rows.find((row) => row.id === selectedRowId), [rows, selectedRowId]);
+  const currentSection = useMemo9(() => selectedRow?.section ?? initialSection, [selectedRow, initialSection]);
+  const sectionRows = useMemo9(() => rows.filter((r) => r.section === currentSection && r.kind !== "section"), [rows, currentSection]);
+  const selectedSelectableIndex = useMemo9(() => {
     return selectableRows.findIndex((row) => row.id === selectedRowId);
   }, [selectableRows, selectedRowId]);
-  const sectionSelectableRows = useMemo8(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
-  const selectedSectionIndex = useMemo8(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
-  useEffect10(() => {
+  const sectionSelectableRows = useMemo9(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
+  const selectedSectionIndex = useMemo9(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
+  useEffect11(() => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -9364,7 +9593,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
       cancelled = true;
     };
   }, [onLoad, setStatus, pluginTabs]);
-  useEffect10(() => {
+  useEffect11(() => {
     if (rows.length === 0)
       return;
     if (selectedRowId && rows.some((row) => row.id === selectedRowId && row.target))
@@ -10153,7 +10382,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
 }
 
 // src/hooks/use-app-handle.ts
-import { useCallback as useCallback5, useEffect as useEffect11, useRef as useRef6, useState as useState12 } from "react";
+import { useCallback as useCallback5, useEffect as useEffect12, useRef as useRef7, useState as useState13 } from "react";
 
 // src/message-utils.ts
 var msgIdCounter = 0;
@@ -10278,49 +10507,49 @@ function clearRedo(stack) {
 
 // src/hooks/use-app-handle.ts
 function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef }) {
-  const [messages, setMessages] = useState12([]);
-  const [streamingParts, setStreamingParts] = useState12([]);
-  const [isStreaming, setIsStreaming] = useState12(false);
-  const [isGenerating, setIsGenerating] = useState12(false);
-  const [generatingLabel, setGeneratingLabelState] = useState12();
-  const [contextTokens, setContextTokens] = useState12(0);
-  const [retryInfo, setRetryInfo] = useState12(null);
-  const [pendingApprovals, setPendingApprovals] = useState12([]);
-  const [pendingApplies, setPendingApplies] = useState12([]);
-  const [planModeActive, setPlanModeActive] = useState12(false);
-  const [autoEditActive, setAutoEditActive] = useState12(false);
-  const [progressSnapshot, setProgressSnapshot] = useState12(null);
-  const progressSnapshotRef = useRef6(null);
-  const archivedProgressUpdatedAtRef = useRef6(null);
-  const [toolInvocations, setToolInvocationsState] = useState12([]);
-  const [backgroundTaskCount, setBackgroundTaskCount] = useState12(0);
-  const [delegateTaskCount, setDelegateTaskCount] = useState12(0);
-  const backgroundTaskTokenMapRef = useRef6(new Map);
-  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState12(0);
-  const spinnerFrameRef = useRef6(0);
-  const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState12(0);
-  const [toolDetailData, setToolDetailData] = useState12(null);
-  const [toolDetailStack, setToolDetailStack] = useState12([]);
-  const [toolListItems, setToolListItems] = useState12([]);
-  const streamPartsRef = useRef6([]);
-  const toolInvocationsRef = useRef6([]);
-  const throttleTimerRef = useRef6(null);
-  const uncommittedStreamPartsRef = useRef6([]);
-  const lastUsageRef = useRef6(null);
-  const notificationContextRef = useRef6({ active: false });
+  const [messages, setMessages] = useState13([]);
+  const [streamingParts, setStreamingParts] = useState13([]);
+  const [isStreaming, setIsStreaming] = useState13(false);
+  const [isGenerating, setIsGenerating] = useState13(false);
+  const [generatingLabel, setGeneratingLabelState] = useState13();
+  const [contextTokens, setContextTokens] = useState13(0);
+  const [retryInfo, setRetryInfo] = useState13(null);
+  const [pendingApprovals, setPendingApprovals] = useState13([]);
+  const [pendingApplies, setPendingApplies] = useState13([]);
+  const [planModeActive, setPlanModeActive] = useState13(false);
+  const [autoEditActive, setAutoEditActive] = useState13(false);
+  const [progressSnapshot, setProgressSnapshot] = useState13(null);
+  const progressSnapshotRef = useRef7(null);
+  const archivedProgressUpdatedAtRef = useRef7(null);
+  const [toolInvocations, setToolInvocationsState] = useState13([]);
+  const [backgroundTaskCount, setBackgroundTaskCount] = useState13(0);
+  const [delegateTaskCount, setDelegateTaskCount] = useState13(0);
+  const backgroundTaskTokenMapRef = useRef7(new Map);
+  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState13(0);
+  const spinnerFrameRef = useRef7(0);
+  const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState13(0);
+  const [toolDetailData, setToolDetailData] = useState13(null);
+  const [toolDetailStack, setToolDetailStack] = useState13([]);
+  const [toolListItems, setToolListItems] = useState13([]);
+  const streamPartsRef = useRef7([]);
+  const toolInvocationsRef = useRef7([]);
+  const throttleTimerRef = useRef7(null);
+  const uncommittedStreamPartsRef = useRef7([]);
+  const lastUsageRef = useRef7(null);
+  const notificationContextRef = useRef7({ active: false });
   const commitTools = useCallback5(() => {
     toolInvocationsRef.current = [];
     setToolInvocationsState([]);
     setPendingApprovals([]);
     setPendingApplies([]);
   }, []);
-  useEffect11(() => {
+  useEffect12(() => {
     return () => {
       if (throttleTimerRef.current)
         clearTimeout(throttleTimerRef.current);
     };
   }, []);
-  useEffect11(() => {
+  useEffect12(() => {
     const isCompletedProgressSnapshot = (snapshot) => {
       return !!snapshot && snapshot.items.length > 0 && snapshot.stats.open === 0;
     };
@@ -11853,19 +12082,19 @@ function useAppKeyboard({
 }
 
 // src/hooks/use-approval.ts
-import { useCallback as useCallback6, useEffect as useEffect12, useState as useState13 } from "react";
+import { useCallback as useCallback6, useEffect as useEffect13, useState as useState14 } from "react";
 function useApproval(pendingApprovals, pendingApplies) {
-  const [approvalChoice, setApprovalChoice] = useState13("approve");
-  const [approvalPage, setApprovalPage] = useState13("basic");
-  const [diffView, setDiffView] = useState13("unified");
-  const [showLineNumbers, setShowLineNumbers] = useState13(true);
-  const [wrapMode, setWrapMode] = useState13("word");
-  const [previewIndex, setPreviewIndex] = useState13(0);
-  useEffect12(() => {
+  const [approvalChoice, setApprovalChoice] = useState14("approve");
+  const [approvalPage, setApprovalPage] = useState14("basic");
+  const [diffView, setDiffView] = useState14("unified");
+  const [showLineNumbers, setShowLineNumbers] = useState14(true);
+  const [wrapMode, setWrapMode] = useState14("word");
+  const [previewIndex, setPreviewIndex] = useState14(0);
+  useEffect13(() => {
     setApprovalChoice("approve");
     setApprovalPage("basic");
   }, [pendingApprovals[0]?.id]);
-  useEffect12(() => {
+  useEffect13(() => {
     setApprovalChoice("approve");
     setDiffView("unified");
     setShowLineNumbers(true);
@@ -12444,10 +12673,10 @@ function useCommandDispatch({
 }
 
 // src/hooks/use-exit-confirm.ts
-import { useCallback as useCallback8, useEffect as useEffect13, useRef as useRef7, useState as useState14 } from "react";
+import { useCallback as useCallback8, useEffect as useEffect14, useRef as useRef8, useState as useState15 } from "react";
 function useExitConfirm({ timeoutMs = 1500 } = {}) {
-  const [exitConfirmArmed, setExitConfirmArmed] = useState14(false);
-  const exitConfirmTimerRef = useRef7(null);
+  const [exitConfirmArmed, setExitConfirmArmed] = useState15(false);
+  const exitConfirmTimerRef = useRef8(null);
   const clearExitConfirm = useCallback8(() => {
     if (exitConfirmTimerRef.current) {
       clearTimeout(exitConfirmTimerRef.current);
@@ -12464,7 +12693,7 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
       setExitConfirmArmed(false);
     }, timeoutMs);
   }, [timeoutMs]);
-  useEffect13(() => {
+  useEffect14(() => {
     return () => {
       if (exitConfirmTimerRef.current)
         clearTimeout(exitConfirmTimerRef.current);
@@ -12478,11 +12707,11 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
 }
 
 // src/hooks/use-message-queue.ts
-import { useCallback as useCallback9, useRef as useRef8, useState as useState15 } from "react";
+import { useCallback as useCallback9, useRef as useRef9, useState as useState16 } from "react";
 var queueIdCounter = 0;
 function useMessageQueue() {
-  const [queue, setQueue] = useState15([]);
-  const queueRef = useRef8([]);
+  const [queue, setQueue] = useState16([]);
+  const queueRef = useRef9([]);
   const sync = useCallback9((next) => {
     queueRef.current = next;
     setQueue(next);
@@ -12576,13 +12805,13 @@ function useMessageQueue() {
 }
 
 // src/hooks/use-model-state.ts
-import { useCallback as useCallback10, useState as useState16 } from "react";
+import { useCallback as useCallback10, useState as useState17 } from "react";
 function useModelState({ modelId, modelName, contextWindow, modelProvider, thinkingControlEnabled }) {
-  const [currentModelId, setCurrentModelId] = useState16(modelId);
-  const [currentModelName, setCurrentModelName] = useState16(modelName);
-  const [currentContextWindow, setCurrentContextWindow] = useState16(contextWindow);
-  const [currentModelProvider, setCurrentModelProvider] = useState16(modelProvider);
-  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState16(thinkingControlEnabled);
+  const [currentModelId, setCurrentModelId] = useState17(modelId);
+  const [currentModelName, setCurrentModelName] = useState17(modelName);
+  const [currentContextWindow, setCurrentContextWindow] = useState17(contextWindow);
+  const [currentModelProvider, setCurrentModelProvider] = useState17(modelProvider);
+  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState17(thinkingControlEnabled);
   const updateModel = useCallback10((result) => {
     if (result.modelId)
       setCurrentModelId(result.modelId);
@@ -12677,6 +12906,7 @@ function App({
   onLoadProgressUiState,
   onSaveProgressUiState,
   onRemoveFile: onRemoveFileProp,
+  onListFileMentionFiles,
   onFileBrowserSelect,
   onFileBrowserGoUp,
   onFileBrowserToggleHidden,
@@ -12745,50 +12975,50 @@ function App({
   initWarningsColor,
   initWarningsIcon
 }) {
-  const [viewMode, setViewMode] = useState17("chat");
-  const [sessionList, setSessionList] = useState17([]);
-  const [selectedIndex, setSelectedIndex] = useState17(0);
-  const [settingsInitialSection, setSettingsInitialSection] = useState17("general");
-  const [modelList, setModelList] = useState17([]);
-  const [defaultModelName, setDefaultModelName] = useState17("");
-  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState17(null);
-  const [sessionStatusMessage, setSessionStatusMessage] = useState17(null);
-  const [sessionStatusIsError, setSessionStatusIsError] = useState17(false);
-  const [agentList, setAgentList] = useState17([]);
-  const [copyMode, setCopyMode] = useState17(false);
-  const [pendingConfirm, setPendingConfirm] = useState17(null);
-  const [confirmChoice, setConfirmChoice] = useState17("confirm");
+  const [viewMode, setViewMode] = useState18("chat");
+  const [sessionList, setSessionList] = useState18([]);
+  const [selectedIndex, setSelectedIndex] = useState18(0);
+  const [settingsInitialSection, setSettingsInitialSection] = useState18("general");
+  const [modelList, setModelList] = useState18([]);
+  const [defaultModelName, setDefaultModelName] = useState18("");
+  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState18(null);
+  const [sessionStatusMessage, setSessionStatusMessage] = useState18(null);
+  const [sessionStatusIsError, setSessionStatusIsError] = useState18(false);
+  const [agentList, setAgentList] = useState18([]);
+  const [copyMode, setCopyMode] = useState18(false);
+  const [pendingConfirm, setPendingConfirm] = useState18(null);
+  const [confirmChoice, setConfirmChoice] = useState18("confirm");
   const initialLevels = getProviderThinkingLevels(modelProvider);
   const initialMaxLevel = initialLevels[initialLevels.length - 1];
-  const [thinkingEffort, setThinkingEffort] = useState17(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
-  const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState17(0);
-  const [progressCollapsed, setProgressCollapsed] = useState17(false);
-  const [progressScrollOffset, setProgressScrollOffset] = useState17(0);
-  const [modelStatusMessage, setModelStatusMessage] = useState17(null);
-  const [modelStatusIsError, setModelStatusIsError] = useState17(false);
-  const [modelEditingField, setModelEditingField] = useState17(null);
-  const [modelEditTargetName, setModelEditTargetName] = useState17(null);
-  const [memoryList, setMemoryList] = useState17([]);
-  const [memoryFilter, setMemoryFilter] = useState17("all");
-  const [memoryExpandedId, setMemoryExpandedId] = useState17(null);
-  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState17(null);
-  const [extensionList, setExtensionList] = useState17([]);
-  const [extensionTogglingName, setExtensionTogglingName] = useState17(null);
-  const [extensionStatusMessage, setExtensionStatusMessage] = useState17(null);
-  const [extensionStatusIsError, setExtensionStatusIsError] = useState17(false);
-  const [extensionGitInputMode, setExtensionGitInputMode] = useState17(false);
-  const [extensionScopePickMode, setExtensionScopePickMode] = useState17(false);
-  const [extensionInstallScope, setExtensionInstallScope] = useState17("agent");
-  const [extensionPendingDeleteName, setExtensionPendingDeleteName] = useState17(null);
-  const [extensionPendingUpdateName, setExtensionPendingUpdateName] = useState17(null);
-  const [extensionBusy, setExtensionBusy] = useState17(false);
-  const [pendingFiles, setPendingFiles] = useState17([]);
-  const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState17(pluginSettingsTabs ?? []);
-  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState17(() => slashCommandService?.list() ?? []);
-  useEffect14(() => {
+  const [thinkingEffort, setThinkingEffort] = useState18(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
+  const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState18(0);
+  const [progressCollapsed, setProgressCollapsed] = useState18(false);
+  const [progressScrollOffset, setProgressScrollOffset] = useState18(0);
+  const [modelStatusMessage, setModelStatusMessage] = useState18(null);
+  const [modelStatusIsError, setModelStatusIsError] = useState18(false);
+  const [modelEditingField, setModelEditingField] = useState18(null);
+  const [modelEditTargetName, setModelEditTargetName] = useState18(null);
+  const [memoryList, setMemoryList] = useState18([]);
+  const [memoryFilter, setMemoryFilter] = useState18("all");
+  const [memoryExpandedId, setMemoryExpandedId] = useState18(null);
+  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState18(null);
+  const [extensionList, setExtensionList] = useState18([]);
+  const [extensionTogglingName, setExtensionTogglingName] = useState18(null);
+  const [extensionStatusMessage, setExtensionStatusMessage] = useState18(null);
+  const [extensionStatusIsError, setExtensionStatusIsError] = useState18(false);
+  const [extensionGitInputMode, setExtensionGitInputMode] = useState18(false);
+  const [extensionScopePickMode, setExtensionScopePickMode] = useState18(false);
+  const [extensionInstallScope, setExtensionInstallScope] = useState18("agent");
+  const [extensionPendingDeleteName, setExtensionPendingDeleteName] = useState18(null);
+  const [extensionPendingUpdateName, setExtensionPendingUpdateName] = useState18(null);
+  const [extensionBusy, setExtensionBusy] = useState18(false);
+  const [pendingFiles, setPendingFiles] = useState18([]);
+  const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState18(pluginSettingsTabs ?? []);
+  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState18(() => slashCommandService?.list() ?? []);
+  useEffect15(() => {
     setRuntimePluginSettingsTabs(pluginSettingsTabs ?? []);
   }, [pluginSettingsTabs]);
-  useEffect14(() => {
+  useEffect15(() => {
     if (!slashCommandService) {
       setRuntimeSlashCommands([]);
       return;
@@ -12797,30 +13027,30 @@ function App({
     setRuntimeSlashCommands(slashCommandService.list());
     return () => disposable.dispose();
   }, [slashCommandService]);
-  const [statusSegmentVersion, setStatusSegmentVersion] = useState17(0);
-  useEffect14(() => {
+  const [statusSegmentVersion, setStatusSegmentVersion] = useState18(0);
+  useEffect15(() => {
     if (!statusSegmentService)
       return;
     const disposable = statusSegmentService.onDidChange(() => setStatusSegmentVersion((v) => v + 1));
     return () => disposable.dispose();
   }, [statusSegmentService]);
-  const [pathDisplayVersion, setPathDisplayVersion] = useState17(0);
-  useEffect14(() => {
+  const [pathDisplayVersion, setPathDisplayVersion] = useState18(0);
+  useEffect15(() => {
     if (!pathDisplayService)
       return;
     const disposable = pathDisplayService.onDidChange(() => setPathDisplayVersion((v) => v + 1));
     return () => disposable.dispose();
   }, [pathDisplayService]);
-  const [fileBrowserPath, setFileBrowserPath] = useState17("");
-  const [fileBrowserEntries, setFileBrowserEntries] = useState17([]);
-  const disabledExtensionNames = useMemo9(() => new Set(extensionList.filter((item) => (item.originalStatus ?? item.status) === "disabled").map((item) => item.name)), [extensionList]);
-  const activePluginSettingsTabs = useMemo9(() => runtimePluginSettingsTabs.filter((tab) => !disabledExtensionNames.has(tab.id)), [runtimePluginSettingsTabs, disabledExtensionNames]);
-  const dynamicCommands = useMemo9(() => {
+  const [fileBrowserPath, setFileBrowserPath] = useState18("");
+  const [fileBrowserEntries, setFileBrowserEntries] = useState18([]);
+  const disabledExtensionNames = useMemo10(() => new Set(extensionList.filter((item) => (item.originalStatus ?? item.status) === "disabled").map((item) => item.name)), [extensionList]);
+  const activePluginSettingsTabs = useMemo10(() => runtimePluginSettingsTabs.filter((tab) => !disabledExtensionNames.has(tab.id)), [runtimePluginSettingsTabs, disabledExtensionNames]);
+  const dynamicCommands = useMemo10(() => {
     const pluginCommands = activePluginSettingsTabs.some((tab) => tab.id === "virtual-lover") ? [{ name: "/lover", description: "打开 Virtual Lover 配置" }] : [];
     return [...pluginCommands, ...runtimeSlashCommands];
   }, [activePluginSettingsTabs, runtimeSlashCommands]);
   const canOpenLoverSettings = dynamicCommands.some((command) => command.name === "/lover");
-  const copySelectionBufferRef = useRef9("");
+  const copySelectionBufferRef = useRef10("");
   const resetCopySelectionBuffer = useCallback11(() => {
     copySelectionBufferRef.current = "";
   }, []);
@@ -12832,39 +13062,39 @@ function App({
   const refreshPluginSettingsTabs = useCallback11(() => {
     setRuntimePluginSettingsTabs(onListPluginSettingsTabs?.() ?? pluginSettingsTabs ?? []);
   }, [onListPluginSettingsTabs, pluginSettingsTabs]);
-  useEffect14(() => {
+  useEffect15(() => {
     if (!onPluginSettingsTabsChanged)
       return;
     const disposable = onPluginSettingsTabsChanged(() => refreshPluginSettingsTabs());
     return () => disposable.dispose();
   }, [onPluginSettingsTabsChanged, refreshPluginSettingsTabs]);
-  const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState17(false);
-  const [queueEditingId, setQueueEditingId] = useState17(null);
+  const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState18(false);
+  const [queueEditingId, setQueueEditingId] = useState18(null);
   const [queueEditState, queueEditActions] = useTextInput("");
   const [modelEditState, modelEditActions] = useTextInput("");
   const [extensionGitInputState, extensionGitInputActions] = useTextInput("");
   const renderer = useRenderer();
-  const undoRedoRef = useRef9(createUndoRedoStack());
-  const promptInputControllerRef = useRef9(null);
-  const chatScrollBoxRef = useRef9(null);
+  const undoRedoRef = useRef10(createUndoRedoStack());
+  const promptInputControllerRef = useRef10(null);
+  const chatScrollBoxRef = useRef10(null);
   const messageQueue = useMessageQueue();
-  const drainCallbackRef = useRef9(null);
+  const drainCallbackRef = useRef10(null);
   drainCallbackRef.current = () => {
     if (viewMode === "queue-list")
       return;
     const msg = messageQueue.dequeue();
     return msg?.text;
   };
-  const setPendingFilesRef = useRef9(null);
+  const setPendingFilesRef = useRef10(null);
   setPendingFilesRef.current = setPendingFiles;
-  const openFileBrowserRef = useRef9(null);
+  const openFileBrowserRef = useRef10(null);
   openFileBrowserRef.current = (path4, entries) => {
     setFileBrowserPath(path4);
     setFileBrowserEntries(entries);
     setSelectedIndex(0);
     setViewMode("file-browser");
   };
-  const fileBrowserCallbackRef = useRef9(null);
+  const fileBrowserCallbackRef = useRef10(null);
   fileBrowserCallbackRef.current = {
     select: (dirPath, entry, showHidden) => onFileBrowserSelect?.(dirPath, entry, showHidden),
     goUp: (dirPath, showHidden) => onFileBrowserGoUp?.(dirPath, showHidden),
@@ -12903,7 +13133,7 @@ function App({
       return newLevel;
     });
   }, [onThinkingEffortChange, modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
-  useEffect14(() => {
+  useEffect15(() => {
     if (modelState.currentThinkingControlEnabled === false)
       return;
     const levels = getProviderThinkingLevels(modelState.currentModelProvider);
@@ -12915,7 +13145,7 @@ function App({
       return maxLevel;
     });
   }, [modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
-  useEffect14(() => {
+  useEffect15(() => {
     if (thinkingControlEnabled !== false && initialMaxLevel !== "not-set") {
       onThinkingEffortChange?.(initialMaxLevel);
     }
@@ -12981,12 +13211,12 @@ function App({
     queueClear: messageQueue.clear,
     queueSize: messageQueue.size
   });
-  useEffect14(() => {
+  useEffect15(() => {
     if (!renderer)
       return;
     renderer.useMouse = true;
   }, [renderer]);
-  useEffect14(() => {
+  useEffect15(() => {
     if (!renderer)
       return;
     const handleSelection = (selection) => {
@@ -13006,8 +13236,8 @@ function App({
       renderer.off?.("selection", handleSelection);
     };
   }, [renderer, copyMode]);
-  const prevViewModeRef = useRef9(viewMode);
-  useEffect14(() => {
+  const prevViewModeRef = useRef10(viewMode);
+  useEffect15(() => {
     const prev = prevViewModeRef.current;
     prevViewModeRef.current = viewMode;
     if (prev === "queue-list" && viewMode === "chat" && !appState.isGenerating && messageQueue.size > 0) {
@@ -13017,12 +13247,12 @@ function App({
       }
     }
   }, [viewMode, appState.isGenerating, messageQueue, onSubmit]);
-  useEffect14(() => {
+  useEffect15(() => {
     const total = appState.progressSnapshot?.items.length ?? 0;
     const maxOffset = Math.max(0, total - PROGRESS_PANEL_MAX_ITEMS);
     setProgressScrollOffset((prev) => Math.min(Math.max(0, prev), maxOffset));
   }, [appState.progressSnapshot?.items.length]);
-  useEffect14(() => {
+  useEffect15(() => {
     const snapshot = appState.progressSnapshot;
     if (!snapshot || snapshot.items.length === 0) {
       setProgressCollapsed(false);
@@ -13056,7 +13286,7 @@ function App({
       return next;
     });
   }, [appState.progressSnapshot, onSaveProgressUiState]);
-  useEffect14(() => {
+  useEffect15(() => {
     if (viewMode === "model-list")
       return;
     setModelStatusMessage(null);
@@ -13065,21 +13295,21 @@ function App({
     setModelEditTargetName(null);
     modelEditActions.setValue("");
   }, [viewMode]);
-  useEffect14(() => {
+  useEffect15(() => {
     if (viewMode === "session-list")
       return;
     setSessionPendingDeleteId(null);
     setSessionStatusMessage(null);
     setSessionStatusIsError(false);
   }, [viewMode]);
-  useEffect14(() => {
+  useEffect15(() => {
     if (appState.toolDetailData && viewMode !== "tool-detail") {
       setViewMode("tool-detail");
     } else if (!appState.toolDetailData && viewMode === "tool-detail") {
       setViewMode("chat");
     }
   }, [appState.toolDetailData, viewMode]);
-  useEffect14(() => {
+  useEffect15(() => {
     if (appState.toolListItems.length > 0 && viewMode !== "tool-list" && viewMode !== "tool-detail") {
       setSelectedIndex(0);
       setViewMode("tool-list");
@@ -13209,8 +13439,8 @@ function App({
   const activeProgress = appState.progressSnapshot?.items.find((item) => item.status === "in_progress");
   const progressGeneratingLabel = activeProgress ? `${activeProgress.activeForm ?? activeProgress.title}...` : undefined;
   const effectiveGeneratingLabel = appState.generatingLabel ?? progressGeneratingLabel;
-  const rightStatusSegments = useMemo9(() => statusSegmentService?.list({ sessionId: getCurrentSessionId?.() }, "right") ?? [], [statusSegmentVersion, statusSegmentService, getCurrentSessionId, viewMode, appState.messages.length]);
-  const consolePathDisplay = useMemo9(() => pathDisplayService?.resolve({ sessionId: getCurrentSessionId?.() }), [pathDisplayVersion, pathDisplayService, getCurrentSessionId, viewMode, appState.messages.length]);
+  const rightStatusSegments = useMemo10(() => statusSegmentService?.list({ sessionId: getCurrentSessionId?.() }, "right") ?? [], [statusSegmentVersion, statusSegmentService, getCurrentSessionId, viewMode, appState.messages.length]);
+  const consolePathDisplay = useMemo10(() => pathDisplayService?.resolve({ sessionId: getCurrentSessionId?.() }), [pathDisplayVersion, pathDisplayService, getCurrentSessionId, viewMode, appState.messages.length]);
   if (viewMode === "settings") {
     return /* @__PURE__ */ jsxDEV43(SettingsView, {
       initialSection: settingsInitialSection,
@@ -13391,6 +13621,7 @@ function App({
         pathDisplay: consolePathDisplay,
         pendingFiles,
         onRemoveFile: handleRemoveFile,
+        onListFileMentionFiles,
         dynamicCommands,
         statusSegments: rightStatusSegments,
         supportsHeadlessTransition,
@@ -14428,6 +14659,58 @@ async function handleConsoleToggleExtension(api, name, desiredEnabled) {
   }
 }
 
+// src/file-mention-files.ts
+import fs5 from "node:fs";
+import path5 from "node:path";
+var FILE_MENTION_IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  "build",
+  ".next",
+  ".turbo",
+  "coverage",
+  ".cache",
+  "out",
+  "target",
+  ".output",
+  ".vite"
+]);
+function listFileMentionFiles(root, options = {}) {
+  const maxFiles = options.maxFiles ?? 5000;
+  const result = [];
+  const rootPath = path5.resolve(root);
+  function visit(dir) {
+    if (result.length >= maxFiles)
+      return;
+    let entries;
+    try {
+      entries = fs5.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (result.length >= maxFiles)
+        return;
+      const fullPath = path5.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!FILE_MENTION_IGNORED_DIRS.has(entry.name))
+          visit(fullPath);
+        continue;
+      }
+      if (!entry.isFile())
+        continue;
+      const relative = path5.relative(rootPath, fullPath);
+      if (!relative || relative.startsWith("..") || path5.isAbsolute(relative))
+        continue;
+      result.push(relative.split(path5.sep).join("/"));
+    }
+  }
+  visit(rootPath);
+  return result;
+}
+
 // src/index.ts
 function generateCommandPatterns(command) {
   const normalized = command.trim().replace(/\s+/g, " ");
@@ -14805,6 +15088,7 @@ class ConsolePlatform extends PlatformAdapter {
   _pendingAudio = [];
   _pendingVideo = [];
   remoteExtensionRequestPaths = new Map;
+  fileMentionCache = null;
   constructor(backend, options) {
     super();
     this.backend = backend;
@@ -15305,6 +15589,7 @@ ${summaryText}`;
         onLoadProgressUiState: (sessionId) => this.loadProgressUiState(sessionId),
         onSaveProgressUiState: (sessionId, state) => this.saveProgressUiState(sessionId, state),
         onRemoveFile: (index) => this.handleRemoveFile(index),
+        onListFileMentionFiles: this._isRemote ? undefined : () => this.listFileMentionFiles(),
         onFileBrowserSelect: (dirPath, entry, showHidden) => {
           this.handleFileBrowserSelect(dirPath, entry, showHidden);
         },
@@ -15906,6 +16191,21 @@ ${summaryText}`;
   }
   handleRunCommand(cmd) {
     return this.backend.runCommand?.(cmd) ?? { output: "", cwd: "" };
+  }
+  getCurrentCwd() {
+    const backendWithCwd = this.backend;
+    const realProcess = __require("process");
+    return backendWithCwd.getCwd?.() || realProcess.cwd();
+  }
+  listFileMentionFiles() {
+    if (this._isRemote)
+      return [];
+    const cwd = this.getCurrentCwd();
+    if (this.fileMentionCache?.cwd === cwd)
+      return this.fileMentionCache.files;
+    const files = listFileMentionFiles(cwd);
+    this.fileMentionCache = { cwd, files };
+    return files;
   }
   handleListModels() {
     const models = this.backend.listModels?.() ?? [];
@@ -16716,14 +17016,14 @@ ${summaryText}`;
       this.appHandle?.addCommandMessage("已清空所有待发送附件");
       return;
     }
-    const fs5 = __require("fs");
-    const path5 = __require("path");
-    const resolved = path5.resolve(filePath);
-    if (!fs5.existsSync(resolved)) {
+    const fs6 = __require("fs");
+    const path6 = __require("path");
+    const resolved = path6.resolve(filePath);
+    if (!fs6.existsSync(resolved)) {
       this.appHandle?.addCommandMessage(`文件不存在: ${resolved}`);
       return;
     }
-    const stat = fs5.statSync(resolved);
+    const stat = fs6.statSync(resolved);
     if (!stat.isFile()) {
       this.appHandle?.addCommandMessage(`不是一个文件: ${resolved}`);
       return;
@@ -16733,11 +17033,11 @@ ${summaryText}`;
       this.appHandle?.addCommandMessage(`文件过大 (${(stat.size / 1024 / 1024).toFixed(1)}MB)，最大支持 20MB`);
       return;
     }
-    const ext = path5.extname(resolved).toLowerCase();
+    const ext = path6.extname(resolved).toLowerCase();
     const mimeType = this.detectMimeType(ext);
     const fileType = this.classifyFileType(mimeType);
-    const data = fs5.readFileSync(resolved).toString("base64");
-    const fileName = path5.basename(resolved);
+    const data = fs6.readFileSync(resolved).toString("base64");
+    const fileName = path6.basename(resolved);
     if (fileType === "image") {
       this._pendingImages.push({ mimeType, data, fileName });
     } else if (fileType === "audio") {
@@ -16862,22 +17162,22 @@ ${summaryText}`;
     this.appHandle?.openFileBrowser(dirPath, entries);
   }
   listDirectory(dirPath, showHidden = false) {
-    const fs5 = __require("fs");
-    const path5 = __require("path");
+    const fs6 = __require("fs");
+    const path6 = __require("path");
     try {
-      const items = fs5.readdirSync(dirPath);
+      const items = fs6.readdirSync(dirPath);
       const entries = [];
       for (const name of items) {
         if (!showHidden && name.startsWith("."))
           continue;
         try {
-          const fullPath = path5.join(dirPath, name);
-          const stat = fs5.statSync(fullPath);
+          const fullPath = path6.join(dirPath, name);
+          const stat = fs6.statSync(fullPath);
           const isDirectory2 = stat.isDirectory();
           if (isDirectory2) {
             entries.push({ name, isDirectory: true });
           } else {
-            const ext = path5.extname(name).toLowerCase();
+            const ext = path6.extname(name).toLowerCase();
             const mimeType = this.detectMimeType(ext);
             const fileType = this.classifyFileType(mimeType);
             entries.push({ name, isDirectory: false, size: stat.size, fileType });
@@ -16896,19 +17196,19 @@ ${summaryText}`;
     }
   }
   handleFileBrowserSelect(dirPath, entry, showHidden) {
-    const path5 = __require("path");
+    const path6 = __require("path");
     if (entry.isDirectory) {
-      const newPath = path5.resolve(dirPath, entry.name);
+      const newPath = path6.resolve(dirPath, entry.name);
       const entries = this.listDirectory(newPath, showHidden);
       this.appHandle?.openFileBrowser(newPath, entries);
     } else {
-      const fullPath = path5.join(dirPath, entry.name);
+      const fullPath = path6.join(dirPath, entry.name);
       this.handleFileAttach(fullPath);
     }
   }
   handleFileBrowserGoUp(dirPath, showHidden) {
-    const path5 = __require("path");
-    const parentPath = path5.dirname(dirPath);
+    const path6 = __require("path");
+    const parentPath = path6.dirname(dirPath);
     if (parentPath === dirPath)
       return;
     const entries = this.listDirectory(parentPath, showHidden);

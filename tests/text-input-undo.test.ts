@@ -9,12 +9,14 @@ import {
   applyTextInputKey as applyConsoleTextInputKey,
   insertTextInputValue as insertConsoleTextInputValue,
   isTextInputKeyHandled as isConsoleTextInputKeyHandled,
+  replaceTextInputRange as replaceConsoleTextInputRange,
   type TextInputState as ConsoleTextInputState,
 } from '../extensions/console/src/hooks/use-text-input';
 import {
   applyTextInputKey as applyTerminalTextInputKey,
   insertTextInputValue as insertTerminalTextInputValue,
   isTextInputKeyHandled as isTerminalTextInputKeyHandled,
+  replaceTextInputRange as replaceTerminalTextInputRange,
   type TextInputState as TerminalTextInputState,
 } from '../terminal/src/shared/hooks/use-text-input';
 
@@ -29,12 +31,14 @@ const implementations = [
     name: 'console useTextInput',
     apply: applyConsoleTextInputKey,
     insert: insertConsoleTextInputValue,
+    replaceRange: replaceConsoleTextInputRange,
     handled: isConsoleTextInputKeyHandled,
   },
   {
     name: 'terminal shared useTextInput',
     apply: applyTerminalTextInputKey,
     insert: insertTerminalTextInputValue,
+    replaceRange: replaceTerminalTextInputRange,
     handled: isTerminalTextInputKeyHandled,
   },
 ];
@@ -85,6 +89,19 @@ describe('text input undo/redo shortcuts', () => {
 
       state = impl.apply(state, { name: 'z', ctrl: true });
       expect(visible(state)).toEqual({ value: 'a', cursor: 1 });
+    });
+
+    it(`${impl.name}: replaceRange 替换文本并保持 undo/redo`, () => {
+      let state: TextInputState = { value: 'see @inp', cursor: 8 };
+
+      state = impl.replaceRange(state, 4, 8, 'src/input.ts');
+      expect(visible(state)).toEqual({ value: 'see src/input.ts', cursor: 16 });
+
+      state = impl.apply(state, { name: 'z', ctrl: true });
+      expect(visible(state)).toEqual({ value: 'see @inp', cursor: 8 });
+
+      state = impl.apply(state, { name: 'y', ctrl: true });
+      expect(visible(state)).toEqual({ value: 'see src/input.ts', cursor: 16 });
     });
   }
 });
