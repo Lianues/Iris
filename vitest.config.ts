@@ -13,6 +13,7 @@ export default defineConfig({
       'irises-extension-sdk/tool-utils': path.resolve(__dirname, 'packages/extension-sdk/src/tool-utils'),
       'irises-extension-sdk/ipc': path.resolve(__dirname, 'packages/extension-sdk/src/ipc'),
       'irises-extension-sdk/host-events': path.resolve(__dirname, 'packages/extension-sdk/src/host-events'),
+      'irises-extension-sdk/console': path.resolve(__dirname, 'packages/extension-sdk/src/console'),
       'irises-extension-sdk': path.resolve(__dirname, 'packages/extension-sdk/src'),
       '@': path.resolve(__dirname, 'src'),
     },

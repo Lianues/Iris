@@ -9,6 +9,10 @@ import {
   WEATHER_SERVICE_ID,
   type IrisBackendLike,
 } from '../packages/extension-sdk/src';
+import {
+  CONSOLE_SETTINGS_TAB_SERVICE_ID,
+  CONSOLE_TOOL_DISPLAY_SERVICE_ID,
+} from '../packages/extension-sdk/src/console';
 
 describe('extension sdk public api', () => {
   it('definePlatformFactory 应按平台名读取配置并创建实例', async () => {
@@ -85,5 +89,10 @@ describe('extension sdk public api', () => {
   it('应导出 environment/weather service id', () => {
     expect(ENVIRONMENT_CONTEXT_SERVICE_ID).toBe('environment.context');
     expect(WEATHER_SERVICE_ID).toBe('environment.weather');
+  });
+
+  it('应导出 console integration service ids', () => {
+    expect(CONSOLE_SETTINGS_TAB_SERVICE_ID).toBe('console:settings-tab');
+    expect(CONSOLE_TOOL_DISPLAY_SERVICE_ID).toBe('console:tool-display');
   });
 });

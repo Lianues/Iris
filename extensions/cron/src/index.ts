@@ -10,7 +10,7 @@
 
 import { definePlugin, createPluginLogger, SCHEDULER_SERVICE_ID, waitForServiceAndRegister } from 'irises-extension-sdk';
 import type { Disposable, PluginContext, IrisAPI } from 'irises-extension-sdk';
-import { CONSOLE_SETTINGS_TAB_SERVICE_ID, type ConsoleSettingsTabDefinition, type ConsoleSettingsTabService } from '../../console/src/service-contracts.js';
+import { CONSOLE_SETTINGS_TAB_SERVICE_ID, type ConsoleSettingsTabDefinition, type ConsoleSettingsTabService } from 'irises-extension-sdk/console';
 import { CronScheduler } from './scheduler.js';
 import {
   manageScheduledTasksTool,

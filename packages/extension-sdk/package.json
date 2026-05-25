@@ -43,6 +43,11 @@
       "import": "./dist/host-events.js",
       "default": "./dist/host-events.js"
     },
+    "./console": {
+      "types": "./dist/console.d.ts",
+      "import": "./dist/console.js",
+      "default": "./dist/console.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

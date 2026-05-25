@@ -25,6 +25,7 @@ describe('extension sdk package', () => {
     expect(packageJson.exports?.['.']?.import).toBe('./dist/index.js');
     expect(packageJson.exports?.['./plugin']?.import).toBe('./dist/plugin.js');
     expect(packageJson.exports?.['./pairing']?.import).toBe('./dist/pairing/index.js');
+    expect(packageJson.exports?.['./console']?.import).toBe('./dist/console.js');
     expect(packageJson.scripts?.build).toBeTruthy();
     expect(packageJson.publishConfig?.access).toBe('public');
   });

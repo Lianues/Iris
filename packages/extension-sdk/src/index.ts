@@ -148,6 +148,47 @@ export type {
   WeatherService,
 } from './environment.js';
 
+export {
+  CONSOLE_PATH_DISPLAY_SERVICE_ID,
+  CONSOLE_PROGRESS_SERVICE_ID,
+  CONSOLE_SETTINGS_TAB_SERVICE_ID,
+  CONSOLE_SLASH_COMMAND_SERVICE_ID,
+  CONSOLE_STATUS_SEGMENT_SERVICE_ID,
+  CONSOLE_TOOL_DISPLAY_SERVICE_ID,
+} from './console.js';
+
+export type {
+  ConsoleCommandArgSuggestion,
+  ConsolePathDisplayColor,
+  ConsolePathDisplayContext,
+  ConsolePathDisplayProvider,
+  ConsolePathDisplayService,
+  ConsolePathDisplaySnapshot,
+  ConsoleProgressArchiveLike,
+  ConsoleProgressItemLike,
+  ConsoleProgressProvider,
+  ConsoleProgressService,
+  ConsoleProgressSnapshotLike,
+  ConsoleProgressStatusLike,
+  ConsoleProgressUiStateLike,
+  ConsoleSettingsActionResult,
+  ConsoleSettingsField,
+  ConsoleSettingsTabDefinition,
+  ConsoleSettingsTabService,
+  ConsoleSlashCommandDefinition,
+  ConsoleSlashCommandDispatchContext,
+  ConsoleSlashCommandHandlerInput,
+  ConsoleSlashCommandListItem,
+  ConsoleSlashCommandResult,
+  ConsoleStatusContext,
+  ConsoleStatusSegmentColor,
+  ConsoleStatusSegmentProvider,
+  ConsoleStatusSegmentService,
+  ConsoleStatusSegmentSnapshot,
+  ConsoleToolDisplayProvider,
+  ConsoleToolDisplayService,
+} from './console.js';
+
 export type {
   FunctionDeclaration,
   ToolDefinition,

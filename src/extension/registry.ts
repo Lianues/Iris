@@ -480,6 +480,7 @@ const SDK_DIST_SHIMS: { dist: string; src: string }[] = [
   { dist: 'plugin/index.js',   src: '../../src/plugin/index.ts' },
   { dist: 'ipc/index.js',      src: '../../src/ipc/index.ts' },
   { dist: 'host-events.js',    src: '../src/host-events.ts' },
+  { dist: 'console.js',        src: '../src/console.ts' },
 ];
 
 /**

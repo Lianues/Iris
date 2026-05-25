@@ -23,6 +23,7 @@
       "irises-extension-sdk/tool-utils": ["./packages/extension-sdk/src/tool-utils"],
       "irises-extension-sdk/ipc": ["./packages/extension-sdk/src/ipc"],
       "irises-extension-sdk/host-events": ["./packages/extension-sdk/src/host-events"],
+      "irises-extension-sdk/console": ["./packages/extension-sdk/src/console"],
       "@/*": ["./src/*"]
     }
   },

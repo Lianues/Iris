@@ -9,7 +9,7 @@ import {
   type ConsoleSlashCommandService,
   type ConsoleStatusSegmentService,
   type ConsoleToolDisplayService,
-} from '../../console/src/service-contracts.js';
+} from 'irises-extension-sdk/console';
 
 interface DisplayProviderInput {
   toolName: string;

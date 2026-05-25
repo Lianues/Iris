@@ -10,7 +10,7 @@ import {
 import {
   CONSOLE_PROGRESS_SERVICE_ID,
   type ConsoleProgressService,
-} from '../../console/src/service-contracts.js';
+} from 'irises-extension-sdk/console';
 import {
   SessionMilestoneManager,
   type MilestoneArchiveEntry,

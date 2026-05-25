@@ -20,7 +20,7 @@
 import * as path from 'path';
 import { definePlugin, createPluginLogger, waitForServiceAndRegister } from 'irises-extension-sdk';
 import type { Disposable, PluginContext, IrisAPI, Part } from 'irises-extension-sdk';
-import { CONSOLE_SETTINGS_TAB_SERVICE_ID, type ConsoleSettingsTabDefinition, type ConsoleSettingsTabService } from '../../console/src/service-contracts.js';
+import { CONSOLE_SETTINGS_TAB_SERVICE_ID, type ConsoleSettingsTabDefinition, type ConsoleSettingsTabService } from 'irises-extension-sdk/console';
 import { SqliteMemory } from './sqlite/index.js';
 import { createMemoryTools, MEMORY_TOOL_NAMES } from './tools.js';
 import { DEFAULT_CONFIG_TEMPLATE } from './config-template.js';

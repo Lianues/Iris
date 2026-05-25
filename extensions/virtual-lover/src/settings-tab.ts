@@ -8,7 +8,7 @@ import {
   type PluginContext,
   waitForServiceAndRegister,
 } from 'irises-extension-sdk';
-import { CONSOLE_SETTINGS_TAB_SERVICE_ID, type ConsoleSettingsTabDefinition, type ConsoleSettingsTabService } from '../../console/src/service-contracts.js';
+import { CONSOLE_SETTINGS_TAB_SERVICE_ID, type ConsoleSettingsTabDefinition, type ConsoleSettingsTabService } from 'irises-extension-sdk/console';
 import { parseVirtualLoverConfig, type VirtualLoverConfig } from './config.js';
 import { loadPromptBundle, writeFragment } from './state.js';
 import { sendProactiveMessage } from './proactive.js';
