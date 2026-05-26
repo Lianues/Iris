@@ -210,6 +210,23 @@ function setDisabledMarker(rootDir: string, disabled: boolean): void {
 
 // ---- 状态判定 ----
 
+function resolveInstalledExtensionTarget(rawName: string): { name: string; rootDir: string } {
+  const trimmedName = normalizeText(rawName);
+  if (!trimmedName || path.isAbsolute(trimmedName) || trimmedName.startsWith('/') || trimmedName.startsWith('\\')) {
+    throw new Error(`extension 名称无效: ${rawName}`);
+  }
+
+  const name = normalizeRelativeFilePath(trimmedName, 'extension 名称');
+  if (name.includes('/')) {
+    throw new Error(`extension 名称无效: ${rawName}`);
+  }
+
+  return {
+    name,
+    rootDir: resolveSafeRelativePath(getInstalledExtensionsDir(), name),
+  };
+}
+
 function resolveInstalledState(manifest: ExtensionManifestLike, rootDir: string): {
   enabled: boolean; stateLabel: string;
 } {
@@ -566,8 +583,7 @@ export function createExtensionHandlers(installDir: string) {
     /** POST /api/extensions/:name/enable */
     async enable(req: http.IncomingMessage, res: http.ServerResponse, params: Record<string, string>) {
       try {
-        const name = params.name;
-        const rootDir = path.join(getInstalledExtensionsDir(), name);
+        const { name, rootDir } = resolveInstalledExtensionTarget(params.name);
         if (!fs.existsSync(rootDir)) {
           sendJSON(res, 404, { error: `extension 不存在: ${name}` });
           return;
@@ -580,6 +596,10 @@ export function createExtensionHandlers(installDir: string) {
         }
         sendJSON(res, 200, { ok: true });
       } catch (err) {
+        if (err instanceof Error && err.message.includes('extension 名称无效')) {
+          sendJSON(res, 400, { error: err.message });
+          return;
+        }
         sendJSON(res, 500, { error: `启用失败: ${err instanceof Error ? err.message : String(err)}` });
       }
     },
@@ -587,8 +607,7 @@ export function createExtensionHandlers(installDir: string) {
     /** POST /api/extensions/:name/disable */
     async disable(req: http.IncomingMessage, res: http.ServerResponse, params: Record<string, string>) {
       try {
-        const name = params.name;
-        const rootDir = path.join(getInstalledExtensionsDir(), name);
+        const { name, rootDir } = resolveInstalledExtensionTarget(params.name);
         if (!fs.existsSync(rootDir)) {
           sendJSON(res, 404, { error: `extension 不存在: ${name}` });
           return;
@@ -600,6 +619,10 @@ export function createExtensionHandlers(installDir: string) {
         }
         sendJSON(res, 200, { ok: true });
       } catch (err) {
+        if (err instanceof Error && err.message.includes('extension 名称无效')) {
+          sendJSON(res, 400, { error: err.message });
+          return;
+        }
         sendJSON(res, 500, { error: `禁用失败: ${err instanceof Error ? err.message : String(err)}` });
       }
     },
@@ -607,8 +630,7 @@ export function createExtensionHandlers(installDir: string) {
     /** DELETE /api/extensions/:name */
     async remove(req: http.IncomingMessage, res: http.ServerResponse, params: Record<string, string>) {
       try {
-        const name = params.name;
-        const rootDir = path.join(getInstalledExtensionsDir(), name);
+        const { name, rootDir } = resolveInstalledExtensionTarget(params.name);
         if (!fs.existsSync(rootDir)) {
           sendJSON(res, 404, { error: `extension 不存在: ${name}` });
           return;
@@ -620,6 +642,10 @@ export function createExtensionHandlers(installDir: string) {
         }
         sendJSON(res, 200, { ok: true });
       } catch (err) {
+        if (err instanceof Error && err.message.includes('extension 名称无效')) {
+          sendJSON(res, 400, { error: err.message });
+          return;
+        }
         sendJSON(res, 500, { error: `删除失败: ${err instanceof Error ? err.message : String(err)}` });
       }
     },
