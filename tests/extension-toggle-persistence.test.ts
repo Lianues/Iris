@@ -57,6 +57,13 @@ describe('/extension toggle persistence', () => {
       '    config:',
       '      mood: gentle',
     ].join('\n'));
+    writeYaml(globalDir, 'system.yaml', [
+      'extensions:',
+      '  # virtual-lover 是源码仓库里的 workspace extension；/extension 启用后会持久化该 allowlist。',
+      '  loadWorkspaceExtensions: true',
+      '  workspaceAllowlist:',
+      '    - virtual-lover',
+    ].join('\n'));
 
     writeYaml(agentPaths.configDir, 'plugins.yaml', [
       'plugins:',

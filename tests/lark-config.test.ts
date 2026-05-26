@@ -38,12 +38,19 @@ describe('Lark Phase 0: platform skeleton', () => {
     await expect(platform.start()).rejects.toThrow('Lark 平台启动失败：缺少 appId 或 appSecret。');
   });
 
-  it('不再内置注册 lark，而是由 extension 清单注册', async () => {
+  it('默认不注册 workspace 平台扩展，但显式启用 workspace discovery 后可由 extension 清单注册', async () => {
+    const defaultRegistry = new PlatformRegistry();
+    const defaultRegistered = registerExtensionPlatforms(defaultRegistry);
+    expect(defaultRegistered).not.toContain('lark');
+
     const registry = new PlatformRegistry();
     expect(registry.has('lark')).toBe(false);
 
-    const registered = registerExtensionPlatforms(registry);
+    const registered = registerExtensionPlatforms(registry, undefined, undefined, {
+      workspace: { enabled: true, allowlist: ['lark'] },
+    });
     expect(registered).toContain('lark');
+    expect(registry.has('lark')).toBe(true);
 
     const platform = await registry.create('lark', {
       backend: {} as any,

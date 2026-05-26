@@ -1,8 +1,8 @@
 /**
  * Weixin / WXWork extension 迁移测试。
  *
- * 目标：验证普通微信与企业微信平台已经不再内置注册，
- * 而是通过 extension 清单自动注册。
+ * 目标：验证普通微信与企业微信平台已经不再由核心内置注册，
+ * 作为 workspace 可选 extension 时可通过清单显式注册。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -43,14 +43,23 @@ describe('Weixin / WXWork: parsePlatformConfig', () => {
 });
 
 describe('Weixin / WXWork: extension registration', () => {
-  it('不再内置注册 wxwork 和 weixin，而是由 extension 清单注册', async () => {
+  it('默认不注册 workspace 平台扩展，但显式启用 workspace discovery 后可由 extension 清单注册', async () => {
+    const defaultRegistry = new PlatformRegistry();
+    const defaultRegistered = registerExtensionPlatforms(defaultRegistry);
+    expect(defaultRegistered).not.toContain('wxwork');
+    expect(defaultRegistered).not.toContain('weixin');
+
     const registry = new PlatformRegistry();
     expect(registry.has('wxwork')).toBe(false);
     expect(registry.has('weixin')).toBe(false);
 
-    const registered = registerExtensionPlatforms(registry);
+    const registered = registerExtensionPlatforms(registry, undefined, undefined, {
+      workspace: { enabled: true, allowlist: ['wxwork', 'weixin'] },
+    });
     expect(registered).toContain('wxwork');
     expect(registered).toContain('weixin');
+    expect(registry.has('wxwork')).toBe(true);
+    expect(registry.has('weixin')).toBe(true);
 
     const wxworkPlatform = await registry.create('wxwork', {
       backend: {} as any,

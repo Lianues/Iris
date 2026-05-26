@@ -1,8 +1,8 @@
 /**
  * Discord / QQ extension 迁移测试。
  *
- * 目标：验证 Discord 与 QQ 平台已经不再内置注册，
- * 而是通过 extension 清单自动注册。
+ * 目标：验证 Discord 与 QQ 平台已经不再由核心内置注册，
+ * 作为 workspace 可选 extension 时可通过清单显式注册。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -40,14 +40,23 @@ describe('Discord / QQ: parsePlatformConfig', () => {
 });
 
 describe('Discord / QQ: extension registration', () => {
-  it('不再内置注册 discord 和 qq，而是由 extension 清单注册', async () => {
+  it('默认不注册 workspace 平台扩展，但显式启用 workspace discovery 后可由 extension 清单注册', async () => {
+    const defaultRegistry = new PlatformRegistry();
+    const defaultRegistered = registerExtensionPlatforms(defaultRegistry);
+    expect(defaultRegistered).not.toContain('discord');
+    expect(defaultRegistered).not.toContain('qq');
+
     const registry = new PlatformRegistry();
     expect(registry.has('discord')).toBe(false);
     expect(registry.has('qq')).toBe(false);
 
-    const registered = registerExtensionPlatforms(registry);
+    const registered = registerExtensionPlatforms(registry, undefined, undefined, {
+      workspace: { enabled: true, allowlist: ['discord', 'qq'] },
+    });
     expect(registered).toContain('discord');
     expect(registered).toContain('qq');
+    expect(registry.has('discord')).toBe(true);
+    expect(registry.has('qq')).toBe(true);
 
     const discordPlatform = await registry.create('discord', {
       backend: {} as any,

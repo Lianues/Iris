@@ -34,12 +34,19 @@ describe('Telegram Phase 0: parsePlatformConfig', () => {
 });
 
 describe('Telegram Phase 0: extension registration', () => {
-  it('不再内置注册 telegram，而是由内嵌 extension 注册', async () => {
+  it('默认不注册 workspace 平台扩展，但显式启用 workspace discovery后可由 extension 清单注册', async () => {
+    const defaultRegistry = new PlatformRegistry();
+    const defaultRegistered = registerExtensionPlatforms(defaultRegistry);
+    expect(defaultRegistered).not.toContain('telegram');
+
     const registry = new PlatformRegistry();
     expect(registry.has('telegram')).toBe(false);
 
-    const registered = registerExtensionPlatforms(registry);
+    const registered = registerExtensionPlatforms(registry, undefined, undefined, {
+      workspace: { enabled: true, allowlist: ['telegram'] },
+    });
     expect(registered).toContain('telegram');
+    expect(registry.has('telegram')).toBe(true);
 
     const platform = await registry.create('telegram', {
       backend: {} as any,
