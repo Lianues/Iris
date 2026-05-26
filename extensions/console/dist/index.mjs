@@ -16,7 +16,7 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/irises-extension-sdk/dist/logger.js
+// ../../packages/extension-sdk/dist/logger.js
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
@@ -222,7 +222,7 @@ var init_terminal_compat = __esm(() => {
   HOURGLASS_SPINNER_INTERVAL_MS = terminalTier === "basic" ? 240 : 360;
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/framing.js
+// ../../packages/extension-sdk/dist/ipc/framing.js
 import { Transform } from "node:stream";
 function encodeFrame(data) {
   const payload = Buffer.from(JSON.stringify(data), "utf-8");
@@ -273,7 +273,7 @@ var init_framing = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/protocol.js
+// ../../packages/extension-sdk/dist/ipc/protocol.js
 function isRequest(msg) {
   return "id" in msg && "method" in msg;
 }
@@ -405,7 +405,7 @@ var init_protocol = __esm(() => {
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/remote-tool-handle.js
+// ../../packages/extension-sdk/dist/ipc/remote-tool-handle.js
 import { EventEmitter } from "node:events";
 var logger, RemoteToolHandle;
 var init_remote_tool_handle = __esm(() => {
@@ -509,7 +509,7 @@ var init_remote_tool_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/remote-backend-handle.js
+// ../../packages/extension-sdk/dist/ipc/remote-backend-handle.js
 import { EventEmitter as EventEmitter2 } from "node:events";
 var logger2, RemoteBackendHandle;
 var init_remote_backend_handle = __esm(() => {
@@ -779,7 +779,7 @@ var init_remote_backend_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/remote-api-proxy.js
+// ../../packages/extension-sdk/dist/ipc/remote-api-proxy.js
 function callApi(client, targetAgentName, method, params) {
   if (!targetAgentName) {
     return client.call(method, params);
@@ -850,7 +850,7 @@ var init_remote_api_proxy = __esm(() => {
   logger3 = createExtensionLogger("RemoteApiProxy");
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/index.js
+// ../../packages/extension-sdk/dist/ipc/index.js
 var exports_ipc = {};
 __export(exports_ipc, {
   isResponse: () => isResponse,
@@ -1338,7 +1338,7 @@ import React15 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// node_modules/irises-extension-sdk/dist/platform.js
+// ../../packages/extension-sdk/dist/platform.js
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1483,9 +1483,9 @@ class PlatformAdapter {
   }
 }
 
-// node_modules/irises-extension-sdk/dist/index.js
+// ../../packages/extension-sdk/dist/index.js
 init_logger();
-// node_modules/irises-extension-sdk/dist/utils/dependencies.js
+// ../../packages/extension-sdk/dist/utils/dependencies.js
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
@@ -1622,7 +1622,7 @@ async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
     installArgs: args
   };
 }
-// node_modules/irises-extension-sdk/dist/utils/paths.js
+// ../../packages/extension-sdk/dist/utils/paths.js
 function normalizeText(value) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -1656,7 +1656,7 @@ function encodeRepoPathForUrl(repoPath) {
   return repoPath.split("/").map((part) => encodeURIComponent(part)).join("/");
 }
 
-// node_modules/irises-extension-sdk/dist/utils/manifest.js
+// ../../packages/extension-sdk/dist/utils/manifest.js
 var MANIFEST_FILE = "manifest.json";
 function parseExtensionManifest(raw, sourceLabel) {
   if (!raw || typeof raw !== "object") {
@@ -1672,7 +1672,7 @@ function parseExtensionManifest(raw, sourceLabel) {
   return manifest;
 }
 
-// node_modules/irises-extension-sdk/dist/utils/remote.js
+// ../../packages/extension-sdk/dist/utils/remote.js
 var DEFAULT_REMOTE_EXTENSION_INDEX_URL = "https://raw.githubusercontent.com/Lianues/Iris/main/extensions/index.json";
 var DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL = "https://raw.githubusercontent.com/Lianues/Iris/main";
 var DEFAULT_REMOTE_EXTENSIONS_SUBDIR = "extensions";
@@ -1732,7 +1732,7 @@ async function fetchRemoteManifest(requestedPath, options) {
   const raw = await fetchJson(manifestUrl, "extension manifest");
   return parseExtensionManifest(raw, `${buildRemoteExtensionPath(requestedPath, options)}/${MANIFEST_FILE}`);
 }
-// node_modules/irises-extension-sdk/dist/utils/git.js
+// ../../packages/extension-sdk/dist/utils/git.js
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 var GIT_INSTALL_METADATA_FILE = ".iris-extension-install.json";
@@ -10506,7 +10506,7 @@ function clearRedo(stack) {
 }
 
 // src/hooks/use-app-handle.ts
-function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef }) {
+function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, setExtensionListRef }) {
   const [messages, setMessages] = useState13([]);
   const [streamingParts, setStreamingParts] = useState13([]);
   const [isStreaming, setIsStreaming] = useState13(false);
@@ -10966,10 +10966,13 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
       },
       openToolList(tools) {
         setToolListItems(tools);
+      },
+      setExtensionList(items) {
+        setExtensionListRef.current?.(items);
       }
     };
     onReady(handle);
-  }, [commitTools, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, onReady, undoRedoRef]);
+  }, [commitTools, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, setExtensionListRef, onReady, undoRedoRef]);
   return {
     messages,
     streamingParts,
@@ -13088,6 +13091,8 @@ function App({
   const setPendingFilesRef = useRef10(null);
   setPendingFilesRef.current = setPendingFiles;
   const openFileBrowserRef = useRef10(null);
+  const setExtensionListRef = useRef10(null);
+  setExtensionListRef.current = setExtensionList;
   openFileBrowserRef.current = (path4, entries) => {
     setFileBrowserPath(path4);
     setFileBrowserEntries(entries);
@@ -13103,7 +13108,7 @@ function App({
       onFileBrowserToggleHidden?.(dirPath, showHidden);
     }
   };
-  const appState = useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef });
+  const appState = useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, setExtensionListRef });
   const approval = useApproval(appState.pendingApprovals, appState.pendingApplies);
   const exitConfirm = useExitConfirm();
   const modelState = useModelState({ modelId, modelName, contextWindow, modelProvider, thinkingControlEnabled });
@@ -13972,7 +13977,7 @@ function comparePriorityThenId(direction = "asc") {
 }
 
 // src/tool-display-service.ts
-var CONSOLE_TOOL_DISPLAY_SERVICE_ID = "console:tool-display";
+var CONSOLE_TOOL_DISPLAY_SERVICE_ID2 = "console:tool-display";
 function createConsoleToolDisplayService() {
   const providers = createKeyedRegistry();
   return {
@@ -13998,7 +14003,7 @@ function createConsoleToolDisplayService() {
 }
 
 // src/slash-command-service.ts
-var CONSOLE_SLASH_COMMAND_SERVICE_ID = "console:slash-command";
+var CONSOLE_SLASH_COMMAND_SERVICE_ID2 = "console:slash-command";
 function createConsoleSlashCommandService() {
   const commands = createKeyedRegistry();
   const changes = createListenerSignal();
@@ -14059,7 +14064,7 @@ function createConsoleSlashCommandService() {
 }
 
 // src/path-display-service.ts
-var CONSOLE_PATH_DISPLAY_SERVICE_ID = "console:path-display";
+var CONSOLE_PATH_DISPLAY_SERVICE_ID2 = "console:path-display";
 function createConsolePathDisplayService() {
   const providers = createKeyedRegistry();
   const changes = createListenerSignal();
@@ -14111,10 +14116,10 @@ function createConsolePathDisplayService() {
 }
 
 // src/settings-tab-service.ts
-var CONSOLE_SETTINGS_TAB_SERVICE_ID = "console:settings-tab";
+var CONSOLE_SETTINGS_TAB_SERVICE_ID2 = "console:settings-tab";
 
 // src/status-segment-service.ts
-var CONSOLE_STATUS_SEGMENT_SERVICE_ID = "console:status-segment";
+var CONSOLE_STATUS_SEGMENT_SERVICE_ID2 = "console:status-segment";
 function createConsoleStatusSegmentService() {
   const providers = createKeyedRegistry();
   const changes = createListenerSignal();
@@ -14167,7 +14172,7 @@ function createConsoleStatusSegmentService() {
 }
 
 // src/progress-service.ts
-var CONSOLE_PROGRESS_SERVICE_ID = "console:progress";
+var CONSOLE_PROGRESS_SERVICE_ID2 = "console:progress";
 function createConsoleProgressService() {
   const providers = createKeyedRegistry();
   const providerSubscriptions = new Map;
@@ -14828,6 +14833,7 @@ function getMessageMeta(content) {
     meta.modelName = content.modelName;
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
+var REMOTE_EXTENSION_ITEMS_CACHE_TTL_MS = 5 * 60 * 1000;
 function generateSessionId() {
   const now = new Date;
   const ts2 = now.getFullYear().toString() + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0") + "_" + String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0") + String(now.getSeconds()).padStart(2, "0");
@@ -15088,6 +15094,9 @@ class ConsolePlatform extends PlatformAdapter {
   _pendingAudio = [];
   _pendingVideo = [];
   remoteExtensionRequestPaths = new Map;
+  remoteExtensionItemsCache = [];
+  remoteExtensionItemsCacheUpdatedAt = 0;
+  remoteExtensionItemsRefreshPromise;
   fileMentionCache = null;
   constructor(backend, options) {
     super();
@@ -15122,7 +15131,7 @@ class ConsolePlatform extends PlatformAdapter {
   }
   getLocalConsoleSettingsTabService() {
     const currentApi = this.api;
-    return currentApi?.services?.get?.(CONSOLE_SETTINGS_TAB_SERVICE_ID);
+    return currentApi?.services?.get?.(CONSOLE_SETTINGS_TAB_SERVICE_ID2);
   }
   hasRemotePluginSettingsTabSource() {
     return hasConsoleRemoteBridge(this.api) || this._isRemote;
@@ -15165,45 +15174,45 @@ class ConsolePlatform extends PlatformAdapter {
       progress: createConsoleProgressService(),
       registrations: []
     };
-    if (!services.has(CONSOLE_TOOL_DISPLAY_SERVICE_ID)) {
-      bundle.registrations.push(services.register(CONSOLE_TOOL_DISPLAY_SERVICE_ID, bundle.toolDisplay, {
+    if (!services.has(CONSOLE_TOOL_DISPLAY_SERVICE_ID2)) {
+      bundle.registrations.push(services.register(CONSOLE_TOOL_DISPLAY_SERVICE_ID2, bundle.toolDisplay, {
         description: "Console TUI 工具显示扩展服务",
         version: "1.0.0"
       }));
     } else {
-      bundle.toolDisplay = services.get(CONSOLE_TOOL_DISPLAY_SERVICE_ID);
+      bundle.toolDisplay = services.get(CONSOLE_TOOL_DISPLAY_SERVICE_ID2);
     }
-    if (!services.has(CONSOLE_SLASH_COMMAND_SERVICE_ID)) {
-      bundle.registrations.push(services.register(CONSOLE_SLASH_COMMAND_SERVICE_ID, bundle.slashCommand, {
+    if (!services.has(CONSOLE_SLASH_COMMAND_SERVICE_ID2)) {
+      bundle.registrations.push(services.register(CONSOLE_SLASH_COMMAND_SERVICE_ID2, bundle.slashCommand, {
         description: "Console TUI 斜杠指令扩展服务",
         version: "1.0.0"
       }));
     } else {
-      bundle.slashCommand = services.get(CONSOLE_SLASH_COMMAND_SERVICE_ID);
+      bundle.slashCommand = services.get(CONSOLE_SLASH_COMMAND_SERVICE_ID2);
     }
-    if (!services.has(CONSOLE_PATH_DISPLAY_SERVICE_ID)) {
-      bundle.registrations.push(services.register(CONSOLE_PATH_DISPLAY_SERVICE_ID, bundle.pathDisplay, {
+    if (!services.has(CONSOLE_PATH_DISPLAY_SERVICE_ID2)) {
+      bundle.registrations.push(services.register(CONSOLE_PATH_DISPLAY_SERVICE_ID2, bundle.pathDisplay, {
         description: "Console TUI 左下角路径显示扩展服务",
         version: "1.0.0"
       }));
     } else {
-      bundle.pathDisplay = services.get(CONSOLE_PATH_DISPLAY_SERVICE_ID);
+      bundle.pathDisplay = services.get(CONSOLE_PATH_DISPLAY_SERVICE_ID2);
     }
-    if (!services.has(CONSOLE_STATUS_SEGMENT_SERVICE_ID)) {
-      bundle.registrations.push(services.register(CONSOLE_STATUS_SEGMENT_SERVICE_ID, bundle.statusSegment, {
+    if (!services.has(CONSOLE_STATUS_SEGMENT_SERVICE_ID2)) {
+      bundle.registrations.push(services.register(CONSOLE_STATUS_SEGMENT_SERVICE_ID2, bundle.statusSegment, {
         description: "Console TUI 状态栏扩展片段服务",
         version: "1.0.0"
       }));
     } else {
-      bundle.statusSegment = services.get(CONSOLE_STATUS_SEGMENT_SERVICE_ID);
+      bundle.statusSegment = services.get(CONSOLE_STATUS_SEGMENT_SERVICE_ID2);
     }
-    if (!services.has(CONSOLE_PROGRESS_SERVICE_ID)) {
-      bundle.registrations.push(services.register(CONSOLE_PROGRESS_SERVICE_ID, bundle.progress, {
+    if (!services.has(CONSOLE_PROGRESS_SERVICE_ID2)) {
+      bundle.registrations.push(services.register(CONSOLE_PROGRESS_SERVICE_ID2, bundle.progress, {
         description: "Console TUI 通用进度面板服务",
         version: "1.0.0"
       }));
     } else {
-      bundle.progress = services.get(CONSOLE_PROGRESS_SERVICE_ID);
+      bundle.progress = services.get(CONSOLE_PROGRESS_SERVICE_ID2);
     }
     this.localConsoleServices.set(services, bundle);
     return bundle;
@@ -16500,50 +16509,81 @@ ${summaryText}`;
   hasRemoteInstallApi() {
     return typeof this.api?.extensions?.installRemote === "function";
   }
-  async loadRemoteExtensionItems(localNames) {
+  getCachedRemoteExtensionItems(localNames) {
     this.remoteExtensionRequestPaths.clear();
-    if (!this.hasRemoteInstallApi())
-      return [];
-    try {
-      const remoteIndex = await fetchRemoteIndex();
-      const remoteEntries = (await Promise.allSettled(remoteIndex.map(async (requestedPath) => {
-        const manifest = await fetchRemoteManifest(requestedPath);
-        return { requestedPath, manifest };
-      }))).filter((item) => item.status === "fulfilled").map((item) => item.value);
-      if (remoteIndex.length > 0 && remoteEntries.length === 0) {
-        throw new Error("远程 extension manifest 全部读取失败");
+    const seenRemoteNames = new Set;
+    const results = [];
+    for (const item of this.remoteExtensionItemsCache) {
+      const name = typeof item.name === "string" ? item.name.trim() : "";
+      if (!name || localNames.has(name) || seenRemoteNames.has(name))
+        continue;
+      seenRemoteNames.add(name);
+      if (typeof item.requestedPath === "string" && item.requestedPath) {
+        this.remoteExtensionRequestPaths.set(name, item.requestedPath);
       }
-      const seenRemoteNames = new Set;
-      const results = [];
-      for (const entry of remoteEntries) {
-        const name = typeof entry.manifest.name === "string" ? entry.manifest.name.trim() : "";
-        const version = typeof entry.manifest.version === "string" ? entry.manifest.version.trim() : "";
-        if (!name || !version)
-          continue;
-        if (localNames.has(name) || seenRemoteNames.has(name))
-          continue;
-        seenRemoteNames.add(name);
-        this.remoteExtensionRequestPaths.set(name, entry.requestedPath);
-        const hasPlatforms = Array.isArray(entry.manifest.platforms) && entry.manifest.platforms.length > 0;
-        const hasPlugin = !!entry.manifest.plugin || !!entry.manifest.entry || !hasPlatforms;
-        results.push({
-          name,
-          version,
-          description: typeof entry.manifest.description === "string" ? entry.manifest.description : "",
-          status: "available",
-          originalStatus: "available",
-          hasPlugin,
-          source: "remote",
-          requestedPath: entry.requestedPath
-        });
-      }
-      return results;
-    } catch (err) {
-      console.warn("[ConsolePlatform] 远程 extension 列表读取失败:", err);
-      return [];
+      results.push(item);
     }
+    return results;
   }
-  async handleListExtensions() {
+  async fetchRemoteExtensionItems() {
+    const remoteIndex = await fetchRemoteIndex();
+    const remoteEntries = (await Promise.allSettled(remoteIndex.map(async (requestedPath) => {
+      const manifest = await fetchRemoteManifest(requestedPath);
+      return { requestedPath, manifest };
+    }))).filter((item) => item.status === "fulfilled").map((item) => item.value);
+    if (remoteIndex.length > 0 && remoteEntries.length === 0) {
+      throw new Error("远程 extension manifest 全部读取失败");
+    }
+    const seenRemoteNames = new Set;
+    const results = [];
+    for (const entry of remoteEntries) {
+      const name = typeof entry.manifest.name === "string" ? entry.manifest.name.trim() : "";
+      const version = typeof entry.manifest.version === "string" ? entry.manifest.version.trim() : "";
+      if (!name || !version || seenRemoteNames.has(name))
+        continue;
+      seenRemoteNames.add(name);
+      const hasPlatforms = Array.isArray(entry.manifest.platforms) && entry.manifest.platforms.length > 0;
+      const hasPlugin = !!entry.manifest.plugin || !!entry.manifest.entry || !hasPlatforms;
+      results.push({
+        name,
+        version,
+        description: typeof entry.manifest.description === "string" ? entry.manifest.description : "",
+        status: "available",
+        originalStatus: "available",
+        hasPlugin,
+        source: "remote",
+        requestedPath: entry.requestedPath
+      });
+    }
+    return results;
+  }
+  startRemoteExtensionItemsRefresh() {
+    if (!this.hasRemoteInstallApi())
+      return;
+    const now = Date.now();
+    const hasFreshCache = this.remoteExtensionItemsCache.length > 0 && now - this.remoteExtensionItemsCacheUpdatedAt < REMOTE_EXTENSION_ITEMS_CACHE_TTL_MS;
+    if (hasFreshCache || this.remoteExtensionItemsRefreshPromise)
+      return;
+    this.remoteExtensionItemsRefreshPromise = this.fetchRemoteExtensionItems().then(async (items) => {
+      this.remoteExtensionItemsCache = items;
+      this.remoteExtensionItemsCacheUpdatedAt = Date.now();
+      if (this.appHandle) {
+        const nextList = await this.handleListExtensions({ skipRemoteRefresh: true });
+        this.appHandle.setExtensionList(nextList);
+      }
+    }).catch((err) => {
+      console.warn("[ConsolePlatform] 远程 extension 列表后台刷新失败:", err);
+    }).finally(() => {
+      this.remoteExtensionItemsRefreshPromise = undefined;
+    });
+  }
+  loadRemoteExtensionItems(localNames, options = {}) {
+    if (!options.skipRemoteRefresh) {
+      this.startRemoteExtensionItemsRefresh();
+    }
+    return this.getCachedRemoteExtensionItems(localNames);
+  }
+  async handleListExtensions(options = {}) {
     const ext = this.api?.extensions;
     const configManager = this.api?.configManager;
     if (!ext?.discover || !configManager) {
@@ -16596,7 +16636,7 @@ ${summaryText}`;
           gitSubdir: gitMetadata?.subdir
         };
       });
-      const remoteItems = await this.loadRemoteExtensionItems(new Set(localItems.map((item) => item.name)));
+      const remoteItems = this.loadRemoteExtensionItems(new Set(localItems.map((item) => item.name)), options);
       return [...localItems, ...remoteItems].sort((a, b) => {
         const groupA = a.hasPlugin ? 0 : 1;
         const groupB = b.hasPlugin ? 0 : 1;

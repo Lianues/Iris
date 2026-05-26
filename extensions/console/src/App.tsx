@@ -337,6 +337,10 @@ export function App({
 
   // openFileBrowserRef: 供 AppHandle.openFileBrowser() 调用
   const openFileBrowserRef = useRef<((path: string, entries: import('./components/FileBrowserView').FileBrowserEntry[]) => void) | null>(null);
+  // setExtensionListRef: 供 AppHandle 在远程扩展目录后台刷新后更新 /extension 列表
+  const setExtensionListRef = useRef<((items: ExtensionItem[]) => void) | null>(null);
+  setExtensionListRef.current = setExtensionList;
+
   openFileBrowserRef.current = (path, entries) => {
     setFileBrowserPath(path);
     setFileBrowserEntries(entries);
@@ -359,7 +363,7 @@ export function App({
     },
   };
 
-  const appState = useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef });
+  const appState = useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, setExtensionListRef });
   const approval = useApproval(appState.pendingApprovals, appState.pendingApplies);
   const exitConfirm = useExitConfirm();
   const modelState = useModelState({ modelId, modelName, contextWindow, modelProvider, thinkingControlEnabled });

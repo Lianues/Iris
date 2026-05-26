@@ -299,6 +299,9 @@ function getMessageMeta(content: Content): MessageMeta | undefined {
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
+// /extension 入口必须优先展示本地列表；远程 catalog 走后台刷新并缓存，避免 GitHub raw 网络抖动阻塞 TUI。
+const REMOTE_EXTENSION_ITEMS_CACHE_TTL_MS = 5 * 60 * 1000;
+
 /** 生成基于时间戳的会话 ID */
 function generateSessionId(): string {
   const now = new Date();
@@ -675,6 +678,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private _pendingVideo: import('irises-extension-sdk').VideoInput[] = [];
   /** Console /extension 列表中远程可安装项的 name → requestedPath 映射。 */
   private remoteExtensionRequestPaths = new Map<string, string>();
+  /** 远程可安装扩展缓存。进入 /extension 时不等待网络，缓存刷新完成后再更新列表。 */
+  private remoteExtensionItemsCache: any[] = [];
+  /** 远程可安装扩展缓存刷新时间。 */
+  private remoteExtensionItemsCacheUpdatedAt = 0;
+  /** 远程可安装扩展刷新中的 Promise，避免重复请求 GitHub raw。 */
+  private remoteExtensionItemsRefreshPromise?: Promise<void>;
   /** 本地 @ 文件补全枚举缓存，避免每次按键都扫描 cwd。 */
   private fileMentionCache: { cwd: string; files: string[] } | null = null;
   constructor(backend: IrisBackendLike, options: ConsolePlatformOptions) {
@@ -2364,57 +2373,93 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     return typeof (this.api as any)?.extensions?.installRemote === 'function';
   }
 
-  private async loadRemoteExtensionItems(localNames: Set<string>): Promise<any[]> {
+  private getCachedRemoteExtensionItems(localNames: Set<string>): any[] {
     this.remoteExtensionRequestPaths.clear();
-
-    if (!this.hasRemoteInstallApi()) return [];
-
-    try {
-      const remoteIndex = await fetchRemoteIndex();
-      const remoteEntries = (await Promise.allSettled(
-        remoteIndex.map(async (requestedPath) => {
-          const manifest = await fetchRemoteManifest(requestedPath);
-          return { requestedPath, manifest };
-        }),
-      ))
-        .filter((item): item is PromiseFulfilledResult<{ requestedPath: string; manifest: Record<string, any> }> => item.status === 'fulfilled')
-        .map((item) => item.value);
-
-      if (remoteIndex.length > 0 && remoteEntries.length === 0) {
-        throw new Error('远程 extension manifest 全部读取失败');
+    const seenRemoteNames = new Set<string>();
+    const results: any[] = [];
+    for (const item of this.remoteExtensionItemsCache) {
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      if (!name || localNames.has(name) || seenRemoteNames.has(name)) continue;
+      seenRemoteNames.add(name);
+      if (typeof item.requestedPath === 'string' && item.requestedPath) {
+        this.remoteExtensionRequestPaths.set(name, item.requestedPath);
       }
-
-      const seenRemoteNames = new Set<string>();
-      const results: any[] = [];
-      for (const entry of remoteEntries) {
-        const name = typeof entry.manifest.name === 'string' ? entry.manifest.name.trim() : '';
-        const version = typeof entry.manifest.version === 'string' ? entry.manifest.version.trim() : '';
-        if (!name || !version) continue;
-        if (localNames.has(name) || seenRemoteNames.has(name)) continue;
-        seenRemoteNames.add(name);
-        this.remoteExtensionRequestPaths.set(name, entry.requestedPath);
-
-        const hasPlatforms = Array.isArray(entry.manifest.platforms) && entry.manifest.platforms.length > 0;
-        const hasPlugin = !!entry.manifest.plugin || !!entry.manifest.entry || !hasPlatforms;
-        results.push({
-          name,
-          version,
-          description: typeof entry.manifest.description === 'string' ? entry.manifest.description : '',
-          status: 'available',
-          originalStatus: 'available',
-          hasPlugin,
-          source: 'remote',
-          requestedPath: entry.requestedPath,
-        });
-      }
-      return results;
-    } catch (err) {
-      console.warn('[ConsolePlatform] 远程 extension 列表读取失败:', err);
-      return [];
+      results.push(item);
     }
+    return results;
   }
 
-  private async handleListExtensions(): Promise<any[]> {
+  private async fetchRemoteExtensionItems(): Promise<any[]> {
+    const remoteIndex = await fetchRemoteIndex();
+    const remoteEntries = (await Promise.allSettled(
+      remoteIndex.map(async (requestedPath) => {
+        const manifest = await fetchRemoteManifest(requestedPath);
+        return { requestedPath, manifest };
+      }),
+    ))
+      .filter((item): item is PromiseFulfilledResult<{ requestedPath: string; manifest: Record<string, any> }> => item.status === 'fulfilled')
+      .map((item) => item.value);
+
+    if (remoteIndex.length > 0 && remoteEntries.length === 0) {
+      throw new Error('远程 extension manifest 全部读取失败');
+    }
+
+    const seenRemoteNames = new Set<string>();
+    const results: any[] = [];
+    for (const entry of remoteEntries) {
+      const name = typeof entry.manifest.name === 'string' ? entry.manifest.name.trim() : '';
+      const version = typeof entry.manifest.version === 'string' ? entry.manifest.version.trim() : '';
+      if (!name || !version || seenRemoteNames.has(name)) continue;
+      seenRemoteNames.add(name);
+
+      const hasPlatforms = Array.isArray(entry.manifest.platforms) && entry.manifest.platforms.length > 0;
+      const hasPlugin = !!entry.manifest.plugin || !!entry.manifest.entry || !hasPlatforms;
+      results.push({
+        name,
+        version,
+        description: typeof entry.manifest.description === 'string' ? entry.manifest.description : '',
+        status: 'available',
+        originalStatus: 'available',
+        hasPlugin,
+        source: 'remote',
+        requestedPath: entry.requestedPath,
+      });
+    }
+    return results;
+  }
+
+  private startRemoteExtensionItemsRefresh(): void {
+    if (!this.hasRemoteInstallApi()) return;
+    const now = Date.now();
+    const hasFreshCache = this.remoteExtensionItemsCache.length > 0
+      && now - this.remoteExtensionItemsCacheUpdatedAt < REMOTE_EXTENSION_ITEMS_CACHE_TTL_MS;
+    if (hasFreshCache || this.remoteExtensionItemsRefreshPromise) return;
+
+    this.remoteExtensionItemsRefreshPromise = this.fetchRemoteExtensionItems()
+      .then(async (items) => {
+        this.remoteExtensionItemsCache = items;
+        this.remoteExtensionItemsCacheUpdatedAt = Date.now();
+        if (this.appHandle) {
+          const nextList = await this.handleListExtensions({ skipRemoteRefresh: true });
+          this.appHandle.setExtensionList(nextList);
+        }
+      })
+      .catch((err) => {
+        console.warn('[ConsolePlatform] 远程 extension 列表后台刷新失败:', err);
+      })
+      .finally(() => {
+        this.remoteExtensionItemsRefreshPromise = undefined;
+      });
+  }
+
+  private loadRemoteExtensionItems(localNames: Set<string>, options: { skipRemoteRefresh?: boolean } = {}): any[] {
+    if (!options.skipRemoteRefresh) {
+      this.startRemoteExtensionItemsRefresh();
+    }
+    return this.getCachedRemoteExtensionItems(localNames);
+  }
+
+  private async handleListExtensions(options: { skipRemoteRefresh?: boolean } = {}): Promise<any[]> {
     const ext = (this.api as any)?.extensions;
     const configManager = this.api?.configManager;
     if (!ext?.discover || !configManager) {
@@ -2476,7 +2521,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         };
       });
 
-      const remoteItems = await this.loadRemoteExtensionItems(new Set(localItems.map(item => item.name)));
+      const remoteItems = this.loadRemoteExtensionItems(new Set(localItems.map(item => item.name)), options);
       return [...localItems, ...remoteItems].sort((a, b) => {
         const groupA = a.hasPlugin ? 0 : 1;
         const groupB = b.hasPlugin ? 0 : 1;

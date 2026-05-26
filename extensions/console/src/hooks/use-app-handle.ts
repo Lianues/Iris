@@ -3,6 +3,7 @@ import type { ToolInvocation, UsageMetadata } from 'irises-extension-sdk';
 import type { ChatMessage, MessagePart, NotificationPayload } from '../components/MessageItem';
 import type { ProgressSnapshotLike } from '../progress-types';
 import type { RetryInfo } from '../components/GeneratingTimer';
+import type { ExtensionItem } from '../components/ExtensionListView';
 import type { MessageMeta, ToolDetailData, ToolDetailBreadcrumb } from '../app-types';
 import {
   appendAssistantParts,
@@ -86,6 +87,8 @@ export interface AppHandle {
   closeToolDetail(): void;
   /** 打开工具列表视图 */
   openToolList(tools: ToolInvocation[]): void;
+  /** 更新扩展管理列表（例如远程扩展目录后台刷新完成后）。 */
+  setExtensionList(items: ExtensionItem[]): void;
 }
 
 interface UseAppHandleOptions {
@@ -103,6 +106,8 @@ interface UseAppHandleOptions {
     goUp: (dirPath: string, showHidden: boolean) => void;
     toggleHidden: (dirPath: string, showHidden: boolean) => void;
   } | null>;
+  /** 扩展列表更新回调（由 App 注入） */
+  setExtensionListRef: MutableRefObject<((items: ExtensionItem[]) => void) | null>;
 }
 
 export interface UseAppHandleReturn {
@@ -137,7 +142,7 @@ export interface UseAppHandleReturn {
   toolListItems: ToolInvocation[];
 }
 
-export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef }: UseAppHandleOptions): UseAppHandleReturn {
+export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, setExtensionListRef }: UseAppHandleOptions): UseAppHandleReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingParts, setStreamingParts] = useState<MessagePart[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -622,10 +627,13 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
       openToolList(tools: ToolInvocation[]) {
         setToolListItems(tools);
       },
+      setExtensionList(items: ExtensionItem[]) {
+        setExtensionListRef.current?.(items);
+      },
     };
 
     onReady(handle);
-  }, [commitTools, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, onReady, undoRedoRef]);
+  }, [commitTools, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, setExtensionListRef, onReady, undoRedoRef]);
 
   return {
     messages,

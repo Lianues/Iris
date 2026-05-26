@@ -116,6 +116,8 @@ describe('console /extension keyboard regressions', () => {
     expect(platformSource).toContain('handleConsoleToggleExtension');
     expect(toggleSource).toContain('updateWorkspaceExtensionDiscoveryConfig');
     expect(toggleSource).toContain('ext.setWorkspaceDiscovery?.(workspaceUpdate.workspace)');
+    expect(platformSource).toContain('startRemoteExtensionItemsRefresh');
+    expect(platformSource).not.toContain('await this.loadRemoteExtensionItems');
     expect(keyboardSource).toContain("onToggleExtension(item.name, item.status === 'active')");
   });
 
