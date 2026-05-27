@@ -67,6 +67,7 @@ import {
   type ConsoleProgressService,
   type ConsoleProgressUiStateLike,
 } from './progress-service';
+import { CONSOLE_INPUT_SERVICE_ID, createConsoleInputService, type ConsoleInputServiceBinding } from './input-service';
 import { createRemoteConsoleServicesBundle, type RemoteConsoleServicesBundle } from './remote-console-service-proxies';
 import {
   attachConsoleRemoteBridge,
@@ -148,6 +149,7 @@ interface ConsoleLocalServicesBundle {
   pathDisplay: ConsolePathDisplayService;
   statusSegment: ConsoleStatusSegmentService;
   progress: ConsoleProgressService;
+  input: ConsoleInputServiceBinding;
   registrations: Disposable[];
 }
 
@@ -663,6 +665,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private remoteConsoleServices = new WeakMap<object, RemoteConsoleServicesBundle>();
   /** Backend 事件监听清理函数；start/stop 之间有效，避免切换 Agent 后重复监听 */
   private backendListenerDisposers: Array<() => void> = [];
+  /** 已尝试在 IDE 中打开 diff 的工具调用，避免 App 重渲染重复弹窗 */
+  private ideDiffOpenedToolIds = new Set<string>();
   /** 当前是否正在生成响应（用于阻止 addErrorMessage 破坏流式占位消息） */
   private _isGenerating = false;
   private foregroundTurnActive = false;
@@ -775,6 +779,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       pathDisplay: createConsolePathDisplayService(),
       statusSegment: createConsoleStatusSegmentService(),
       progress: createConsoleProgressService(),
+      input: createConsoleInputService(),
       registrations: [],
     };
 
@@ -818,6 +823,14 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     } else {
       bundle.progress = services.get(CONSOLE_PROGRESS_SERVICE_ID) as ConsoleProgressService;
     }
+    if (!services.has(CONSOLE_INPUT_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_INPUT_SERVICE_ID, bundle.input, {
+        description: 'Console TUI 输入框桥接服务',
+        version: '1.0.0',
+      }));
+    } else {
+      bundle.input = services.get(CONSOLE_INPUT_SERVICE_ID) as ConsoleInputServiceBinding;
+    }
 
     this.localConsoleServices.set(services, bundle);
     return bundle;
@@ -825,6 +838,28 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private getLocalProgressService(): ConsoleProgressService | undefined {
     return this.getConsoleServicesBundle()?.progress;
+  }
+
+  private async maybeOpenToolDiffInIde(toolId: string, preview: ToolDiffPreviewResponseLike): Promise<void> {
+    if (this.ideDiffOpenedToolIds.has(toolId)) return;
+    const services = (this.api as any)?.services as ServiceRegistryLike | undefined;
+    if (!services?.has?.('ide.manager')) return;
+
+    const ideManager = services.get('ide.manager') as {
+      status?: () => { state?: string };
+      openDiffPreview?: (preview: ToolDiffPreviewResponseLike, index?: number) => Promise<boolean> | boolean;
+    } | undefined;
+    if (!ideManager || typeof ideManager.openDiffPreview !== 'function') return;
+    if (ideManager.status?.().state !== 'connected') return;
+
+    this.ideDiffOpenedToolIds.add(toolId);
+    try {
+      const opened = await ideManager.openDiffPreview(preview, 0);
+      if (!opened) this.ideDiffOpenedToolIds.delete(toolId);
+    } catch (error) {
+      this.ideDiffOpenedToolIds.delete(toolId);
+      console.warn('[ConsolePlatform] IDE diff 打开失败:', error);
+    }
   }
 
   private bindProgressService(): void {
@@ -1339,7 +1374,9 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
           if (typeof getPreview !== 'function') {
             throw new Error('当前 Backend 不支持 diff 预览');
           }
-          return await getPreview.call(this.backend, toolId);
+          const preview = await getPreview.call(this.backend, toolId);
+          void this.maybeOpenToolDiffInIde(toolId, preview);
+          return preview;
         },
         onAddCommandPattern: (toolName: string, command: string, type: 'allow' | 'deny') => {
           this.addCommandPattern(toolName, command, type);
@@ -1405,6 +1442,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         pathDisplayService: consoleServices?.pathDisplay,
         statusSegmentService: consoleServices?.statusSegment,
         toolDisplayService: consoleServices?.toolDisplay,
+        inputService: consoleServices && 'input' in consoleServices ? consoleServices.input : undefined,
         remoteHost: this._remoteHost || undefined,
         onThinkingEffortChange: (level: import('./app-types').ThinkingEffortLevel) => this.applyThinkingEffort(level),
         agentName: this.agentName,

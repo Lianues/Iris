@@ -13,6 +13,7 @@ export const CONSOLE_PATH_DISPLAY_SERVICE_ID = 'console:path-display';
 export const CONSOLE_STATUS_SEGMENT_SERVICE_ID = 'console:status-segment';
 export const CONSOLE_TOOL_DISPLAY_SERVICE_ID = 'console:tool-display';
 export const CONSOLE_PROGRESS_SERVICE_ID = 'console:progress';
+export const CONSOLE_INPUT_SERVICE_ID = 'console:input';
 
 // --------------------------- Settings tabs ---------------------------
 
@@ -94,6 +95,16 @@ export interface ConsoleSlashCommandService {
   list(): ConsoleSlashCommandListItem[];
   canHandle(raw: string): boolean;
   dispatch(raw: string, context?: ConsoleSlashCommandDispatchContext): Promise<ConsoleSlashCommandResult | undefined>;
+  onDidChange(listener: () => void): Disposable;
+}
+
+// --------------------------- Input bridge ---------------------------
+
+export interface ConsoleInputService {
+  insertText(text: string): boolean;
+  setText(text: string): boolean;
+  clear(): boolean;
+  hasValue(): boolean;
   onDidChange(listener: () => void): Disposable;
 }
 

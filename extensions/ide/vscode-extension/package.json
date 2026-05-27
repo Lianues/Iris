@@ -1,0 +1,47 @@
+{
+  "name": "ide",
+  "displayName": "Iris IDE Integration",
+  "description": "Connects VS Code to Iris for active-file and selection context.",
+  "version": "0.1.0",
+  "publisher": "iris",
+  "license": "GPL-3.0-only",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:irisIde.restartServer",
+    "onCommand:irisIde.showStatus",
+    "onCommand:irisIde.insertAtMention"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "irisIde.showStatus",
+        "title": "Iris IDE: Show Status"
+      },
+      {
+        "command": "irisIde.restartServer",
+        "title": "Iris IDE: Restart Local Server"
+      },
+      {
+        "command": "irisIde.insertAtMention",
+        "title": "Iris IDE: Insert @ Mention into Iris"
+      }
+    ],
+    "configuration": {
+      "title": "Iris IDE Integration",
+      "properties": {
+        "irisIde.dataDir": {
+          "type": "string",
+          "default": "",
+          "description": "Override Iris data directory. Defaults to IRIS_DATA_DIR or ~/.iris."
+        }
+      }
+    }
+  }
+}

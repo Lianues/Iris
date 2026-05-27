@@ -45,6 +45,7 @@ export interface RawEditableConfig {
   system?: Record<string, unknown>;
   tools?: Record<string, unknown>;
   mcp?: Record<string, unknown>;
+  ide?: Record<string, unknown>;
   platform?: Record<string, unknown>;
   storage?: Record<string, unknown>;
     /** @deprecated OCR 配置已迁移至 multimodal 扩展 */

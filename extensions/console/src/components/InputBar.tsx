@@ -33,6 +33,7 @@ export interface PendingFile {
 export interface PromptInputController {
   hasValue(): boolean;
   setValue(text: string): void;
+  insertText(text: string): void;
   clear(): void;
 }
 
@@ -189,6 +190,10 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
       setValue: (text: string) => {
         inputActions.setValue(text);
         setSelectedIndex(0);
+        setCommandsDismissed(false);
+      },
+      insertText: (text: string) => {
+        inputActions.insert(text);
         setCommandsDismissed(false);
       },
       clear: () => {

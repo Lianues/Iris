@@ -1,0 +1,17 @@
+{
+  "name": "ide",
+  "version": "0.1.0",
+  "description": "IDE integration for Iris — detect IDE extension sessions, sync active file/selection context, and expose /ide status commands",
+  "plugin": {
+    "entry": "dist/index.mjs"
+  },
+  "distribution": {
+    "files": [
+      "dist/index.mjs",
+      "package.json",
+      "vscode-extension/extension.js",
+      "vscode-extension/package.json",
+      "vscode-extension/README.md"
+    ]
+  }
+}

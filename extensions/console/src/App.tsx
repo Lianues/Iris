@@ -182,6 +182,7 @@ export function App({
   pathDisplayService,
   statusSegmentService,
   toolDisplayService,
+  inputService,
   remoteHost,
   modelProvider,
   thinkingControlEnabled,
@@ -325,6 +326,12 @@ export function App({
   const renderer = useRenderer();
   const undoRedoRef = useRef<UndoRedoStack>(createUndoRedoStack());
   const promptInputControllerRef = useRef<PromptInputController | null>(null);
+
+  useEffect(() => {
+    if (!inputService) return;
+    const disposable = inputService.bindControllerGetter(() => promptInputControllerRef.current);
+    return () => disposable.dispose();
+  }, [inputService]);
 
   // ── 聊天滚动区域 ref（供 F6 复制模式键盘滚动使用）──
   const chatScrollBoxRef = useRef<any>(null);

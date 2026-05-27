@@ -46,3 +46,9 @@ export {
   type ConsoleProgressService,
   type ConsoleProgressUiStateLike,
 } from './progress-service.js';
+
+export {
+  CONSOLE_INPUT_SERVICE_ID,
+  type ConsoleInputController,
+  type ConsoleInputService,
+} from './input-service.js';

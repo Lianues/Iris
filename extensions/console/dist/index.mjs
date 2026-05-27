@@ -3557,6 +3557,10 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         setSelectedIndex(0);
         setCommandsDismissed(false);
       },
+      insertText: (text) => {
+        inputActions.insert(text);
+        setCommandsDismissed(false);
+      },
       clear: () => {
         inputActions.setValue("");
         setSelectedIndex(0);
@@ -8412,6 +8416,7 @@ function SessionListView({ sessions, selectedIndex, pendingDeleteId, statusMessa
 }
 
 // src/components/RewindSelectorView.tsx
+import { useTerminalDimensions as useTerminalDimensions8 } from "@opentui/react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV40 } from "@opentui/react/jsx-dev-runtime";
 function clamp2(value, min, max) {
@@ -8427,11 +8432,26 @@ function formatTime3(createdAt) {
     return hhmm;
   return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${hhmm}`;
 }
-function truncate5(text, maxLen) {
-  const normalized = (text || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLen)
+function normalizeSingleLine(text) {
+  return (text || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function fitText(text, maxWidth) {
+  const targetWidth = Math.max(1, maxWidth);
+  const normalized = normalizeSingleLine(text);
+  if (getTextWidth(normalized) <= targetWidth)
     return normalized;
-  return `${normalized.slice(0, Math.max(0, maxLen - 1))}${ICONS.ellipsis}`;
+  const ellipsis = ICONS.ellipsis;
+  const ellipsisWidth = getTextWidth(ellipsis);
+  let used = 0;
+  let out = "";
+  for (const grapheme of splitGraphemes(normalized)) {
+    const width = getTextWidth(grapheme);
+    if (used + width + ellipsisWidth > targetWidth)
+      break;
+    out += grapheme;
+    used += width;
+  }
+  return `${out}${ellipsis}`;
 }
 var MAX_VISIBLE = 9;
 var MODE_LABELS = {
@@ -8439,6 +8459,7 @@ var MODE_LABELS = {
   code: "仅代码",
   both: "对话 + 代码"
 };
+var MODE_ORDER = ["conversation", "code", "both"];
 function formatStats2(checkpoint) {
   const stats = checkpoint.codeChangeSummary;
   if (!checkpoint.canRestoreCode || !stats)
@@ -8448,12 +8469,50 @@ function formatStats2(checkpoint) {
     return "代码无变化";
   return `${fileCount} 个文件 · +${stats.insertions} -${stats.deletions}`;
 }
-function RewindSelectorView({ checkpoints, selectedIndex, confirmCheckpointId, statusMessage, statusIsError, isRestoring, selectedMode = "conversation" }) {
+function formatModeOption(mode, selectedMode, canRestoreCode) {
+  const marker = mode === selectedMode ? `${ICONS.selectorArrow} ` : "  ";
+  const unavailable = mode !== "conversation" && !canRestoreCode ? "(不可用)" : "";
+  return `${marker}${MODE_LABELS[mode]}${unavailable}`;
+}
+function formatModeRow(mode, selectedMode, canRestoreCode) {
+  return formatModeOption(mode, selectedMode, canRestoreCode);
+}
+function formatConversationAction(selected, selectedMode) {
+  return selectedMode === "code" ? "仅恢复代码文件；对话历史保持不变。" : `将移除 ${selected.messageCountAfter} 条历史，并把该用户输入恢复到底部输入框。`;
+}
+function formatCodeScopeNotice(selected, selectedMode) {
+  if (!selected.canRestoreCode)
+    return "该回溯点没有代码快照；只能恢复对话。";
+  if (selectedMode === "conversation")
+    return "可切换到仅代码或对话 + 代码，以恢复 Iris 编辑类工具产生的文件变更。";
+  return "仅覆盖 Iris 编辑类工具；不覆盖 shell/bash、外部编辑器或手动改动。";
+}
+function formatBranchNotice(selectedMode) {
+  if (selectedMode === "code")
+    return "仅代码模式不会修改对话历史，也不会影响 redo 栈。";
+  return "这会创建新的对话分支；后续发送新消息后，原来的 redo 将失效。";
+}
+function RewindSelectorView({
+  checkpoints,
+  selectedIndex,
+  confirmCheckpointId,
+  statusMessage,
+  statusIsError,
+  isRestoring,
+  selectedMode = "conversation"
+}) {
+  const { width: terminalWidth } = useTerminalDimensions8();
+  const screenWidth = Math.max(40, terminalWidth || 80);
+  const headerWidth = Math.max(20, screenWidth - 4);
+  const rowWidth = Math.max(20, screenWidth - 4);
+  const confirmWidth = Math.max(20, screenWidth - 8);
   const safeSelectedIndex = checkpoints.length > 0 ? clamp2(selectedIndex, 0, checkpoints.length - 1) : 0;
   const startIndex = checkpoints.length <= MAX_VISIBLE ? 0 : clamp2(safeSelectedIndex - Math.floor(MAX_VISIBLE / 2), 0, checkpoints.length - MAX_VISIBLE);
   const visible = checkpoints.slice(startIndex, startIndex + MAX_VISIBLE);
   const selected = checkpoints[safeSelectedIndex];
   const isConfirming = !!selected && confirmCheckpointId === selected.id;
+  const canRestoreSelectedCode = selected?.canRestoreCode === true;
+  const hintText = isRestoring ? "正在回溯，请稍候..." : isConfirming ? canRestoreSelectedCode ? "↑/↓ 或 ←/→ 切换恢复模式 · Enter 确认 · Esc 返回列表" : "无代码快照，只能仅对话 · Enter 确认 · Esc 返回列表" : `${ICONS.arrowUp}${ICONS.arrowDown} 选择 · Enter 继续 · Esc 返回`;
   return /* @__PURE__ */ jsxDEV40("box", {
     flexDirection: "column",
     width: "100%",
@@ -8464,29 +8523,23 @@ function RewindSelectorView({ checkpoints, selectedIndex, confirmCheckpointId, s
         flexDirection: "column",
         children: [
           /* @__PURE__ */ jsxDEV40("box", {
-            children: [
-              /* @__PURE__ */ jsxDEV40("text", {
-                fg: C.primary,
-                children: "Rewind 回溯"
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV40("text", {
-                fg: C.dim,
-                children: `  (${checkpoints.length} 个可回溯点)`
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this),
+            children: /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.primary,
+              children: fitText(`Rewind 回溯  (${checkpoints.length} 个可回溯点)`, headerWidth)
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV40("box", {
             paddingTop: 0,
             children: /* @__PURE__ */ jsxDEV40("text", {
               fg: C.dim,
-              children: isRestoring ? "正在回溯，请稍候..." : isConfirming ? "Enter 确认回到该消息发送前 · Esc 返回列表" : `${ICONS.arrowUp}${ICONS.arrowDown} 选择 · Enter 继续 · Esc 返回`
+              children: fitText(hintText, headerWidth)
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
           statusMessage ? /* @__PURE__ */ jsxDEV40("box", {
             paddingTop: 0,
             children: /* @__PURE__ */ jsxDEV40("text", {
               fg: statusIsError ? C.error : C.dim,
-              children: statusMessage
+              children: fitText(statusMessage, headerWidth)
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this) : null
         ]
@@ -8497,21 +8550,23 @@ function RewindSelectorView({ checkpoints, selectedIndex, confirmCheckpointId, s
           checkpoints.length === 0 ? /* @__PURE__ */ jsxDEV40("text", {
             fg: C.dim,
             paddingLeft: 2,
-            children: "暂无可回溯的用户消息。"
+            children: fitText("暂无可回溯的用户消息。", rowWidth)
           }, undefined, false, undefined, this) : null,
           startIndex > 0 ? /* @__PURE__ */ jsxDEV40("text", {
             fg: C.dim,
             paddingLeft: 2,
-            children: `${ICONS.arrowUp} 上方还有 ${startIndex} 条`
+            children: fitText(`${ICONS.arrowUp} 上方还有 ${startIndex} 条`, rowWidth)
           }, undefined, false, undefined, this) : null,
           visible.map((checkpoint, localIndex) => {
             const index = startIndex + localIndex;
             const isSelected = index === safeSelectedIndex;
             const marker = isSelected ? `${ICONS.selectorArrow} ` : "  ";
+            const markerWidth = getTextWidth(marker);
+            const titleWidth = Math.max(8, rowWidth - markerWidth);
             const time = formatTime3(checkpoint.createdAt);
             const suffix = [
               time,
-              `将移除 ${checkpoint.messageCountAfter} 条`,
+              `对话回溯将移除 ${checkpoint.messageCountAfter} 条`,
               checkpoint.hasAttachments ? "含附件" : undefined,
               formatStats2(checkpoint)
             ].filter(Boolean).join(" · ");
@@ -8519,38 +8574,31 @@ function RewindSelectorView({ checkpoints, selectedIndex, confirmCheckpointId, s
               paddingLeft: 1,
               flexDirection: "column",
               children: [
-                /* @__PURE__ */ jsxDEV40("text", {
+                /* @__PURE__ */ jsxDEV40("box", {
+                  flexDirection: "row",
+                  border: false,
                   children: [
-                    /* @__PURE__ */ jsxDEV40("span", {
+                    /* @__PURE__ */ jsxDEV40("text", {
                       fg: isSelected ? C.accent : C.dim,
                       children: marker
                     }, undefined, false, undefined, this),
-                    /* @__PURE__ */ jsxDEV40("span", {
-                      fg: C.dim,
-                      children: `${index + 1}. `
-                    }, undefined, false, undefined, this),
-                    isSelected ? /* @__PURE__ */ jsxDEV40("strong", {
-                      children: /* @__PURE__ */ jsxDEV40("span", {
-                        fg: C.text,
-                        children: truncate5(checkpoint.preview, 96)
+                    /* @__PURE__ */ jsxDEV40("box", {
+                      flexGrow: 1,
+                      flexShrink: 1,
+                      children: /* @__PURE__ */ jsxDEV40("text", {
+                        fg: isSelected ? C.text : C.textSec,
+                        children: fitText(`${index + 1}. ${checkpoint.preview}`, titleWidth)
                       }, undefined, false, undefined, this)
-                    }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV40("span", {
-                      fg: C.textSec,
-                      children: truncate5(checkpoint.preview, 96)
                     }, undefined, false, undefined, this)
                   ]
                 }, undefined, true, undefined, this),
                 /* @__PURE__ */ jsxDEV40("text", {
-                  children: /* @__PURE__ */ jsxDEV40("span", {
-                    fg: C.dim,
-                    children: `     ${suffix}`
-                  }, undefined, false, undefined, this)
+                  fg: C.dim,
+                  children: fitText(`     ${suffix}`, rowWidth)
                 }, undefined, false, undefined, this),
                 isSelected && checkpoint.assistantText ? /* @__PURE__ */ jsxDEV40("text", {
-                  children: /* @__PURE__ */ jsxDEV40("span", {
-                    fg: C.dim,
-                    children: `     回复：${truncate5(checkpoint.assistantText, 88)}`
-                  }, undefined, false, undefined, this)
+                  fg: C.dim,
+                  children: fitText(`     回复：${checkpoint.assistantText}`, rowWidth)
                 }, undefined, false, undefined, this) : null
               ]
             }, checkpoint.id, true, undefined, this);
@@ -8558,7 +8606,7 @@ function RewindSelectorView({ checkpoints, selectedIndex, confirmCheckpointId, s
           startIndex + visible.length < checkpoints.length ? /* @__PURE__ */ jsxDEV40("text", {
             fg: C.dim,
             paddingLeft: 2,
-            children: `${ICONS.arrowDown} 下方还有 ${checkpoints.length - startIndex - visible.length} 条`
+            children: fitText(`${ICONS.arrowDown} 下方还有 ${checkpoints.length - startIndex - visible.length} 条`, rowWidth)
           }, undefined, false, undefined, this) : null
         ]
       }, undefined, true, undefined, this),
@@ -8570,31 +8618,48 @@ function RewindSelectorView({ checkpoints, selectedIndex, confirmCheckpointId, s
         children: [
           /* @__PURE__ */ jsxDEV40("text", {
             fg: C.warn,
-            children: "确认回溯到发送这条消息之前？"
+            children: fitText("确认恢复到所选回溯点？", confirmWidth)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("text", {
-            children: [
-              /* @__PURE__ */ jsxDEV40("span", {
-                fg: C.dim,
-                children: "恢复模式："
-              }, undefined, false, undefined, this),
-              ["conversation", "code", "both"].map((mode) => /* @__PURE__ */ jsxDEV40("span", {
-                fg: mode === "conversation" || selected.canRestoreCode ? mode === selectedMode ? C.accent : C.dim : C.error,
-                children: `${mode === selectedMode ? `${ICONS.selectorArrow} ` : "  "}${MODE_LABELS[mode]}${mode !== "conversation" && !selected.canRestoreCode ? "(不可用)" : ""}  `
-              }, mode, false, undefined, this))
-            ]
-          }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV40("text", {
-            fg: C.dim,
-            children: selectedMode === "code" ? "仅恢复代码文件；对话历史保持不变。" : `将移除 ${selected.messageCountAfter} 条历史，并把该用户输入恢复到底部输入框。`
+          /* @__PURE__ */ jsxDEV40("box", {
+            children: /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: fitText("恢复模式：", confirmWidth)
+            }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("text", {
-            fg: C.dim,
-            children: `代码快照：${formatStats2(selected)}。仅覆盖 Iris 编辑类工具，不覆盖 shell/bash 或手动改动。`
+          MODE_ORDER.map((mode) => {
+            const unavailable = mode !== "conversation" && !canRestoreSelectedCode;
+            const active = mode === selectedMode;
+            const color = active ? unavailable ? C.error : C.accent : unavailable ? C.error : C.dim;
+            return /* @__PURE__ */ jsxDEV40("box", {
+              children: /* @__PURE__ */ jsxDEV40("text", {
+                fg: color,
+                children: fitText(formatModeRow(mode, selectedMode, canRestoreSelectedCode), confirmWidth)
+              }, undefined, false, undefined, this)
+            }, mode, false, undefined, this);
+          }),
+          /* @__PURE__ */ jsxDEV40("box", {
+            children: /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: fitText(formatConversationAction(selected, selectedMode), confirmWidth)
+            }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("text", {
-            fg: C.dim,
-            children: "这会创建新的对话分支；后续发送新消息后，原来的 redo 将失效。"
+          /* @__PURE__ */ jsxDEV40("box", {
+            children: /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: fitText(`代码快照：${formatStats2(selected)}。`, confirmWidth)
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV40("box", {
+            children: /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: fitText(formatCodeScopeNotice(selected, selectedMode), confirmWidth)
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV40("box", {
+            children: /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: fitText(formatBranchNotice(selectedMode), confirmWidth)
+            }, undefined, false, undefined, this)
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this) : null
@@ -8739,7 +8804,7 @@ function formatAge(unixSec) {
 }
 
 // src/components/ExtensionListView.tsx
-import { useTerminalDimensions as useTerminalDimensions8 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions9 } from "@opentui/react";
 init_terminal_compat();
 import { jsxDEV as jsxDEV42, Fragment as Fragment8 } from "@opentui/react/jsx-dev-runtime";
 var STATUS_LABELS = {
@@ -8785,7 +8850,7 @@ function GitInputFrame({
   cursor,
   cursorVisible
 }) {
-  const { width: terminalWidth } = useTerminalDimensions8();
+  const { width: terminalWidth } = useTerminalDimensions9();
   const safeTerminalWidth = Math.max(20, terminalWidth || 80);
   const frameWidth = Math.max(12, Math.min(88, safeTerminalWidth - 8));
   const innerWidth = Math.max(12, frameWidth - 4);
@@ -9063,7 +9128,7 @@ function ExtensionListView({
 
 // src/components/SettingsView.tsx
 import { useCallback as useCallback4, useEffect as useEffect11, useMemo as useMemo9, useState as useState12 } from "react";
-import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions9 } from "@opentui/react";
+import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions10 } from "@opentui/react";
 init_terminal_compat();
 
 // src/diff-approval.ts
@@ -9683,7 +9748,7 @@ var BUILTIN_SECTIONS = [
   { id: "mcp", label: "MCP 服务", icon: "03" }
 ];
 function SettingsView({ initialSection = "general", onBack, onLoad, onSave, pluginTabs }) {
-  const { width: termWidth, height: termHeight } = useTerminalDimensions9();
+  const { width: termWidth, height: termHeight } = useTerminalDimensions10();
   const [loading, setLoading] = useState12(true);
   const [saving, setSaving] = useState12(false);
   const [draft, setDraft] = useState12(null);
@@ -11522,11 +11587,15 @@ function useAppKeyboard({
         }
         return;
       }
+      if (rewindConfirmId && (key.name === "up" || key.name === "left")) {
+        setRewindMode((current) => cycleRewindMode(current, selected, -1));
+        return;
+      }
+      if (rewindConfirmId && (key.name === "down" || key.name === "right")) {
+        setRewindMode((current) => cycleRewindMode(current, selected, 1));
+        return;
+      }
       if (key.name === "up") {
-        if (rewindConfirmId) {
-          setRewindMode((current) => cycleRewindMode(current, selected, -1));
-          return;
-        }
         setSelectedIndex((prev) => Math.max(0, prev - 1));
         setRewindConfirmId(null);
         setRewindMode("conversation");
@@ -11535,10 +11604,6 @@ function useAppKeyboard({
         return;
       }
       if (key.name === "down") {
-        if (rewindConfirmId) {
-          setRewindMode((current) => cycleRewindMode(current, selected, 1));
-          return;
-        }
         setSelectedIndex((prev) => Math.min(maxIndex, prev + 1));
         setRewindConfirmId(null);
         setRewindMode("conversation");
@@ -13396,6 +13461,7 @@ function App({
   pathDisplayService,
   statusSegmentService,
   toolDisplayService,
+  inputService,
   remoteHost,
   modelProvider,
   thinkingControlEnabled,
@@ -13510,6 +13576,12 @@ function App({
   const renderer = useRenderer();
   const undoRedoRef = useRef10(createUndoRedoStack());
   const promptInputControllerRef = useRef10(null);
+  useEffect15(() => {
+    if (!inputService)
+      return;
+    const disposable = inputService.bindControllerGetter(() => promptInputControllerRef.current);
+    return () => disposable.dispose();
+  }, [inputService]);
   const chatScrollBoxRef = useRef10(null);
   const messageQueue = useMessageQueue();
   const drainCallbackRef = useRef10(null);
@@ -14683,6 +14755,63 @@ function createConsoleProgressService() {
   };
 }
 
+// src/input-service.ts
+var CONSOLE_INPUT_SERVICE_ID = "console:input";
+function createConsoleInputService() {
+  let getController;
+  const changes = createListenerSignal();
+  const current = () => getController?.() ?? null;
+  const emit = () => changes.emit();
+  return {
+    bindControllerGetter(getter) {
+      getController = getter;
+      emit();
+      let disposed = false;
+      return {
+        dispose() {
+          if (disposed)
+            return;
+          disposed = true;
+          if (getController === getter) {
+            getController = undefined;
+            emit();
+          }
+        }
+      };
+    },
+    insertText(text) {
+      const controller = current();
+      if (!controller || !text)
+        return false;
+      controller.insertText(text);
+      emit();
+      return true;
+    },
+    setText(text) {
+      const controller = current();
+      if (!controller)
+        return false;
+      controller.setValue(text);
+      emit();
+      return true;
+    },
+    clear() {
+      const controller = current();
+      if (!controller)
+        return false;
+      controller.clear();
+      emit();
+      return true;
+    },
+    hasValue() {
+      return current()?.hasValue() ?? false;
+    },
+    onDidChange(listener) {
+      return changes.on(listener);
+    }
+  };
+}
+
 // src/ipc-bridge.ts
 init_ipc();
 var CONSOLE_GET_SETTINGS_TABS_METHOD = "console.getSettingsTabs";
@@ -15550,6 +15679,7 @@ class ConsolePlatform extends PlatformAdapter {
   localConsoleServices = new WeakMap;
   remoteConsoleServices = new WeakMap;
   backendListenerDisposers = [];
+  ideDiffOpenedToolIds = new Set;
   _isGenerating = false;
   foregroundTurnActive = false;
   notificationTurnActive = false;
@@ -15643,6 +15773,7 @@ class ConsolePlatform extends PlatformAdapter {
       pathDisplay: createConsolePathDisplayService(),
       statusSegment: createConsoleStatusSegmentService(),
       progress: createConsoleProgressService(),
+      input: createConsoleInputService(),
       registrations: []
     };
     if (!services.has(CONSOLE_TOOL_DISPLAY_SERVICE_ID2)) {
@@ -15685,11 +15816,40 @@ class ConsolePlatform extends PlatformAdapter {
     } else {
       bundle.progress = services.get(CONSOLE_PROGRESS_SERVICE_ID2);
     }
+    if (!services.has(CONSOLE_INPUT_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_INPUT_SERVICE_ID, bundle.input, {
+        description: "Console TUI 输入框桥接服务",
+        version: "1.0.0"
+      }));
+    } else {
+      bundle.input = services.get(CONSOLE_INPUT_SERVICE_ID);
+    }
     this.localConsoleServices.set(services, bundle);
     return bundle;
   }
   getLocalProgressService() {
     return this.getConsoleServicesBundle()?.progress;
+  }
+  async maybeOpenToolDiffInIde(toolId, preview) {
+    if (this.ideDiffOpenedToolIds.has(toolId))
+      return;
+    const services = this.api?.services;
+    if (!services?.has?.("ide.manager"))
+      return;
+    const ideManager = services.get("ide.manager");
+    if (!ideManager || typeof ideManager.openDiffPreview !== "function")
+      return;
+    if (ideManager.status?.().state !== "connected")
+      return;
+    this.ideDiffOpenedToolIds.add(toolId);
+    try {
+      const opened = await ideManager.openDiffPreview(preview, 0);
+      if (!opened)
+        this.ideDiffOpenedToolIds.delete(toolId);
+    } catch (error) {
+      this.ideDiffOpenedToolIds.delete(toolId);
+      console.warn("[ConsolePlatform] IDE diff 打开失败:", error);
+    }
   }
   bindProgressService() {
     try {
@@ -16152,7 +16312,9 @@ ${summaryText}`;
           if (typeof getPreview !== "function") {
             throw new Error("当前 Backend 不支持 diff 预览");
           }
-          return await getPreview.call(this.backend, toolId);
+          const preview = await getPreview.call(this.backend, toolId);
+          this.maybeOpenToolDiffInIde(toolId, preview);
+          return preview;
         },
         onAddCommandPattern: (toolName, command, type) => {
           this.addCommandPattern(toolName, command, type);
@@ -16218,6 +16380,7 @@ ${summaryText}`;
         pathDisplayService: consoleServices?.pathDisplay,
         statusSegmentService: consoleServices?.statusSegment,
         toolDisplayService: consoleServices?.toolDisplay,
+        inputService: consoleServices && "input" in consoleServices ? consoleServices.input : undefined,
         remoteHost: this._remoteHost || undefined,
         onThinkingEffortChange: (level) => this.applyThinkingEffort(level),
         agentName: this.agentName,

@@ -10,6 +10,7 @@ import type { ConsoleSlashCommandService } from './slash-command-service';
 import type { ConsolePathDisplayService } from './path-display-service';
 import type { ConsoleStatusSegmentService } from './status-segment-service';
 import type { ConsoleToolDisplayService } from './tool-display-service';
+import type { ConsoleInputServiceBinding } from './input-service';
 
 export interface ProgressUiStateSnapshot {
   expanded: boolean;
@@ -111,6 +112,8 @@ export interface AppProps {
   statusSegmentService?: ConsoleStatusSegmentService;
   /** 当前 Console 工具显示服务实例 */
   toolDisplayService?: ConsoleToolDisplayService;
+  /** 当前 Console 输入桥接服务实例 */
+  inputService?: ConsoleInputServiceBinding;
   /** 远程连接的主机地址（非空时 StatusBar 显示远程标识） */
   remoteHost?: string;
   onThinkingEffortChange?: (level: ThinkingEffortLevel) => void;

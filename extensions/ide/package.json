@@ -1,0 +1,13 @@
+{
+  "name": "@iris-extension/ide",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../../script/prepare-extension-sdk.mjs && bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --packages=bundle && bun ../../script/validate-extension-bundle.ts --file ./dist/index.mjs --extension ide"
+  },
+  "dependencies": {
+    "irises-extension-sdk": "file:../../packages/extension-sdk",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "^4.0.0"
+  }
+}

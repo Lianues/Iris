@@ -180,6 +180,7 @@ interface EditableConfigShape {
   system?: Record<string, unknown>;
   tools?: Record<string, unknown>;
   mcp?: Record<string, unknown>;
+  ide?: Record<string, unknown>;
   platform?: Record<string, unknown>;
   storage?: Record<string, unknown>;
   ocr?: Record<string, unknown>;

@@ -19,6 +19,7 @@ export const CONFIG_SECTION_KEYS = [
   'memory',
   'cloudflare',
   'mcp',
+  'ide',
   'modes',
   'sub_agents',
   'summary',

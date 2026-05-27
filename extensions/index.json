@@ -4,6 +4,7 @@
     "console",
     "cron",
     "discord",
+    "ide",
     "lark",
     "mcp",
     "memory",
