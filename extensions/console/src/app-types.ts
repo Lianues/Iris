@@ -1,4 +1,6 @@
-import type { ToolInvocation, ToolOutputEntry } from 'irises-extension-sdk';
+import type { RewindCheckpointLike, RewindOperationResultLike, RewindTargetMode, ToolInvocation, ToolOutputEntry } from 'irises-extension-sdk';
+
+export type { RewindCheckpointLike, RewindOperationResultLike, RewindTargetMode };
 
 export interface MessageMeta {
   tokenIn?: number;
@@ -20,7 +22,7 @@ export interface SwitchModelResult {
   thinkingControlEnabled?: boolean;
 }
 
-export type ViewMode = 'chat' | 'session-list' | 'model-list' | 'agent-list' | 'settings' | 'queue-list' | 'tool-detail' | 'tool-list' | 'memory-list' | 'extension-list' | 'file-browser';
+export type ViewMode = 'chat' | 'session-list' | 'model-list' | 'agent-list' | 'settings' | 'queue-list' | 'rewind-selector' | 'tool-detail' | 'tool-list' | 'memory-list' | 'extension-list' | 'file-browser';
 // 放宽为 string：插件可通过 console:settings-tab 服务注册自定义 tab id
 export type SettingsInitialSection = 'general' | 'mcp' | (string & {});
 export type ConfirmChoice = 'confirm' | 'cancel';

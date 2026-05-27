@@ -3,7 +3,7 @@ import type { MemoryItem } from './components/MemoryListView';
 import type { ExtensionItem } from './components/ExtensionListView';
 import type { AgentDefinitionLike } from 'irises-extension-sdk';
 import type { ConsoleSettingsTabDefinition } from './settings-tab-service';
-import type { SwitchModelResult, ThinkingEffortLevel } from './app-types';
+import type { RewindCheckpointLike, RewindOperationResultLike, RewindTargetMode, SwitchModelResult, ThinkingEffortLevel } from './app-types';
 import type { AppHandle } from './hooks/use-app-handle';
 import type { ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
 import type { ConsoleSlashCommandService } from './slash-command-service';
@@ -38,6 +38,8 @@ export interface AppProps {
   onUndo: () => Promise<boolean>;
   onRedo: () => Promise<boolean>;
   onClearRedoStack: () => void;
+  onListRewindCheckpoints: () => Promise<RewindCheckpointLike[]>;
+  onRewind: (checkpointId: string, mode?: RewindTargetMode) => Promise<RewindOperationResultLike | null>;
   onToolApproval: (toolId: string, approved: boolean) => void;
   onToolApply: (toolId: string, applied: boolean) => void;
   /** 向交互式工具发送上行消息 */

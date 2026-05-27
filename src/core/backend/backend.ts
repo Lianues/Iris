@@ -53,7 +53,9 @@ import type { CrossAgentTaskBoard, TaskRecord } from '../cross-agent-task-board'
 import { ToolExecutionHandle } from '../../tools/handle';
 import { buildToolDiffPreview } from '../../tools/diff-preview';
 
-import type { BackendConfig, ImageInput, DocumentInput, AudioInput, VideoInput, UndoScope, UndoOperationResult, RedoOperationResult, NotificationPayload } from './types';
+import type { BackendConfig, ImageInput, DocumentInput, AudioInput, VideoInput, UndoScope, UndoOperationResult, RedoOperationResult, NotificationPayload, RewindCheckpoint, RewindOperationResult, RewindTargetMode } from './types';
+import { dataDir as defaultDataDir } from '../../paths';
+import { FileHistoryManager } from './file-history';
 import { buildMinimalParts, estimateMultimodalTokens } from './media';
 import { maybeAddCallmeTrailerToGitCommit, type CallmeAttributionConfig } from '../../git/callme';
 import { prepareHistoryForLLM, preparePartsForLLM } from './history';
@@ -119,6 +121,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
 
   /** Undo/Redo 管理器 */
   private undoRedo = new UndoRedoManager();
+
+  /** Rewind 代码快照管理器 */
+  private fileHistory: FileHistoryManager;
 
   /** 每个 session 最近一次 LLM 调用的 totalTokenCount（用于自动总结阈值判断） */
   private lastSessionTokens = new Map<string, number>();
@@ -202,6 +207,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.rememberPlatformModel = config?.rememberPlatformModel ?? true;
     this.callmeConfig = config?.callme;
     this.isPlanModeActive = config?.isPlanModeActive;
+    this.fileHistory = new FileHistoryManager(config?.dataDir ?? defaultDataDir);
     if (config?.skills) {
       this.skills = config.skills;
     }
@@ -434,6 +440,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   /** 清空指定会话 */
   async clearSession(sessionId: string): Promise<void> {
     await this.storage.clearHistory(sessionId);
+    await this.fileHistory.clearSession(sessionId);
     this.undoRedo.clearRedo(sessionId);
     this.lastSessionTokens.delete(sessionId);
     // 清空该会话在队列中的残留消息（如未处理的异步子代理通知）
@@ -598,6 +605,64 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       removedCount: removed.length,
       userText: summary.userText,
       assistantText: summary.assistantText,
+    };
+  }
+
+  async listRewindCheckpoints(sessionId: string): Promise<RewindCheckpoint[]> {
+    const history = await this.storage.getHistory(sessionId);
+    const checkpoints = this.undoRedo.listRewindCheckpoints(sessionId, history);
+    await Promise.all(checkpoints.map(async (checkpoint) => {
+      try {
+        const stats = await this.fileHistory.getDiffStats(sessionId, checkpoint.id);
+        if (!stats) return;
+        checkpoint.canRestoreCode = true;
+        checkpoint.codeChangeSummary = stats;
+      } catch (err) {
+        logger.warn(`读取代码回溯快照失败，已按仅对话显示: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }));
+    return checkpoints;
+  }
+
+  async rewind(
+    sessionId: string,
+    checkpointId: string,
+    mode: RewindTargetMode = 'conversation',
+  ): Promise<RewindOperationResult | null> {
+    // 与 undo/redo 同理：turn 执行期间拒绝 rewind，防止 truncateHistory 与写入交错。
+    if (this.turnLock.isActive(sessionId)) return null;
+    if (mode !== 'conversation' && mode !== 'code' && mode !== 'both') return null;
+
+    const history = await this.storage.getHistory(sessionId);
+    const range = this.undoRedo.resolveRewindRange(sessionId, history, checkpointId);
+    if (!range) return null;
+
+    let filesRestored: string[] | undefined;
+    if (mode === 'code' || mode === 'both') {
+      filesRestored = await this.fileHistory.rewind(sessionId, checkpointId);
+    }
+
+    const shouldRewindConversation = mode === 'conversation' || mode === 'both';
+    const removed = shouldRewindConversation ? history.slice(range.removeStart) : [];
+    if (shouldRewindConversation) {
+      if (removed.length === 0) return null;
+      await this.storage.truncateHistory(sessionId, range.removeStart);
+      this.undoRedo.clearRedo(sessionId);
+      this.lastSessionTokens.delete(sessionId);
+      this.messageQueue.clearSession(sessionId);
+      this.pendingNotifications.delete(sessionId);
+      this.taskBoard?.killAllBySourceSession(sessionId);
+    }
+
+    return {
+      checkpoint: range.checkpoint,
+      mode,
+      keepCount: shouldRewindConversation ? range.removeStart : history.length,
+      removed,
+      removedCount: removed.length,
+      restoredInputText: shouldRewindConversation ? range.checkpoint.userText : '',
+      filesRestored,
+      codeChanged: filesRestored ? filesRestored.length > 0 : undefined,
     };
   }
 
@@ -1274,12 +1339,20 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const textTokens = userTextForTokens ? estimateTokenCount(userTextForTokens) : 0;
     const multimodalTokens = estimateMultimodalTokens(storedUserParts);
     const estimatedUserTokens = textTokens + multimodalTokens;
-    await this.storage.addMessage(sessionId, {
+    const userCreatedAt = Date.now();
+    const storedUserContent: Content = {
       role: 'user',
       parts: storedUserParts,
-      createdAt: Date.now(),
+      createdAt: userCreatedAt,
       ...(estimatedUserTokens > 0 ? { usageMetadata: { promptTokenCount: estimatedUserTokens } } : {}),
-    });
+    };
+    await this.storage.addMessage(sessionId, storedUserContent);
+    const rewindCheckpointId = this.undoRedo.makeRewindCheckpointId(storedHistory.length, storedUserContent);
+    try {
+      await this.fileHistory.makeSnapshot(sessionId, rewindCheckpointId);
+    } catch (err) {
+      logger.warn(`创建代码回溯快照失败，已跳过: session=${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
     if (isNewSession) {
       await this.updateSessionMeta(sessionId, storedUserParts, true, platformName);
       for (const hook of this.pluginHooks) {
@@ -1353,6 +1426,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       planModeActive,
       isAutoEditActive: (sid: string | undefined) => this.autoEdit.isActive(sid),
       isPlanModeActive: (sid: string | undefined) => this.isPlanModeActive?.(sid) === true,
+      trackFileEdit: (toolName: string, args: Record<string, unknown>) => this.fileHistory.trackToolEdit(sessionId, getSessionCwd(), toolName, args),
     };
 
     // 2. 构建 LLM 调用函数

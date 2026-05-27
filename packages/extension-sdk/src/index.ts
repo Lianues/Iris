@@ -41,6 +41,9 @@ export type {
   IrisSkillInfoLike,
   IrisToolInvocationLike,
   PlatformFactoryHelperOptions,
+  RewindCheckpointLike,
+  RewindOperationResultLike,
+  RewindTargetMode,
   ToolAttachment,
 } from './platform.js';
 

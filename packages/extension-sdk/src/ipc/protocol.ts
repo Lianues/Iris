@@ -78,6 +78,8 @@ export const Methods = {
   UNDO: 'backend.undo',
   REDO: 'backend.redo',
   CLEAR_REDO: 'backend.clearRedo',
+  LIST_REWIND_CHECKPOINTS: 'backend.listRewindCheckpoints',
+  REWIND: 'backend.rewind',
   GET_HISTORY: 'backend.getHistory',
   LIST_SKILLS: 'backend.listSkills',
   LIST_MODES: 'backend.listModes',

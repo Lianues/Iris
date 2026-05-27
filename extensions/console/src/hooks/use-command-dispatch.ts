@@ -7,6 +7,8 @@ import type {
   PendingConfirm,
   SettingsInitialSection,
   SwitchModelResult,
+  RewindCheckpointLike,
+  RewindTargetMode,
   ViewMode,
 } from '../app-types';
 import { appendCommandMessage } from '../message-utils';
@@ -44,6 +46,7 @@ interface UseCommandDispatchOptions {
   onClearRedoStack: () => void;
   onNewSession: () => void;
   onListSessions: () => Promise<SessionMeta[]>;
+  onListRewindCheckpoints: () => Promise<RewindCheckpointLike[]>;
   onRunCommand: (cmd: string) => { output: string; cwd: string };
   onListModels: () => { models: LLMModelInfo[]; defaultModelName: string };
   onSwitchModel: (modelName: string) => SwitchModelResult;
@@ -75,6 +78,12 @@ interface UseCommandDispatchOptions {
   commitTools: () => void;
   setViewMode: SetViewMode;
   setSessionList: SetSessionList;
+  setRewindCheckpoints: Dispatch<SetStateAction<RewindCheckpointLike[]>>;
+  setRewindConfirmId: Dispatch<SetStateAction<string | null>>;
+  setRewindStatusMessage: Dispatch<SetStateAction<string | null>>;
+  setRewindStatusIsError: Dispatch<SetStateAction<boolean>>;
+  setRewindInProgress: Dispatch<SetStateAction<boolean>>;
+  setRewindMode: Dispatch<SetStateAction<RewindTargetMode>>;
   setModelList: SetModelList;
   setDefaultModelName: Dispatch<SetStateAction<string>>;
   setSelectedIndex: SetSelectedIndex;
@@ -117,6 +126,7 @@ export function useCommandDispatch({
   onClearRedoStack,
   onNewSession,
   onListSessions,
+  onListRewindCheckpoints,
   onRunCommand,
   onListModels,
   onSwitchModel,
@@ -148,6 +158,12 @@ export function useCommandDispatch({
   commitTools,
   setViewMode,
   setSessionList,
+  setRewindCheckpoints,
+  setRewindConfirmId,
+  setRewindStatusMessage,
+  setRewindStatusIsError,
+  setRewindInProgress,
+  setRewindMode,
   setModelList,
   setDefaultModelName,
   setSelectedIndex,
@@ -263,6 +279,29 @@ export function useCommandDispatch({
           return result.messages;
         });
       }).catch(() => {});
+      return;
+    }
+
+    if (text === '/rewind') {
+      if (isGenerating) {
+        appendCommandMessage(setMessages, '正在生成中，无法回溯。请先停止当前回复后再使用 /rewind。', {
+          isError: true,
+          beforeActiveAssistant: true,
+        });
+        return;
+      }
+      onListRewindCheckpoints().then((checkpoints) => {
+        setRewindCheckpoints(checkpoints);
+        setRewindConfirmId(null);
+        setRewindStatusMessage(null);
+        setRewindStatusIsError(false);
+        setRewindInProgress(false);
+        setRewindMode('conversation');
+        setSelectedIndex(Math.max(0, checkpoints.length - 1));
+        setViewMode('rewind-selector');
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `读取回溯点失败：${err instanceof Error ? err.message : String(err)}`, { isError: true });
+      });
       return;
     }
 
@@ -576,6 +615,7 @@ export function useCommandDispatch({
     onEnterHeadless,
     onListModels,
     onListSessions,
+    onListRewindCheckpoints,
     onNewSession,
     onRedo,
     onRemoteConnect,
@@ -607,6 +647,12 @@ export function useCommandDispatch({
     setSessionList,
     setSettingsInitialSection,
     setViewMode,
+    setRewindCheckpoints,
+    setRewindConfirmId,
+    setRewindStatusMessage,
+    setRewindStatusIsError,
+    setRewindInProgress,
+    setRewindMode,
     undoRedoRef,
   ]);
 }

@@ -100,6 +100,8 @@ interface IPCBackendLike {
   // 可选
   undo?(sessionId: string, scope?: string): Promise<unknown>;
   redo?(sessionId: string): Promise<unknown>;
+  listRewindCheckpoints?(sessionId: string): Promise<unknown[]>;
+  rewind?(sessionId: string, checkpointId: string, mode?: string): Promise<unknown>;
   clearRedo?(sessionId: string): void;
   getHistory?(sessionId: string): Promise<unknown[]>;
   listSkills?(): unknown[];
@@ -336,6 +338,12 @@ export class IPCServer extends EventEmitter {
           break;
         case Methods.REDO:
           result = await this.backend.redo?.(params[0] as string) ?? null;
+          break;
+        case Methods.LIST_REWIND_CHECKPOINTS:
+          result = await this.backend.listRewindCheckpoints?.(params[0] as string) ?? [];
+          break;
+        case Methods.REWIND:
+          result = await this.backend.rewind?.(params[0] as string, params[1] as string, params[2] as string | undefined) ?? null;
           break;
         case Methods.CLEAR_REDO:
           this.backend.clearRedo?.(params[0] as string);
@@ -651,6 +659,10 @@ export class IPCServer extends EventEmitter {
         return await backend.undo?.(params[0] as string, params[1] as string | undefined) ?? null;
       case Methods.REDO:
         return await backend.redo?.(params[0] as string) ?? null;
+      case Methods.LIST_REWIND_CHECKPOINTS:
+        return await backend.listRewindCheckpoints?.(params[0] as string) ?? [];
+      case Methods.REWIND:
+        return await backend.rewind?.(params[0] as string, params[1] as string, params[2] as string | undefined) ?? null;
       case Methods.CLEAR_REDO:
         backend.clearRedo?.(params[0] as string);
         return null;

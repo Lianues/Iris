@@ -352,6 +352,7 @@ export class IrisCore {
       skills: config.system.skills,
       configDir,
       globalConfigDir: globalDir,
+      dataDir: agentPaths?.dataDir ?? globalDataDir,
       rememberPlatformModel: config.llm.rememberPlatformModel,
       callme: callmeAttributionRef.current,
       asyncSubAgents: asyncSubAgentsEnabled,

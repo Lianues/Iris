@@ -4,7 +4,7 @@ import type { AgentDefinitionLike } from 'irises-extension-sdk';
 import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolInvocation } from 'irises-extension-sdk';
 import type { TextInputState, TextInputActions } from './use-text-input';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import type { ApprovalChoice, ConfirmChoice, PendingConfirm, SwitchModelResult, ViewMode } from '../app-types';
+import type { ApprovalChoice, ConfirmChoice, PendingConfirm, RewindCheckpointLike, RewindOperationResultLike, RewindTargetMode, SwitchModelResult, ViewMode } from '../app-types';
 import type { ChatMessage } from '../components/MessageItem';
 import { clearRedo, type UndoRedoStack } from '../undo-redo';
 import type { UseModelStateReturn } from './use-model-state';
@@ -83,6 +83,18 @@ interface UseAppKeyboardOptions {
   onLoadSession: (id: string) => Promise<void>;
   onDeleteSession?: (id: string) => Promise<{ ok: boolean; message: string; deletedCurrent?: boolean }>;
   setSessionList: SetState<SessionMeta[]>;
+  rewindCheckpoints: RewindCheckpointLike[];
+  rewindConfirmId: string | null;
+  setRewindConfirmId: SetState<string | null>;
+  setRewindStatusMessage: SetState<string | null>;
+  setRewindStatusIsError: SetState<boolean>;
+  rewindInProgress: boolean;
+  setRewindInProgress: SetState<boolean>;
+  rewindMode: RewindTargetMode;
+  setRewindMode: SetState<RewindTargetMode>;
+  onRewind: (checkpointId: string, mode?: RewindTargetMode) => Promise<RewindOperationResultLike | null>;
+  setPendingInputRestore: SetState<string | null>;
+  setRewindCheckpoints: SetState<RewindCheckpointLike[]>;
   sessionPendingDeleteId: string | null;
   setSessionPendingDeleteId: SetState<string | null>;
   setSessionStatusMessage: SetState<string | null>;
@@ -219,6 +231,17 @@ function altScrollKeyName(key: any): 'up' | 'down' | 'pageup' | 'pagedown' | und
   }
 }
 
+function getAvailableRewindModes(checkpoint: RewindCheckpointLike | undefined): RewindTargetMode[] {
+  if (!checkpoint?.canRestoreCode) return ['conversation'];
+  return ['conversation', 'code', 'both'];
+}
+
+function cycleRewindMode(current: RewindTargetMode, checkpoint: RewindCheckpointLike | undefined, direction: 1 | -1): RewindTargetMode {
+  const modes = getAvailableRewindModes(checkpoint);
+  const index = Math.max(0, modes.indexOf(current));
+  return modes[(index + direction + modes.length) % modes.length];
+}
+
 export function useAppKeyboard({
   viewMode,
   setViewMode,
@@ -259,6 +282,18 @@ export function useAppKeyboard({
   onLoadSession,
   onDeleteSession,
   setSessionList,
+  rewindCheckpoints,
+  rewindConfirmId,
+  setRewindConfirmId,
+  setRewindStatusMessage,
+  setRewindStatusIsError,
+  rewindInProgress,
+  setRewindInProgress,
+  rewindMode,
+  setRewindMode,
+  onRewind,
+  setPendingInputRestore,
+  setRewindCheckpoints,
   sessionPendingDeleteId,
   setSessionPendingDeleteId,
   setSessionStatusMessage,
@@ -478,6 +513,130 @@ export function useAppKeyboard({
 
     // tool-detail 视图由 ToolDetailView 组件自身处理键盘（useKeyboard），此处不拦截
     if (viewMode === 'tool-detail') return;
+
+    // ── rewind-selector 视图 ──
+    if (viewMode === 'rewind-selector') {
+      const maxIndex = Math.max(0, rewindCheckpoints.length - 1);
+      const selected = rewindCheckpoints[Math.max(0, Math.min(selectedIndex, maxIndex))];
+
+      if (rewindInProgress) {
+        // 防止用户快速连按 Enter 触发多次 rewind。等待当前回溯完成。
+        return;
+      }
+
+      if (key.name === 'escape') {
+        if (rewindConfirmId) {
+          setRewindConfirmId(null);
+          setRewindStatusMessage(null);
+          setRewindStatusIsError(false);
+        } else {
+          setViewMode('chat');
+        }
+        return;
+      }
+
+      if (key.name === 'up') {
+        if (rewindConfirmId) {
+          setRewindMode((current) => cycleRewindMode(current, selected, -1));
+          return;
+        }
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+        setRewindConfirmId(null);
+        setRewindMode('conversation');
+        setRewindStatusMessage(null);
+        setRewindStatusIsError(false);
+        return;
+      }
+      if (key.name === 'down') {
+        if (rewindConfirmId) {
+          setRewindMode((current) => cycleRewindMode(current, selected, 1));
+          return;
+        }
+        setSelectedIndex((prev) => Math.min(maxIndex, prev + 1));
+        setRewindConfirmId(null);
+        setRewindMode('conversation');
+        setRewindStatusMessage(null);
+        setRewindStatusIsError(false);
+        return;
+      }
+
+      if ((key.name === 'enter' || key.name === 'return') && selected) {
+        if (rewindConfirmId !== selected.id) {
+          setRewindConfirmId(selected.id);
+          setRewindMode('conversation');
+          setRewindStatusMessage(null);
+          setRewindStatusIsError(false);
+          return;
+        }
+
+        setRewindStatusMessage('正在回溯历史...');
+        setRewindStatusIsError(false);
+        setRewindInProgress(true);
+        void (async () => {
+          try {
+            const requestedMode = getAvailableRewindModes(selected).includes(rewindMode) ? rewindMode : 'conversation';
+            const result = await onRewind(selected.id, requestedMode);
+            if (!result) {
+              setRewindStatusMessage('回溯失败：目标已失效，或当前会话正在生成。');
+              setRewindStatusIsError(true);
+              setRewindInProgress(false);
+              setRewindConfirmId(null);
+              return;
+            }
+
+            if (result.mode !== 'code') {
+              clearRedo(undoRedoRef.current);
+              onClearRedoStack();
+            }
+            setRewindConfirmId(null);
+            let reloadError: unknown;
+            if (result.mode === 'conversation' || result.mode === 'both') {
+              setMessages([]);
+              commitTools();
+              setPendingInputRestore(result.restoredInputText);
+              setRewindStatusMessage('正在重放历史...');
+              try {
+                await onLoadSession(result.checkpoint.sessionId);
+              } catch (err) {
+                reloadError = err;
+              }
+            }
+            setRewindCheckpoints([]);
+            setRewindInProgress(false);
+            setRewindStatusMessage(null);
+            setRewindStatusIsError(false);
+            setViewMode('chat');
+            if (reloadError) {
+              appendCommandMessage(
+                setMessages,
+                `回溯已完成，但重放历史失败：${reloadError instanceof Error ? reloadError.message : String(reloadError)}`,
+                { label: 'rewind', isError: true },
+              );
+            } else {
+              const modeLabel = result.mode === 'code'
+                ? '仅代码'
+                : result.mode === 'both'
+                  ? '对话 + 代码'
+                  : '仅对话';
+              const historyText = result.removedCount > 0
+                ? `，移除了 ${result.removedCount} 条历史并恢复输入`
+                : '';
+              const filesText = result.filesRestored
+                ? `，恢复了 ${result.filesRestored.length} 个文件`
+                : '';
+              appendCommandMessage(setMessages, `已完成 ${modeLabel} 回溯${historyText}${filesText}。`, { label: 'rewind' });
+            }
+          } catch (err) {
+            setRewindStatusMessage(`回溯失败：${err instanceof Error ? err.message : String(err)}`);
+            setRewindStatusIsError(true);
+            setRewindInProgress(false);
+            setRewindConfirmId(null);
+          }
+        })();
+        return;
+      }
+      return;
+    }
 
     // ── tool-list 视图 ──
     if (viewMode === 'tool-list') {

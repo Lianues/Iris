@@ -74,6 +74,8 @@ interface BottomPanelProps {
   statusSegments?: ConsoleStatusSegmentSnapshot[];
   supportsHeadlessTransition?: boolean;
   inputControllerRef?: MutableRefObject<PromptInputController | null>;
+  restoreInputText?: string | null;
+  onRestoreInputConsumed?: () => void;
 }
 
 export function BottomPanel({
@@ -116,6 +118,8 @@ export function BottomPanel({
   statusSegments,
   supportsHeadlessTransition,
   inputControllerRef,
+  restoreInputText,
+  onRestoreInputConsumed,
 }: BottomPanelProps) {
   // 输入框仅在审批/确认对话框期间完全禁用
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
@@ -169,6 +173,8 @@ export function BottomPanel({
             supportsHeadlessTransition={supportsHeadlessTransition}
             thinkingControlEnabled={thinkingControlEnabled}
             inputControllerRef={inputControllerRef}
+            restoreInputText={restoreInputText}
+            onRestoreInputConsumed={onRestoreInputConsumed}
           />
           <StatusBar
             agentName={agentName}

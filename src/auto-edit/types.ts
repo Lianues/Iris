@@ -54,6 +54,8 @@ export interface RuntimeApprovalContext {
   isAutoEditActive?: (sessionId: string | undefined) => boolean;
   /** 可选动态查询：Plan Mode 中 Auto Edit 必须暂停。 */
   isPlanModeActive?: (sessionId: string | undefined) => boolean;
+  /** 编辑类工具执行前记录文件快照，用于 /rewind 的 code/both 恢复。 */
+  trackFileEdit?: (toolName: string, args: Record<string, unknown>) => Promise<void> | void;
 }
 
 export interface AutoEditEvaluation {

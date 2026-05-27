@@ -18,4 +18,7 @@ export type {
   DocumentInput,
   BackendConfig,
   BackendEvents,
+  RewindCheckpoint,
+  RewindTargetMode,
+  RewindOperationResult,
 } from './types';

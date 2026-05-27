@@ -54,6 +54,49 @@ export interface RedoOperationResult {
   assistantText: string;
 }
 
+// ============ Rewind 类型 ============
+
+/** Rewind 的目标范围。Phase 1 仅实现 conversation，code/both 预留给文件 checkpoint。 */
+export type RewindTargetMode = 'conversation' | 'code' | 'both';
+
+export interface RewindCheckpoint {
+  /** 稳定选择 ID；旧历史按 historyIndex + createdAt 生成。 */
+  id: string;
+  sessionId: string;
+  /** 该 checkpoint 对应的用户消息在 Content[] 中的位置。rewind 会保留其前面的消息。 */
+  historyIndex: number;
+  createdAt?: number;
+  /** 用于恢复到底部输入框的原始用户文本。 */
+  userText: string;
+  /** 单行预览文本。 */
+  preview: string;
+  /** 是否包含图片/文档等 inlineData 附件。 */
+  hasAttachments: boolean;
+  /** 从该用户消息（含）到历史末尾将被移除的 Content 数量。 */
+  messageCountAfter: number;
+  /** 该用户消息之后最近的 assistant 文本摘要，用于 UI 辅助识别。 */
+  assistantText?: string;
+  /** 是否存在该 checkpoint 对应的代码快照。 */
+  canRestoreCode?: boolean;
+  codeChangeSummary?: {
+    filesChanged: string[];
+    insertions: number;
+    deletions: number;
+  };
+}
+
+export interface RewindOperationResult {
+  checkpoint: RewindCheckpoint;
+  mode: RewindTargetMode;
+  keepCount: number;
+  removed: Content[];
+  removedCount: number;
+  restoredInputText: string;
+  filesRestored?: string[];
+  codeChanged?: boolean;
+  error?: string;
+}
+
 // ============ 输入类型 ============
 
 export interface ImageInput {
@@ -111,6 +154,8 @@ export interface BackendConfig {
   configDir?: string;
   /** 全局配置目录路径（用于写回全局 platform.yaml，避免 Agent 层与全局层隔离） */
   globalConfigDir?: string;
+  /** Agent 数据目录，用于保存 file-history 等运行时数据。 */
+  dataDir?: string;
   /** 是否记住各平台上次使用的模型 */
   rememberPlatformModel?: boolean;
   /** 是否启用异步子代理（默认 false，向后兼容） */

@@ -111,6 +111,38 @@ export interface AutoEditSessionStateLike {
   updatedAt?: number;
 }
 
+export type RewindTargetMode = 'conversation' | 'code' | 'both';
+
+export interface RewindCheckpointLike {
+  id: string;
+  sessionId: string;
+  historyIndex: number;
+  createdAt?: number;
+  userText: string;
+  preview: string;
+  hasAttachments: boolean;
+  messageCountAfter: number;
+  assistantText?: string;
+  canRestoreCode?: boolean;
+  codeChangeSummary?: {
+    filesChanged: string[];
+    insertions: number;
+    deletions: number;
+  };
+}
+
+export interface RewindOperationResultLike {
+  checkpoint: RewindCheckpointLike;
+  mode: RewindTargetMode;
+  keepCount: number;
+  removed: Content[];
+  removedCount: number;
+  restoredInputText: string;
+  filesRestored?: string[];
+  codeChanged?: boolean;
+  error?: string;
+}
+
 export interface IrisBackendLike {
   /** 监听已知事件（强类型） */
   on<K extends keyof BackendEventMap>(event: K, listener: BackendEventMap[K]): this;
@@ -137,6 +169,8 @@ export interface IrisBackendLike {
   abortChat(sessionId: string): void;
   undo?(sessionId: string, scope?: string): Promise<{ assistantText?: string } | null>;
   redo?(sessionId: string): Promise<{ assistantText?: string } | null>;
+  listRewindCheckpoints?(sessionId: string): Promise<RewindCheckpointLike[]>;
+  rewind?(sessionId: string, checkpointId: string, mode?: RewindTargetMode): Promise<RewindOperationResultLike | null>;
   listSkills?(): IrisSkillInfoLike[];
   listModes?(): IrisModeInfoLike[];
   switchMode?(modeName: string): boolean;
@@ -281,6 +315,14 @@ export class BackendHandle implements IrisBackendLike {
 
   redo(sessionId: string): Promise<{ assistantText?: string } | null> {
     return this._backend.redo?.(sessionId) ?? Promise.resolve(null);
+  }
+
+  listRewindCheckpoints(sessionId: string): Promise<RewindCheckpointLike[]> {
+    return this._backend.listRewindCheckpoints?.(sessionId) ?? Promise.resolve([]);
+  }
+
+  rewind(sessionId: string, checkpointId: string, mode: RewindTargetMode = 'conversation'): Promise<RewindOperationResultLike | null> {
+    return this._backend.rewind?.(sessionId, checkpointId, mode) ?? Promise.resolve(null);
   }
 
   listSkills(): IrisSkillInfoLike[] { return this._backend.listSkills?.() ?? []; }

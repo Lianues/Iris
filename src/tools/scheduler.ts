@@ -828,6 +828,20 @@ async function executeSingle(
     }
   }
 
+  // 文件历史快照：在真正执行编辑类工具前备份目标文件的当前状态。
+  // 必须发生在 handler 写盘之前；失败不阻止工具执行，避免 rewind 辅助能力影响主流程。
+  if (runtimeApprovalContext?.trackFileEdit) {
+    try {
+      await raceWithAbort(
+        Promise.resolve(runtimeApprovalContext.trackFileEdit(toolName, effectiveArgs)),
+        effectiveSignal,
+      );
+    } catch (err: unknown) {
+      if (isAbortError(err, effectiveSignal)) throw err;
+      logger.warn(`记录文件历史快照失败，已跳过: ${toolName}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // Claude Code 在自动批准编辑类工具时仍会在终态消息中展示结构化 diff。
   // Iris 的 autoApproveDiff / Auto Edit 会跳过执行前审批页，因此这里在真正
   // 修改文件之前捕获一份 session-aware diff 预览，稍后仅挂到 UI 状态结果上。

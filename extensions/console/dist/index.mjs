@@ -16,7 +16,7 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// ../../packages/extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/dist/logger.js
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
@@ -222,7 +222,7 @@ var init_terminal_compat = __esm(() => {
   HOURGLASS_SPINNER_INTERVAL_MS = terminalTier === "basic" ? 240 : 360;
 });
 
-// ../../packages/extension-sdk/dist/ipc/framing.js
+// node_modules/irises-extension-sdk/dist/ipc/framing.js
 import { Transform } from "node:stream";
 function encodeFrame(data) {
   const payload = Buffer.from(JSON.stringify(data), "utf-8");
@@ -273,7 +273,7 @@ var init_framing = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/protocol.js
+// node_modules/irises-extension-sdk/dist/ipc/protocol.js
 function isRequest(msg) {
   return "id" in msg && "method" in msg;
 }
@@ -305,6 +305,8 @@ var init_protocol = __esm(() => {
     UNDO: "backend.undo",
     REDO: "backend.redo",
     CLEAR_REDO: "backend.clearRedo",
+    LIST_REWIND_CHECKPOINTS: "backend.listRewindCheckpoints",
+    REWIND: "backend.rewind",
     GET_HISTORY: "backend.getHistory",
     LIST_SKILLS: "backend.listSkills",
     LIST_MODES: "backend.listModes",
@@ -405,7 +407,7 @@ var init_protocol = __esm(() => {
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-tool-handle.js
+// node_modules/irises-extension-sdk/dist/ipc/remote-tool-handle.js
 import { EventEmitter } from "node:events";
 var logger, RemoteToolHandle;
 var init_remote_tool_handle = __esm(() => {
@@ -509,7 +511,7 @@ var init_remote_tool_handle = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-backend-handle.js
+// node_modules/irises-extension-sdk/dist/ipc/remote-backend-handle.js
 import { EventEmitter as EventEmitter2 } from "node:events";
 var logger2, RemoteBackendHandle;
 var init_remote_backend_handle = __esm(() => {
@@ -577,6 +579,14 @@ var init_remote_backend_handle = __esm(() => {
     }
     async redo(sessionId) {
       return await this.callRemote(Methods.REDO, [sessionId]) ?? null;
+    }
+    async listRewindCheckpoints(sessionId) {
+      const result = await this.callRemote(Methods.LIST_REWIND_CHECKPOINTS, [sessionId]);
+      return result ?? [];
+    }
+    async rewind(sessionId, checkpointId, mode = "conversation") {
+      const result = await this.callRemote(Methods.REWIND, [sessionId, checkpointId, mode]);
+      return result ?? null;
     }
     clearRedo(sessionId) {
       this.callRemote(Methods.CLEAR_REDO, [sessionId]).catch((err) => logger2.warn(`clearRedo 失败: ${err.message}`));
@@ -779,7 +789,7 @@ var init_remote_backend_handle = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-api-proxy.js
+// node_modules/irises-extension-sdk/dist/ipc/remote-api-proxy.js
 function callApi(client, targetAgentName, method, params) {
   if (!targetAgentName) {
     return client.call(method, params);
@@ -850,7 +860,7 @@ var init_remote_api_proxy = __esm(() => {
   logger3 = createExtensionLogger("RemoteApiProxy");
 });
 
-// ../../packages/extension-sdk/dist/ipc/index.js
+// node_modules/irises-extension-sdk/dist/ipc/index.js
 var exports_ipc = {};
 __export(exports_ipc, {
   isResponse: () => isResponse,
@@ -1338,7 +1348,7 @@ import React15 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// ../../packages/extension-sdk/dist/platform.js
+// node_modules/irises-extension-sdk/dist/platform.js
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1413,6 +1423,12 @@ class BackendHandle {
   redo(sessionId) {
     return this._backend.redo?.(sessionId) ?? Promise.resolve(null);
   }
+  listRewindCheckpoints(sessionId) {
+    return this._backend.listRewindCheckpoints?.(sessionId) ?? Promise.resolve([]);
+  }
+  rewind(sessionId, checkpointId, mode = "conversation") {
+    return this._backend.rewind?.(sessionId, checkpointId, mode) ?? Promise.resolve(null);
+  }
   listSkills() {
     return this._backend.listSkills?.() ?? [];
   }
@@ -1483,9 +1499,9 @@ class PlatformAdapter {
   }
 }
 
-// ../../packages/extension-sdk/dist/index.js
+// node_modules/irises-extension-sdk/dist/index.js
 init_logger();
-// ../../packages/extension-sdk/dist/utils/dependencies.js
+// node_modules/irises-extension-sdk/dist/utils/dependencies.js
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
@@ -1622,7 +1638,7 @@ async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
     installArgs: args
   };
 }
-// ../../packages/extension-sdk/dist/utils/paths.js
+// node_modules/irises-extension-sdk/dist/utils/paths.js
 function normalizeText(value) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -1656,7 +1672,7 @@ function encodeRepoPathForUrl(repoPath) {
   return repoPath.split("/").map((part) => encodeURIComponent(part)).join("/");
 }
 
-// ../../packages/extension-sdk/dist/utils/manifest.js
+// node_modules/irises-extension-sdk/dist/utils/manifest.js
 var MANIFEST_FILE = "manifest.json";
 function parseExtensionManifest(raw, sourceLabel) {
   if (!raw || typeof raw !== "object") {
@@ -1672,7 +1688,7 @@ function parseExtensionManifest(raw, sourceLabel) {
   return manifest;
 }
 
-// ../../packages/extension-sdk/dist/utils/remote.js
+// node_modules/irises-extension-sdk/dist/utils/remote.js
 var DEFAULT_REMOTE_EXTENSION_INDEX_URL = "https://raw.githubusercontent.com/Lianues/Iris/main/extensions/index.json";
 var DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL = "https://raw.githubusercontent.com/Lianues/Iris/main";
 var DEFAULT_REMOTE_EXTENSIONS_SUBDIR = "extensions";
@@ -1732,7 +1748,7 @@ async function fetchRemoteManifest(requestedPath, options) {
   const raw = await fetchJson(manifestUrl, "extension manifest");
   return parseExtensionManifest(raw, `${buildRemoteExtensionPath(requestedPath, options)}/${MANIFEST_FILE}`);
 }
-// ../../packages/extension-sdk/dist/utils/git.js
+// node_modules/irises-extension-sdk/dist/utils/git.js
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 var GIT_INSTALL_METADATA_FILE = ".iris-extension-install.json";
@@ -3250,6 +3266,7 @@ var COMMANDS = [
   { name: "/load", description: "加载历史对话" },
   { name: "/undo", description: "撤销最后一条消息" },
   { name: "/redo", description: "恢复上一次撤销" },
+  { name: "/rewind", description: "选择历史消息并回溯到发送前" },
   { name: "/model", description: "查看或切换当前模型" },
   { name: "/settings", description: "打开设置中心（LLM / System / Tools / MCP）" },
   { name: "/mcp", description: "直接打开 MCP 管理区" },
@@ -3472,7 +3489,7 @@ function isPlanModeToggleShortcut(key) {
 function isPrioritySubmitShortcut(key) {
   return key.ctrl && key.name === "s" || key.sequence === "\x13" || key.raw === "\x13";
 }
-function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef }) {
+function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed }) {
   const [inputState, inputActions] = useTextInput("");
   const [selectedIndex, setSelectedIndex] = useState5(0);
   const [fileSelectedIndex, setFileSelectedIndex] = useState5(0);
@@ -3535,6 +3552,11 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       return;
     const controller = {
       hasValue: () => value.length > 0,
+      setValue: (text) => {
+        inputActions.setValue(text);
+        setSelectedIndex(0);
+        setCommandsDismissed(false);
+      },
       clear: () => {
         inputActions.setValue("");
         setSelectedIndex(0);
@@ -3547,6 +3569,15 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         inputControllerRef.current = null;
     };
   }, [inputControllerRef, inputActions, value]);
+  useEffect5(() => {
+    if (restoreInputText == null)
+      return;
+    inputActions.setValue(restoreInputText);
+    setSelectedIndex(0);
+    setCommandsDismissed(false);
+    setFileMentionDismissedKey(null);
+    onRestoreInputConsumed?.();
+  }, [restoreInputText, inputActions, onRestoreInputConsumed]);
   const showCommands = commandQuery.length > 0 && !commandsDismissed;
   const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && value.startsWith(`${activeArgCommand.name} `);
   const fileMention = useFileMentionCompletion({
@@ -4328,7 +4359,9 @@ function BottomPanel({
   dynamicCommands,
   statusSegments,
   supportsHeadlessTransition,
-  inputControllerRef
+  inputControllerRef,
+  restoreInputText,
+  onRestoreInputConsumed
 }) {
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
   return /* @__PURE__ */ jsxDEV11("box", {
@@ -4385,7 +4418,9 @@ function BottomPanel({
             dynamicCommands,
             supportsHeadlessTransition,
             thinkingControlEnabled,
-            inputControllerRef
+            inputControllerRef,
+            restoreInputText,
+            onRestoreInputConsumed
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV11(StatusBar, {
             agentName,
@@ -8376,9 +8411,200 @@ function SessionListView({ sessions, selectedIndex, pendingDeleteId, statusMessa
   }, undefined, true, undefined, this);
 }
 
-// src/components/MemoryListView.tsx
+// src/components/RewindSelectorView.tsx
 init_terminal_compat();
 import { jsxDEV as jsxDEV40 } from "@opentui/react/jsx-dev-runtime";
+function clamp2(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function formatTime3(createdAt) {
+  if (!createdAt)
+    return "";
+  const d = new Date(createdAt);
+  const now = new Date;
+  const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  if (d.toDateString() === now.toDateString())
+    return hhmm;
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${hhmm}`;
+}
+function truncate5(text, maxLen) {
+  const normalized = (text || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLen)
+    return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLen - 1))}${ICONS.ellipsis}`;
+}
+var MAX_VISIBLE = 9;
+var MODE_LABELS = {
+  conversation: "仅对话",
+  code: "仅代码",
+  both: "对话 + 代码"
+};
+function formatStats2(checkpoint) {
+  const stats = checkpoint.codeChangeSummary;
+  if (!checkpoint.canRestoreCode || !stats)
+    return "无代码快照";
+  const fileCount = stats.filesChanged.length;
+  if (fileCount === 0)
+    return "代码无变化";
+  return `${fileCount} 个文件 · +${stats.insertions} -${stats.deletions}`;
+}
+function RewindSelectorView({ checkpoints, selectedIndex, confirmCheckpointId, statusMessage, statusIsError, isRestoring, selectedMode = "conversation" }) {
+  const safeSelectedIndex = checkpoints.length > 0 ? clamp2(selectedIndex, 0, checkpoints.length - 1) : 0;
+  const startIndex = checkpoints.length <= MAX_VISIBLE ? 0 : clamp2(safeSelectedIndex - Math.floor(MAX_VISIBLE / 2), 0, checkpoints.length - MAX_VISIBLE);
+  const visible = checkpoints.slice(startIndex, startIndex + MAX_VISIBLE);
+  const selected = checkpoints[safeSelectedIndex];
+  const isConfirming = !!selected && confirmCheckpointId === selected.id;
+  return /* @__PURE__ */ jsxDEV40("box", {
+    flexDirection: "column",
+    width: "100%",
+    height: "100%",
+    children: [
+      /* @__PURE__ */ jsxDEV40("box", {
+        padding: 1,
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsxDEV40("box", {
+            children: [
+              /* @__PURE__ */ jsxDEV40("text", {
+                fg: C.primary,
+                children: "Rewind 回溯"
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsxDEV40("text", {
+                fg: C.dim,
+                children: `  (${checkpoints.length} 个可回溯点)`
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this),
+          /* @__PURE__ */ jsxDEV40("box", {
+            paddingTop: 0,
+            children: /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: isRestoring ? "正在回溯，请稍候..." : isConfirming ? "Enter 确认回到该消息发送前 · Esc 返回列表" : `${ICONS.arrowUp}${ICONS.arrowDown} 选择 · Enter 继续 · Esc 返回`
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this),
+          statusMessage ? /* @__PURE__ */ jsxDEV40("box", {
+            paddingTop: 0,
+            children: /* @__PURE__ */ jsxDEV40("text", {
+              fg: statusIsError ? C.error : C.dim,
+              children: statusMessage
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this) : null
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ jsxDEV40("scrollbox", {
+        flexGrow: 1,
+        children: [
+          checkpoints.length === 0 ? /* @__PURE__ */ jsxDEV40("text", {
+            fg: C.dim,
+            paddingLeft: 2,
+            children: "暂无可回溯的用户消息。"
+          }, undefined, false, undefined, this) : null,
+          startIndex > 0 ? /* @__PURE__ */ jsxDEV40("text", {
+            fg: C.dim,
+            paddingLeft: 2,
+            children: `${ICONS.arrowUp} 上方还有 ${startIndex} 条`
+          }, undefined, false, undefined, this) : null,
+          visible.map((checkpoint, localIndex) => {
+            const index = startIndex + localIndex;
+            const isSelected = index === safeSelectedIndex;
+            const marker = isSelected ? `${ICONS.selectorArrow} ` : "  ";
+            const time = formatTime3(checkpoint.createdAt);
+            const suffix = [
+              time,
+              `将移除 ${checkpoint.messageCountAfter} 条`,
+              checkpoint.hasAttachments ? "含附件" : undefined,
+              formatStats2(checkpoint)
+            ].filter(Boolean).join(" · ");
+            return /* @__PURE__ */ jsxDEV40("box", {
+              paddingLeft: 1,
+              flexDirection: "column",
+              children: [
+                /* @__PURE__ */ jsxDEV40("text", {
+                  children: [
+                    /* @__PURE__ */ jsxDEV40("span", {
+                      fg: isSelected ? C.accent : C.dim,
+                      children: marker
+                    }, undefined, false, undefined, this),
+                    /* @__PURE__ */ jsxDEV40("span", {
+                      fg: C.dim,
+                      children: `${index + 1}. `
+                    }, undefined, false, undefined, this),
+                    isSelected ? /* @__PURE__ */ jsxDEV40("strong", {
+                      children: /* @__PURE__ */ jsxDEV40("span", {
+                        fg: C.text,
+                        children: truncate5(checkpoint.preview, 96)
+                      }, undefined, false, undefined, this)
+                    }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV40("span", {
+                      fg: C.textSec,
+                      children: truncate5(checkpoint.preview, 96)
+                    }, undefined, false, undefined, this)
+                  ]
+                }, undefined, true, undefined, this),
+                /* @__PURE__ */ jsxDEV40("text", {
+                  children: /* @__PURE__ */ jsxDEV40("span", {
+                    fg: C.dim,
+                    children: `     ${suffix}`
+                  }, undefined, false, undefined, this)
+                }, undefined, false, undefined, this),
+                isSelected && checkpoint.assistantText ? /* @__PURE__ */ jsxDEV40("text", {
+                  children: /* @__PURE__ */ jsxDEV40("span", {
+                    fg: C.dim,
+                    children: `     回复：${truncate5(checkpoint.assistantText, 88)}`
+                  }, undefined, false, undefined, this)
+                }, undefined, false, undefined, this) : null
+              ]
+            }, checkpoint.id, true, undefined, this);
+          }),
+          startIndex + visible.length < checkpoints.length ? /* @__PURE__ */ jsxDEV40("text", {
+            fg: C.dim,
+            paddingLeft: 2,
+            children: `${ICONS.arrowDown} 下方还有 ${checkpoints.length - startIndex - visible.length} 条`
+          }, undefined, false, undefined, this) : null
+        ]
+      }, undefined, true, undefined, this),
+      isConfirming && selected ? /* @__PURE__ */ jsxDEV40("box", {
+        padding: 1,
+        flexDirection: "column",
+        borderStyle: "single",
+        borderColor: C.warn,
+        children: [
+          /* @__PURE__ */ jsxDEV40("text", {
+            fg: C.warn,
+            children: "确认回溯到发送这条消息之前？"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV40("text", {
+            children: [
+              /* @__PURE__ */ jsxDEV40("span", {
+                fg: C.dim,
+                children: "恢复模式："
+              }, undefined, false, undefined, this),
+              ["conversation", "code", "both"].map((mode) => /* @__PURE__ */ jsxDEV40("span", {
+                fg: mode === "conversation" || selected.canRestoreCode ? mode === selectedMode ? C.accent : C.dim : C.error,
+                children: `${mode === selectedMode ? `${ICONS.selectorArrow} ` : "  "}${MODE_LABELS[mode]}${mode !== "conversation" && !selected.canRestoreCode ? "(不可用)" : ""}  `
+              }, mode, false, undefined, this))
+            ]
+          }, undefined, true, undefined, this),
+          /* @__PURE__ */ jsxDEV40("text", {
+            fg: C.dim,
+            children: selectedMode === "code" ? "仅恢复代码文件；对话历史保持不变。" : `将移除 ${selected.messageCountAfter} 条历史，并把该用户输入恢复到底部输入框。`
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV40("text", {
+            fg: C.dim,
+            children: `代码快照：${formatStats2(selected)}。仅覆盖 Iris 编辑类工具，不覆盖 shell/bash 或手动改动。`
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV40("text", {
+            fg: C.dim,
+            children: "这会创建新的对话分支；后续发送新消息后，原来的 redo 将失效。"
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this) : null
+    ]
+  }, undefined, true, undefined, this);
+}
+
+// src/components/MemoryListView.tsx
+init_terminal_compat();
+import { jsxDEV as jsxDEV41 } from "@opentui/react/jsx-dev-runtime";
 var TYPE_LABELS = {
   user: "user",
   feedback: "feedback",
@@ -8400,36 +8626,36 @@ function MemoryListView({ memories, selectedIndex, expandedId, filter, pendingDe
   const total = memories.length;
   const shown = filtered.length;
   const filterLabel = filter === "all" ? `(${total} ${ICONS.separator} Tab ${ICONS.triangleRight})` : `[${filter}] (${shown}/${total} ${ICONS.separator} Tab ${ICONS.triangleRight})`;
-  return /* @__PURE__ */ jsxDEV40("box", {
+  return /* @__PURE__ */ jsxDEV41("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV40("box", {
+      /* @__PURE__ */ jsxDEV41("box", {
         padding: 1,
         children: [
-          /* @__PURE__ */ jsxDEV40("text", {
+          /* @__PURE__ */ jsxDEV41("text", {
             fg: C.primary,
             children: `${ICONS.bullet} `
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("text", {
+          /* @__PURE__ */ jsxDEV41("text", {
             fg: C.primary,
             children: "Memory "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("text", {
+          /* @__PURE__ */ jsxDEV41("text", {
             fg: C.dim,
             children: filterLabel
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("text", {
+          /* @__PURE__ */ jsxDEV41("text", {
             fg: C.dim,
             children: `  ${ICONS.arrowUp}${ICONS.arrowDown} select  Enter expand  D delete  Esc back`
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV40("scrollbox", {
+      /* @__PURE__ */ jsxDEV41("scrollbox", {
         flexGrow: 1,
         children: [
-          filtered.length === 0 && /* @__PURE__ */ jsxDEV40("text", {
+          filtered.length === 0 && /* @__PURE__ */ jsxDEV41("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: filter === "all" ? "No memories yet." : `No ${filter} memories.`
@@ -8440,52 +8666,52 @@ function MemoryListView({ memories, selectedIndex, expandedId, filter, pendingDe
             const isPendingDelete = item.id === pendingDeleteId;
             const typeTag = TYPE_LABELS[item.type] ?? item.type;
             const age = formatAge(item.updatedAt);
-            return /* @__PURE__ */ jsxDEV40("box", {
+            return /* @__PURE__ */ jsxDEV41("box", {
               flexDirection: "column",
               paddingLeft: 1,
               children: [
-                /* @__PURE__ */ jsxDEV40("box", {
-                  children: /* @__PURE__ */ jsxDEV40("text", {
+                /* @__PURE__ */ jsxDEV41("box", {
+                  children: /* @__PURE__ */ jsxDEV41("text", {
                     children: [
-                      /* @__PURE__ */ jsxDEV40("span", {
+                      /* @__PURE__ */ jsxDEV41("span", {
                         fg: isSelected ? C.accent : C.dim,
                         children: isSelected ? `${ICONS.selectorArrow} ` : "  "
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV40("span", {
+                      /* @__PURE__ */ jsxDEV41("span", {
                         fg: C.dim,
                         children: `[${typeTag}] `
                       }, undefined, false, undefined, this),
-                      isSelected ? /* @__PURE__ */ jsxDEV40("strong", {
-                        children: /* @__PURE__ */ jsxDEV40("span", {
+                      isSelected ? /* @__PURE__ */ jsxDEV41("strong", {
+                        children: /* @__PURE__ */ jsxDEV41("span", {
                           fg: C.text,
                           children: item.name || `#${item.id}`
                         }, undefined, false, undefined, this)
-                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV40("span", {
+                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV41("span", {
                         fg: C.textSec,
                         children: item.name || `#${item.id}`
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV40("span", {
+                      /* @__PURE__ */ jsxDEV41("span", {
                         fg: C.dim,
                         children: ` ${ICONS.emDash} ${item.description || "(no description)"}`
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV40("span", {
+                      /* @__PURE__ */ jsxDEV41("span", {
                         fg: C.dim,
                         children: `  ${age}`
                       }, undefined, false, undefined, this)
                     ]
                   }, undefined, true, undefined, this)
                 }, undefined, false, undefined, this),
-                isPendingDelete && /* @__PURE__ */ jsxDEV40("box", {
+                isPendingDelete && /* @__PURE__ */ jsxDEV41("box", {
                   paddingLeft: 4,
-                  children: /* @__PURE__ */ jsxDEV40("text", {
+                  children: /* @__PURE__ */ jsxDEV41("text", {
                     fg: C.error,
                     children: "Delete this memory? (D) confirm  (Esc) cancel"
                   }, undefined, false, undefined, this)
                 }, undefined, false, undefined, this),
-                isExpanded && !isPendingDelete && /* @__PURE__ */ jsxDEV40("box", {
+                isExpanded && !isPendingDelete && /* @__PURE__ */ jsxDEV41("box", {
                   paddingLeft: 4,
                   paddingBottom: 1,
-                  children: /* @__PURE__ */ jsxDEV40("text", {
+                  children: /* @__PURE__ */ jsxDEV41("text", {
                     fg: C.textSec,
                     children: item.content
                   }, undefined, false, undefined, this)
@@ -8515,7 +8741,7 @@ function formatAge(unixSec) {
 // src/components/ExtensionListView.tsx
 import { useTerminalDimensions as useTerminalDimensions8 } from "@opentui/react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV41, Fragment as Fragment8 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV42, Fragment as Fragment8 } from "@opentui/react/jsx-dev-runtime";
 var STATUS_LABELS = {
   active: { label: "active", color: "#2ecc71" },
   disabled: { label: "disabled", color: "#e74c3c" },
@@ -8530,7 +8756,7 @@ var SOURCE_BADGES = {
   remote: { label: "R", color: "#00cec9" }
 };
 var GIT_INPUT_PLACEHOLDER = "https://github.com/user/repo.git#main:extensions/demo";
-function clamp2(value, min, max) {
+function clamp3(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 function splitFixedWidth(value, width) {
@@ -8545,11 +8771,11 @@ function splitFixedWidth(value, width) {
   return result.length > 0 ? result : [""];
 }
 function renderCursorChar(char, visible) {
-  return visible ? /* @__PURE__ */ jsxDEV41("span", {
+  return visible ? /* @__PURE__ */ jsxDEV42("span", {
     bg: C.accent,
     fg: C.cursorFg,
     children: char || " "
-  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV41("span", {
+  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV42("span", {
     fg: C.text,
     children: char || " "
   }, undefined, false, undefined, this);
@@ -8563,20 +8789,20 @@ function GitInputFrame({
   const safeTerminalWidth = Math.max(20, terminalWidth || 80);
   const frameWidth = Math.max(12, Math.min(88, safeTerminalWidth - 8));
   const innerWidth = Math.max(12, frameWidth - 4);
-  const safeCursor = clamp2(cursor, 0, value.length);
+  const safeCursor = clamp3(cursor, 0, value.length);
   const topBorder = `${BORDER_CHARS.topLeft}${BORDER_CHARS.horizontal.repeat(innerWidth + 2)}${BORDER_CHARS.topRight}`;
   const bottomBorder = `${BORDER_CHARS.bottomLeft}${BORDER_CHARS.horizontal.repeat(innerWidth + 2)}${BORDER_CHARS.bottomRight}`;
   const lines = value ? splitFixedWidth(value, innerWidth) : splitFixedWidth(` ${GIT_INPUT_PLACEHOLDER}`, innerWidth - 1);
   if (value && safeCursor === value.length && value.length > 0 && value.length % innerWidth === 0) {
     lines.push("");
   }
-  return /* @__PURE__ */ jsxDEV41("box", {
+  return /* @__PURE__ */ jsxDEV42("box", {
     flexDirection: "column",
     width: frameWidth,
     height: Math.max(3, lines.length + 2),
     flexShrink: 0,
     children: [
-      /* @__PURE__ */ jsxDEV41("text", {
+      /* @__PURE__ */ jsxDEV42("text", {
         wrapMode: "none",
         fg: C.accent,
         children: topBorder
@@ -8584,18 +8810,18 @@ function GitInputFrame({
       lines.map((line, lineIndex) => {
         const start = value ? lineIndex * innerWidth : 0;
         const end = start + line.length;
-        const wrapLine = (node, visualWidth) => /* @__PURE__ */ jsxDEV41("text", {
+        const wrapLine = (node, visualWidth) => /* @__PURE__ */ jsxDEV42("text", {
           wrapMode: "none",
           children: [
-            /* @__PURE__ */ jsxDEV41("span", {
+            /* @__PURE__ */ jsxDEV42("span", {
               fg: C.accent,
               children: `${BORDER_CHARS.vertical} `
             }, undefined, false, undefined, this),
             node,
-            /* @__PURE__ */ jsxDEV41("span", {
+            /* @__PURE__ */ jsxDEV42("span", {
               children: " ".repeat(Math.max(0, innerWidth - visualWidth))
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV41("span", {
+            /* @__PURE__ */ jsxDEV42("span", {
               fg: C.accent,
               children: ` ${BORDER_CHARS.vertical}`
             }, undefined, false, undefined, this)
@@ -8603,10 +8829,10 @@ function GitInputFrame({
         }, `git-input-line-${lineIndex}`, true, undefined, this);
         if (!value) {
           const placeholderPart = line;
-          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment8, {
+          return wrapLine(/* @__PURE__ */ jsxDEV42(Fragment8, {
             children: [
               lineIndex === 0 && renderCursorChar(" ", cursorVisible),
-              /* @__PURE__ */ jsxDEV41("span", {
+              /* @__PURE__ */ jsxDEV42("span", {
                 fg: C.dim,
                 children: placeholderPart
               }, undefined, false, undefined, this)
@@ -8615,14 +8841,14 @@ function GitInputFrame({
         }
         if (safeCursor >= start && safeCursor < end) {
           const local = safeCursor - start;
-          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment8, {
+          return wrapLine(/* @__PURE__ */ jsxDEV42(Fragment8, {
             children: [
-              /* @__PURE__ */ jsxDEV41("span", {
+              /* @__PURE__ */ jsxDEV42("span", {
                 fg: C.text,
                 children: line.slice(0, local)
               }, undefined, false, undefined, this),
               renderCursorChar(line[local] || " ", cursorVisible),
-              /* @__PURE__ */ jsxDEV41("span", {
+              /* @__PURE__ */ jsxDEV42("span", {
                 fg: C.text,
                 children: line.slice(local + 1)
               }, undefined, false, undefined, this)
@@ -8630,9 +8856,9 @@ function GitInputFrame({
           }, undefined, true, undefined, this), line.length);
         }
         if (safeCursor === end && lineIndex === lines.length - 1) {
-          return wrapLine(/* @__PURE__ */ jsxDEV41(Fragment8, {
+          return wrapLine(/* @__PURE__ */ jsxDEV42(Fragment8, {
             children: [
-              /* @__PURE__ */ jsxDEV41("span", {
+              /* @__PURE__ */ jsxDEV42("span", {
                 fg: C.text,
                 children: line
               }, undefined, false, undefined, this),
@@ -8640,12 +8866,12 @@ function GitInputFrame({
             ]
           }, undefined, true, undefined, this), line.length + 1);
         }
-        return wrapLine(/* @__PURE__ */ jsxDEV41("span", {
+        return wrapLine(/* @__PURE__ */ jsxDEV42("span", {
           fg: C.text,
           children: line
         }, undefined, false, undefined, this), line.length);
       }),
-      /* @__PURE__ */ jsxDEV41("text", {
+      /* @__PURE__ */ jsxDEV42("text", {
         wrapMode: "none",
         fg: C.accent,
         children: bottomBorder
@@ -8672,89 +8898,89 @@ function ExtensionListView({
   const total = extensions.length;
   const pluginCount = extensions.filter((item) => item.hasPlugin).length;
   const platformCount = total - pluginCount;
-  return /* @__PURE__ */ jsxDEV41("box", {
+  return /* @__PURE__ */ jsxDEV42("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV41("box", {
+      /* @__PURE__ */ jsxDEV42("box", {
         padding: 1,
         children: [
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.primary,
             children: `${ICONS.bullet} `
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.primary,
             children: "Extension "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.dim,
             children: `(${pluginCount} plugins, ${platformCount} platforms)`
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.dim,
             children: busy ? "  处理中，请稍候..." : `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 标记  S 保存(启用时会安装缺失依赖)  G 拉取 Git  U 升级  D 删除  Esc 返回`
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      scopePickMode && /* @__PURE__ */ jsxDEV41("box", {
+      scopePickMode && /* @__PURE__ */ jsxDEV42("box", {
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
         paddingBottom: 1,
         children: [
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.primary,
             children: "选择安装范围："
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.text,
             children: "  [1] 全局      ~/.iris/extensions/         （所有 agent 共享）"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.text,
             children: "  [2] 此 agent  ~/.iris/agents/<id>/extensions/（仅当前 agent，优先级更高）"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.dim,
             children: "按数字选择，Esc 取消。选完会进入 Git 地址输入。"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      gitInputMode && /* @__PURE__ */ jsxDEV41("box", {
+      gitInputMode && /* @__PURE__ */ jsxDEV42("box", {
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
         paddingBottom: 1,
         children: [
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.primary,
             children: `Git 地址（→ ${installScope === "global" ? "全局" : "此 agent"}，支持 #ref:subdir）：`
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41(GitInputFrame, {
+          /* @__PURE__ */ jsxDEV42(GitInputFrame, {
             value: gitInputValue,
             cursor: gitInputCursor,
             cursorVisible: gitInputCursorVisible
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.dim,
             children: "Enter 拉取并安装，Esc 取消。不会执行第三方 install/build 脚本。"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      statusMessage && /* @__PURE__ */ jsxDEV41("box", {
+      statusMessage && /* @__PURE__ */ jsxDEV42("box", {
         paddingLeft: 2,
         paddingBottom: 1,
-        children: /* @__PURE__ */ jsxDEV41("text", {
+        children: /* @__PURE__ */ jsxDEV42("text", {
           fg: statusIsError ? C.error : C.accent,
           children: statusMessage
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV41("scrollbox", {
+      /* @__PURE__ */ jsxDEV42("scrollbox", {
         flexGrow: 1,
         children: [
-          extensions.length === 0 && /* @__PURE__ */ jsxDEV41("text", {
+          extensions.length === 0 && /* @__PURE__ */ jsxDEV42("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: "No extensions found."
@@ -8768,58 +8994,58 @@ function ExtensionListView({
             const isPendingDelete = pendingDeleteName === item.name;
             const isPendingUpdate = pendingUpdateName === item.name;
             const showHeader = index === 0 || extensions[index - 1]?.hasPlugin !== item.hasPlugin;
-            return /* @__PURE__ */ jsxDEV41("box", {
+            return /* @__PURE__ */ jsxDEV42("box", {
               flexDirection: "column",
               children: [
-                showHeader && /* @__PURE__ */ jsxDEV41("text", {
+                showHeader && /* @__PURE__ */ jsxDEV42("text", {
                   fg: C.primary,
                   children: item.hasPlugin ? "Plugins" : "Platforms"
                 }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsxDEV41("box", {
+                /* @__PURE__ */ jsxDEV42("box", {
                   paddingLeft: 1,
-                  children: /* @__PURE__ */ jsxDEV41("text", {
+                  children: /* @__PURE__ */ jsxDEV42("text", {
                     children: [
-                      /* @__PURE__ */ jsxDEV41("span", {
+                      /* @__PURE__ */ jsxDEV42("span", {
                         fg: isSelected ? C.accent : C.dim,
                         children: isSelected ? `${ICONS.selectorArrow} ` : "  "
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV41("span", {
+                      /* @__PURE__ */ jsxDEV42("span", {
                         fg: statusInfo.color,
                         children: `[${isToggling ? "..." : `${statusInfo.label}${isDirty ? "*" : ""}`}] `
                       }, undefined, false, undefined, this),
                       (() => {
                         const badge = SOURCE_BADGES[item.source];
-                        return badge ? /* @__PURE__ */ jsxDEV41("span", {
+                        return badge ? /* @__PURE__ */ jsxDEV42("span", {
                           fg: badge.color,
                           children: `[${badge.label}] `
                         }, undefined, false, undefined, this) : null;
                       })(),
-                      isSelected ? /* @__PURE__ */ jsxDEV41("strong", {
-                        children: /* @__PURE__ */ jsxDEV41("span", {
+                      isSelected ? /* @__PURE__ */ jsxDEV42("strong", {
+                        children: /* @__PURE__ */ jsxDEV42("span", {
                           fg: C.text,
                           children: item.name
                         }, undefined, false, undefined, this)
-                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV41("span", {
+                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV42("span", {
                         fg: C.textSec,
                         children: item.name
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV41("span", {
+                      /* @__PURE__ */ jsxDEV42("span", {
                         fg: C.dim,
                         children: ` v${item.version}`
                       }, undefined, false, undefined, this),
-                      isGit && /* @__PURE__ */ jsxDEV41("span", {
+                      isGit && /* @__PURE__ */ jsxDEV42("span", {
                         fg: "#74b9ff",
                         children: item.gitCommit ? ` [git:${item.gitCommit.slice(0, 8)}]` : " [git]"
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV41("span", {
+                      /* @__PURE__ */ jsxDEV42("span", {
                         fg: C.dim,
                         children: ` ${ICONS.emDash} ${item.description || "(no description)"}`
                       }, undefined, false, undefined, this),
-                      isPendingDelete && /* @__PURE__ */ jsxDEV41("span", {
+                      isPendingDelete && /* @__PURE__ */ jsxDEV42("span", {
                         fg: C.error,
                         children: "  再按 D 确认删除"
                       }, undefined, false, undefined, this),
-                      isPendingUpdate && /* @__PURE__ */ jsxDEV41("span", {
+                      isPendingUpdate && /* @__PURE__ */ jsxDEV42("span", {
                         fg: C.warn,
                         children: "  再按 U 确认升级"
                       }, undefined, false, undefined, this)
@@ -9257,7 +9483,7 @@ class ConsoleSettingsController {
 }
 
 // src/components/SettingsView.tsx
-import { jsxDEV as jsxDEV42 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV43 } from "@opentui/react/jsx-dev-runtime";
 function getToolPolicyMode(configured, autoApprove) {
   if (!configured)
     return "disabled";
@@ -10190,27 +10416,27 @@ ${JSON.stringify(result.data, null, 2)}` : "";
   }
   const visibleRows = sectionRows.slice(windowStart, windowEnd);
   if (loading && !draft) {
-    return /* @__PURE__ */ jsxDEV42("box", {
+    return /* @__PURE__ */ jsxDEV43("box", {
       width: "100%",
       height: "100%",
       justifyContent: "center",
       alignItems: "center",
-      children: /* @__PURE__ */ jsxDEV42("text", {
+      children: /* @__PURE__ */ jsxDEV43("text", {
         fg: "#888",
         children: "正在加载配置..."
       }, undefined, false, undefined, this)
     }, undefined, false, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV42("box", {
+  return /* @__PURE__ */ jsxDEV43("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV42("box", {
+      /* @__PURE__ */ jsxDEV43("box", {
         flexDirection: "row",
         flexGrow: 1,
         children: [
-          /* @__PURE__ */ jsxDEV42("box", {
+          /* @__PURE__ */ jsxDEV43("box", {
             width: 24,
             flexShrink: 0,
             flexDirection: "column",
@@ -10218,16 +10444,16 @@ ${JSON.stringify(result.data, null, 2)}` : "";
             paddingLeft: 2,
             paddingRight: 1,
             children: [
-              /* @__PURE__ */ jsxDEV42("text", {
+              /* @__PURE__ */ jsxDEV43("text", {
                 fg: C.primary,
-                children: /* @__PURE__ */ jsxDEV42("strong", {
+                children: /* @__PURE__ */ jsxDEV43("strong", {
                   children: "IRIS"
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV42("box", {
+              /* @__PURE__ */ jsxDEV43("box", {
                 marginTop: 1,
                 flexDirection: "column",
-                children: sections.map((sec) => /* @__PURE__ */ jsxDEV42("text", {
+                children: sections.map((sec) => /* @__PURE__ */ jsxDEV43("text", {
                   fg: currentSection === sec.id ? navFocused ? "#00ffff" : C.accent : "#555",
                   children: [
                     currentSection === sec.id ? navFocused ? "❯" : ICONS.dotFilled : ICONS.dotEmpty,
@@ -10240,32 +10466,32 @@ ${JSON.stringify(result.data, null, 2)}` : "";
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV42("box", {
+          /* @__PURE__ */ jsxDEV43("box", {
             flexGrow: 1,
             flexDirection: "column",
             paddingTop: 1,
             paddingLeft: 2,
             children: [
-              /* @__PURE__ */ jsxDEV42("box", {
+              /* @__PURE__ */ jsxDEV43("box", {
                 alignItems: "center",
                 paddingBottom: 1,
                 flexShrink: 0,
-                children: /* @__PURE__ */ jsxDEV42("ascii-font", {
+                children: /* @__PURE__ */ jsxDEV43("ascii-font", {
                   text: "IRIS",
                   font: "block",
                   color: C.primary
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV42("box", {
+              /* @__PURE__ */ jsxDEV43("box", {
                 flexDirection: "column",
                 marginBottom: 1,
                 flexShrink: 0,
                 children: [
-                  /* @__PURE__ */ jsxDEV42("text", {
+                  /* @__PURE__ */ jsxDEV43("text", {
                     fg: "#888",
                     children: "在终端内管理模型池、系统参数、工具策略与 MCP 服务器。"
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV42("text", {
+                  /* @__PURE__ */ jsxDEV43("text", {
                     fg: isDirty ? C.warn : C.accent,
                     children: [
                       isDirty ? `${ICONS.dotFilled} 有未保存修改` : `${ICONS.checkmark} 当前草稿已同步`,
@@ -10274,37 +10500,37 @@ ${JSON.stringify(result.data, null, 2)}` : "";
                   }, undefined, true, undefined, this)
                 ]
               }, undefined, true, undefined, this),
-              /* @__PURE__ */ jsxDEV42("scrollbox", {
+              /* @__PURE__ */ jsxDEV43("scrollbox", {
                 flexGrow: 1,
                 children: [
-                  windowStart > 0 && /* @__PURE__ */ jsxDEV42("text", {
+                  windowStart > 0 && /* @__PURE__ */ jsxDEV43("text", {
                     fg: "#888",
                     children: ICONS.ellipsis
                   }, undefined, false, undefined, this),
                   visibleRows.map((row) => {
                     const isSelected = !navFocused && row.id === selectedRowId && !!row.target;
                     const prefix = row.kind === "action" ? isSelected ? "❯" : "•" : row.kind === "field" ? isSelected ? "❯" : " " : " ";
-                    return /* @__PURE__ */ jsxDEV42("box", {
+                    return /* @__PURE__ */ jsxDEV43("box", {
                       paddingLeft: row.indent ?? 0,
-                      children: /* @__PURE__ */ jsxDEV42("text", {
+                      children: /* @__PURE__ */ jsxDEV43("text", {
                         children: [
-                          /* @__PURE__ */ jsxDEV42("span", {
+                          /* @__PURE__ */ jsxDEV43("span", {
                             fg: isSelected ? "#00ffff" : C.dim,
                             children: prefix
                           }, undefined, false, undefined, this),
-                          /* @__PURE__ */ jsxDEV42("span", {
+                          /* @__PURE__ */ jsxDEV43("span", {
                             children: " "
                           }, undefined, false, undefined, this),
-                          isSelected && row.kind !== "info" ? /* @__PURE__ */ jsxDEV42("span", {
+                          isSelected && row.kind !== "info" ? /* @__PURE__ */ jsxDEV43("span", {
                             fg: C.accent,
-                            children: /* @__PURE__ */ jsxDEV42("strong", {
+                            children: /* @__PURE__ */ jsxDEV43("strong", {
                               children: row.label
                             }, undefined, false, undefined, this)
-                          }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV42("span", {
+                          }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV43("span", {
                             fg: isSelected ? "#00ffff" : undefined,
                             children: row.label
                           }, undefined, false, undefined, this),
-                          row.value != null && /* @__PURE__ */ jsxDEV42("span", {
+                          row.value != null && /* @__PURE__ */ jsxDEV43("span", {
                             fg: isSelected ? "#00ffff" : C.dim,
                             children: `  ${row.value}`
                           }, undefined, false, undefined, this)
@@ -10312,7 +10538,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
                       }, undefined, true, undefined, this)
                     }, row.id, false, undefined, this);
                   }),
-                  windowEnd < sectionRows.length && /* @__PURE__ */ jsxDEV42("text", {
+                  windowEnd < sectionRows.length && /* @__PURE__ */ jsxDEV43("text", {
                     fg: "#888",
                     children: ICONS.ellipsis
                   }, undefined, false, undefined, this)
@@ -10322,62 +10548,62 @@ ${JSON.stringify(result.data, null, 2)}` : "";
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV42("box", {
+      /* @__PURE__ */ jsxDEV43("box", {
         flexDirection: "column",
         marginTop: 1,
         paddingX: 2,
         children: [
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV43("text", {
             fg: C.dim,
             children: "─".repeat(Math.max(3, termWidth - 4))
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV42("box", {
+          /* @__PURE__ */ jsxDEV43("box", {
             flexDirection: "column",
             minHeight: 4,
             children: [
-              selectedRow?.description && !editor && /* @__PURE__ */ jsxDEV42("text", {
+              selectedRow?.description && !editor && /* @__PURE__ */ jsxDEV43("text", {
                 fg: "#888",
                 children: selectedRow.description
               }, undefined, false, undefined, this),
-              statusText && /* @__PURE__ */ jsxDEV42("text", {
+              statusText && /* @__PURE__ */ jsxDEV43("text", {
                 fg: getStatusColor(statusKind),
                 children: statusText
               }, undefined, false, undefined, this),
-              editor ? /* @__PURE__ */ jsxDEV42("box", {
+              editor ? /* @__PURE__ */ jsxDEV43("box", {
                 flexDirection: "column",
                 children: [
-                  /* @__PURE__ */ jsxDEV42("text", {
+                  /* @__PURE__ */ jsxDEV43("text", {
                     fg: C.accent,
-                    children: /* @__PURE__ */ jsxDEV42("strong", {
+                    children: /* @__PURE__ */ jsxDEV43("strong", {
                       children: [
                         "编辑：",
                         editor.label
                       ]
                     }, undefined, true, undefined, this)
                   }, undefined, false, undefined, this),
-                  editor.hint && /* @__PURE__ */ jsxDEV42("text", {
+                  editor.hint && /* @__PURE__ */ jsxDEV43("text", {
                     fg: "#888",
                     children: editor.hint
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV42("box", {
+                  /* @__PURE__ */ jsxDEV43("box", {
                     children: [
-                      /* @__PURE__ */ jsxDEV42("text", {
+                      /* @__PURE__ */ jsxDEV43("text", {
                         fg: C.accent,
                         children: "❯ "
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV42("input", {
+                      /* @__PURE__ */ jsxDEV43("input", {
                         value: editorValue,
                         onInput: setEditorValue,
                         focused: true
                       }, undefined, false, undefined, this)
                     ]
                   }, undefined, true, undefined, this),
-                  /* @__PURE__ */ jsxDEV42("text", {
+                  /* @__PURE__ */ jsxDEV43("text", {
                     fg: "#888",
                     children: `Enter 保存 ${ICONS.separator} Esc 取消`
                   }, undefined, false, undefined, this)
                 ]
-              }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV42("text", {
+              }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV43("text", {
                 fg: "#888",
                 children: `${ICONS.arrowUp}${ICONS.arrowDown} 选择  ${ICONS.arrowLeft}${ICONS.arrowRight} 切换  1~${sections.length} 分栏  Space 开关  Enter 编辑/执行  A 新增  D 删除  S 保存  R 重载  Esc 返回`
               }, undefined, false, undefined, this)
@@ -11043,6 +11269,16 @@ function altScrollKeyName(key) {
       return;
   }
 }
+function getAvailableRewindModes(checkpoint) {
+  if (!checkpoint?.canRestoreCode)
+    return ["conversation"];
+  return ["conversation", "code", "both"];
+}
+function cycleRewindMode(current, checkpoint, direction) {
+  const modes = getAvailableRewindModes(checkpoint);
+  const index = Math.max(0, modes.indexOf(current));
+  return modes[(index + direction + modes.length) % modes.length];
+}
 function useAppKeyboard({
   viewMode,
   setViewMode,
@@ -11083,6 +11319,18 @@ function useAppKeyboard({
   onLoadSession,
   onDeleteSession,
   setSessionList,
+  rewindCheckpoints,
+  rewindConfirmId,
+  setRewindConfirmId,
+  setRewindStatusMessage,
+  setRewindStatusIsError,
+  rewindInProgress,
+  setRewindInProgress,
+  rewindMode,
+  setRewindMode,
+  onRewind,
+  setPendingInputRestore,
+  setRewindCheckpoints,
   sessionPendingDeleteId,
   setSessionPendingDeleteId,
   setSessionStatusMessage,
@@ -11258,6 +11506,109 @@ function useAppKeyboard({
       return;
     if (viewMode === "tool-detail")
       return;
+    if (viewMode === "rewind-selector") {
+      const maxIndex = Math.max(0, rewindCheckpoints.length - 1);
+      const selected = rewindCheckpoints[Math.max(0, Math.min(selectedIndex, maxIndex))];
+      if (rewindInProgress) {
+        return;
+      }
+      if (key.name === "escape") {
+        if (rewindConfirmId) {
+          setRewindConfirmId(null);
+          setRewindStatusMessage(null);
+          setRewindStatusIsError(false);
+        } else {
+          setViewMode("chat");
+        }
+        return;
+      }
+      if (key.name === "up") {
+        if (rewindConfirmId) {
+          setRewindMode((current) => cycleRewindMode(current, selected, -1));
+          return;
+        }
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+        setRewindConfirmId(null);
+        setRewindMode("conversation");
+        setRewindStatusMessage(null);
+        setRewindStatusIsError(false);
+        return;
+      }
+      if (key.name === "down") {
+        if (rewindConfirmId) {
+          setRewindMode((current) => cycleRewindMode(current, selected, 1));
+          return;
+        }
+        setSelectedIndex((prev) => Math.min(maxIndex, prev + 1));
+        setRewindConfirmId(null);
+        setRewindMode("conversation");
+        setRewindStatusMessage(null);
+        setRewindStatusIsError(false);
+        return;
+      }
+      if ((key.name === "enter" || key.name === "return") && selected) {
+        if (rewindConfirmId !== selected.id) {
+          setRewindConfirmId(selected.id);
+          setRewindMode("conversation");
+          setRewindStatusMessage(null);
+          setRewindStatusIsError(false);
+          return;
+        }
+        setRewindStatusMessage("正在回溯历史...");
+        setRewindStatusIsError(false);
+        setRewindInProgress(true);
+        (async () => {
+          try {
+            const requestedMode = getAvailableRewindModes(selected).includes(rewindMode) ? rewindMode : "conversation";
+            const result = await onRewind(selected.id, requestedMode);
+            if (!result) {
+              setRewindStatusMessage("回溯失败：目标已失效，或当前会话正在生成。");
+              setRewindStatusIsError(true);
+              setRewindInProgress(false);
+              setRewindConfirmId(null);
+              return;
+            }
+            if (result.mode !== "code") {
+              clearRedo(undoRedoRef.current);
+              onClearRedoStack();
+            }
+            setRewindConfirmId(null);
+            let reloadError;
+            if (result.mode === "conversation" || result.mode === "both") {
+              setMessages([]);
+              commitTools();
+              setPendingInputRestore(result.restoredInputText);
+              setRewindStatusMessage("正在重放历史...");
+              try {
+                await onLoadSession(result.checkpoint.sessionId);
+              } catch (err) {
+                reloadError = err;
+              }
+            }
+            setRewindCheckpoints([]);
+            setRewindInProgress(false);
+            setRewindStatusMessage(null);
+            setRewindStatusIsError(false);
+            setViewMode("chat");
+            if (reloadError) {
+              appendCommandMessage(setMessages, `回溯已完成，但重放历史失败：${reloadError instanceof Error ? reloadError.message : String(reloadError)}`, { label: "rewind", isError: true });
+            } else {
+              const modeLabel = result.mode === "code" ? "仅代码" : result.mode === "both" ? "对话 + 代码" : "仅对话";
+              const historyText = result.removedCount > 0 ? `，移除了 ${result.removedCount} 条历史并恢复输入` : "";
+              const filesText = result.filesRestored ? `，恢复了 ${result.filesRestored.length} 个文件` : "";
+              appendCommandMessage(setMessages, `已完成 ${modeLabel} 回溯${historyText}${filesText}。`, { label: "rewind" });
+            }
+          } catch (err) {
+            setRewindStatusMessage(`回溯失败：${err instanceof Error ? err.message : String(err)}`);
+            setRewindStatusIsError(true);
+            setRewindInProgress(false);
+            setRewindConfirmId(null);
+          }
+        })();
+        return;
+      }
+      return;
+    }
     if (viewMode === "tool-list") {
       if (key.name === "escape") {
         setViewMode("chat");
@@ -11750,7 +12101,7 @@ function useAppKeyboard({
       }
       return;
     }
-    if (isGenerating && pendingApplies.length > 0) {
+    if (pendingApplies.length > 0) {
       const current = pendingApplies[0];
       if (key.name === "up" || key.name === "down") {
         approval.setPreviewIndex((prev) => key.name === "up" ? prev - 1 : prev + 1);
@@ -11790,7 +12141,7 @@ function useAppKeyboard({
       }
       return;
     }
-    if (isGenerating && pendingApprovals.length > 0) {
+    if (pendingApprovals.length > 0) {
       const inv = pendingApprovals[0];
       const isCommandTool = inv.toolName === "shell" || inv.toolName === "bash";
       if (key.name === "tab" && isCommandTool) {
@@ -12280,6 +12631,7 @@ function useCommandDispatch({
   onClearRedoStack,
   onNewSession,
   onListSessions,
+  onListRewindCheckpoints,
   onRunCommand,
   onListModels,
   onSwitchModel,
@@ -12310,6 +12662,12 @@ function useCommandDispatch({
   commitTools,
   setViewMode,
   setSessionList,
+  setRewindCheckpoints,
+  setRewindConfirmId,
+  setRewindStatusMessage,
+  setRewindStatusIsError,
+  setRewindInProgress,
+  setRewindMode,
   setModelList,
   setDefaultModelName,
   setSelectedIndex,
@@ -12420,6 +12778,28 @@ function useCommandDispatch({
           return result.messages;
         });
       }).catch(() => {});
+      return;
+    }
+    if (text === "/rewind") {
+      if (isGenerating) {
+        appendCommandMessage(setMessages, "正在生成中，无法回溯。请先停止当前回复后再使用 /rewind。", {
+          isError: true,
+          beforeActiveAssistant: true
+        });
+        return;
+      }
+      onListRewindCheckpoints().then((checkpoints) => {
+        setRewindCheckpoints(checkpoints);
+        setRewindConfirmId(null);
+        setRewindStatusMessage(null);
+        setRewindStatusIsError(false);
+        setRewindInProgress(false);
+        setRewindMode("conversation");
+        setSelectedIndex(Math.max(0, checkpoints.length - 1));
+        setViewMode("rewind-selector");
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `读取回溯点失败：${err instanceof Error ? err.message : String(err)}`, { isError: true });
+      });
       return;
     }
     if (text === "/load") {
@@ -12675,6 +13055,7 @@ function useCommandDispatch({
     onEnterHeadless,
     onListModels,
     onListSessions,
+    onListRewindCheckpoints,
     onNewSession,
     onRedo,
     onRemoteConnect,
@@ -12706,6 +13087,12 @@ function useCommandDispatch({
     setSessionList,
     setSettingsInitialSection,
     setViewMode,
+    setRewindCheckpoints,
+    setRewindConfirmId,
+    setRewindStatusMessage,
+    setRewindStatusIsError,
+    setRewindInProgress,
+    setRewindMode,
     undoRedoRef
   ]);
 }
@@ -12874,7 +13261,7 @@ function useModelState({ modelId, modelName, contextWindow, modelProvider, think
 
 // src/App.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV43 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV44 } from "@opentui/react/jsx-dev-runtime";
 var PROVIDER_LEVELS = {
   deepseek: ["not-set", "none", "high", "max"],
   claude: ["not-set", "none", "low", "medium", "high", "xhigh", "max"],
@@ -12954,6 +13341,8 @@ function App({
   onUndo,
   onRedo,
   onClearRedoStack,
+  onListRewindCheckpoints,
+  onRewind,
   onToolApproval,
   onToolApply,
   onToolMessage,
@@ -13024,6 +13413,13 @@ function App({
   const [sessionStatusIsError, setSessionStatusIsError] = useState18(false);
   const [agentList, setAgentList] = useState18([]);
   const [copyMode, setCopyMode] = useState18(false);
+  const [rewindCheckpoints, setRewindCheckpoints] = useState18([]);
+  const [rewindConfirmId, setRewindConfirmId] = useState18(null);
+  const [rewindStatusMessage, setRewindStatusMessage] = useState18(null);
+  const [rewindStatusIsError, setRewindStatusIsError] = useState18(false);
+  const [rewindInProgress, setRewindInProgress] = useState18(false);
+  const [rewindMode, setRewindMode] = useState18("conversation");
+  const [pendingInputRestore, setPendingInputRestore] = useState18(null);
   const [pendingConfirm, setPendingConfirm] = useState18(null);
   const [confirmChoice, setConfirmChoice] = useState18("confirm");
   const initialLevels = getProviderThinkingLevels(modelProvider);
@@ -13211,6 +13607,7 @@ function App({
     onClearRedoStack,
     onNewSession,
     onListSessions,
+    onListRewindCheckpoints,
     onRunCommand,
     onListModels,
     onSwitchModel,
@@ -13241,6 +13638,12 @@ function App({
     commitTools: appState.commitTools,
     setViewMode,
     setSessionList,
+    setRewindCheckpoints,
+    setRewindConfirmId,
+    setRewindStatusMessage,
+    setRewindStatusIsError,
+    setRewindInProgress,
+    setRewindMode,
     setModelList,
     setDefaultModelName,
     setSelectedIndex,
@@ -13271,9 +13674,10 @@ function App({
       if (!copied)
         return;
     };
-    renderer.on?.("selection", handleSelection);
+    const selectionRenderer = renderer;
+    selectionRenderer.on?.("selection", handleSelection);
     return () => {
-      renderer.off?.("selection", handleSelection);
+      selectionRenderer.off?.("selection", handleSelection);
     };
   }, [renderer, copyMode]);
   const prevViewModeRef = useRef10(viewMode);
@@ -13395,6 +13799,18 @@ function App({
     commitTools: appState.commitTools,
     onLoadSession,
     onDeleteSession,
+    rewindCheckpoints,
+    rewindConfirmId,
+    setRewindConfirmId,
+    setRewindStatusMessage,
+    setRewindStatusIsError,
+    rewindInProgress,
+    setRewindInProgress,
+    rewindMode,
+    setRewindMode,
+    onRewind,
+    setPendingInputRestore,
+    setRewindCheckpoints,
     onListModels,
     onSwitchModel,
     onSetDefaultModel,
@@ -13482,7 +13898,7 @@ function App({
   const rightStatusSegments = useMemo10(() => statusSegmentService?.list({ sessionId: getCurrentSessionId?.() }, "right") ?? [], [statusSegmentVersion, statusSegmentService, getCurrentSessionId, viewMode, appState.messages.length]);
   const consolePathDisplay = useMemo10(() => pathDisplayService?.resolve({ sessionId: getCurrentSessionId?.() }), [pathDisplayVersion, pathDisplayService, getCurrentSessionId, viewMode, appState.messages.length]);
   if (viewMode === "settings") {
-    return /* @__PURE__ */ jsxDEV43(SettingsView, {
+    return /* @__PURE__ */ jsxDEV44(SettingsView, {
       initialSection: settingsInitialSection,
       onBack: () => setViewMode("chat"),
       onLoad: onLoadSettings,
@@ -13491,7 +13907,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "session-list") {
-    return /* @__PURE__ */ jsxDEV43(SessionListView, {
+    return /* @__PURE__ */ jsxDEV44(SessionListView, {
       sessions: sessionList,
       selectedIndex,
       pendingDeleteId: sessionPendingDeleteId,
@@ -13500,7 +13916,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "model-list") {
-    return /* @__PURE__ */ jsxDEV43(ModelListView, {
+    return /* @__PURE__ */ jsxDEV44(ModelListView, {
       models: modelList,
       selectedIndex,
       defaultModelName,
@@ -13512,14 +13928,14 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "agent-list") {
-    return /* @__PURE__ */ jsxDEV43(AgentListView, {
+    return /* @__PURE__ */ jsxDEV44(AgentListView, {
       agents: agentList,
       selectedIndex,
       currentAgentName: agentName
     }, undefined, false, undefined, this);
   }
   if (viewMode === "memory-list") {
-    return /* @__PURE__ */ jsxDEV43(MemoryListView, {
+    return /* @__PURE__ */ jsxDEV44(MemoryListView, {
       memories: memoryList,
       selectedIndex,
       expandedId: memoryExpandedId,
@@ -13528,7 +13944,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "extension-list") {
-    return /* @__PURE__ */ jsxDEV43(ExtensionListView, {
+    return /* @__PURE__ */ jsxDEV44(ExtensionListView, {
       extensions: extensionList,
       selectedIndex,
       togglingName: extensionTogglingName,
@@ -13546,7 +13962,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "file-browser") {
-    return /* @__PURE__ */ jsxDEV43(FileBrowserView, {
+    return /* @__PURE__ */ jsxDEV44(FileBrowserView, {
       currentPath: fileBrowserPath,
       entries: fileBrowserEntries,
       selectedIndex,
@@ -13554,7 +13970,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "queue-list") {
-    return /* @__PURE__ */ jsxDEV43(QueueListView, {
+    return /* @__PURE__ */ jsxDEV44(QueueListView, {
       queue: messageQueue.queue,
       selectedIndex,
       editingId: queueEditingId,
@@ -13562,8 +13978,19 @@ function App({
       editingCursor: queueEditState.cursor
     }, undefined, false, undefined, this);
   }
+  if (viewMode === "rewind-selector") {
+    return /* @__PURE__ */ jsxDEV44(RewindSelectorView, {
+      checkpoints: rewindCheckpoints,
+      selectedIndex,
+      confirmCheckpointId: rewindConfirmId,
+      statusMessage: rewindStatusMessage,
+      statusIsError: rewindStatusIsError,
+      isRestoring: rewindInProgress,
+      selectedMode: rewindMode
+    }, undefined, false, undefined, this);
+  }
   if (currentApply) {
-    return /* @__PURE__ */ jsxDEV43(DiffApprovalView, {
+    return /* @__PURE__ */ jsxDEV44(DiffApprovalView, {
       invocation: currentApply,
       pendingCount: appState.pendingApplies.length,
       choice: approval.approvalChoice,
@@ -13575,17 +14002,17 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "tool-list") {
-    return /* @__PURE__ */ jsxDEV43(ToolListView, {
+    return /* @__PURE__ */ jsxDEV44(ToolListView, {
       tools: appState.toolListItems,
       selectedIndex
     }, undefined, false, undefined, this);
   }
   if (viewMode === "tool-detail" && appState.toolDetailData) {
-    return /* @__PURE__ */ jsxDEV43("box", {
+    return /* @__PURE__ */ jsxDEV44("box", {
       flexDirection: "column",
       width: "100%",
       height: "100%",
-      children: /* @__PURE__ */ jsxDEV43(ToolDetailView, {
+      children: /* @__PURE__ */ jsxDEV44(ToolDetailView, {
         data: appState.toolDetailData,
         breadcrumb: appState.toolDetailStack,
         onNavigateChild: onNavigateToolDetail,
@@ -13594,18 +14021,18 @@ function App({
       }, undefined, false, undefined, this)
     }, undefined, false, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV43("box", {
+  return /* @__PURE__ */ jsxDEV44("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      !hasMessages ? /* @__PURE__ */ jsxDEV43(LogoScreen, {}, undefined, false, undefined, this) : null,
-      !hasMessages && initWarnings && initWarnings.length > 0 ? /* @__PURE__ */ jsxDEV43(InitWarnings, {
+      !hasMessages ? /* @__PURE__ */ jsxDEV44(LogoScreen, {}, undefined, false, undefined, this) : null,
+      !hasMessages && initWarnings && initWarnings.length > 0 ? /* @__PURE__ */ jsxDEV44(InitWarnings, {
         warnings: initWarnings,
         color: initWarningsColor,
         icon: initWarningsIcon
       }, undefined, false, undefined, this) : null,
-      hasMessages ? /* @__PURE__ */ jsxDEV43(ChatMessageList, {
+      hasMessages ? /* @__PURE__ */ jsxDEV44(ChatMessageList, {
         messages: appState.messages,
         streamingParts: appState.streamingParts,
         isStreaming: appState.isStreaming,
@@ -13626,7 +14053,7 @@ function App({
         toolDisplayService,
         onCopySelectionSnapshot: captureCopySelectionSnapshot
       }, undefined, false, undefined, this) : null,
-      /* @__PURE__ */ jsxDEV43(BottomPanel, {
+      /* @__PURE__ */ jsxDEV44(BottomPanel, {
         hasMessages,
         pendingConfirm,
         confirmChoice,
@@ -13665,7 +14092,9 @@ function App({
         dynamicCommands,
         statusSegments: rightStatusSegments,
         supportsHeadlessTransition,
-        inputControllerRef: promptInputControllerRef
+        inputControllerRef: promptInputControllerRef,
+        restoreInputText: pendingInputRestore,
+        onRestoreInputConsumed: () => setPendingInputRestore(null)
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -15122,6 +15551,8 @@ class ConsolePlatform extends PlatformAdapter {
   remoteConsoleServices = new WeakMap;
   backendListenerDisposers = [];
   _isGenerating = false;
+  foregroundTurnActive = false;
+  notificationTurnActive = false;
   sessionLoadEpoch = 0;
   userInputEpoch = 0;
   _pendingImages = [];
@@ -15157,6 +15588,11 @@ class ConsolePlatform extends PlatformAdapter {
     this.getConsoleServicesBundle();
     this.bindPluginSettingsTabService();
     this.remotePluginSettingsTabs = getCachedConsoleRemoteSettingsTabs(this.api);
+  }
+  refreshGeneratingState() {
+    const generating = this.foregroundTurnActive || this.notificationTurnActive;
+    this._isGenerating = generating;
+    this.appHandle?.setGenerating(generating);
   }
   getPlanModeService() {
     return this.api?.services?.get?.(PLAN_MODE_SERVICE_ID);
@@ -15488,6 +15924,10 @@ class ConsolePlatform extends PlatformAdapter {
       if (sid === this.sessionId) {
         this.appHandle?.finalizeResponse(durationMs);
         this.appHandle?.clearNotificationContext();
+        if (this.notificationTurnActive) {
+          this.notificationTurnActive = false;
+          this.refreshGeneratingState();
+        }
         this.syncPlanModeStatus();
         this.refreshRemoteConsoleServices(sid);
       }
@@ -15495,6 +15935,8 @@ class ConsolePlatform extends PlatformAdapter {
     this.onBackend("turn:start", (sid, _turnId, mode) => {
       if (sid === this.sessionId) {
         if (mode === "task-notification") {
+          this.notificationTurnActive = true;
+          this.refreshGeneratingState();
           this.appHandle?.setNotificationContext();
         } else {
           this.appHandle?.clearNotificationContext();
@@ -15648,7 +16090,12 @@ ${summaryText}`;
             const result = await this.enqueueHistoryMutation(async () => {
               return await this.backend.undo?.(this.sessionId, "last-visible-message");
             });
-            return Boolean(result);
+            const ok = Boolean(result);
+            if (ok) {
+              this.syncPlanModeStatus();
+              await this.syncProgress();
+            }
+            return ok;
           } catch (err) {
             console.warn("[ConsolePlatform] onUndo 持久化失败:", err);
             return false;
@@ -15659,7 +16106,12 @@ ${summaryText}`;
             const result = await this.enqueueHistoryMutation(async () => {
               return await this.backend.redo?.(this.sessionId);
             });
-            return Boolean(result);
+            const ok = Boolean(result);
+            if (ok) {
+              this.syncPlanModeStatus();
+              await this.syncProgress();
+            }
+            return ok;
           } catch (err) {
             console.warn("[ConsolePlatform] onRedo 持久化失败:", err);
             return false;
@@ -15667,6 +16119,24 @@ ${summaryText}`;
         },
         onClearRedoStack: () => {
           this.backend.clearRedo?.(this.sessionId);
+        },
+        onListRewindCheckpoints: async () => {
+          return await this.backend.listRewindCheckpoints?.(this.sessionId) ?? [];
+        },
+        onRewind: async (checkpointId, mode) => {
+          try {
+            const result = await this.enqueueHistoryMutation(async () => {
+              return await this.backend.rewind?.(this.sessionId, checkpointId, mode) ?? null;
+            });
+            if (result) {
+              this.syncPlanModeStatus();
+              await this.syncProgress();
+            }
+            return result;
+          } catch (err) {
+            console.warn("[ConsolePlatform] onRewind 持久化失败:", err);
+            return null;
+          }
         },
         onToolApproval: (toolId, approved) => {
           this.backend.getToolHandle?.(toolId)?.approve(approved);
@@ -17057,8 +17527,8 @@ ${plan2.trim() ? "已有计划文件，模型会在下一轮读取/更新它。"
   }
   async handleSummarize() {
     this.appHandle?.setGeneratingLabel("compressing context...");
-    this._isGenerating = true;
-    this.appHandle?.setGenerating(true);
+    this.foregroundTurnActive = true;
+    this.refreshGeneratingState();
     try {
       const summaryText = await this.backend.summarize?.(this.sessionId) ?? "";
       const fullText = `[Context Summary]
@@ -17072,8 +17542,8 @@ ${summaryText}`;
       this.appHandle?.addErrorMessage(`Context compression failed: ${detail}`);
       return { ok: false, message: detail };
     } finally {
-      this._isGenerating = false;
-      this.appHandle?.setGenerating(false);
+      this.foregroundTurnActive = false;
+      this.refreshGeneratingState();
     }
   }
   handleFileAttach(filePath) {
@@ -17296,8 +17766,8 @@ ${summaryText}`;
   async handleInput(text) {
     this.userInputEpoch += 1;
     this.sessionLoadEpoch += 1;
-    this._isGenerating = true;
-    this.appHandle?.setGenerating(true);
+    this.foregroundTurnActive = true;
+    this.refreshGeneratingState();
     const images = this._pendingImages.length > 0 ? [...this._pendingImages] : undefined;
     const documents = this._pendingDocuments.length > 0 ? [...this._pendingDocuments] : undefined;
     const audio = this._pendingAudio.length > 0 ? [...this._pendingAudio] : undefined;
@@ -17351,8 +17821,8 @@ ${summaryText}`;
       }
       currentText = this.appHandle?.drainQueue();
     }
-    this._isGenerating = false;
-    this.appHandle?.setGenerating(false);
+    this.foregroundTurnActive = false;
+    this.refreshGeneratingState();
   }
 }
 async function consoleFactory(rawContext) {

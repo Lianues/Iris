@@ -821,7 +821,7 @@ function wrapHistoryMutationMethod(
   api: IrisAPI,
   ctx: PluginContext,
   service: MilestoneExtensionService,
-  methodName: 'undo' | 'redo',
+  methodName: 'undo' | 'redo' | 'rewind',
 ): void {
   const backend = api.backend as any;
   const original = backend?.[methodName];
@@ -852,6 +852,7 @@ function wrapHistoryMutations(api: IrisAPI, ctx: PluginContext, service: Milesto
   if (typeof service.reconcileWithHistory !== 'function') return;
   wrapHistoryMutationMethod(api, ctx, service, 'undo');
   wrapHistoryMutationMethod(api, ctx, service, 'redo');
+  wrapHistoryMutationMethod(api, ctx, service, 'rewind');
 }
 
 function observeToolFailures(api: IrisAPI, ctx: PluginContext): void {

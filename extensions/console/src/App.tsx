@@ -22,11 +22,12 @@ import { ModelListView } from './components/ModelListView';
 import { QueueListView } from './components/QueueListView';
 import { ToolListView } from './components/ToolListView';
 import { SessionListView } from './components/SessionListView';
+import { RewindSelectorView } from './components/RewindSelectorView';
 import { MemoryListView, type MemoryItem, type MemoryFilter } from './components/MemoryListView';
 import { ExtensionListView, type ExtensionItem } from './components/ExtensionListView';
 import { SettingsView } from './components/SettingsView';
 import { PROGRESS_PANEL_MAX_ITEMS } from './components/ProgressListView';
-import { type ConfirmChoice, type PendingConfirm, type SettingsInitialSection, type ThinkingEffortLevel, type ViewMode } from './app-types';
+import { type ConfirmChoice, type PendingConfirm, type RewindCheckpointLike, type RewindTargetMode, type SettingsInitialSection, type ThinkingEffortLevel, type ViewMode } from './app-types';
 import type { AppProps } from './app-props';
 import type { Command } from './input-commands';
 import { useAppHandle, type AppHandle } from './hooks/use-app-handle';
@@ -126,6 +127,8 @@ export function App({
   onUndo,
   onRedo,
   onClearRedoStack,
+  onListRewindCheckpoints,
+  onRewind,
   onToolApproval,
   onToolApply,
   onToolMessage,
@@ -196,6 +199,13 @@ export function App({
   const [sessionStatusIsError, setSessionStatusIsError] = useState(false);
   const [agentList, setAgentList] = useState<AgentDefinitionLike[]>([]);
   const [copyMode, setCopyMode] = useState(false);
+  const [rewindCheckpoints, setRewindCheckpoints] = useState<RewindCheckpointLike[]>([]);
+  const [rewindConfirmId, setRewindConfirmId] = useState<string | null>(null);
+  const [rewindStatusMessage, setRewindStatusMessage] = useState<string | null>(null);
+  const [rewindStatusIsError, setRewindStatusIsError] = useState(false);
+  const [rewindInProgress, setRewindInProgress] = useState(false);
+  const [rewindMode, setRewindMode] = useState<RewindTargetMode>('conversation');
+  const [pendingInputRestore, setPendingInputRestore] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [confirmChoice, setConfirmChoice] = useState<ConfirmChoice>('confirm');
   const initialLevels = getProviderThinkingLevels(modelProvider);
@@ -444,6 +454,7 @@ export function App({
     onClearRedoStack,
     onNewSession,
     onListSessions,
+    onListRewindCheckpoints,
     onRunCommand,
     onListModels,
     onSwitchModel,
@@ -474,6 +485,12 @@ export function App({
     commitTools: appState.commitTools,
     setViewMode,
     setSessionList,
+    setRewindCheckpoints,
+    setRewindConfirmId,
+    setRewindStatusMessage,
+    setRewindStatusIsError,
+    setRewindInProgress,
+    setRewindMode,
     setModelList,
     setDefaultModelName,
     setSelectedIndex,
@@ -503,8 +520,9 @@ export function App({
       const copied = writeClipboardText(text) || renderer.copyToClipboardOSC52?.(text) === true;
       if (!copied) return;
     };
-    renderer.on?.('selection', handleSelection);
-    return () => { renderer.off?.('selection', handleSelection); };
+    const selectionRenderer = renderer as typeof renderer & { on?: (event: 'selection', listener: typeof handleSelection) => void; off?: (event: 'selection', listener: typeof handleSelection) => void };
+    selectionRenderer.on?.('selection', handleSelection);
+    return () => { selectionRenderer.off?.('selection', handleSelection); };
   }, [renderer, copyMode]);
 
   // 离开 queue-list 视图时：如果当前空闲且队列非空，自动发送队首消息恢复排流。
@@ -641,6 +659,18 @@ export function App({
     commitTools: appState.commitTools,
     onLoadSession,
     onDeleteSession,
+    rewindCheckpoints,
+    rewindConfirmId,
+    setRewindConfirmId,
+    setRewindStatusMessage,
+    setRewindStatusIsError,
+    rewindInProgress,
+    setRewindInProgress,
+    rewindMode,
+    setRewindMode,
+    onRewind,
+    setPendingInputRestore,
+    setRewindCheckpoints,
     onListModels,
     onSwitchModel,
     onSetDefaultModel,
@@ -835,6 +865,20 @@ export function App({
     );
   }
 
+  if (viewMode === 'rewind-selector') {
+    return (
+      <RewindSelectorView
+        checkpoints={rewindCheckpoints}
+        selectedIndex={selectedIndex}
+        confirmCheckpointId={rewindConfirmId}
+        statusMessage={rewindStatusMessage}
+        statusIsError={rewindStatusIsError}
+        isRestoring={rewindInProgress}
+        selectedMode={rewindMode}
+      />
+    );
+  }
+
   if (currentApply) {
     return (
       <DiffApprovalView
@@ -939,6 +983,8 @@ export function App({
         statusSegments={rightStatusSegments}
         supportsHeadlessTransition={supportsHeadlessTransition}
         inputControllerRef={promptInputControllerRef}
+        restoreInputText={pendingInputRestore}
+        onRestoreInputConsumed={() => setPendingInputRestore(null)}
       />
     </box>
   );

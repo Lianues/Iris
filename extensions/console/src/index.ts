@@ -32,6 +32,8 @@ import {
   type UsageMetadata,
   type IrisBackendLike,
   type IrisModelInfoLike,
+  type RewindOperationResultLike,
+  type RewindTargetMode,
   type IrisSessionMetaLike,
   type IrisAPI,
   type BootstrapExtensionRegistryLike,
@@ -1304,6 +1306,24 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         },
         onClearRedoStack: () => {
           this.backend.clearRedo?.(this.sessionId);
+        },
+        onListRewindCheckpoints: async () => {
+          return await this.backend.listRewindCheckpoints?.(this.sessionId) ?? [];
+        },
+        onRewind: async (checkpointId: string, mode?: RewindTargetMode) => {
+          try {
+            const result = await this.enqueueHistoryMutation(async () => {
+              return await this.backend.rewind?.(this.sessionId, checkpointId, mode) ?? null;
+            }) as RewindOperationResultLike | null;
+            if (result) {
+              this.syncPlanModeStatus();
+              await this.syncProgress();
+            }
+            return result;
+          } catch (err) {
+            console.warn('[ConsolePlatform] onRewind 持久化失败:', err);
+            return null;
+          }
         },
         onToolApproval: (toolId: string, approved: boolean) => {
           (this.backend as any).getToolHandle?.(toolId)?.approve(approved);

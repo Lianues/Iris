@@ -18,7 +18,7 @@
 import { EventEmitter } from 'node:events';
 import type { IPCClientLike } from './client-like.js';
 import { RemoteToolHandle } from './remote-tool-handle.js';
-import type { AutoEditSessionStateLike } from '../platform.js';
+import type { AutoEditSessionStateLike, RewindCheckpointLike, RewindOperationResultLike, RewindTargetMode } from '../platform.js';
 import { createExtensionLogger } from '../logger.js';
 import type { ToolDiffPreviewResponseLike } from '../plugin/tool-preview.js';
 import {
@@ -134,6 +134,16 @@ export class RemoteBackendHandle extends EventEmitter {
 
   async redo(sessionId: string): Promise<{ assistantText?: string } | null> {
     return (await this.callRemote(Methods.REDO, [sessionId])) as any ?? null;
+  }
+
+  async listRewindCheckpoints(sessionId: string): Promise<RewindCheckpointLike[]> {
+    const result = await this.callRemote(Methods.LIST_REWIND_CHECKPOINTS, [sessionId]);
+    return (result as RewindCheckpointLike[] | undefined) ?? [];
+  }
+
+  async rewind(sessionId: string, checkpointId: string, mode: RewindTargetMode = 'conversation'): Promise<RewindOperationResultLike | null> {
+    const result = await this.callRemote(Methods.REWIND, [sessionId, checkpointId, mode]);
+    return (result as RewindOperationResultLike | null | undefined) ?? null;
   }
 
   clearRedo(sessionId: string): void {

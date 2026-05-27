@@ -32,6 +32,7 @@ export interface PendingFile {
 
 export interface PromptInputController {
   hasValue(): boolean;
+  setValue(text: string): void;
   clear(): void;
 }
 
@@ -89,6 +90,9 @@ interface InputBarProps {
   dynamicCommands?: Command[];
   supportsHeadlessTransition?: boolean;
   inputControllerRef?: MutableRefObject<PromptInputController | null>;
+  /** 外部请求恢复输入框文本（如 rewind 后把旧用户消息放回输入框） */
+  restoreInputText?: string | null;
+  onRestoreInputConsumed?: () => void;
 }
 
 function isPrioritySubmitShortcut(key: any): boolean {
@@ -97,7 +101,7 @@ function isPrioritySubmitShortcut(key: any): boolean {
     || key.raw === '\x13';
 }
 
-export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef }: InputBarProps) {
+export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [fileSelectedIndex, setFileSelectedIndex] = useState(0);
@@ -182,6 +186,11 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     if (!inputControllerRef) return;
     const controller: PromptInputController = {
       hasValue: () => value.length > 0,
+      setValue: (text: string) => {
+        inputActions.setValue(text);
+        setSelectedIndex(0);
+        setCommandsDismissed(false);
+      },
       clear: () => {
         inputActions.setValue('');
         setSelectedIndex(0);
@@ -193,6 +202,15 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
       if (inputControllerRef.current === controller) inputControllerRef.current = null;
     };
   }, [inputControllerRef, inputActions, value]);
+
+  useEffect(() => {
+    if (restoreInputText == null) return;
+    inputActions.setValue(restoreInputText);
+    setSelectedIndex(0);
+    setCommandsDismissed(false);
+    setFileMentionDismissedKey(null);
+    onRestoreInputConsumed?.();
+  }, [restoreInputText, inputActions, onRestoreInputConsumed]);
 
   const showCommands = commandQuery.length > 0 && !commandsDismissed;
   const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && value.startsWith(`${activeArgCommand.name} `);
