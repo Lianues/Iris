@@ -1275,7 +1275,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
             const result = await this.enqueueHistoryMutation(async () => {
               return await this.backend.undo?.(this.sessionId, 'last-visible-message');
             });
-            return Boolean(result);
+            const ok = Boolean(result);
+            if (ok) {
+              this.syncPlanModeStatus();
+              await this.syncProgress();
+            }
+            return ok;
           } catch (err) {
             console.warn('[ConsolePlatform] onUndo 持久化失败:', err);
             return false;
@@ -1286,7 +1291,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
             const result = await this.enqueueHistoryMutation(async () => {
               return await this.backend.redo?.(this.sessionId);
             });
-            return Boolean(result);
+            const ok = Boolean(result);
+            if (ok) {
+              this.syncPlanModeStatus();
+              await this.syncProgress();
+            }
+            return ok;
           } catch (err) {
             console.warn('[ConsolePlatform] onRedo 持久化失败:', err);
             return false;

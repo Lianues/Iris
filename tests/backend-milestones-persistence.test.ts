@@ -350,6 +350,52 @@ describe('Backend milestone persistence', () => {
     expect(getPersisted(await storage.getMeta('s1'))?.latest?.updatedAt).toBe(completedSnapshot.updatedAt);
   });
 
+  it('history reconciliation 会在 undo 掉 ExitPlanMode 后清理 Plan Mode 自动生成的 milestone', async () => {
+    const storage = new InMemoryStorage();
+    const service = createMilestoneService(storage);
+    const plan = `# 修复计划
+
+## 实施步骤
+1. 修改状态重建逻辑
+2. 运行回归测试
+`;
+
+    await storage.saveMeta({
+      id: 's1',
+      title: 'Plan undo 测试',
+      cwd: process.cwd(),
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    });
+
+    await storage.addMessage('s1', { role: 'user', parts: [{ text: '先做计划' }] }); // 1
+    await storage.addMessage('s1', { role: 'model', parts: [{ functionCall: { name: 'ExitPlanMode', args: {}, callId: 'exit-1' } }] as any }); // 2
+    await storage.addMessage('s1', {
+      role: 'user',
+      parts: [{
+        functionResponse: {
+          name: 'ExitPlanMode',
+          callId: 'exit-1',
+          response: { result: { approved: true, approvedPlan: plan, planFilePath: '/tmp/plan.md' } },
+        },
+      }] as any,
+    }); // 3
+    await storage.addMessage('s1', { role: 'model', parts: [{ text: '计划已批准，开始执行。' }] }); // 4
+
+    // history 中仍有 ExitPlanMode 结果时，可以从 approvedPlan 重建进度（用于 redo / reload）。
+    const restoredFromPlan = await service.reconcileWithHistory('s1');
+    expect(restoredFromPlan.items.map(item => item.title)).toEqual(['修改状态重建逻辑', '运行回归测试']);
+
+    // /undo last-visible-message 会截掉整段 assistant/tool response，回到批准计划之前。
+    await storage.truncateHistory('s1', 1);
+    const reconciled = await service.reconcileWithHistory('s1');
+
+    expect(reconciled.items).toHaveLength(0);
+    expect((await service.loadLatest('s1'))?.items).toHaveLength(0);
+    expect(getPersisted(await storage.getMeta('s1'))?.latest).toBeUndefined();
+    expect(getPersisted(await storage.getMeta('s1'))?.archives ?? []).toEqual([]);
+  });
+
   it('可在 session meta 中保存并读取最新 milestone 展开状态', async () => {
     const storage = new InMemoryStorage();
     const service = createMilestoneService(storage);

@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../../script/prepare-extension-sdk.mjs && bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --packages=bundle && bun ../../script/validate-extension-bundle.ts --file ./dist/index.mjs --extension milestone"
+    "build": "node ../../script/prepare-extension-sdk.mjs && bun build ./src/index.ts --outfile ./dist/index.mjs --target=node --format=esm --packages=bundle && bun ../../script/validate-extension-bundle.ts --file ./dist/index.mjs --extension milestone",
+    "typecheck": "node ../../script/prepare-extension-sdk.mjs && node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "irises-extension-sdk": "file:../../packages/extension-sdk"

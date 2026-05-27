@@ -33,6 +33,7 @@ export interface MilestoneExtensionService {
   loadArchives(sessionId: string): Promise<MilestoneArchiveEntry[]>;
   loadUiState(sessionId: string): Promise<MilestoneUiState | undefined>;
   setUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void>;
+  reconcileWithHistory(sessionId: string): Promise<MilestoneSnapshot>;
   onDidUpdate(listener: (sessionId: string, snapshot: MilestoneSnapshot) => void): { dispose(): void };
 }
 
@@ -138,7 +139,32 @@ function extractMilestoneSnapshotFromFunctionResponse(part: unknown, sessionId: 
   const response = asRecord(functionResponse.response);
   const result = asRecord(response?.result);
   const rawSnapshot = result?.snapshot ?? response?.snapshot;
-  const snapshot = normalizeMilestoneSnapshot(rawSnapshot, sessionId);
+  return normalizeMilestoneSnapshot(rawSnapshot, sessionId);
+}
+
+function extractPlanApprovalMilestoneSnapshotFromFunctionResponse(part: unknown, sessionId: string): MilestoneSnapshot | undefined {
+  const functionResponse = asRecord(asRecord(part)?.functionResponse);
+  if (functionResponse?.name !== 'ExitPlanMode') return undefined;
+
+  const response = asRecord(functionResponse.response);
+  const result = asRecord(response?.result) ?? response;
+  if (result?.approved !== true) return undefined;
+
+  const approvedPlan = typeof result.approvedPlan === 'string' ? result.approvedPlan : undefined;
+  if (!approvedPlan?.trim()) return undefined;
+
+  const planFilePath = typeof result.planFilePath === 'string' ? result.planFilePath : undefined;
+  const temp = new SessionMilestoneManager();
+  return temp.update(sessionId, buildMilestonesFromApprovedPlan(approvedPlan, { planFilePath }), { replaceAll: true });
+}
+
+function extractLatestMilestoneSnapshotFromFunctionResponse(part: unknown, sessionId: string): MilestoneSnapshot | undefined {
+  return extractMilestoneSnapshotFromFunctionResponse(part, sessionId)
+    ?? extractPlanApprovalMilestoneSnapshotFromFunctionResponse(part, sessionId);
+}
+
+function extractArchivableMilestoneSnapshotFromFunctionResponse(part: unknown, sessionId: string): MilestoneSnapshot | undefined {
+  const snapshot = extractMilestoneSnapshotFromFunctionResponse(part, sessionId);
   return isArchivable(snapshot) ? snapshot : undefined;
 }
 
@@ -149,19 +175,46 @@ interface HistoryArchiveCandidate {
 
 function collectHistoryArchiveCandidates(history: unknown[], sessionId: string): HistoryArchiveCandidate[] {
   const candidates = new Map<number, HistoryArchiveCandidate>();
-  for (let i = 0; i < history.length; i++) {
-    const parts = Array.isArray(asRecord(history[i])?.parts) ? asRecord(history[i])!.parts as unknown[] : [];
-    for (const part of parts) {
-      const snapshot = extractMilestoneSnapshotFromFunctionResponse(part, sessionId);
-      if (!snapshot || typeof snapshot.updatedAt !== 'number' || !Number.isFinite(snapshot.updatedAt)) continue;
-      const afterHistoryIndex = findTurnEndHistoryIndex(history, i);
-      const existing = candidates.get(snapshot.updatedAt);
-      if (!existing || afterHistoryIndex > existing.afterHistoryIndex) {
-        candidates.set(snapshot.updatedAt, { snapshot, afterHistoryIndex });
-      }
+  for (const candidate of collectHistoryMilestoneState(history, sessionId).archiveCandidates) {
+    const existing = candidates.get(candidate.snapshot.updatedAt);
+    if (!existing || candidate.afterHistoryIndex > existing.afterHistoryIndex) {
+      candidates.set(candidate.snapshot.updatedAt, candidate);
     }
   }
   return Array.from(candidates.values()).sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.snapshot.updatedAt - b.snapshot.updatedAt);
+}
+
+interface HistoryMilestoneState {
+  latest?: MilestoneSnapshot;
+  archiveCandidates: HistoryArchiveCandidate[];
+}
+
+function collectHistoryMilestoneState(history: unknown[], sessionId: string): HistoryMilestoneState {
+  let latest: MilestoneSnapshot | undefined;
+  const archiveCandidates = new Map<number, HistoryArchiveCandidate>();
+
+  for (let i = 0; i < history.length; i++) {
+    const parts = Array.isArray(asRecord(history[i])?.parts) ? asRecord(history[i])!.parts as unknown[] : [];
+    for (const part of parts) {
+      const latestSnapshot = extractLatestMilestoneSnapshotFromFunctionResponse(part, sessionId);
+      if (latestSnapshot) latest = latestSnapshot;
+
+      const snapshot = extractArchivableMilestoneSnapshotFromFunctionResponse(part, sessionId);
+      if (!snapshot || typeof snapshot.updatedAt !== 'number' || !Number.isFinite(snapshot.updatedAt)) {
+        continue;
+      }
+      const afterHistoryIndex = findTurnEndHistoryIndex(history, i);
+      const existing = archiveCandidates.get(snapshot.updatedAt);
+      if (!existing || afterHistoryIndex > existing.afterHistoryIndex) {
+        archiveCandidates.set(snapshot.updatedAt, { snapshot, afterHistoryIndex });
+      }
+    }
+  }
+
+  return {
+    latest,
+    archiveCandidates: Array.from(archiveCandidates.values()).sort((a, b) => a.afterHistoryIndex - b.afterHistoryIndex || a.snapshot.updatedAt - b.snapshot.updatedAt),
+  };
 }
 
 async function getHistoryArchiveCandidatesSafe(api: IrisAPI, sessionId: string): Promise<{ historyLength: number; candidates: HistoryArchiveCandidate[] }> {
@@ -171,6 +224,33 @@ async function getHistoryArchiveCandidatesSafe(api: IrisAPI, sessionId: string):
   } catch {
     return { historyLength: 0, candidates: [] };
   }
+}
+
+async function getHistoryMilestoneStateSafe(api: IrisAPI, sessionId: string): Promise<{ historyLength: number; state: HistoryMilestoneState }> {
+  try {
+    const history = await api.storage.getHistory(sessionId) as unknown[];
+    return { historyLength: history.length, state: collectHistoryMilestoneState(history, sessionId) };
+  } catch {
+    return { historyLength: 0, state: { archiveCandidates: [] } };
+  }
+}
+
+function buildArchivesFromCandidates(sessionId: string, candidates: HistoryArchiveCandidate[]): MilestoneArchiveEntry[] {
+  const state: PersistedMilestoneState = {};
+  for (const candidate of candidates) {
+    upsertArchive(state, candidate.snapshot, candidate.afterHistoryIndex);
+  }
+  return normalizeArchives(state.archives, sessionId);
+}
+
+async function persistHistoryReconciledMilestoneState(api: IrisAPI, sessionId: string, latest: MilestoneSnapshot | undefined, archiveCandidates: HistoryArchiveCandidate[]): Promise<void> {
+  const archives = buildArchivesFromCandidates(sessionId, archiveCandidates);
+  await updatePersistedMilestoneState(api, sessionId, (state) => {
+    state.latest = latest && latest.items.length > 0 ? latest : undefined;
+    state.archives = archives;
+    if (latest && isArchivable(latest)) state.ui = createUiState(true, latest.updatedAt);
+    return state;
+  });
 }
 
 function upsertArchive(state: PersistedMilestoneState, snapshot: MilestoneSnapshot, afterHistoryIndex: number): void {
@@ -215,7 +295,7 @@ async function reconcilePersistedMilestoneArchives(api: IrisAPI, sessionId: stri
     }
 
     const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
-    if (isArchivable(latest)) {
+    if (latest && isArchivable(latest)) {
       const candidate = candidateByUpdatedAt.get(latest.updatedAt);
       upsertIfNeeded(latest, candidate?.afterHistoryIndex ?? historyLength);
       const ui = normalizeUiState(state.ui);
@@ -367,7 +447,7 @@ export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionSe
           if (after > before) changed = true;
           continue;
         }
-        if (isArchivable(latest) && latest.updatedAt === updatedAt) {
+        if (latest && isArchivable(latest) && latest.updatedAt === updatedAt) {
           upsertArchive(state, latest, anchorIndex);
           changed = true;
         }
@@ -448,6 +528,23 @@ export function createMilestoneServiceForApi(api: IrisAPI): MilestoneExtensionSe
         state.ui = createUiState(uiState.expanded, uiState.snapshotUpdatedAt);
         return state;
       });
+    },
+    async reconcileWithHistory(sessionId) {
+      const { state } = await getHistoryMilestoneStateSafe(api, sessionId);
+      const latest = normalizeMilestoneSnapshot(state.latest, sessionId);
+      pendingArchiveReanchors.delete(sessionId);
+
+      let snapshot: MilestoneSnapshot;
+      if (latest && latest.items.length > 0) {
+        manager.hydrate(latest);
+        snapshot = manager.getSnapshot(sessionId);
+      } else {
+        snapshot = manager.clear(sessionId);
+      }
+
+      await persistHistoryReconciledMilestoneState(api, sessionId, latest, state.archiveCandidates);
+      emitUpdate(snapshot.sessionId, snapshot);
+      return snapshot;
     },
     onDidUpdate(listener) {
       updateListeners.add(listener);
@@ -718,6 +815,45 @@ function wrapExitPlanMode(api: IrisAPI, ctx: PluginContext): void {
   ctx.trackDisposable({ dispose: () => { if (exitPlanTool.handler === wrapped) exitPlanTool.handler = original; } });
 }
 
+const MILESTONE_HISTORY_MUTATION_WRAPPED = Symbol.for('iris.milestone.historyMutationWrapped');
+
+function wrapHistoryMutationMethod(
+  api: IrisAPI,
+  ctx: PluginContext,
+  service: MilestoneExtensionService,
+  methodName: 'undo' | 'redo',
+): void {
+  const backend = api.backend as any;
+  const original = backend?.[methodName];
+  if (typeof original !== 'function') return;
+  if ((original as any)[MILESTONE_HISTORY_MUTATION_WRAPPED]) return;
+
+  const wrapped = async function(this: unknown, sessionId: string, ...args: unknown[]) {
+    const result = await original.call(this, sessionId, ...args);
+    if (result) {
+      try {
+        await service.reconcileWithHistory(sessionId);
+      } catch (err) {
+        logger.warn(`${methodName} 后重建 milestone 进度失败:`, err);
+      }
+    }
+    return result;
+  };
+  Object.defineProperty(wrapped, MILESTONE_HISTORY_MUTATION_WRAPPED, { value: true, configurable: true });
+  backend[methodName] = wrapped;
+  ctx.trackDisposable({
+    dispose: () => {
+      if (backend[methodName] === wrapped) backend[methodName] = original;
+    },
+  });
+}
+
+function wrapHistoryMutations(api: IrisAPI, ctx: PluginContext, service: MilestoneExtensionService): void {
+  if (typeof service.reconcileWithHistory !== 'function') return;
+  wrapHistoryMutationMethod(api, ctx, service, 'undo');
+  wrapHistoryMutationMethod(api, ctx, service, 'redo');
+}
+
 function observeToolFailures(api: IrisAPI, ctx: PluginContext): void {
   const listener = (_sessionId: string, handle: ToolExecutionHandleLike) => {
     const initial = handle.getSnapshot();
@@ -765,6 +901,7 @@ export const milestonePlugin = definePlugin({
       ((api.config as any).tools.permissions ??= {}).list_milestones ??= { autoApprove: true };
       ctx.registerTools(createMilestoneToolsForApi(api));
       wrapExitPlanMode(api, ctx);
+      wrapHistoryMutations(api, ctx, service);
       observeToolFailures(api, ctx);
     });
 
