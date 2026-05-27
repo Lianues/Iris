@@ -486,6 +486,45 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
    * 压缩当前会话的上下文。
    */
   async summarize(sessionId: string, signal?: AbortSignal): Promise<string> {
+    if (!this.turnLock.tryAcquire(sessionId)) {
+      throw new Error('当前会话正在生成中，无法压缩上下文');
+    }
+
+    const abortController = new AbortController();
+    const abortFromParent = () => abortController.abort();
+    if (signal?.aborted) {
+      abortController.abort();
+    } else {
+      signal?.addEventListener('abort', abortFromParent, { once: true });
+    }
+
+    this.activeAbortControllers.set(sessionId, abortController);
+    try {
+      const execCtx: SessionExecutionContext = {
+        sessionId,
+        cwd: getRememberedCwd(sessionId),
+      };
+      return await sessionContext.run(execCtx, () =>
+        agentContext.run('main', () =>
+          this.summarizeUnlocked(sessionId, abortController.signal)
+        )
+      );
+    } finally {
+      signal?.removeEventListener('abort', abortFromParent);
+      this.activeAbortControllers.delete(sessionId);
+      this.turnLock.release(sessionId);
+    }
+  }
+
+  private getSummaryModelConfig(): LLMConfig | undefined {
+    try {
+      return this.router.getModelConfig(this.summaryModelName);
+    } catch {
+      return this.currentLLMConfig;
+    }
+  }
+
+  private async summarizeUnlocked(sessionId: string, signal?: AbortSignal): Promise<string> {
     const history = await this.storage.getHistory(sessionId);
     if (history.length === 0) {
       throw new Error('当前会话没有历史消息');
@@ -504,9 +543,11 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       throw new Error('消息过少，无需压缩');
     }
 
+    const preparedHistory = prepareHistoryForLLM(toSummarize, this.getSummaryModelConfig());
+
     const summaryText = await summarizeHistory(
       this.router,
-      toSummarize,
+      preparedHistory,
       this.summaryModelName,
       this.summaryConfig,
       { stream: this.stream, signal },
@@ -524,6 +565,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       ...(estimatedTokens > 0 ? { usageMetadata: { promptTokenCount: estimatedTokens } } : {}),
     };
     await this.storage.addMessage(sessionId, summaryContent);
+    this.lastSessionTokens.set(sessionId, estimatedTokens);
 
     this.undoRedo.clearRedo(sessionId);
     return summaryText;
@@ -1211,7 +1253,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         if (lastTokens + estUser > autoThreshold) {
           logger.info(`Auto-compact (pre-message): ${lastTokens} + ${estUser} > ${autoThreshold}`);
           try {
-            const summaryText = await this.summarize(sessionId, signal);
+            const summaryText = await this.summarizeUnlocked(sessionId, signal);
             this.emit('auto-compact', sessionId, summaryText);
             storedHistory = await this.storage.getHistory(sessionId);
           } catch (err) {
@@ -1463,7 +1505,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       if (autoThreshold && lastCallTotalTokens > autoThreshold) {
         logger.info(`Auto-compact (post-response): ${lastCallTotalTokens} > ${autoThreshold}`);
         try {
-          const summaryText = await this.summarize(sessionId);
+          const summaryText = await this.summarizeUnlocked(sessionId, signal);
           this.emit('auto-compact', sessionId, summaryText);
         } catch (err) {
           logger.warn('Auto-compact (post-response) failed:', err);

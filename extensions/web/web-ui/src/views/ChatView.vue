@@ -103,12 +103,41 @@ import DiffApprovalDialog from '../components/DiffApprovalDialog.vue'
 import AppSelect from '../components/AppSelect.vue'
 
 const { currentSessionId } = useSessions()
-const { messages, messagesLoading, messagesError, messageActionError, sending, streamingText, isStreaming, streamingThought, streamingThoughtDurationMs, armedDeleteMessageIndex, deletingMessageIndex, retryInfo, milestoneSnapshot, applyMilestoneSnapshot, clearMessageActionError, currentSessionSending, sendMessage, retryLastMessage, deleteMessage, reloadMessages, undoLastMessage, redoLastMessage } = useChat()
+const {
+  messages,
+  messagesLoading,
+  messagesError,
+  messageActionError,
+  sending,
+  streamingText,
+  isStreaming,
+  streamingThought,
+  streamingThoughtDurationMs,
+  armedDeleteMessageIndex,
+  deletingMessageIndex,
+  retryInfo,
+  milestoneSnapshot,
+  applyMilestoneSnapshot,
+  handleNotificationAgentEvent,
+  handleNotificationTurnStart,
+  handleNotificationChatEvent,
+  clearMessageActionError,
+  currentSessionSending,
+  sendMessage,
+  retryLastMessage,
+  deleteMessage,
+  reloadMessages,
+  undoLastMessage,
+  redoLastMessage,
+} = useChat()
 const { totalTokenCount, contextWindow, usageLabel, usagePercent, setContextWindow } = useContextUsage()
 const { isSlashCommand, executeCommand } = useSlashCommands()
 const { queue, enqueue, remove: queueRemove, clear: queueClear, reorder: queueReorder, update: queueUpdate, size: queueSize } = useMessageQueue()
 
 useNotifications({
+  onAgentNotification: handleNotificationAgentEvent,
+  onTurnStart: handleNotificationTurnStart,
+  onChatEvent: handleNotificationChatEvent,
   onMilestonesUpdate: (sessionId, snapshot) => applyMilestoneSnapshot(snapshot, sessionId),
 })
 

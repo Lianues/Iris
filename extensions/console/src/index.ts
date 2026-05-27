@@ -663,6 +663,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private backendListenerDisposers: Array<() => void> = [];
   /** 当前是否正在生成响应（用于阻止 addErrorMessage 破坏流式占位消息） */
   private _isGenerating = false;
+  private foregroundTurnActive = false;
+  private notificationTurnActive = false;
   /**
    * 历史会话加载序号。加载期间如果用户发送了新消息或再次加载会话，序号会变化，
    * 用于阻止异步完成的 /load 环境恢复提示插入到错误位置。
@@ -710,6 +712,12 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     void this.getConsoleServicesBundle();
     this.bindPluginSettingsTabService();
     this.remotePluginSettingsTabs = getCachedConsoleRemoteSettingsTabs(this.api);
+  }
+
+  private refreshGeneratingState(): void {
+    const generating = this.foregroundTurnActive || this.notificationTurnActive;
+    this._isGenerating = generating;
+    this.appHandle?.setGenerating(generating);
   }
 
   private getPlanModeService(): PlanModeServiceLike | undefined {
@@ -1065,6 +1073,10 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       if (sid === this.sessionId) {
         this.appHandle?.finalizeResponse(durationMs);
         this.appHandle?.clearNotificationContext();
+        if (this.notificationTurnActive) {
+          this.notificationTurnActive = false;
+          this.refreshGeneratingState();
+        }
         this.syncPlanModeStatus();
         void this.refreshRemoteConsoleServices(sid);
       }
@@ -1074,6 +1086,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.onBackend('turn:start', (sid: string, _turnId: string, mode: string) => {
       if (sid === this.sessionId) {
         if (mode === 'task-notification') {
+          this.notificationTurnActive = true;
+          this.refreshGeneratingState();
           this.appHandle?.setNotificationContext();
         } else {
           // 普通 chat turn：清除可能残留的 notification context
@@ -2973,8 +2987,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async handleSummarize(): Promise<{ ok: boolean; message: string }> {
     this.appHandle?.setGeneratingLabel('compressing context...');
-    this._isGenerating = true;
-    this.appHandle?.setGenerating(true);
+    this.foregroundTurnActive = true;
+    this.refreshGeneratingState();
     try {
       const summaryText = await this.backend.summarize?.(this.sessionId) ?? '';
       const fullText = `[Context Summary]\n\n${summaryText}`;
@@ -2986,8 +3000,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.appHandle?.addErrorMessage(`Context compression failed: ${detail}`);
       return { ok: false, message: detail };
     } finally {
-      this._isGenerating = false;
-      this.appHandle?.setGenerating(false);
+      this.foregroundTurnActive = false;
+      this.refreshGeneratingState();
     }
   }
 
@@ -3249,8 +3263,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private async handleInput(text: string): Promise<void> {
     this.userInputEpoch += 1;
     this.sessionLoadEpoch += 1;
-    this._isGenerating = true;
-    this.appHandle?.setGenerating(true);
+    this.foregroundTurnActive = true;
+    this.refreshGeneratingState();
 
     // 首次发送时取出并消费待发送的文件附件
     const images = this._pendingImages.length > 0 ? [...this._pendingImages] : undefined;
@@ -3311,8 +3325,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       currentText = this.appHandle?.drainQueue();
     }
 
-    this._isGenerating = false;
-    this.appHandle?.setGenerating(false);
+    this.foregroundTurnActive = false;
+    this.refreshGeneratingState();
   }
 }
 

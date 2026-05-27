@@ -319,10 +319,95 @@ watch(currentSessionId, async (id) => {
 
 export function useChat() {
   const { dequeue } = useMessageQueue()
+  const notificationSources = new Map<string, { taskId: string; description: string }>()
+  const backgroundTurnSessions = new Set<string>()
+  const backgroundToolInvocations = new Map<string, any>()
+  let backgroundRequestToken: symbol | null = null
+  let backgroundNeedsHistoryRefresh = false
 
   /** 提交流式文本到消息列表 */
   function isCurrentViewBoundToActiveRequest(): boolean {
     return activeRequestToken !== null && currentSessionId.value === activeRequestSessionId
+  }
+
+  function ownsBackgroundTurn(sessionId?: string): boolean {
+    return backgroundRequestToken !== null
+      && activeRequestToken === backgroundRequestToken
+      && (sessionId == null || activeRequestSessionId === sessionId)
+  }
+
+  function publishBackgroundToolInvocations() {
+    setToolInvocations(Array.from(backgroundToolInvocations.values()))
+  }
+
+  function applyAssistantDuration(durationMs: number) {
+    if (deferredAssistantMessage) {
+      if (!deferredAssistantMessage.meta) deferredAssistantMessage.meta = {}
+      deferredAssistantMessage.meta.durationMs = durationMs
+      return
+    }
+
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const msg = messages.value[i]
+      if (msg.role === 'model') {
+        if (!msg.meta) msg.meta = {}
+        msg.meta.durationMs = durationMs
+        break
+      }
+    }
+  }
+
+  function beginBackgroundTurn(sessionId: string): boolean {
+    markSessionStreaming(sessionId)
+    backgroundTurnSessions.add(sessionId)
+    if (currentSessionId.value !== sessionId) return false
+    if (activeRequestToken !== null && activeRequestToken !== backgroundRequestToken) return false
+
+    if (!backgroundRequestToken) {
+      backgroundRequestToken = Symbol('notification-turn')
+      activeRequestToken = backgroundRequestToken
+      activeRequestSessionId = sessionId
+      backgroundNeedsHistoryRefresh = false
+      backgroundToolInvocations.clear()
+      clearToolState()
+      resetStreamingState()
+      deferredAssistantMessage = null
+      retryInfo.value = null
+      sending.value = true
+    }
+
+    return true
+  }
+
+  function finishBackgroundTurn(sessionId: string) {
+    const ownedCurrentTurn = ownsBackgroundTurn(sessionId)
+    const trackedBackgroundTurn = backgroundTurnSessions.has(sessionId)
+    if (!ownedCurrentTurn && !trackedBackgroundTurn) {
+      markSessionCompleted(sessionId, currentSessionId.value !== sessionId)
+      void loadSessions()
+      return
+    }
+
+    if (ownedCurrentTurn && currentSessionId.value === sessionId) {
+      clearToolState()
+      resetStreamingState()
+    }
+    if (ownedCurrentTurn) {
+      backgroundToolInvocations.clear()
+      sending.value = false
+      backgroundRequestToken = null
+      activeRequestToken = null
+      activeRequestSessionId = null
+    }
+    backgroundTurnSessions.delete(sessionId)
+    markSessionCompleted(sessionId, currentSessionId.value !== sessionId)
+    if (
+      currentSessionId.value === sessionId
+      && ((ownedCurrentTurn && backgroundNeedsHistoryRefresh) || !ownedCurrentTurn)
+    ) {
+      void loadMessagesForSession(sessionId, true)
+    }
+    void loadSessions()
   }
 
   function consumeStreamingText(): string {
@@ -633,23 +718,7 @@ export function useChat() {
       },
       onDoneMeta(durationMs) {
         if (isStale() || !isCurrentViewBoundToActiveRequest()) return
-
-        // 如果有暂存的非工具消息，直接回填到它的 meta
-        if (deferredAssistantMessage) {
-          if (!deferredAssistantMessage.meta) deferredAssistantMessage.meta = {}
-          deferredAssistantMessage.meta.durationMs = durationMs
-          return
-        }
-
-        // 否则回填到 messages 中最后一条 model 消息
-        for (let i = messages.value.length - 1; i >= 0; i--) {
-          const msg = messages.value[i]
-          if (msg.role === 'model') {
-            if (!msg.meta) msg.meta = {}
-            msg.meta.durationMs = durationMs
-            break
-          }
-        }
+        applyAssistantDuration(durationMs)
       },
       onDone() {
         if (isStale()) return
@@ -718,6 +787,167 @@ export function useChat() {
         void loadSessions()
       },
     }, normalizedImages, normalizedDocs)
+  }
+
+  function handleNotificationAgentEvent(sessionId: string, taskId: string, status: string, summary: string) {
+    if (status === 'completed' || status === 'failed' || status === 'killed') {
+      notificationSources.set(sessionId, { taskId, description: summary })
+    }
+  }
+
+  function handleNotificationTurnStart(sessionId: string, _turnId: string, mode: 'chat' | 'task-notification') {
+    if (mode === 'task-notification') {
+      beginBackgroundTurn(sessionId)
+    }
+  }
+
+  function annotateNotificationMessage(sessionId: string, message: Message) {
+    const source = notificationSources.get(sessionId)
+    if (!source || message.role !== 'model') return
+    message.notificationSource = {
+      taskId: source.taskId,
+      description: source.description,
+    }
+  }
+
+  function handleNotificationChatEvent(sessionId: string, event: Record<string, unknown>) {
+    const type = typeof event.type === 'string' ? event.type : ''
+
+    if (type === 'done_meta') {
+      if (currentSessionId.value === sessionId && typeof event.durationMs === 'number') {
+        applyAssistantDuration(event.durationMs)
+      }
+      finishBackgroundTurn(sessionId)
+      return
+    }
+
+    if (type === 'done') {
+      finishBackgroundTurn(sessionId)
+      return
+    }
+
+    if (type === 'error') {
+      if (currentSessionId.value === sessionId) {
+        clearToolState()
+        resetStreamingState()
+        messages.value.push({
+          role: 'model',
+          parts: [{ type: 'text', text: `错误: ${String(event.message ?? '未知错误')}` }],
+          meta: { isError: true },
+          timestamp: Date.now(),
+        })
+      }
+      finishBackgroundTurn(sessionId)
+      return
+    }
+
+    if (!beginBackgroundTurn(sessionId)) return
+
+    switch (type) {
+      case 'stream_start':
+        deferredAssistantMessage = null
+        break
+      case 'delta':
+        if (typeof event.text === 'string') queueStreamingDelta(event.text)
+        break
+      case 'thought_delta':
+        if (typeof event.text === 'string') {
+          queueThoughtDelta(event.text, typeof event.durationMs === 'number' ? event.durationMs : undefined)
+        }
+        break
+      case 'message': {
+        const text = typeof event.text === 'string' ? event.text : ''
+        consumeStreamingText()
+        messages.value.push({
+          role: 'model',
+          parts: [{ type: 'text', text }],
+          timestamp: Date.now(),
+        })
+        break
+      }
+      case 'assistant_content': {
+        const message = event.message as Message | undefined
+        if (!message) break
+        annotateNotificationMessage(sessionId, message)
+        consumeStreamingText()
+        if (!message.timestamp) message.timestamp = Date.now()
+        if (hasToolParts(message)) backgroundNeedsHistoryRefresh = true
+        messages.value.push(message)
+        break
+      }
+      case 'stream_end':
+        flushPendingStreamingDelta()
+        flushPendingThoughtDelta()
+        break
+      case 'tool_start': {
+        const tool = event.tool as Record<string, any> | undefined
+        const id = tool?.id ?? tool?.toolId
+        if (!id) break
+        backgroundToolInvocations.set(String(id), {
+          id: String(id),
+          toolName: tool?.toolName ?? tool?.name,
+          status: tool?.status ?? 'queued',
+          args: tool?.args ?? {},
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          ...(tool?.depth != null ? { depth: tool.depth } : {}),
+          ...(tool?.parentId ? { parentToolId: tool.parentId } : {}),
+        })
+        publishBackgroundToolInvocations()
+        break
+      }
+      case 'tool_state': {
+        const toolId = typeof event.toolId === 'string' ? event.toolId : ''
+        if (!toolId) break
+        const snapshot = (event.snapshot ?? {}) as Record<string, any>
+        const existing = backgroundToolInvocations.get(toolId) ?? { id: toolId, createdAt: Date.now(), args: {} }
+        backgroundToolInvocations.set(toolId, {
+          ...existing,
+          ...snapshot,
+          id: snapshot.id ?? toolId,
+          toolName: snapshot.toolName ?? existing.toolName,
+          args: snapshot.args ?? existing.args,
+          status: typeof event.status === 'string' ? event.status : existing.status,
+          updatedAt: Date.now(),
+        })
+        publishBackgroundToolInvocations()
+        break
+      }
+      case 'tool_progress': {
+        const toolId = typeof event.toolId === 'string' ? event.toolId : ''
+        if (!toolId) break
+        const existing = backgroundToolInvocations.get(toolId)
+        if (!existing) break
+        backgroundToolInvocations.set(toolId, {
+          ...existing,
+          progress: event.data as Record<string, unknown>,
+          updatedAt: Date.now(),
+        })
+        publishBackgroundToolInvocations()
+        break
+      }
+      case 'usage':
+        if (event.usage) setUsage(event.usage as any)
+        break
+      case 'retry':
+        retryInfo.value = {
+          attempt: Number(event.attempt ?? 0),
+          maxRetries: Number(event.maxRetries ?? 0),
+          error: String(event.error ?? ''),
+        }
+        break
+      case 'auto_compact':
+        if (typeof event.summary === 'string') {
+          messages.value.push({
+            role: 'model',
+            parts: [
+              { type: 'function_call', name: 'compact_context', args: { action: 'auto_compress' } },
+              { type: 'function_response', name: 'compact_context', response: { ok: true, summary: event.summary } },
+            ],
+          })
+        }
+        break
+    }
   }
 
   function buildRetryImages(message: Message): ChatImageAttachment[] {
@@ -861,6 +1091,9 @@ export function useChat() {
     retryInfo,
     milestoneSnapshot,
     applyMilestoneSnapshot,
+    handleNotificationAgentEvent,
+    handleNotificationTurnStart,
+    handleNotificationChatEvent,
     clearMessageActionError,
     currentSessionSending,
     sendMessage,

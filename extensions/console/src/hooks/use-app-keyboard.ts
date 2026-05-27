@@ -1015,7 +1015,7 @@ export function useAppKeyboard({
       return;
     }
 
-    if (isGenerating && pendingApplies.length > 0) {
+    if (pendingApplies.length > 0) {
       const current = pendingApplies[0];
       if (key.name === 'up' || key.name === 'down') {
         approval.setPreviewIndex((prev) => key.name === 'up' ? prev - 1 : prev + 1);
@@ -1056,7 +1056,7 @@ export function useAppKeyboard({
       return;
     }
 
-    if (isGenerating && pendingApprovals.length > 0) {
+    if (pendingApprovals.length > 0) {
       const inv = pendingApprovals[0];
       const isCommandTool = inv.toolName === 'shell' || inv.toolName === 'bash';
 
