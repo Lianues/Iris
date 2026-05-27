@@ -535,11 +535,17 @@ export function useAppKeyboard({
         return;
       }
 
+      if (rewindConfirmId && (key.name === 'up' || key.name === 'left')) {
+        setRewindMode((current) => cycleRewindMode(current, selected, -1));
+        return;
+      }
+
+      if (rewindConfirmId && (key.name === 'down' || key.name === 'right')) {
+        setRewindMode((current) => cycleRewindMode(current, selected, 1));
+        return;
+      }
+
       if (key.name === 'up') {
-        if (rewindConfirmId) {
-          setRewindMode((current) => cycleRewindMode(current, selected, -1));
-          return;
-        }
         setSelectedIndex((prev) => Math.max(0, prev - 1));
         setRewindConfirmId(null);
         setRewindMode('conversation');
@@ -548,10 +554,6 @@ export function useAppKeyboard({
         return;
       }
       if (key.name === 'down') {
-        if (rewindConfirmId) {
-          setRewindMode((current) => cycleRewindMode(current, selected, 1));
-          return;
-        }
         setSelectedIndex((prev) => Math.min(maxIndex, prev + 1));
         setRewindConfirmId(null);
         setRewindMode('conversation');

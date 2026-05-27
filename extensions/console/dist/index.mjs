@@ -8459,10 +8459,9 @@ var MODE_LABELS = {
   code: "仅代码",
   both: "对话 + 代码"
 };
-var MODE_ORDER = ["conversation", "code", "both"];
 function formatStats2(checkpoint) {
   const stats = checkpoint.codeChangeSummary;
-  if (!checkpoint.canRestoreCode || !stats)
+  if (!stats)
     return "无代码快照";
   const fileCount = stats.filesChanged.length;
   if (fileCount === 0)
@@ -8481,8 +8480,11 @@ function formatConversationAction(selected, selectedMode) {
   return selectedMode === "code" ? "仅恢复代码文件；对话历史保持不变。" : `将移除 ${selected.messageCountAfter} 条历史，并把该用户输入恢复到底部输入框。`;
 }
 function formatCodeScopeNotice(selected, selectedMode) {
-  if (!selected.canRestoreCode)
+  if (!selected.codeChangeSummary)
     return "该回溯点没有代码快照；只能恢复对话。";
+  if (selected.codeChangeSummary.filesChanged.length === 0) {
+    return "当前代码与该快照一致；无需恢复代码。";
+  }
   if (selectedMode === "conversation")
     return "可切换到仅代码或对话 + 代码，以恢复 Iris 编辑类工具产生的文件变更。";
   return "仅覆盖 Iris 编辑类工具；不覆盖 shell/bash、外部编辑器或手动改动。";
@@ -8491,6 +8493,61 @@ function formatBranchNotice(selectedMode) {
   if (selectedMode === "code")
     return "仅代码模式不会修改对话历史，也不会影响 redo 栈。";
   return "这会创建新的对话分支；后续发送新消息后，原来的 redo 将失效。";
+}
+function getModeColor(mode, selectedMode, canRestoreCode) {
+  const unavailable = mode !== "conversation" && !canRestoreCode;
+  if (mode === selectedMode)
+    return unavailable ? C.error : C.accent;
+  return unavailable ? C.error : C.dim;
+}
+function CodeStatsSummaryLine({ checkpoint, maxWidth }) {
+  const stats = checkpoint.codeChangeSummary;
+  if (!checkpoint.canRestoreCode || !stats) {
+    return null;
+  }
+  const fileCount = stats.filesChanged.length;
+  if (fileCount === 0) {
+    return null;
+  }
+  const fullText = `代码快照：${fileCount} 个文件 · +${stats.insertions} -${stats.deletions}。`;
+  const compact = getTextWidth(fullText) > maxWidth;
+  return /* @__PURE__ */ jsxDEV40("box", {
+    flexDirection: "row",
+    border: false,
+    children: [
+      /* @__PURE__ */ jsxDEV40("text", {
+        fg: C.text,
+        children: compact ? "代码：" : "代码快照："
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV40("text", {
+        fg: C.accent,
+        children: String(fileCount)
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV40("text", {
+        fg: C.text,
+        children: compact ? "文件 " : " 个文件 · "
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV40("text", {
+        fg: C.accent,
+        children: `+${stats.insertions}`
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV40("text", {
+        fg: C.text,
+        children: " "
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV40("text", {
+        fg: C.error,
+        children: `-${stats.deletions}`
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV40("text", {
+        fg: C.text,
+        children: "。"
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+function shouldShowCodeStatsLine(checkpoint, selectedMode) {
+  return (selectedMode === "code" || selectedMode === "both") && checkpoint.canRestoreCode === true && (checkpoint.codeChangeSummary?.filesChanged.length ?? 0) > 0;
 }
 function RewindSelectorView({
   checkpoints,
@@ -8512,7 +8569,92 @@ function RewindSelectorView({
   const selected = checkpoints[safeSelectedIndex];
   const isConfirming = !!selected && confirmCheckpointId === selected.id;
   const canRestoreSelectedCode = selected?.canRestoreCode === true;
+  const effectiveSelectedMode = canRestoreSelectedCode ? selectedMode : "conversation";
   const hintText = isRestoring ? "正在回溯，请稍候..." : isConfirming ? canRestoreSelectedCode ? "↑/↓ 或 ←/→ 切换恢复模式 · Enter 确认 · Esc 返回列表" : "无代码快照，只能仅对话 · Enter 确认 · Esc 返回列表" : `${ICONS.arrowUp}${ICONS.arrowDown} 选择 · Enter 继续 · Esc 返回`;
+  if (isConfirming && selected) {
+    const conversationModeColor = getModeColor("conversation", effectiveSelectedMode, canRestoreSelectedCode);
+    const codeModeColor = getModeColor("code", effectiveSelectedMode, canRestoreSelectedCode);
+    const bothModeColor = getModeColor("both", effectiveSelectedMode, canRestoreSelectedCode);
+    return /* @__PURE__ */ jsxDEV40("box", {
+      flexDirection: "column",
+      width: "100%",
+      height: "100%",
+      children: [
+        /* @__PURE__ */ jsxDEV40("box", {
+          padding: 1,
+          flexDirection: "column",
+          flexShrink: 0,
+          children: [
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.primary,
+              children: fitText("Rewind 回溯 · 确认恢复", headerWidth)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: fitText(hintText, headerWidth)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: fitText(`回溯点：${selected.preview}`, headerWidth)
+            }, undefined, false, undefined, this)
+          ]
+        }, undefined, true, undefined, this),
+        /* @__PURE__ */ jsxDEV40("box", {
+          padding: 1,
+          flexDirection: "column",
+          borderStyle: "single",
+          borderColor: C.warn,
+          flexShrink: 0,
+          children: [
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.warn,
+              children: fitText("确认恢复到所选回溯点？", confirmWidth)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: fitText("恢复模式：", confirmWidth)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: conversationModeColor,
+              children: fitText(formatModeRow("conversation", effectiveSelectedMode, canRestoreSelectedCode), confirmWidth)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: codeModeColor,
+              children: fitText(formatModeRow("code", effectiveSelectedMode, canRestoreSelectedCode), confirmWidth)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: bothModeColor,
+              children: fitText(formatModeRow("both", effectiveSelectedMode, canRestoreSelectedCode), confirmWidth)
+            }, undefined, false, undefined, this)
+          ]
+        }, undefined, true, undefined, this),
+        /* @__PURE__ */ jsxDEV40("box", {
+          paddingX: 2,
+          paddingTop: 1,
+          flexDirection: "column",
+          flexShrink: 0,
+          children: [
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.text,
+              children: fitText(formatConversationAction(selected, effectiveSelectedMode), headerWidth)
+            }, undefined, false, undefined, this),
+            shouldShowCodeStatsLine(selected, effectiveSelectedMode) ? /* @__PURE__ */ jsxDEV40(CodeStatsSummaryLine, {
+              checkpoint: selected,
+              maxWidth: headerWidth
+            }, undefined, false, undefined, this) : null,
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: fitText(formatCodeScopeNotice(selected, effectiveSelectedMode), headerWidth)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV40("text", {
+              fg: C.dim,
+              children: fitText(formatBranchNotice(effectiveSelectedMode), headerWidth)
+            }, undefined, false, undefined, this)
+          ]
+        }, undefined, true, undefined, this)
+      ]
+    }, undefined, true, undefined, this);
+  }
   return /* @__PURE__ */ jsxDEV40("box", {
     flexDirection: "column",
     width: "100%",
@@ -8609,60 +8751,7 @@ function RewindSelectorView({
             children: fitText(`${ICONS.arrowDown} 下方还有 ${checkpoints.length - startIndex - visible.length} 条`, rowWidth)
           }, undefined, false, undefined, this) : null
         ]
-      }, undefined, true, undefined, this),
-      isConfirming && selected ? /* @__PURE__ */ jsxDEV40("box", {
-        padding: 1,
-        flexDirection: "column",
-        borderStyle: "single",
-        borderColor: C.warn,
-        children: [
-          /* @__PURE__ */ jsxDEV40("text", {
-            fg: C.warn,
-            children: fitText("确认恢复到所选回溯点？", confirmWidth)
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("box", {
-            children: /* @__PURE__ */ jsxDEV40("text", {
-              fg: C.dim,
-              children: fitText("恢复模式：", confirmWidth)
-            }, undefined, false, undefined, this)
-          }, undefined, false, undefined, this),
-          MODE_ORDER.map((mode) => {
-            const unavailable = mode !== "conversation" && !canRestoreSelectedCode;
-            const active = mode === selectedMode;
-            const color = active ? unavailable ? C.error : C.accent : unavailable ? C.error : C.dim;
-            return /* @__PURE__ */ jsxDEV40("box", {
-              children: /* @__PURE__ */ jsxDEV40("text", {
-                fg: color,
-                children: fitText(formatModeRow(mode, selectedMode, canRestoreSelectedCode), confirmWidth)
-              }, undefined, false, undefined, this)
-            }, mode, false, undefined, this);
-          }),
-          /* @__PURE__ */ jsxDEV40("box", {
-            children: /* @__PURE__ */ jsxDEV40("text", {
-              fg: C.dim,
-              children: fitText(formatConversationAction(selected, selectedMode), confirmWidth)
-            }, undefined, false, undefined, this)
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("box", {
-            children: /* @__PURE__ */ jsxDEV40("text", {
-              fg: C.dim,
-              children: fitText(`代码快照：${formatStats2(selected)}。`, confirmWidth)
-            }, undefined, false, undefined, this)
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("box", {
-            children: /* @__PURE__ */ jsxDEV40("text", {
-              fg: C.dim,
-              children: fitText(formatCodeScopeNotice(selected, selectedMode), confirmWidth)
-            }, undefined, false, undefined, this)
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("box", {
-            children: /* @__PURE__ */ jsxDEV40("text", {
-              fg: C.dim,
-              children: fitText(formatBranchNotice(selectedMode), confirmWidth)
-            }, undefined, false, undefined, this)
-          }, undefined, false, undefined, this)
-        ]
-      }, undefined, true, undefined, this) : null
+      }, undefined, true, undefined, this)
     ]
   }, undefined, true, undefined, this);
 }

@@ -615,8 +615,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       try {
         const stats = await this.fileHistory.getDiffStats(sessionId, checkpoint.id);
         if (!stats) return;
-        checkpoint.canRestoreCode = true;
         checkpoint.codeChangeSummary = stats;
+        checkpoint.canRestoreCode = stats.filesChanged.length > 0;
       } catch (err) {
         logger.warn(`读取代码回溯快照失败，已按仅对话显示: ${err instanceof Error ? err.message : String(err)}`);
       }

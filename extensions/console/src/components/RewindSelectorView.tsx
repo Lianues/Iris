@@ -1,9 +1,11 @@
 /** @jsxImportSource @opentui/react */
 
 import React from 'react';
+import { useTerminalDimensions } from '@opentui/react';
 import type { RewindCheckpointLike, RewindTargetMode } from '../app-types';
 import { C } from '../theme';
 import { ICONS } from '../terminal-compat';
+import { getTextWidth, splitGraphemes } from '../text-layout';
 
 interface RewindSelectorViewProps {
   checkpoints: RewindCheckpointLike[];
@@ -28,10 +30,26 @@ function formatTime(createdAt?: number): string {
   return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${hhmm}`;
 }
 
-function truncate(text: string, maxLen: number): string {
-  const normalized = (text || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxLen) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxLen - 1))}${ICONS.ellipsis}`;
+function normalizeSingleLine(text: string): string {
+  return (text || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function fitText(text: string, maxWidth: number): string {
+  const targetWidth = Math.max(1, maxWidth);
+  const normalized = normalizeSingleLine(text);
+  if (getTextWidth(normalized) <= targetWidth) return normalized;
+
+  const ellipsis = ICONS.ellipsis;
+  const ellipsisWidth = getTextWidth(ellipsis);
+  let used = 0;
+  let out = '';
+  for (const grapheme of splitGraphemes(normalized)) {
+    const width = getTextWidth(grapheme);
+    if (used + width + ellipsisWidth > targetWidth) break;
+    out += grapheme;
+    used += width;
+  }
+  return `${out}${ellipsis}`;
 }
 
 const MAX_VISIBLE = 9;
@@ -44,13 +62,96 @@ const MODE_LABELS: Record<RewindTargetMode, string> = {
 
 function formatStats(checkpoint: RewindCheckpointLike): string {
   const stats = checkpoint.codeChangeSummary;
-  if (!checkpoint.canRestoreCode || !stats) return '无代码快照';
+  if (!stats) return '无代码快照';
   const fileCount = stats.filesChanged.length;
   if (fileCount === 0) return '代码无变化';
   return `${fileCount} 个文件 · +${stats.insertions} -${stats.deletions}`;
 }
 
-export function RewindSelectorView({ checkpoints, selectedIndex, confirmCheckpointId, statusMessage, statusIsError, isRestoring, selectedMode = 'conversation' }: RewindSelectorViewProps) {
+function formatModeOption(mode: RewindTargetMode, selectedMode: RewindTargetMode, canRestoreCode: boolean): string {
+  const marker = mode === selectedMode ? `${ICONS.selectorArrow} ` : '  ';
+  const unavailable = mode !== 'conversation' && !canRestoreCode ? '(不可用)' : '';
+  return `${marker}${MODE_LABELS[mode]}${unavailable}`;
+}
+
+function formatModeRow(mode: RewindTargetMode, selectedMode: RewindTargetMode, canRestoreCode: boolean): string {
+  return formatModeOption(mode, selectedMode, canRestoreCode);
+}
+
+function formatConversationAction(selected: RewindCheckpointLike, selectedMode: RewindTargetMode): string {
+  return selectedMode === 'code'
+    ? '仅恢复代码文件；对话历史保持不变。'
+    : `将移除 ${selected.messageCountAfter} 条历史，并把该用户输入恢复到底部输入框。`;
+}
+
+function formatCodeScopeNotice(selected: RewindCheckpointLike, selectedMode: RewindTargetMode): string {
+  if (!selected.codeChangeSummary) return '该回溯点没有代码快照；只能恢复对话。';
+  if (selected.codeChangeSummary.filesChanged.length === 0) {
+    return '当前代码与该快照一致；无需恢复代码。';
+  }
+  if (selectedMode === 'conversation') return '可切换到仅代码或对话 + 代码，以恢复 Iris 编辑类工具产生的文件变更。';
+  return '仅覆盖 Iris 编辑类工具；不覆盖 shell/bash、外部编辑器或手动改动。';
+}
+
+function formatBranchNotice(selectedMode: RewindTargetMode): string {
+  if (selectedMode === 'code') return '仅代码模式不会修改对话历史，也不会影响 redo 栈。';
+  return '这会创建新的对话分支；后续发送新消息后，原来的 redo 将失效。';
+}
+
+function getModeColor(mode: RewindTargetMode, selectedMode: RewindTargetMode, canRestoreCode: boolean): string {
+  const unavailable = mode !== 'conversation' && !canRestoreCode;
+  if (mode === selectedMode) return unavailable ? C.error : C.accent;
+  return unavailable ? C.error : C.dim;
+}
+
+function CodeStatsSummaryLine({ checkpoint, maxWidth }: { checkpoint: RewindCheckpointLike; maxWidth: number }) {
+  const stats = checkpoint.codeChangeSummary;
+  if (!checkpoint.canRestoreCode || !stats) {
+    return null;
+  }
+
+  const fileCount = stats.filesChanged.length;
+  if (fileCount === 0) {
+    return null;
+  }
+
+  const fullText = `代码快照：${fileCount} 个文件 · +${stats.insertions} -${stats.deletions}。`;
+  const compact = getTextWidth(fullText) > maxWidth;
+
+  return (
+    <box flexDirection="row" border={false}>
+      <text fg={C.text}>{compact ? '代码：' : '代码快照：'}</text>
+      <text fg={C.accent}>{String(fileCount)}</text>
+      <text fg={C.text}>{compact ? '文件 ' : ' 个文件 · '}</text>
+      <text fg={C.accent}>{`+${stats.insertions}`}</text>
+      <text fg={C.text}> </text>
+      <text fg={C.error}>{`-${stats.deletions}`}</text>
+      <text fg={C.text}>。</text>
+    </box>
+  );
+}
+
+function shouldShowCodeStatsLine(checkpoint: RewindCheckpointLike, selectedMode: RewindTargetMode): boolean {
+  return (selectedMode === 'code' || selectedMode === 'both')
+    && checkpoint.canRestoreCode === true
+    && (checkpoint.codeChangeSummary?.filesChanged.length ?? 0) > 0;
+}
+
+export function RewindSelectorView({
+  checkpoints,
+  selectedIndex,
+  confirmCheckpointId,
+  statusMessage,
+  statusIsError,
+  isRestoring,
+  selectedMode = 'conversation',
+}: RewindSelectorViewProps) {
+  const { width: terminalWidth } = useTerminalDimensions();
+  const screenWidth = Math.max(40, terminalWidth || 80);
+  const headerWidth = Math.max(20, screenWidth - 4);
+  const rowWidth = Math.max(20, screenWidth - 4);
+  const confirmWidth = Math.max(20, screenWidth - 8);
+
   const safeSelectedIndex = checkpoints.length > 0 ? clamp(selectedIndex, 0, checkpoints.length - 1) : 0;
   const startIndex = checkpoints.length <= MAX_VISIBLE
     ? 0
@@ -58,68 +159,109 @@ export function RewindSelectorView({ checkpoints, selectedIndex, confirmCheckpoi
   const visible = checkpoints.slice(startIndex, startIndex + MAX_VISIBLE);
   const selected = checkpoints[safeSelectedIndex];
   const isConfirming = !!selected && confirmCheckpointId === selected.id;
+  const canRestoreSelectedCode = selected?.canRestoreCode === true;
+  const effectiveSelectedMode: RewindTargetMode = canRestoreSelectedCode ? selectedMode : 'conversation';
+
+  const hintText = isRestoring
+    ? '正在回溯，请稍候...'
+    : isConfirming
+      ? canRestoreSelectedCode
+        ? '↑/↓ 或 ←/→ 切换恢复模式 · Enter 确认 · Esc 返回列表'
+        : '无代码快照，只能仅对话 · Enter 确认 · Esc 返回列表'
+      : `${ICONS.arrowUp}${ICONS.arrowDown} 选择 · Enter 继续 · Esc 返回`;
+
+  if (isConfirming && selected) {
+    const conversationModeColor = getModeColor('conversation', effectiveSelectedMode, canRestoreSelectedCode);
+    const codeModeColor = getModeColor('code', effectiveSelectedMode, canRestoreSelectedCode);
+    const bothModeColor = getModeColor('both', effectiveSelectedMode, canRestoreSelectedCode);
+
+    return (
+      <box flexDirection="column" width="100%" height="100%">
+        <box padding={1} flexDirection="column" flexShrink={0}>
+          <text fg={C.primary}>{fitText('Rewind 回溯 · 确认恢复', headerWidth)}</text>
+          <text fg={C.dim}>{fitText(hintText, headerWidth)}</text>
+          <text fg={C.dim}>{fitText(`回溯点：${selected.preview}`, headerWidth)}</text>
+        </box>
+
+        <box padding={1} flexDirection="column" borderStyle="single" borderColor={C.warn} flexShrink={0}>
+          <text fg={C.warn}>{fitText('确认恢复到所选回溯点？', confirmWidth)}</text>
+          <text fg={C.dim}>{fitText('恢复模式：', confirmWidth)}</text>
+          <text fg={conversationModeColor}>
+            {fitText(formatModeRow('conversation', effectiveSelectedMode, canRestoreSelectedCode), confirmWidth)}
+          </text>
+          <text fg={codeModeColor}>
+            {fitText(formatModeRow('code', effectiveSelectedMode, canRestoreSelectedCode), confirmWidth)}
+          </text>
+          <text fg={bothModeColor}>
+            {fitText(formatModeRow('both', effectiveSelectedMode, canRestoreSelectedCode), confirmWidth)}
+          </text>
+        </box>
+
+        <box paddingX={2} paddingTop={1} flexDirection="column" flexShrink={0}>
+          <text fg={C.text}>{fitText(formatConversationAction(selected, effectiveSelectedMode), headerWidth)}</text>
+          {shouldShowCodeStatsLine(selected, effectiveSelectedMode) ? (
+            <CodeStatsSummaryLine checkpoint={selected} maxWidth={headerWidth} />
+          ) : null}
+          <text fg={C.dim}>{fitText(formatCodeScopeNotice(selected, effectiveSelectedMode), headerWidth)}</text>
+          <text fg={C.dim}>{fitText(formatBranchNotice(effectiveSelectedMode), headerWidth)}</text>
+        </box>
+      </box>
+    );
+  }
 
   return (
     <box flexDirection="column" width="100%" height="100%">
       <box padding={1} flexDirection="column">
         <box>
-          <text fg={C.primary}>Rewind 回溯</text>
-          <text fg={C.dim}>{`  (${checkpoints.length} 个可回溯点)`}</text>
+          <text fg={C.primary}>{fitText(`Rewind 回溯  (${checkpoints.length} 个可回溯点)`, headerWidth)}</text>
         </box>
         <box paddingTop={0}>
-          <text fg={C.dim}>
-            {isRestoring
-              ? '正在回溯，请稍候...'
-              : isConfirming
-              ? 'Enter 确认回到该消息发送前 · Esc 返回列表'
-              : `${ICONS.arrowUp}${ICONS.arrowDown} 选择 · Enter 继续 · Esc 返回`}
-          </text>
+          <text fg={C.dim}>{fitText(hintText, headerWidth)}</text>
         </box>
         {statusMessage ? (
           <box paddingTop={0}>
-            <text fg={statusIsError ? C.error : C.dim}>{statusMessage}</text>
+            <text fg={statusIsError ? C.error : C.dim}>{fitText(statusMessage, headerWidth)}</text>
           </box>
         ) : null}
       </box>
 
       <scrollbox flexGrow={1}>
         {checkpoints.length === 0 ? (
-          <text fg={C.dim} paddingLeft={2}>暂无可回溯的用户消息。</text>
+          <text fg={C.dim} paddingLeft={2}>{fitText('暂无可回溯的用户消息。', rowWidth)}</text>
         ) : null}
 
         {startIndex > 0 ? (
-          <text fg={C.dim} paddingLeft={2}>{`${ICONS.arrowUp} 上方还有 ${startIndex} 条`}</text>
+          <text fg={C.dim} paddingLeft={2}>{fitText(`${ICONS.arrowUp} 上方还有 ${startIndex} 条`, rowWidth)}</text>
         ) : null}
 
         {visible.map((checkpoint, localIndex) => {
           const index = startIndex + localIndex;
           const isSelected = index === safeSelectedIndex;
           const marker = isSelected ? `${ICONS.selectorArrow} ` : '  ';
+          const markerWidth = getTextWidth(marker);
+          const titleWidth = Math.max(8, rowWidth - markerWidth);
           const time = formatTime(checkpoint.createdAt);
           const suffix = [
             time,
-            `将移除 ${checkpoint.messageCountAfter} 条`,
+            `对话回溯将移除 ${checkpoint.messageCountAfter} 条`,
             checkpoint.hasAttachments ? '含附件' : undefined,
             formatStats(checkpoint),
           ].filter(Boolean).join(' · ');
 
           return (
             <box key={checkpoint.id} paddingLeft={1} flexDirection="column">
-              <text>
-                <span fg={isSelected ? C.accent : C.dim}>{marker}</span>
-                <span fg={C.dim}>{`${index + 1}. `}</span>
-                {isSelected ? (
-                  <strong><span fg={C.text}>{truncate(checkpoint.preview, 96)}</span></strong>
-                ) : (
-                  <span fg={C.textSec}>{truncate(checkpoint.preview, 96)}</span>
-                )}
-              </text>
-              <text>
-                <span fg={C.dim}>{`     ${suffix}`}</span>
+              <box flexDirection="row" border={false}>
+                <text fg={isSelected ? C.accent : C.dim}>{marker}</text>
+                <box flexGrow={1} flexShrink={1}>
+                  <text fg={isSelected ? C.text : C.textSec}>{fitText(`${index + 1}. ${checkpoint.preview}`, titleWidth)}</text>
+                </box>
+              </box>
+              <text fg={C.dim}>
+                {fitText(`     ${suffix}`, rowWidth)}
               </text>
               {isSelected && checkpoint.assistantText ? (
-                <text>
-                  <span fg={C.dim}>{`     回复：${truncate(checkpoint.assistantText, 88)}`}</span>
+                <text fg={C.dim}>
+                  {fitText(`     回复：${checkpoint.assistantText}`, rowWidth)}
                 </text>
               ) : null}
             </box>
@@ -127,33 +269,10 @@ export function RewindSelectorView({ checkpoints, selectedIndex, confirmCheckpoi
         })}
 
         {startIndex + visible.length < checkpoints.length ? (
-          <text fg={C.dim} paddingLeft={2}>{`${ICONS.arrowDown} 下方还有 ${checkpoints.length - startIndex - visible.length} 条`}</text>
+          <text fg={C.dim} paddingLeft={2}>{fitText(`${ICONS.arrowDown} 下方还有 ${checkpoints.length - startIndex - visible.length} 条`, rowWidth)}</text>
         ) : null}
       </scrollbox>
 
-      {isConfirming && selected ? (
-        <box padding={1} flexDirection="column" borderStyle="single" borderColor={C.warn}>
-          <text fg={C.warn}>确认回溯到发送这条消息之前？</text>
-          <text>
-            <span fg={C.dim}>恢复模式：</span>
-            {(['conversation', 'code', 'both'] as RewindTargetMode[]).map((mode) => (
-              <span
-                key={mode}
-                fg={(mode === 'conversation' || selected.canRestoreCode) ? (mode === selectedMode ? C.accent : C.dim) : C.error}
-              >
-                {`${mode === selectedMode ? `${ICONS.selectorArrow} ` : '  '}${MODE_LABELS[mode]}${mode !== 'conversation' && !selected.canRestoreCode ? '(不可用)' : ''}  `}
-              </span>
-            ))}
-          </text>
-          <text fg={C.dim}>
-            {selectedMode === 'code'
-              ? '仅恢复代码文件；对话历史保持不变。'
-              : `将移除 ${selected.messageCountAfter} 条历史，并把该用户输入恢复到底部输入框。`}
-          </text>
-          <text fg={C.dim}>{`代码快照：${formatStats(selected)}。仅覆盖 Iris 编辑类工具，不覆盖 shell/bash 或手动改动。`}</text>
-          <text fg={C.dim}>这会创建新的对话分支；后续发送新消息后，原来的 redo 将失效。</text>
-        </box>
-      ) : null}
     </box>
   );
 }

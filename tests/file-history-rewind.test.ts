@@ -55,4 +55,30 @@ describe('FileHistoryManager', () => {
     expect(restored).toEqual([filePath]);
     expect(fs.existsSync(filePath)).toBe(false);
   });
+
+  it('不同 checkpoint 会恢复到各自对应的文件版本', async () => {
+    const dataDir = makeTempDir();
+    const cwd = makeTempDir();
+    const filePath = path.join(cwd, 'multi.txt');
+
+    const manager = new FileHistoryManager(dataDir);
+    fs.writeFileSync(filePath, 'v0\n', 'utf-8');
+
+    await manager.makeSnapshot('s1', 'rw:0:1000');
+    await manager.trackToolEdit('s1', cwd, 'write_file', { path: 'multi.txt', content: 'v1\n' });
+    fs.writeFileSync(filePath, 'v1\n', 'utf-8');
+
+    await manager.makeSnapshot('s1', 'rw:2:2000');
+    await manager.trackToolEdit('s1', cwd, 'write_file', { path: 'multi.txt', content: 'v2\n' });
+    fs.writeFileSync(filePath, 'v2\n', 'utf-8');
+
+    await manager.makeSnapshot('s1', 'rw:4:3000');
+
+    await manager.rewind('s1', 'rw:2:2000');
+    expect(fs.readFileSync(filePath, 'utf-8')).toBe('v1\n');
+
+    fs.writeFileSync(filePath, 'v2-again\n', 'utf-8');
+    await manager.rewind('s1', 'rw:0:1000');
+    expect(fs.readFileSync(filePath, 'utf-8')).toBe('v0\n');
+  });
 });
