@@ -55,6 +55,8 @@ export function normalizeCallmeAttributionConfig(raw: unknown): CallmeAttributio
  * 如果 /callme 已启用且命令包含 git commit，则在提交信息末尾追加固定署名行。
  *
  * 通过额外的 `-m` 参数追加为最后一个 message 段，让 GitHub 可渲染其中 URL。
+ * 当命令使用 `-F/--file` 等与 `-m` 互斥的消息来源参数时，保持原命令不变，
+ * 避免把原本可执行的 commit 改写成 Git 会拒绝的参数组合。
  * 这里只做轻量 shell-like 解析：覆盖常见的 `git commit`、`git -C dir commit`、
  * `git -c key=value commit`，并避免改写引号内文本。
  */
@@ -187,12 +189,41 @@ function findGitCommitInsertPositions(tokens: ShellToken[]): number[] {
     if (token.value.toLowerCase() !== 'git') continue;
 
     const commitIndex = findCommitSubcommandIndex(tokens, i + 1);
-    if (commitIndex >= 0) {
+    if (commitIndex >= 0 && canAppendCommitMessage(tokens, commitIndex)) {
       positions.push(findCommandSegmentEnd(tokens, i));
     }
   }
 
   return positions;
+}
+
+function canAppendCommitMessage(tokens: ShellToken[], commitIndex: number): boolean {
+  for (let i = commitIndex + 1; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.delimiter) break;
+    if (token.value === '--') break;
+    if (isIncompatibleCommitMessageSource(token.value)) return false;
+  }
+  return true;
+}
+
+function isIncompatibleCommitMessageSource(value: string): boolean {
+  const lower = value.toLowerCase();
+  return (
+    value === '-F'
+    || value.startsWith('-F')
+    || lower === '--file'
+    || lower.startsWith('--file=')
+    || value === '-C'
+    || value.startsWith('-C')
+    || value === '-c'
+    || value.startsWith('-c')
+    || lower === '--reuse-message'
+    || lower.startsWith('--reuse-message=')
+    || lower === '--reedit-message'
+    || lower.startsWith('--reedit-message=')
+    || lower === '--no-edit'
+  );
 }
 
 function findCommandSegmentEnd(tokens: ShellToken[], startIndex: number): number {

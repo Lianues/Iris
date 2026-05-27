@@ -13,13 +13,32 @@ export interface GitCommitPromptInput {
   statusShort: string;
   /** `git log --oneline -10` 的输出；仓库无提交时可为空。 */
   recentCommits?: string;
+  /** 用户通过 `/commit cn` 或 `/commit en` 指定的提交信息语言。 */
+  language?: GitCommitLanguage;
   /** 用户在 `/commit ...` 后补充的额外要求。 */
+  extraInstruction?: string;
+}
+
+export type GitCommitLanguage = 'cn' | 'en';
+
+export interface ParsedGitCommitCommandArg {
+  language?: GitCommitLanguage;
   extraInstruction?: string;
 }
 
 function fence(text: string, fallback = '(无输出)'): string {
   const value = text.trimEnd() || fallback;
   return `\`\`\`\n${value}\n\`\`\``;
+}
+
+function formatCommitLanguage(language?: GitCommitLanguage): string {
+  if (language === 'cn') {
+    return '\n## 提交信息语言\n\n请使用简体中文编写 commit message（标题和正文）。\n';
+  }
+  if (language === 'en') {
+    return '\n## Commit Message Language\n\nWrite the commit message in English, including the subject and body.\n';
+  }
+  return '';
 }
 
 function formatExtraInstruction(extraInstruction?: string): string {
@@ -32,9 +51,22 @@ export function isGitPorcelainEmpty(output: string): boolean {
   return output.trim().length === 0;
 }
 
+export function parseGitCommitCommandArg(arg: string): ParsedGitCommitCommandArg {
+  const trimmed = arg.trim();
+  if (!trimmed) return {};
+
+  const language = trimmed.toLowerCase();
+  if (language === 'cn' || language === 'en') {
+    return { language };
+  }
+
+  return { extraInstruction: trimmed };
+}
+
 export function buildGitCommitPrompt({
   statusShort,
   recentCommits,
+  language,
   extraInstruction,
 }: GitCommitPromptInput): string {
   return `## 上下文
@@ -44,6 +76,7 @@ ${fence(statusShort)}
 
 最近提交（用于参考风格）：
 ${fence(recentCommits ?? '', '(无最近提交或 git log 不可用)')}
+${formatCommitLanguage(language)}
 ${formatExtraInstruction(extraInstruction)}
 ## 任务
 
@@ -82,9 +115,7 @@ $commitMessage = @'
 
 提交正文，可选。
 '@
-Set-Content -LiteralPath .git/IRIS_COMMIT_MESSAGE -Value $commitMessage -Encoding UTF8
-git commit -F .git/IRIS_COMMIT_MESSAGE
-Remove-Item -LiteralPath .git/IRIS_COMMIT_MESSAGE -ErrorAction SilentlyContinue
+git commit -m $commitMessage
 \`\`\`
 
 如果 hook 失败，请报告失败原因，不要自行绕过。`;

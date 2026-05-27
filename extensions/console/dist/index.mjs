@@ -3257,7 +3257,15 @@ var COMMANDS = [
   { name: "/reset-config", description: "重置配置为默认值" },
   { name: "/compact", description: "压缩上下文（总结历史消息）" },
   { name: "/plan", description: "进入或查看当前 Agent 会话的 Plan Mode" },
-  { name: "/commit", description: "参考当前 git diff 创建详细提交", acceptsArgs: true },
+  {
+    name: "/commit",
+    description: "参考当前 git diff 创建详细提交（可用 cn/en 指定语言）",
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: "cn", description: "使用中文 commit message" },
+      { value: "en", description: "使用英文 commit message" }
+    ]
+  },
   {
     name: "/auto-edit",
     description: "切换当前会话自动编辑（安全编辑自动应用）",
@@ -12150,6 +12158,23 @@ function fence(text, fallback = "(无输出)") {
 ${value}
 \`\`\``;
 }
+function formatCommitLanguage(language) {
+  if (language === "cn") {
+    return `
+## 提交信息语言
+
+请使用简体中文编写 commit message（标题和正文）。
+`;
+  }
+  if (language === "en") {
+    return `
+## Commit Message Language
+
+Write the commit message in English, including the subject and body.
+`;
+  }
+  return "";
+}
 function formatExtraInstruction(extraInstruction) {
   const trimmed = extraInstruction?.trim();
   if (!trimmed)
@@ -12163,9 +12188,20 @@ ${trimmed}
 function isGitPorcelainEmpty(output) {
   return output.trim().length === 0;
 }
+function parseGitCommitCommandArg(arg) {
+  const trimmed = arg.trim();
+  if (!trimmed)
+    return {};
+  const language = trimmed.toLowerCase();
+  if (language === "cn" || language === "en") {
+    return { language };
+  }
+  return { extraInstruction: trimmed };
+}
 function buildGitCommitPrompt({
   statusShort,
   recentCommits,
+  language,
   extraInstruction
 }) {
   return `## 上下文
@@ -12175,6 +12211,7 @@ ${fence(statusShort)}
 
 最近提交（用于参考风格）：
 ${fence(recentCommits ?? "", "(无最近提交或 git log 不可用)")}
+${formatCommitLanguage(language)}
 ${formatExtraInstruction(extraInstruction)}
 ## 任务
 
@@ -12213,9 +12250,7 @@ $commitMessage = @'
 
 提交正文，可选。
 '@
-Set-Content -LiteralPath .git/IRIS_COMMIT_MESSAGE -Value $commitMessage -Encoding UTF8
-git commit -F .git/IRIS_COMMIT_MESSAGE
-Remove-Item -LiteralPath .git/IRIS_COMMIT_MESSAGE -ErrorAction SilentlyContinue
+git commit -m $commitMessage
 \`\`\`
 
 如果 hook 失败，请报告失败原因，不要自行绕过。`;
@@ -12521,7 +12556,7 @@ function useCommandDispatch({
     }
     if (text === "/commit" || text.startsWith("/commit ")) {
       resetRedo(undoRedoRef, onClearRedoStack);
-      const extraInstruction = text.slice("/commit".length).trim();
+      const commitArgs = parseGitCommitCommandArg(text.slice("/commit".length));
       const messageOptions = { label: "commit", beforeActiveAssistant: isGenerating };
       try {
         const repoCheck = onRunCommand("git rev-parse --is-inside-work-tree").output.trim();
@@ -12536,7 +12571,7 @@ function useCommandDispatch({
         }
         const statusShort = runOptionalCommand(onRunCommand, "git status --short --branch", porcelain);
         const recentCommits = runOptionalCommand(onRunCommand, "git log --oneline -10", "(no recent commits or git log unavailable)");
-        const prompt = buildGitCommitPrompt({ statusShort, recentCommits, extraInstruction });
+        const prompt = buildGitCommitPrompt({ statusShort, recentCommits, ...commitArgs });
         appendCommandMessage(setMessages, "已准备 git commit 上下文，交给模型检查 diff 并创建提交。", messageOptions);
         onSubmit(prompt);
       } catch (err) {

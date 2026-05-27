@@ -28,6 +28,17 @@ describe('/callme git commit attribution', () => {
       .toBe('git -C packages/app -c user.name=bot commit -m "init" -m \'Co-authored with Iris: https://github.com/Lianues/Iris\'');
   });
 
+  it('does not append -m to file-based commit messages', () => {
+    const command = 'git commit -F .git/IRIS_COMMIT_MESSAGE';
+    expect(maybeAddCallmeTrailerToGitCommit(command, 'powershell', enabled)).toBe(command);
+  });
+
+  it('still rewrites later git commit segments when one segment uses -F', () => {
+    const command = 'git commit -F msg.txt && git commit -m "followup"';
+    expect(maybeAddCallmeTrailerToGitCommit(command, 'bash', enabled))
+      .toBe('git commit -F msg.txt && git commit -m "followup" -m \'Co-authored with Iris: https://github.com/Lianues/Iris\'');
+  });
+
   it('does not duplicate an explicit co-author attribution', () => {
     const command = 'git commit -m "init\n\nCo-authored-by: Alice <alice@example.com>"';
     expect(maybeAddCallmeTrailerToGitCommit(command, 'bash', enabled)).toBe(command);

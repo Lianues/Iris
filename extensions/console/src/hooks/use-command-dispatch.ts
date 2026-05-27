@@ -14,7 +14,7 @@ import { clearRedo, performRedo, performUndo, type UndoRedoStack } from '../undo
 import type { UseModelStateReturn } from './use-model-state';
 import type { MemoryItem, MemoryFilter } from '../components/MemoryListView';
 import type { ConsoleSlashCommandService } from '../slash-command-service';
-import { buildGitCommitPrompt, isGitPorcelainEmpty } from '../commit-command';
+import { buildGitCommitPrompt, isGitPorcelainEmpty, parseGitCommitCommandArg } from '../commit-command';
 
 type SetMessages = Dispatch<SetStateAction<ChatMessage[]>>;
 type SetMemoryList = Dispatch<SetStateAction<MemoryItem[]>>;
@@ -417,7 +417,7 @@ export function useCommandDispatch({
 
     if (text === '/commit' || text.startsWith('/commit ')) {
       resetRedo(undoRedoRef, onClearRedoStack);
-      const extraInstruction = text.slice('/commit'.length).trim();
+      const commitArgs = parseGitCommitCommandArg(text.slice('/commit'.length));
       const messageOptions = { label: 'commit' as const, beforeActiveAssistant: isGenerating };
 
       try {
@@ -443,7 +443,7 @@ export function useCommandDispatch({
           'git log --oneline -10',
           '(no recent commits or git log unavailable)',
         );
-        const prompt = buildGitCommitPrompt({ statusShort, recentCommits, extraInstruction });
+        const prompt = buildGitCommitPrompt({ statusShort, recentCommits, ...commitArgs });
         appendCommandMessage(setMessages, '已准备 git commit 上下文，交给模型检查 diff 并创建提交。', messageOptions);
         onSubmit(prompt);
       } catch (err) {

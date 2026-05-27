@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildGitCommitPrompt, isGitPorcelainEmpty } from '../extensions/console/src/commit-command.js';
+import {
+  buildGitCommitPrompt,
+  isGitPorcelainEmpty,
+  parseGitCommitCommandArg,
+} from '../extensions/console/src/commit-command.js';
 
 describe('console /commit command prompt', () => {
   it('判断 git porcelain 输出为空', () => {
@@ -24,9 +28,38 @@ describe('console /commit command prompt', () => {
     expect(prompt).toContain('多行提交信息示例');
     expect(prompt).toContain('powershell');
     expect(prompt).toContain('bash');
+    expect(prompt).toContain('git commit -m $commitMessage');
+    expect(prompt).not.toContain('git commit -F .git/IRIS_COMMIT_MESSAGE');
     expect(prompt).toContain('git status --short');
     expect(prompt).toContain('优先使用中文 commit body');
     expect(prompt).not.toContain('Git Safety Protocol');
     expect(prompt).not.toContain('Your task');
+  });
+
+  it('解析 /commit cn 和 /commit en 语言参数', () => {
+    expect(parseGitCommitCommandArg('cn')).toEqual({ language: 'cn' });
+    expect(parseGitCommitCommandArg('en')).toEqual({ language: 'en' });
+    expect(parseGitCommitCommandArg('en prefer concise subject')).toEqual({
+      extraInstruction: 'en prefer concise subject',
+    });
+    expect(parseGitCommitCommandArg('prefer concise subject')).toEqual({
+      extraInstruction: 'prefer concise subject',
+    });
+  });
+
+  it('按语言参数生成 commit message 语言要求', () => {
+    const cnPrompt = buildGitCommitPrompt({
+      statusShort: '## main\n M src/index.ts',
+      recentCommits: '',
+      language: 'cn',
+    });
+    expect(cnPrompt).toContain('请使用简体中文编写 commit message');
+
+    const enPrompt = buildGitCommitPrompt({
+      statusShort: '## main\n M src/index.ts',
+      recentCommits: '',
+      language: 'en',
+    });
+    expect(enPrompt).toContain('Write the commit message in English');
   });
 });
