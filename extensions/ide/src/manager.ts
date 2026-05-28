@@ -20,6 +20,10 @@ type LoggerLike = {
   error(...args: unknown[]): void;
 };
 
+const STALE_TRANSPORT_ERROR_WINDOW_MS = 15_000;
+const STALE_TRANSPORT_ERROR_THRESHOLD = 3;
+const STALE_TRANSPORT_ERROR_PATTERN = /Unable to connect|ECONNREFUSED|ECONNRESET|fetch failed|network error|socket hang up|terminated/i;
+
 export interface IdeManagerOptions {
   dataDir: string;
   getCwd: () => string;
@@ -38,6 +42,8 @@ export class IdeManager implements IdeManagerService {
   private selection: IdeSelection | undefined;
   private openedFile: string | undefined;
   private readonly debugEvents: IdeDebugSnapshot['recentEvents'] = [];
+  private transportErrorCount = 0;
+  private lastTransportErrorAt = 0;
 
   constructor(private readonly options: IdeManagerOptions) {
     this.config = options.config;
@@ -161,6 +167,7 @@ export class IdeManager implements IdeManagerService {
         if (this.rpcClient === client && this.connectedIde) {
           this.state = 'connected';
           this.error = undefined;
+          this.resetTransportErrors();
         }
         if (selection.filePath) this.openedFile = selection.filePath;
         this.emitChange();
@@ -180,9 +187,25 @@ export class IdeManager implements IdeManagerService {
         this.emitChange();
       }),
       client.on('error', (error) => {
+        const active = this.rpcClient === client && !!this.connectedIde;
+        const transportError = this.recordTransportError(error);
         this.error = error.message;
-        this.state = this.rpcClient === client && this.connectedIde ? 'connected' : 'error';
-        this.logDebug('transportError', 'IDE transport reported error', { error: error.message, keptState: this.state });
+
+        if (active && transportError.shouldDisconnect) {
+          this.logDebug('transportError', 'IDE transport appears stale; disconnecting current RPC client', {
+            error: error.message,
+            count: transportError.count,
+          });
+          void this.markClientDisconnected(client, `IDE 连接失效：${error.message}`);
+          return;
+        }
+
+        this.state = active ? 'connected' : 'error';
+        this.logDebug('transportError', 'IDE transport reported error', {
+          error: error.message,
+          count: transportError.count,
+          keptState: this.state,
+        });
         this.emitChange();
       }),
     ];
@@ -194,6 +217,7 @@ export class IdeManager implements IdeManagerService {
       this.state = 'connected';
       this.selection = undefined;
       this.openedFile = undefined;
+      this.resetTransportErrors();
       (client as unknown as { __irisDisposers?: Array<() => void> }).__irisDisposers = disposers;
       this.logDebug('connect', `Connected to ${ide.name} (${ide.port})`);
       this.emitChange();
@@ -218,6 +242,7 @@ export class IdeManager implements IdeManagerService {
     this.openedFile = undefined;
     this.state = 'disconnected';
     this.error = undefined;
+    this.resetTransportErrors();
 
     const disposers = (client as unknown as { __irisDisposers?: Array<() => void> } | undefined)?.__irisDisposers ?? [];
     for (const dispose of disposers) dispose();
@@ -250,6 +275,7 @@ export class IdeManager implements IdeManagerService {
       });
       this.state = 'connected';
       this.error = undefined;
+      this.resetTransportErrors();
       this.logDebug('openDiff', 'IDE diff preview opened', { filePath: item.filePath });
       return true;
     } catch (error) {
@@ -342,6 +368,53 @@ export class IdeManager implements IdeManagerService {
     }
   }
 
+  private resetTransportErrors(): void {
+    this.transportErrorCount = 0;
+    this.lastTransportErrorAt = 0;
+  }
+
+  private recordTransportError(error: Error): { count: number; shouldDisconnect: boolean } {
+    const now = Date.now();
+    if (now - this.lastTransportErrorAt > STALE_TRANSPORT_ERROR_WINDOW_MS) {
+      this.transportErrorCount = 0;
+    }
+    this.lastTransportErrorAt = now;
+    this.transportErrorCount++;
+
+    return {
+      count: this.transportErrorCount,
+      shouldDisconnect: STALE_TRANSPORT_ERROR_PATTERN.test(error.message)
+        && this.transportErrorCount >= STALE_TRANSPORT_ERROR_THRESHOLD,
+    };
+  }
+
+  private async markClientDisconnected(client: IdeRpcClient, reason: string): Promise<void> {
+    if (this.rpcClient !== client) return;
+
+    const disposers = (client as unknown as { __irisDisposers?: Array<() => void> }).__irisDisposers ?? [];
+    for (const dispose of disposers) dispose();
+
+    this.rpcClient = undefined;
+    this.connectedIde = undefined;
+    this.selection = undefined;
+    this.openedFile = undefined;
+    this.state = 'disconnected';
+    this.error = reason;
+    this.resetTransportErrors();
+    this.logDebug('disconnect', 'Disconnected stale IDE RPC client', { reason });
+    this.emitChange();
+
+    try { await client.close(); } catch { /* ignore stale transport close errors */ }
+
+    // Refresh lockfiles after a stale transport. If VS Code has restarted the
+    // extension server, this lets the next /ide immediately see the new port.
+    await this.detect().catch((error) => {
+      this.logDebug('error', 'Failed to refresh IDE lockfiles after stale disconnect', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
   private logDebug(kind: string, message: string, data?: unknown): void {
     this.debugEvents.push({
       at: new Date().toISOString(),
@@ -351,4 +424,5 @@ export class IdeManager implements IdeManagerService {
     });
     while (this.debugEvents.length > 80) this.debugEvents.shift();
   }
+
 }

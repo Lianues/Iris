@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const EXTENSION_VERSION = '0.1.6';
+const EXTENSION_VERSION = '0.1.8';
 const DEFAULT_PROTOCOL_VERSION = '2025-11-25';
 const DIFF_PREVIEW_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -158,9 +158,35 @@ function writeSse(res, message) {
   }
 }
 
+function isClientClosed(entry) {
+  return !entry || entry.res.destroyed || entry.res.writableEnded;
+}
+
+function cleanupClosedClients() {
+  for (const [clientId, entry] of clients) {
+    if (isClientClosed(entry)) clients.delete(clientId);
+  }
+}
+
+function getActiveClientEntry() {
+  cleanupClosedClients();
+  for (const entry of clients.values()) {
+    if (entry.active) return entry;
+  }
+  return undefined;
+}
+
 function findClient(clientId) {
-  if (clientId && clients.has(clientId)) return clients.get(clientId);
-  return clients.values().next().value;
+  cleanupClosedClients();
+  if (clientId) return clients.get(clientId)?.res;
+  return getActiveClientEntry()?.res;
+}
+
+function closeClient(clientId) {
+  const entry = clientId ? clients.get(clientId) : undefined;
+  if (!entry) return;
+  clients.delete(clientId);
+  try { entry.res.end(); } catch { /* ignore */ }
 }
 
 function respond(clientId, id, result) {
@@ -177,7 +203,8 @@ function respondError(clientId, id, code, message) {
 
 function notify(method, params) {
   const message = { jsonrpc: '2.0', method, params };
-  for (const client of clients.values()) writeSse(client, message);
+  const active = getActiveClientEntry();
+  if (active) writeSse(active.res, message);
 }
 
 function toolDefinition(name, description, inputSchema = { type: 'object', properties: {}, additionalProperties: false }) {
@@ -385,6 +412,13 @@ function getExtensionStatus() {
       port,
       lockfilePath,
       clientCount: clients.size,
+      activeClientId: getActiveClientEntry()?.id,
+      clients: [...clients.values()].map((client) => ({
+        id: client.id,
+        active: client.active,
+        connectedAt: client.connectedAt,
+        closed: isClientClosed(client),
+      })),
       diffDocumentCount: diffDocuments.size,
       diffTempDirCount: diffTempDirs.size,
       diffPreviewRoot: getDiffPreviewRoot(),
@@ -506,6 +540,21 @@ async function handleRpcMessage(clientId, message) {
   if (!message || typeof message !== 'object') return;
   const id = message.id;
   const method = message.method;
+  const entry = clientId ? clients.get(clientId) : undefined;
+
+  if (entry && !entry.active) {
+    const active = getActiveClientEntry();
+    respondError(
+      clientId,
+      id,
+      -32000,
+      active
+        ? 'VS Code 已连接到另一个 Iris 终端。请先在另一个终端执行 /ide disconnect，或关闭该 Iris 进程后重试。'
+        : '当前 IDE client 未激活，请重新执行 /ide 连接。',
+    );
+    closeClient(clientId);
+    return;
+  }
 
   try {
     switch (method) {
@@ -571,6 +620,10 @@ async function handleRpcMessage(clientId, message) {
 
 async function handlePost(req, res, clientId) {
   if (!isAuthorized(req)) return sendHttp(res, 401, 'Unauthorized');
+  cleanupClosedClients();
+  if (clientId && !clients.has(clientId)) {
+    return sendHttp(res, 410, 'IDE client session is no longer active');
+  }
   try {
     const raw = await readBody(req);
     const parsed = JSON.parse(raw);
@@ -592,10 +645,16 @@ function handleSse(req, res) {
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   });
-  clients.set(clientId, res);
+  const active = !getActiveClientEntry();
+  clients.set(clientId, {
+    id: clientId,
+    res,
+    active,
+    connectedAt: Date.now(),
+  });
   res.write(`event: endpoint\n`);
   res.write(`data: http://${endpointHost}/message?clientId=${clientId}\n\n`);
-  res.write(`: connected\n\n`);
+  res.write(active ? `: connected\n\n` : `: waiting-for-rejection\n\n`);
   req.on('close', () => clients.delete(clientId));
 }
 
@@ -633,7 +692,7 @@ function stopServer() {
   diffDocuments.clear();
   diffTempDirs.clear();
   for (const client of clients.values()) {
-    try { client.end(); } catch { /* ignore */ }
+    try { client.res.end(); } catch { /* ignore */ }
   }
   clients.clear();
   if (server) {

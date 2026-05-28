@@ -107,23 +107,23 @@ iris extension      # 下载/管理 extension
 
 **入门 / 配置**
 
-- [docs/install.md](docs/install.md) — 安装指南（5 种方式 + Onboard 流程）
 - [docs/configuration-examples.md](docs/configuration-examples.md) — 配置文件 YAML 模板速查
 - [docs/cron.md](docs/cron.md) — Cron 定时任务
 - [docs/deploy.md](docs/deploy.md) — Linux VPS / Docker 完整部署
+- [docs/install.md](docs/install.md) — 安装指南（5 种方式 + Onboard 流程）
 
 **进阶 / 架构**
 
 - [docs/agents.md](docs/agents.md) — 多 Agent 系统与配置分层
+- [docs/build.md](docs/build.md) — 构建与分发
 - [docs/config.md](docs/config.md) — 配置字段与合并规则
+- [docs/core.md](docs/core.md) — 核心 Backend 逻辑
+- [docs/ipc.md](docs/ipc.md) — IPC 进程间通信与 `iris attach`
 - [docs/llm.md](docs/llm.md) — LLM 格式适配与 MCP Schema 降级
+- [docs/media.md](docs/media.md) — 文档 / 图片处理
 - [docs/platforms.md](docs/platforms.md) — 各平台适配与 Slash 命令
 - [docs/plugins.md](docs/plugins.md) — 插件系统（Extension / Plugin API）
 - [docs/tools.md](docs/tools.md) — 工具注册与调度
-- [docs/core.md](docs/core.md) — 核心 Backend 逻辑
-- [docs/ipc.md](docs/ipc.md) — IPC 进程间通信与 `iris attach`
-- [docs/media.md](docs/media.md) — 文档 / 图片处理
-- [docs/build.md](docs/build.md) — 构建与分发
 
 ## 开发
 

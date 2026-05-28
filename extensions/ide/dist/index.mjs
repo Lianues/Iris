@@ -24848,6 +24848,10 @@ function relativeToCwd(filePath, cwd) {
 }
 
 // src/manager.ts
+var STALE_TRANSPORT_ERROR_WINDOW_MS = 15000;
+var STALE_TRANSPORT_ERROR_THRESHOLD = 3;
+var STALE_TRANSPORT_ERROR_PATTERN = /Unable to connect|ECONNREFUSED|ECONNRESET|fetch failed|network error|socket hang up|terminated/i;
+
 class IdeManager {
   options;
   events = new EventEmitter2;
@@ -24860,6 +24864,8 @@ class IdeManager {
   selection;
   openedFile;
   debugEvents = [];
+  transportErrorCount = 0;
+  lastTransportErrorAt = 0;
   constructor(options) {
     this.options = options;
     this.config = options.config;
@@ -24976,6 +24982,7 @@ class IdeManager {
         if (this.rpcClient === client && this.connectedIde) {
           this.state = "connected";
           this.error = undefined;
+          this.resetTransportErrors();
         }
         if (selection.filePath)
           this.openedFile = selection.filePath;
@@ -24997,9 +25004,23 @@ class IdeManager {
         this.emitChange();
       }),
       client.on("error", (error48) => {
+        const active = this.rpcClient === client && !!this.connectedIde;
+        const transportError = this.recordTransportError(error48);
         this.error = error48.message;
-        this.state = this.rpcClient === client && this.connectedIde ? "connected" : "error";
-        this.logDebug("transportError", "IDE transport reported error", { error: error48.message, keptState: this.state });
+        if (active && transportError.shouldDisconnect) {
+          this.logDebug("transportError", "IDE transport appears stale; disconnecting current RPC client", {
+            error: error48.message,
+            count: transportError.count
+          });
+          this.markClientDisconnected(client, `IDE 连接失效：${error48.message}`);
+          return;
+        }
+        this.state = active ? "connected" : "error";
+        this.logDebug("transportError", "IDE transport reported error", {
+          error: error48.message,
+          count: transportError.count,
+          keptState: this.state
+        });
         this.emitChange();
       })
     ];
@@ -25010,6 +25031,7 @@ class IdeManager {
       this.state = "connected";
       this.selection = undefined;
       this.openedFile = undefined;
+      this.resetTransportErrors();
       client.__irisDisposers = disposers;
       this.logDebug("connect", `Connected to ${ide.name} (${ide.port})`);
       this.emitChange();
@@ -25035,6 +25057,7 @@ class IdeManager {
     this.openedFile = undefined;
     this.state = "disconnected";
     this.error = undefined;
+    this.resetTransportErrors();
     const disposers = client?.__irisDisposers ?? [];
     for (const dispose of disposers)
       dispose();
@@ -25068,6 +25091,7 @@ class IdeManager {
       });
       this.state = "connected";
       this.error = undefined;
+      this.resetTransportErrors();
       this.logDebug("openDiff", "IDE diff preview opened", { filePath: item.filePath });
       return true;
     } catch (error48) {
@@ -25144,6 +25168,46 @@ class IdeManager {
     } catch (error48) {
       return `unknown (${error48 instanceof Error ? error48.message : String(error48)})`;
     }
+  }
+  resetTransportErrors() {
+    this.transportErrorCount = 0;
+    this.lastTransportErrorAt = 0;
+  }
+  recordTransportError(error48) {
+    const now = Date.now();
+    if (now - this.lastTransportErrorAt > STALE_TRANSPORT_ERROR_WINDOW_MS) {
+      this.transportErrorCount = 0;
+    }
+    this.lastTransportErrorAt = now;
+    this.transportErrorCount++;
+    return {
+      count: this.transportErrorCount,
+      shouldDisconnect: STALE_TRANSPORT_ERROR_PATTERN.test(error48.message) && this.transportErrorCount >= STALE_TRANSPORT_ERROR_THRESHOLD
+    };
+  }
+  async markClientDisconnected(client, reason) {
+    if (this.rpcClient !== client)
+      return;
+    const disposers = client.__irisDisposers ?? [];
+    for (const dispose of disposers)
+      dispose();
+    this.rpcClient = undefined;
+    this.connectedIde = undefined;
+    this.selection = undefined;
+    this.openedFile = undefined;
+    this.state = "disconnected";
+    this.error = reason;
+    this.resetTransportErrors();
+    this.logDebug("disconnect", "Disconnected stale IDE RPC client", { reason });
+    this.emitChange();
+    try {
+      await client.close();
+    } catch {}
+    await this.detect().catch((error48) => {
+      this.logDebug("error", "Failed to refresh IDE lockfiles after stale disconnect", {
+        error: error48 instanceof Error ? error48.message : String(error48)
+      });
+    });
   }
   logDebug(kind, message, data) {
     this.debugEvents.push({

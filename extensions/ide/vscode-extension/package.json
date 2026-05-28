@@ -2,7 +2,7 @@
   "name": "ide",
   "displayName": "Iris IDE Integration",
   "description": "Connects VS Code to Iris for active-file and selection context.",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "publisher": "iris",
   "license": "GPL-3.0-only",
   "engines": {

@@ -107,23 +107,23 @@ Full YAML templates and CLI commands are in [docs/configuration-examples.md](doc
 
 **Getting Started / Configuration**
 
-- [docs/install.md](docs/install.md) — Installation guide (5 methods + onboard flow)
 - [docs/configuration-examples.md](docs/configuration-examples.md) — Quick reference for YAML config templates
 - [docs/cron.md](docs/cron.md) — Cron / scheduled tasks
 - [docs/deploy.md](docs/deploy.md) — Full Linux VPS / Docker deployment
+- [docs/install.md](docs/install.md) — Installation guide (5 methods + onboard flow)
 
 **Advanced / Architecture**
 
 - [docs/agents.md](docs/agents.md) — Multi-agent system and layered configuration
+- [docs/build.md](docs/build.md) — Build and distribution
 - [docs/config.md](docs/config.md) — Configuration fields and merge rules
+- [docs/core.md](docs/core.md) — Core backend logic
+- [docs/ipc.md](docs/ipc.md) — IPC inter-process communication and `iris attach`
 - [docs/llm.md](docs/llm.md) — LLM format adaptation and MCP schema downgrading
+- [docs/media.md](docs/media.md) — Document / image processing
 - [docs/platforms.md](docs/platforms.md) — Per-platform adapters and slash commands
 - [docs/plugins.md](docs/plugins.md) — Plugin system (Extension / Plugin API)
 - [docs/tools.md](docs/tools.md) — Tool registration and dispatching
-- [docs/core.md](docs/core.md) — Core backend logic
-- [docs/ipc.md](docs/ipc.md) — IPC inter-process communication and `iris attach`
-- [docs/media.md](docs/media.md) — Document / image processing
-- [docs/build.md](docs/build.md) — Build and distribution
 
 > Documentation is currently primarily in Chinese; English versions are in progress.
 
