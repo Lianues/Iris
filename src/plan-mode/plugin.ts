@@ -1,12 +1,16 @@
-import type { IrisPlugin, LLMRequest, ToolDefinition } from 'irises-extension-sdk';
+import type { IrisAPI, IrisPlugin, LLMRequest, PluginContext, ToolDefinition } from 'irises-extension-sdk';
 import { getActiveSessionId } from '../core/backend/session-context';
-import { agentContext } from '../logger';
+import { agentContext, createLogger } from '../logger';
+import type { Content } from '../types';
 import { PlanModeManager } from './manager';
 import { buildPlanModeAvailabilityInstructions, buildPlanModeInstructions } from './prompts';
 import { filterToolDeclarationsForPlanMode, isAllowedPlanModeTool } from './guard';
 import { PLAN_MODE_SERVICE_ID, type PlanApprovalProgress } from './types';
 
+const logger = createLogger('PlanMode');
 const BACKGROUND_HIDDEN_TOOL_NAMES = new Set(['EnterPlanMode', 'ExitPlanMode', 'read_plan', 'write_plan', 'AskQuestionFirst']);
+const PLAN_MODE_HISTORY_TOOL_NAMES = new Set(['EnterPlanMode', 'ExitPlanMode', 'read_plan', 'write_plan']);
+const PLAN_MODE_HISTORY_MUTATION_WRAPPED = Symbol.for('iris.planMode.historyMutationWrapped');
 
 function ensureSystemParts(request: LLMRequest) {
   if (!request.systemInstruction) request.systemInstruction = { parts: [] };
@@ -35,6 +39,86 @@ function filterOutPlanTools(request: LLMRequest): void {
   })).filter((tool) => tool.functionDeclarations.length > 0);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function getPlanModeToolNameFromPart(part: unknown): string | undefined {
+  const record = asRecord(part);
+  const functionCall = asRecord(record?.functionCall);
+  if (typeof functionCall?.name === 'string' && PLAN_MODE_HISTORY_TOOL_NAMES.has(functionCall.name)) {
+    return functionCall.name;
+  }
+  const functionResponse = asRecord(record?.functionResponse);
+  if (typeof functionResponse?.name === 'string' && PLAN_MODE_HISTORY_TOOL_NAMES.has(functionResponse.name)) {
+    return functionResponse.name;
+  }
+  return undefined;
+}
+
+function historyGroupHasPlanModeTool(group: unknown): boolean {
+  if (!Array.isArray(group)) return false;
+  for (const content of group) {
+    const parts = asRecord(content)?.parts;
+    if (!Array.isArray(parts)) continue;
+    if (parts.some(part => !!getPlanModeToolNameFromPart(part))) return true;
+  }
+  return false;
+}
+
+function getHistoryMutationGroup(methodName: 'undo' | 'redo' | 'rewind', result: unknown): unknown {
+  const record = asRecord(result);
+  if (!record) return undefined;
+  return methodName === 'redo' ? record.restored : record.removed;
+}
+
+async function readBackendHistory(api: IrisAPI, sessionId: string): Promise<Content[]> {
+  const backend = api.backend as any;
+  const storage = api.storage as any;
+  const history = typeof backend.getHistory === 'function'
+    ? await backend.getHistory(sessionId)
+    : await storage.getHistory?.(sessionId);
+  return Array.isArray(history) ? history as Content[] : [];
+}
+
+function wrapHistoryMutationMethod(
+  api: IrisAPI,
+  ctx: PluginContext,
+  manager: PlanModeManager,
+  methodName: 'undo' | 'redo' | 'rewind',
+): void {
+  const backend = api.backend as any;
+  const original = backend?.[methodName];
+  if (typeof original !== 'function') return;
+  if ((original as any)[PLAN_MODE_HISTORY_MUTATION_WRAPPED]) return;
+
+  const wrapped = async function(this: unknown, sessionId: string, ...args: unknown[]) {
+    const result = await original.call(this, sessionId, ...args);
+    const group = getHistoryMutationGroup(methodName, result);
+    if (result && historyGroupHasPlanModeTool(group)) {
+      try {
+        const history = await readBackendHistory(api, sessionId);
+        manager.reconcileWithHistory(sessionId, history);
+      } catch (err) {
+        logger.warn(`${methodName} 后重建 Plan Mode 状态失败:`, err);
+      }
+    }
+    return result;
+  };
+
+  Object.defineProperty(wrapped, PLAN_MODE_HISTORY_MUTATION_WRAPPED, { value: true, configurable: true });
+  backend[methodName] = wrapped;
+  ctx.trackDisposable({ dispose: () => { if (backend[methodName] === wrapped) backend[methodName] = original; } });
+}
+
+function wrapHistoryMutations(api: IrisAPI, ctx: PluginContext, manager: PlanModeManager): void {
+  wrapHistoryMutationMethod(api, ctx, manager, 'undo');
+  wrapHistoryMutationMethod(api, ctx, manager, 'redo');
+  wrapHistoryMutationMethod(api, ctx, manager, 'rewind');
+}
+
 function createReadPlanTool(manager: PlanModeManager): ToolDefinition {
   return {
     approvalMode: 'handler',
@@ -46,7 +130,7 @@ function createReadPlanTool(manager: PlanModeManager): ToolDefinition {
     handler: async () => {
       assertMainAgentTurn();
       const sessionId = getSessionIdOrThrow();
-      const state = manager.getState(sessionId) ?? manager.enter(sessionId);
+      const state = manager.getState(sessionId) ?? manager.enter(sessionId, 'tool');
       const content = manager.readPlan(sessionId) ?? '';
       return { plan: content, planFilePath: state.planFilePath, active: state.active };
     },
@@ -92,7 +176,7 @@ function createEnterPlanModeTool(manager: PlanModeManager): ToolDefinition {
     handler: async () => {
       assertMainAgentTurn();
       const sessionId = getSessionIdOrThrow();
-      const state = manager.enter(sessionId);
+      const state = manager.enter(sessionId, 'tool');
       return {
         entered: true,
         planFilePath: state.planFilePath,
@@ -177,6 +261,8 @@ export const planModePlugin: IrisPlugin = {
       version: '0.1.0',
     });
     (context as any).trackDisposable?.(serviceDisposable);
+
+    (context as any).onReady?.((api: IrisAPI) => wrapHistoryMutations(api, context, manager));
 
     context.addHook({
       name: 'plan-mode',

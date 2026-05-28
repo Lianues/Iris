@@ -1,4 +1,8 @@
+import type { Content } from '../types';
+
 export const PLAN_MODE_SERVICE_ID = 'plan-mode';
+
+export type PlanModeStateSource = 'manual' | 'tool' | 'history';
 
 export interface PlanSessionState {
   sessionId: string;
@@ -6,10 +10,11 @@ export interface PlanSessionState {
   planFilePath: string;
   createdAt: number;
   updatedAt: number;
+  source?: PlanModeStateSource;
 }
 
 export interface PlanModeService {
-  enter(sessionId: string): PlanSessionState;
+  enter(sessionId: string, source?: PlanModeStateSource): PlanSessionState;
   /** 用户手动离开 Plan Mode。 */
   leave(sessionId: string): PlanSessionState | null;
   exit(sessionId: string): PlanSessionState | null;
@@ -18,6 +23,7 @@ export interface PlanModeService {
   readPlan(sessionId: string): string | null;
   writePlan(sessionId: string, content: string): PlanSessionState;
   getPlanFilePath(sessionId: string): string;
+  reconcileWithHistory(sessionId: string, history: Content[]): PlanSessionState | null;
 }
 
 export interface PlanApprovalProgress {
