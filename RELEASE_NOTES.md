@@ -1,5 +1,5 @@
-# Iris v1.0.30 Release Notes
+# Iris v1.0.35 Release Notes
 
-* 里程碑扩展兜底优化
-* diff类截断显示修复
-* 统一diff路径
+* 优化编辑快捷键和diff预览
+* 优化Note编辑
+* 优化其他细节
