@@ -28,8 +28,8 @@ extensions/
 ├── console/             # 控制台 TUI（OpenTUI / React）— 内嵌 extension
 ├── web/                 # Web GUI（HTTP + SSE + Vue）— 内嵌 extension
 extensions/
-├── lark/                # 飞书平台 extension（内嵌）
-├── telegram/            # Telegram 平台 extension（内嵌）
+├── lark/                # 飞书平台 extension（可选安装，Docker 镜像默认含）
+├── telegram/            # Telegram 平台 extension（可选安装，Docker 镜像默认含）
 ├── discord/             # Discord 平台 extension（可选安装）
 ├── qq/                  # QQ 平台 extension（可选安装）
 ├── wxwork/              # 企业微信平台 extension（可选安装）
@@ -313,7 +313,7 @@ Telegram 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensi
 
 在 `~/.iris/configs/platform.yaml` 中设置 `type: telegram`（或加入多平台数组），并填写 `telegram.token`。
 
-发行包和仓库默认会附带 `extensions/telegram/`。如果手动精简目录，需保留该目录，或先执行 `iris ext install-local telegram` 再启用 `type: telegram`。
+源码仓库默认包含 `extensions/telegram/` 源码；npm 包 / 二进制发行包默认不内嵌（不在 `extensions/embedded.json` 白名单），使用前请先执行 `iris ext install telegram`（或 `iris ext install-local telegram`）。Docker 镜像默认已打包 `extensions/telegram/`，可直接启用 `type: telegram`。
 
 ### Lark（飞书）
 
@@ -342,7 +342,7 @@ Lark 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensions/
 
 在 `~/.iris/configs/platform.yaml` 中设置 `type: lark`（或加入多平台数组），并填写 `lark.appId` 和 `lark.appSecret`。
 
-发行包和仓库默认会附带 `extensions/lark/`。如果手动精简目录，需保留该目录，或先执行 `iris ext install-local lark` 再启用 `type: lark`。
+源码仓库默认包含 `extensions/lark/` 源码；npm 包 / 二进制发行包默认不内嵌（不在 `extensions/embedded.json` 白名单），使用前请先执行 `iris ext install lark`（或 `iris ext install-local lark`）。Docker 镜像默认已打包 `extensions/lark/`，可直接启用 `type: lark`。
 
 在飞书开放平台创建自建应用，开启「机器人」能力，配置事件订阅（WebSocket 模式不需要公网 IP）。
 

@@ -12,7 +12,7 @@
 ## 特性
 
 - 多平台：Console / Web / Headless Core / Discord / Telegram / 微信 / 企业微信 / 飞书 / QQ（IM 平台均为可选 extension）
-- 多模型提供商：Gemini / OpenAI 兼容 / OpenAI Responses / Claude
+- 多模型提供商：Gemini / OpenAI 兼容 / OpenAI Responses / Claude / DeepSeek
 - 模型池：通过 `llm.models.<modelName>` 管理多个模型，运行时可切换
 - 多 Agent：支持多个独立 Agent，每个 Agent 拥有独立的会话、记忆和可覆盖的配置
 - 配置分层：全局配置打底，Agent 可选覆盖（system / tools / mcp / modes 等）
@@ -36,17 +36,17 @@ iris onboard
 iris start
 ```
 
-### Docker
+### Linux 一键脚本
 
 ```bash
-mkdir iris && cd iris
-curl -O https://raw.githubusercontent.com/Lianues/Iris/main/deploy/docker/iris-compose.yml
-docker compose -f iris-compose.yml up -d
+curl -fsSL https://raw.githubusercontent.com/Lianues/Iris/main/deploy/linux/install.sh | bash
+iris onboard
+iris start
 ```
 
-启动后浏览器访问 `http://localhost:8192`，终端输入 `iris` 进入 TUI。详见 [docs/deploy.md](docs/deploy.md#docker-部署)。
+脚本会下载 GitHub Release 二进制、初始化 `IRIS_DATA_DIR` 并安装 `iris` 命令；Linux 还额外提供 `iris service start/stop/status` 用于 systemd 管理。支持 Ubuntu / Debian / CentOS / Fedora / Alpine / Arch / Termux (Android) / macOS / Windows x64。
 
-> 其他安装方式（GitHub Release / Linux 一键脚本 / 源码开发）见 [docs/install.md](docs/install.md)。
+> 其他安装方式（GitHub Release / Docker / 源码开发）见 [docs/install.md](docs/install.md)。
 
 ## 首次配置
 

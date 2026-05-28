@@ -65,7 +65,7 @@ npm run build:extensions
 # 只编译指定的 extension
 npm run build:extensions -- --filter lark --filter web
 
-# 只编译内嵌 extension（web / lark / console / telegram）
+# 只编译内嵌 extension（embedded.json 白名单中的 extension）
 npm run build:extensions -- --embedded-only
 ```
 
