@@ -1,5 +1,8 @@
 # 配置模块
 
+> 💡 想直接看 YAML 模板和 CLI 命令？请参阅 [configuration-examples.md](./configuration-examples.md)。
+> 本文档侧重模块职责、字段类型、合并规则。
+
 ## 职责
 
 Iris 通过 `~/.iris/configs/` 目录下的分文件 YAML 加载配置，并提供：
