@@ -13,7 +13,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
-import { COMMANDS, type Command, type CommandArgSuggestion, getCommandInput, isExactCommandValue } from '../input-commands';
+import {
+  COMMANDS,
+  type Command,
+  type CommandArgSuggestion,
+  getCommandInput,
+  isExactCommandValue,
+  isSlashCommandInput,
+  normalizeSlashCommandInput,
+} from '../input-commands';
 import { useFileMentionCompletion } from '../hooks/use-file-mention-completion';
 import { useTextInput } from '../hooks/use-text-input';
 import { useCursorBlink } from '../hooks/use-cursor-blink';
@@ -139,6 +147,7 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
   const rapidKeyCountRef = useRef(0);
 
   const value = inputState.value;
+  const normalizedCommandValue = useMemo(() => normalizeSlashCommandInput(value), [value]);
 
   // 输入是否完全被禁止（仅在审批/确认对话框等场景）
   const inputDisabled = disabled;
@@ -146,37 +155,37 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
   const isQueueMode = !disabled && isGenerating;
 
   const exactMatchIndex = useMemo(() => {
-    return visibleCommands.findIndex((cmd) => isExactCommandValue(value, cmd));
-  }, [value, visibleCommands]);
+    return visibleCommands.findIndex((cmd) => isExactCommandValue(normalizedCommandValue, cmd));
+  }, [normalizedCommandValue, visibleCommands]);
 
   const activeArgCommand = useMemo(() => {
-    if (inputDisabled || !value.startsWith('/')) return undefined;
+    if (inputDisabled || !isSlashCommandInput(value)) return undefined;
     return visibleCommands
-      .filter((cmd) => cmd.acceptsArgs && (value === cmd.name || value.startsWith(`${cmd.name} `)))
+      .filter((cmd) => cmd.acceptsArgs && (normalizedCommandValue === cmd.name || normalizedCommandValue.startsWith(`${cmd.name} `)))
       .sort((a, b) => b.name.length - a.name.length)[0];
-  }, [inputDisabled, value, visibleCommands]);
+  }, [inputDisabled, normalizedCommandValue, value, visibleCommands]);
 
   const argQuery = useMemo(() => {
     if (!activeArgCommand) return '';
-    if (value === activeArgCommand.name) return '';
-    return value.slice(activeArgCommand.name.length).trimStart();
-  }, [activeArgCommand, value]);
+    if (normalizedCommandValue === activeArgCommand.name) return '';
+    return normalizedCommandValue.slice(activeArgCommand.name.length).trimStart();
+  }, [activeArgCommand, normalizedCommandValue]);
 
   const argSuggestions = useMemo<CommandArgSuggestion[]>(() => {
     if (!activeArgCommand?.getArgSuggestions) return [];
-    const all = activeArgCommand.getArgSuggestions({ arg: argQuery, raw: value });
+    const all = activeArgCommand.getArgSuggestions({ arg: argQuery, raw: normalizedCommandValue });
     const q = argQuery.trim().toLowerCase();
     if (!q) return all;
     return all.filter((item) => item.value.toLowerCase().includes(q));
-  }, [activeArgCommand, argQuery, value]);
+  }, [activeArgCommand, argQuery, normalizedCommandValue]);
 
   const commandQuery = useMemo(() => {
     if (inputDisabled) return '';
-    if (!value.startsWith('/')) return '';
-    if (activeArgCommand && value.startsWith(`${activeArgCommand.name} `)) return '';
-    if (/\s/.test(value) && exactMatchIndex < 0) return '';
-    return value;
-  }, [inputDisabled, value, exactMatchIndex, activeArgCommand]);
+    if (!isSlashCommandInput(value)) return '';
+    if (activeArgCommand && normalizedCommandValue.startsWith(`${activeArgCommand.name} `)) return '';
+    if (/\s/.test(normalizedCommandValue) && exactMatchIndex < 0) return '';
+    return normalizedCommandValue;
+  }, [inputDisabled, value, normalizedCommandValue, exactMatchIndex, activeArgCommand]);
 
   const [commandsDismissed, setCommandsDismissed] = useState(false);
 
@@ -218,11 +227,11 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
   }, [restoreInputText, inputActions, onRestoreInputConsumed]);
 
   const showCommands = commandQuery.length > 0 && !commandsDismissed;
-  const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && value.startsWith(`${activeArgCommand.name} `);
+  const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && normalizedCommandValue.startsWith(`${activeArgCommand.name} `);
   const fileMention = useFileMentionCompletion({
     value,
     cursor: inputState.cursor,
-    disabled: inputDisabled || !!isRemote || value.startsWith('/'),
+    disabled: inputDisabled || !!isRemote || isSlashCommandInput(value),
     onListFiles: onListFileMentionFiles,
   });
   const fileMentionKey = fileMention.token
@@ -342,7 +351,7 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
         }
         const current = filtered[selectedIndex];
         if (current) {
-          if (isExactCommandValue(value, current)) {
+          if (isExactCommandValue(normalizedCommandValue, current)) {
             // 输入已匹配当前选中项，循环到下一个并补全
             const nextIndex = ((selectedIndex - 1) % filtered.length + filtered.length) % filtered.length;
             const nextCmd = filtered[nextIndex];
@@ -440,6 +449,14 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     if (key.name === 'backspace' && !value && pendingFiles.length > 0) {
       key.preventDefault?.();
       onRemoveFile(pendingFiles.length - 1);
+      return;
+    }
+
+    // 中文输入法下按 / 往往会输入顿号“、”。当输入框为空时，
+    // 将它视为 slash command 前缀并直接显示为标准的 /。
+    if (!value && key.sequence === '、' && !key.ctrl && !key.meta) {
+      key.preventDefault?.();
+      inputActions.insert('/');
       return;
     }
 

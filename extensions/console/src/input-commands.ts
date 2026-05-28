@@ -88,6 +88,14 @@ export const COMMANDS: Command[] = [
   { name: '/exit',     description: '退出应用' },
 ];
 
+export function isSlashCommandInput(value: string): boolean {
+  return value.startsWith('/') || value.startsWith('、');
+}
+
+export function normalizeSlashCommandInput(value: string): string {
+  return value.startsWith('、') ? `/${value.slice(1)}` : value;
+}
+
 export function getCommandInput(cmd: Command): string {
   return cmd.acceptsArgs || cmd.name === '/sh' || cmd.name === '/model' || cmd.name === '/remote' || cmd.name === '/file' || cmd.name === '/plan' || cmd.name === '/note' ? `${cmd.name} ` : cmd.name;
 }

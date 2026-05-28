@@ -17,6 +17,7 @@ import type { UseModelStateReturn } from './use-model-state';
 import type { MemoryItem, MemoryFilter } from '../components/MemoryListView';
 import type { ConsoleSlashCommandService } from '../slash-command-service';
 import { buildGitCommitPrompt, isGitPorcelainEmpty, parseGitCommitCommandArg } from '../commit-command';
+import { isSlashCommandInput, normalizeSlashCommandInput } from '../input-commands';
 
 type SetMessages = Dispatch<SetStateAction<ChatMessage[]>>;
 type SetMemoryList = Dispatch<SetStateAction<MemoryItem[]>>;
@@ -177,6 +178,9 @@ export function useCommandDispatch({
   queueSize,
 }: UseCommandDispatchOptions) {
   return useCallback((text: string) => {
+    const rawText = text;
+    text = normalizeSlashCommandInput(text);
+
     if (text === '/exit') {
       onExit();
       return;
@@ -608,7 +612,7 @@ export function useCommandDispatch({
       return;
     }
 
-    if (text.startsWith('/') && slashCommandService?.canHandle(text)) {
+    if (isSlashCommandInput(text) && slashCommandService?.canHandle(text)) {
       void slashCommandService.dispatch(text, { sessionId: getCurrentSessionId?.() }).then((result) => {
         if (!result?.message) return;
         appendCommandMessage(setMessages, result.message, {
@@ -626,7 +630,7 @@ export function useCommandDispatch({
     }
 
     resetRedo(undoRedoRef, onClearRedoStack);
-    onSubmit(text);
+    onSubmit(rawText);
   }, [
     commitTools,
     onFileAttach,
