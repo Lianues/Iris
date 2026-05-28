@@ -7,8 +7,9 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const EXTENSION_VERSION = '0.1.5';
+const EXTENSION_VERSION = '0.1.6';
 const DEFAULT_PROTOCOL_VERSION = '2025-11-25';
+const DIFF_PREVIEW_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 let server = null;
 let port = 0;
@@ -18,6 +19,7 @@ let selectionTimer = undefined;
 let authToken = undefined;
 const clients = new Map();
 const diffDocuments = new Map();
+const diffTempDirs = new Set();
 
 function resolveDataDir() {
   const configured = vscode.workspace.getConfiguration('irisIde').get('dataDir');
@@ -26,6 +28,63 @@ function resolveDataDir() {
     : process.env.IRIS_DATA_DIR || path.join(os.homedir(), '.iris');
   return path.resolve(raw.replace(/^~(?=$|[\\/])/, os.homedir()));
 }
+
+function getDiffPreviewRoot() {
+  return path.join(resolveDataDir(), 'ide-diff-previews');
+}
+
+function cleanupOldDiffPreviewDirs(maxAgeMs = DIFF_PREVIEW_MAX_AGE_MS) {
+  const root = getDiffPreviewRoot();
+  let entries;
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  const now = Date.now();
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const fullPath = path.join(root, entry.name);
+    try {
+      const stat = fs.statSync(fullPath);
+      if (now - stat.mtimeMs > maxAgeMs) {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+      }
+    } catch {
+      // ignore cleanup failures
+    }
+  }
+}
+
+function sanitizeVirtualFileName(filePath) {
+  const normalized = String(filePath || 'diff.txt').replace(/\\/g, '/');
+  const baseName = normalized.split('/').filter(Boolean).pop() || 'diff.txt';
+  const safe = baseName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
+  return safe.includes('.') ? safe : `${safe}.txt`;
+}
+
+function writeTempDiffFiles(filePath, oldText, newText, nonce) {
+  const root = getDiffPreviewRoot();
+  const safeName = sanitizeVirtualFileName(filePath);
+  const diffDir = path.join(root, nonce);
+  const beforeDir = path.join(diffDir, 'before');
+  const afterDir = path.join(diffDir, 'after');
+  fs.mkdirSync(beforeDir, { recursive: true });
+  fs.mkdirSync(afterDir, { recursive: true });
+
+  const beforePath = path.join(beforeDir, safeName);
+  const afterPath = path.join(afterDir, safeName);
+  fs.writeFileSync(beforePath, oldText, 'utf8');
+  fs.writeFileSync(afterPath, newText, 'utf8');
+  diffTempDirs.add(diffDir);
+  return {
+    leftUri: vscode.Uri.file(beforePath),
+    rightUri: vscode.Uri.file(afterPath),
+    diffDir,
+  };
+}
+
 
 function getWorkspaceFolders() {
   return (vscode.workspace.workspaceFolders || [])
@@ -327,6 +386,8 @@ function getExtensionStatus() {
       lockfilePath,
       clientCount: clients.size,
       diffDocumentCount: diffDocuments.size,
+      diffTempDirCount: diffTempDirs.size,
+      diffPreviewRoot: getDiffPreviewRoot(),
       dataDir: resolveDataDir(),
     },
     workspaceFolders: getWorkspaceFolders(),
@@ -395,21 +456,27 @@ async function openDiffInIde(params) {
   const { oldText, newText } = fullContentFromCurrentFile ?? (hasFullContent
     ? { oldText: params.beforeText, newText: params.afterText }
     : parseUnifiedDiffForVirtualDocuments(diff));
-  // Keep the original file name as the final URI path segment so VS Code can
-  // infer the language mode from its extension for custom iris-diff documents.
-  const virtualFileName = encodeURIComponent(getVirtualDiffFileName(filePath));
-  const leftPath = `/before/${nonce}/${virtualFileName}`;
-  const rightPath = `/after/${nonce}/${virtualFileName}`;
-  const leftUri = vscode.Uri.from({ scheme: 'iris-diff', path: leftPath });
-  const rightUri = vscode.Uri.from({ scheme: 'iris-diff', path: rightPath });
-  diffDocuments.set(leftUri.toString(), oldText);
-  diffDocuments.set(rightUri.toString(), newText);
-  await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title, { preview: false });
-  setTimeout(() => {
-    diffDocuments.delete(leftUri.toString());
-    diffDocuments.delete(rightUri.toString());
-  }, 10 * 60 * 1000);
-  return { opened: true, title, filePath };
+  try {
+    const { leftUri, rightUri, diffDir } = writeTempDiffFiles(filePath, oldText, newText, nonce);
+    await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title, { preview: false });
+    return { opened: true, title, filePath, mode: 'file', diffDir };
+  } catch (error) {
+    // Fallback to in-memory virtual documents if the temp-file path is not writable.
+    // These may not get full language services, but still keep the diff usable.
+    const virtualFileName = encodeURIComponent(getVirtualDiffFileName(filePath));
+    const leftPath = `/before/${nonce}/${virtualFileName}`;
+    const rightPath = `/after/${nonce}/${virtualFileName}`;
+    const leftUri = vscode.Uri.from({ scheme: 'iris-diff', path: leftPath });
+    const rightUri = vscode.Uri.from({ scheme: 'iris-diff', path: rightPath });
+    diffDocuments.set(leftUri.toString(), oldText);
+    diffDocuments.set(rightUri.toString(), newText);
+    await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title, { preview: false });
+    setTimeout(() => {
+      diffDocuments.delete(leftUri.toString());
+      diffDocuments.delete(rightUri.toString());
+    }, 10 * 60 * 1000);
+    return { opened: true, title, filePath, mode: 'virtual', fallbackReason: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function callTool(name, args) {
@@ -534,6 +601,7 @@ function handleSse(req, res) {
 
 function startServer() {
   stopServer();
+  cleanupOldDiffPreviewDirs();
   authToken = crypto.randomBytes(24).toString('hex');
   server = http.createServer((req, res) => {
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
@@ -563,6 +631,7 @@ function stopServer() {
   rewriteTimer = undefined;
   removeLockfile();
   diffDocuments.clear();
+  diffTempDirs.clear();
   for (const client of clients.values()) {
     try { client.end(); } catch { /* ignore */ }
   }
