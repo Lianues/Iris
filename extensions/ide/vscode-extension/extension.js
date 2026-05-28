@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const EXTENSION_VERSION = '0.1.4';
+const EXTENSION_VERSION = '0.1.5';
 const DEFAULT_PROTOCOL_VERSION = '2025-11-25';
 
 let server = null;
@@ -342,6 +342,12 @@ function getExtensionStatus() {
   };
 }
 
+function getVirtualDiffFileName(filePath) {
+  const normalized = String(filePath || 'diff.txt').replace(/\\/g, '/');
+  const baseName = normalized.split('/').filter(Boolean).pop() || 'diff.txt';
+  return baseName.includes('.') ? baseName : `${baseName}.txt`;
+}
+
 function parseUnifiedDiffForVirtualDocuments(diff) {
   const oldLines = [];
   const newLines = [];
@@ -389,8 +395,11 @@ async function openDiffInIde(params) {
   const { oldText, newText } = fullContentFromCurrentFile ?? (hasFullContent
     ? { oldText: params.beforeText, newText: params.afterText }
     : parseUnifiedDiffForVirtualDocuments(diff));
-  const leftPath = `/before/${encodeURIComponent(filePath)}/${nonce}`;
-  const rightPath = `/after/${encodeURIComponent(filePath)}/${nonce}`;
+  // Keep the original file name as the final URI path segment so VS Code can
+  // infer the language mode from its extension for custom iris-diff documents.
+  const virtualFileName = encodeURIComponent(getVirtualDiffFileName(filePath));
+  const leftPath = `/before/${nonce}/${virtualFileName}`;
+  const rightPath = `/after/${nonce}/${virtualFileName}`;
   const leftUri = vscode.Uri.from({ scheme: 'iris-diff', path: leftPath });
   const rightUri = vscode.Uri.from({ scheme: 'iris-diff', path: rightPath });
   diffDocuments.set(leftUri.toString(), oldText);
