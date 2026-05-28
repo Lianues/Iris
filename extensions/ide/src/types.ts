@@ -25,6 +25,7 @@ export interface IdeConfig {
 export interface IdeLockfileContent {
   workspaceFolders?: string[];
   pid?: number;
+  extensionVersion?: string;
   ideName?: string;
   transport?: IdeTransport;
   runningInWindows?: boolean;
@@ -41,6 +42,7 @@ export interface DetectedIde {
   isValid: boolean;
   lockfilePath: string;
   pid?: number;
+  extensionVersion?: string;
   authToken?: string;
   runningInWindows?: boolean;
 }
@@ -68,6 +70,24 @@ export interface IdeStatusSnapshot {
   error?: string;
 }
 
+export interface IdeDebugEvent {
+  at: string;
+  kind: string;
+  message: string;
+  data?: unknown;
+}
+
+export interface IdeDebugSnapshot {
+  status: IdeStatusSnapshot;
+  config: IdeConfig;
+  cwd: string;
+  dataDir: string;
+  detected: DetectedIde[];
+  hasRpcClient: boolean;
+  currentUrl?: string;
+  recentEvents: IdeDebugEvent[];
+}
+
 export interface IdeManagerService {
   detect(): Promise<DetectedIde[]>;
   list(): DetectedIde[];
@@ -77,6 +97,7 @@ export interface IdeManagerService {
   disconnect(): Promise<void>;
   callRpc(method: string, params?: Record<string, unknown>): Promise<unknown>;
   openDiffPreview(preview: ToolDiffPreviewResponseLike, index?: number): Promise<boolean>;
+  getDebugSnapshot(): IdeDebugSnapshot;
   getSelection(): IdeSelection | undefined;
   getOpenedFile(): string | undefined;
   getContextText(): string | undefined;

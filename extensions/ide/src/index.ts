@@ -17,7 +17,7 @@ import {
 import { DEFAULT_IDE_CONFIG_TEMPLATE } from './config-template.js';
 import { parseIdeConfig } from './config.js';
 import { IdeManager } from './manager.js';
-import { IDE_MANAGER_SERVICE_ID, type DetectedIde, type IdeConfig, type IdeStatusSnapshot } from './types.js';
+import { IDE_MANAGER_SERVICE_ID, type DetectedIde, type IdeConfig, type IdeDebugSnapshot, type IdeStatusSnapshot } from './types.js';
 import { detectVscodeCliCommands, installVscodeExtension } from './vscode-installer.js';
 
 const logger = createPluginLogger('ide');
@@ -166,6 +166,7 @@ function registerConsoleIntegrations(api: IrisAPI, state: RuntimeState): void {
           { value: 'context', description: '预览将注入给模型的 IDE 上下文' },
           { value: 'install', description: '安装 Iris VS Code 扩展（可选 code/cursor/windsurf）' },
           { value: 'list-cli', description: '列出可用于安装的 VS Code 系 CLI' },
+          { value: 'debug', description: '输出 IDE 调试信息（状态/lockfile/RPC/近期事件）' },
           { value: 'help', description: '显示帮助' },
         ];
         const q = arg.trim().toLowerCase();
@@ -234,6 +235,7 @@ async function handleIdeCommand(manager: IdeManager, arg: string, state: Runtime
           '  /ide context             预览将注入给模型的 IDE 上下文',
           '  /ide install [cli]        安装 Iris VS Code 扩展（cli 可为 code/cursor/windsurf）',
           '  /ide list-cli             列出当前 PATH 中可用的 VS Code 系 CLI',
+          '  /ide debug                输出 IDE 调试信息',
           '',
           '直接输入 /ide 会自动检测、尝试连接；如果没有 IDE 会话，会自动安装/激活 VS Code 扩展。',
         ].join('\n'),
@@ -263,6 +265,19 @@ async function handleIdeCommand(manager: IdeManager, arg: string, state: Runtime
           ? ['可用 VS Code 系 CLI：', ...commands.map((cmd) => `  - ${cmd.label}: ${cmd.command}${cmd.version ? ` (${cmd.version})` : ''}`)].join('\n')
           : '未在 PATH 中发现 code / code-insiders / cursor / windsurf。',
       };
+    }
+    case 'debug': {
+      const snapshot = manager.getDebugSnapshot();
+      let extensionStatus: unknown;
+      let extensionStatusError: string | undefined;
+      if (snapshot.hasRpcClient) {
+        try {
+          extensionStatus = await manager.callRpc('getStatus');
+        } catch (error) {
+          extensionStatusError = error instanceof Error ? error.message : String(error);
+        }
+      }
+      return { label: 'ide', message: formatDebug(snapshot, extensionStatus, extensionStatusError) };
     }
     case 'install':
     case 'setup': {
@@ -329,16 +344,28 @@ async function waitForFirstValidConnection(manager: IdeManager, attempts = 6): P
   return undefined;
 }
 
+async function ensureVscodeExtensionCurrent(state: RuntimeState): Promise<string | undefined> {
+  const result = await installVscodeExtension({
+    extensionRootDir: state.extensionRootDir,
+    dataDir: state.dataDir ?? resolveDefaultDataDir(),
+    activateIfCurrent: false,
+  });
+  if (!result.success || result.alreadyInstalled) return undefined;
+  return result.message;
+}
+
 async function handleDefaultIdeCommand(manager: IdeManager, state: RuntimeState) {
   const snapshot = manager.status();
   const current = snapshot.state === 'connected' ? manager.current() : undefined;
   if (current) {
-    return { label: 'ide', message: formatStatus(snapshot) };
+    const updateMessage = await ensureVscodeExtensionCurrent(state);
+    return { label: 'ide', message: updateMessage ? `${formatStatus(snapshot)}\n\n${updateMessage}` : formatStatus(snapshot) };
   }
 
   const first = await connectFirstValidIde(manager);
   if (first.connected) {
-    return { label: 'ide', message: `已连接 IDE：${first.connected.name} (${first.connected.port})` };
+    const updateMessage = await ensureVscodeExtensionCurrent(state);
+    return { label: 'ide', message: `已连接 IDE：${first.connected.name} (${first.connected.port})${updateMessage ? `\n\n${updateMessage}` : ''}` };
   }
   if (first.error) {
     return { label: 'ide', message: `发现 IDE 会话，但连接失败：${first.error}\n\n${formatDetected(first.detected)}`, isError: true };
@@ -369,7 +396,8 @@ function formatDetected(detected: ReturnType<IdeManager['list']>): string {
   return ['发现 IDE：', ...detected.map((ide) => {
     const mark = ide.isValid ? '✓' : '×';
     const workspace = ide.workspaceFolders.length > 0 ? ide.workspaceFolders.join(', ') : '(无 workspaceFolders)';
-    return `  ${mark} ${ide.name} port=${ide.port} transport=${ide.transport} workspace=${workspace}`;
+    const version = ide.extensionVersion ? ` ext=${ide.extensionVersion}` : '';
+    return `  ${mark} ${ide.name} port=${ide.port} transport=${ide.transport}${version} workspace=${workspace}`;
   })].join('\n');
 }
 
@@ -386,6 +414,88 @@ function formatStatus(snapshot: IdeStatusSnapshot): string {
   lines.push(formatDetected(snapshot.detected));
   return lines.join('\n');
 }
+
+function stringifyDebugData(data: unknown, maxLength = 1200): string {
+  if (data === undefined) return '';
+  try {
+    const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+  } catch {
+    return String(data);
+  }
+}
+
+function extractRpcText(content: unknown): string {
+  if (!Array.isArray(content)) return stringifyDebugData(content, 2000);
+  const text = content
+    .filter((block): block is { type?: string; text?: string } => !!block && typeof block === 'object')
+    .filter((block) => block.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+    .join('\n');
+  return text || stringifyDebugData(content, 2000);
+}
+
+function formatDebug(snapshot: IdeDebugSnapshot, extensionStatus: unknown, extensionStatusError?: string): string {
+  const lines: string[] = [];
+  const status = snapshot.status;
+  lines.push('IDE Debug：');
+  lines.push(`状态：${status.state}${snapshot.hasRpcClient ? ' (rpc: yes)' : ' (rpc: no)'}`);
+  if (status.error) lines.push(`错误：${status.error}`);
+  lines.push(`cwd：${snapshot.cwd}`);
+  lines.push(`dataDir：${snapshot.dataDir}`);
+  lines.push(`config：enabled=${snapshot.config.enabled} autoConnect=${snapshot.config.autoConnect} lockDir=${snapshot.config.lockDir ?? '(default)'} claudeCompat=${snapshot.config.compatibility.claudeCodeLockfiles}`);
+
+  if (status.current) {
+    lines.push(`当前 IDE：${status.current.name} port=${status.current.port} transport=${status.current.transport}`);
+    lines.push(`当前 URL：${status.current.url}`);
+    lines.push(`当前 lockfile：${status.current.lockfilePath}`);
+  } else {
+    lines.push('当前 IDE：(未连接)');
+  }
+
+  if (status.selection?.filePath) {
+    lines.push(`选区：${status.selection.filePath} L${status.selection.lineStart ?? '?'}-L${status.selection.lineEnd ?? '?'} (${status.selection.lineCount} 行, text=${status.selection.text ? status.selection.text.length : 0} chars)`);
+  } else if (status.openedFile) {
+    lines.push(`当前文件：${status.openedFile}`);
+  }
+
+  lines.push('');
+  lines.push(`检测到 IDE：${snapshot.detected.length}`);
+  for (const ide of snapshot.detected) {
+    lines.push(`  ${ide.isValid ? '✓' : '×'} ${ide.name} id=${ide.id} port=${ide.port} transport=${ide.transport}`);
+    lines.push(`     url=${ide.url}`);
+    lines.push(`     lock=${ide.lockfilePath}`);
+    lines.push(`     workspace=${ide.workspaceFolders.length ? ide.workspaceFolders.join(', ') : '(none)'}`);
+    if (ide.pid) lines.push(`     pid=${ide.pid}`);
+    if (ide.extensionVersion) lines.push(`     extensionVersion=${ide.extensionVersion}`);
+    if (ide.runningInWindows !== undefined) lines.push(`     runningInWindows=${ide.runningInWindows}`);
+  }
+
+  lines.push('');
+  if (extensionStatusError) {
+    lines.push(`VS Code 扩展状态：读取失败：${extensionStatusError}`);
+  } else if (extensionStatus !== undefined) {
+    lines.push('VS Code 扩展状态：');
+    lines.push(extractRpcText(extensionStatus));
+  } else {
+    lines.push('VS Code 扩展状态：(未连接或无 RPC client)');
+  }
+
+  lines.push('');
+  lines.push('近期事件：');
+  const events = snapshot.recentEvents.slice(-20);
+  if (events.length === 0) {
+    lines.push('  (none)');
+  } else {
+    for (const event of events) {
+      const data = stringifyDebugData(event.data, 500);
+      lines.push(`  [${event.at}] ${event.kind}: ${event.message}${data ? ` ${data}` : ''}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 
 function basename(filePath: string): string {
   return filePath.replace(/\\/g, '/').split('/').pop() || filePath;

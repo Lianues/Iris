@@ -20,6 +20,8 @@ export interface InstallVscodeExtensionOptions {
   dataDir: string;
   target?: string;
   force?: boolean;
+  /** 扩展已是当前版本时是否仍尝试触发 VS Code 命令激活。默认 true。 */
+  activateIfCurrent?: boolean;
 }
 
 export interface InstallVscodeExtensionResult {
@@ -204,9 +206,13 @@ function getBundledVscodeExtensionDir(extensionRootDir: string | undefined): str
   return dir;
 }
 
-async function packageVscodeExtension(sourceDir: string, outputDir: string): Promise<string> {
+async function readBundledVscodeExtensionPackage(sourceDir: string): Promise<Record<string, unknown>> {
   const pkgPath = path.join(sourceDir, 'package.json');
-  const pkg = JSON.parse(await fsp.readFile(pkgPath, 'utf8')) as Record<string, unknown>;
+  return JSON.parse(await fsp.readFile(pkgPath, 'utf8')) as Record<string, unknown>;
+}
+
+async function packageVscodeExtension(sourceDir: string, outputDir: string, packageJson?: Record<string, unknown>): Promise<string> {
+  const pkg = packageJson ?? await readBundledVscodeExtensionPackage(sourceDir);
   const publisher = String(pkg.publisher ?? 'iris');
   const name = String(pkg.name ?? 'ide');
   const version = String(pkg.version ?? '0.1.0');
@@ -370,13 +376,23 @@ export async function detectVscodeCliCommands(target?: string): Promise<VscodeCl
   return detected;
 }
 
-async function isExtensionInstalled(command: string): Promise<boolean> {
+async function getInstalledExtensionVersion(command: string): Promise<string | undefined> {
+  const withVersions = await tryExec(command, ['--list-extensions', '--show-versions'], 20_000);
+  if (withVersions.ok) {
+    const match = withVersions.stdout
+      .split(/\r?\n/g)
+      .map((line) => line.trim())
+      .find((line) => line.toLowerCase().startsWith(`${EXTENSION_ID}@`));
+    if (match) return match.slice(EXTENSION_ID.length + 1).trim() || undefined;
+  }
+
   const result = await tryExec(command, ['--list-extensions'], 20_000);
-  if (!result.ok) return false;
-  return result.stdout
+  if (!result.ok) return undefined;
+  const installed = result.stdout
     .split(/\r?\n/g)
     .map((line) => line.trim().toLowerCase())
     .includes(EXTENSION_ID);
+  return installed ? 'unknown' : undefined;
 }
 
 async function activateInstalledExtension(command: string): Promise<{ attempted: boolean; ok: boolean; stderr?: string }> {
@@ -410,24 +426,29 @@ export async function installVscodeExtension(options: InstallVscodeExtensionOpti
 
   const candidate = candidates[0];
   try {
-    const alreadyInstalled = await isExtensionInstalled(candidate.command);
-    if (alreadyInstalled && !options.force) {
-      const activation = await activateInstalledExtension(candidate.command);
+    const extensionDir = getBundledVscodeExtensionDir(options.extensionRootDir);
+    const bundledPackage = await readBundledVscodeExtensionPackage(extensionDir);
+    const bundledVersion = String(bundledPackage.version ?? '0.1.0');
+    const installedVersion = await getInstalledExtensionVersion(candidate.command);
+
+    if (installedVersion === bundledVersion && !options.force) {
+      const activation = options.activateIfCurrent === false ? undefined : await activateInstalledExtension(candidate.command);
       return {
         success: true,
         alreadyInstalled: true,
         command: candidate.command,
         label: candidate.label,
         message: [
-          `${candidate.label} 已安装 Iris IDE 扩展。`,
-          activation.ok ? '已尝试自动激活扩展。' : '自动激活未成功；如 /ide detect 无结果，请 Reload Window 或重启 VS Code。',
+          `${candidate.label} 已安装 Iris IDE 扩展 v${installedVersion}。`,
+          activation
+            ? (activation.ok ? '已尝试自动激活扩展。' : '自动激活未成功；如 /ide detect 无结果，请 Reload Window 或重启 VS Code。')
+            : '扩展已是当前版本。',
           '请确认 VS Code 已打开目标工作区，然后执行 /ide detect 或 /ide connect。',
         ].join('\n'),
       };
     }
 
-    const extensionDir = getBundledVscodeExtensionDir(options.extensionRootDir);
-    const vsixPath = await packageVscodeExtension(extensionDir, path.join(options.dataDir, 'vscode-extension'));
+    const vsixPath = await packageVscodeExtension(extensionDir, path.join(options.dataDir, 'vscode-extension'), bundledPackage);
     const install = await tryExec(candidate.command, ['--install-extension', vsixPath, '--force'], 60_000);
     if (!install.ok) {
       return {
@@ -448,7 +469,9 @@ export async function installVscodeExtension(options: InstallVscodeExtensionOpti
       label: candidate.label,
       vsixPath,
       message: [
-        `已安装 Iris IDE 扩展到 ${candidate.label}。`,
+        installedVersion
+          ? `已将 ${candidate.label} 的 Iris IDE 扩展从 v${installedVersion} 更新到 v${bundledVersion}。`
+          : `已安装 Iris IDE 扩展 v${bundledVersion} 到 ${candidate.label}。`,
         activation.ok
           ? '已尝试通过 VS Code CLI 自动激活扩展。'
           : '未能通过 VS Code CLI 自动激活扩展；如 /ide detect 仍无结果，请执行 “Developer: Reload Window” 或重启 VS Code。',

@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const EXTENSION_VERSION = '0.1.0';
+const EXTENSION_VERSION = '0.1.2';
 const DEFAULT_PROTOCOL_VERSION = '2025-11-25';
 
 let server = null;
@@ -41,6 +41,7 @@ function getLockfilePayload() {
   return {
     workspaceFolders: getWorkspaceFolders(),
     pid: process.pid,
+    extensionVersion: EXTENSION_VERSION,
     ideName: getIdeName(),
     transport: 'sse',
     runningInWindows: process.platform === 'win32',
@@ -199,6 +200,31 @@ function getDiagnostics(params) {
     .filter((entry) => entry.diagnostics.length > 0);
 }
 
+function getExtensionStatus() {
+  const editor = vscode.window.activeTextEditor;
+  const selection = editor?.selection;
+  return {
+    extensionVersion: EXTENSION_VERSION,
+    server: {
+      port,
+      lockfilePath,
+      clientCount: clients.size,
+      diffDocumentCount: diffDocuments.size,
+      dataDir: resolveDataDir(),
+    },
+    workspaceFolders: getWorkspaceFolders(),
+    activeEditor: editor ? {
+      filePath: editor.document.uri.scheme === 'file' ? editor.document.uri.fsPath : editor.document.uri.toString(),
+      languageId: editor.document.languageId,
+      isDirty: editor.document.isDirty,
+      selection: selection ? {
+        start: { line: selection.start.line + 1, character: selection.start.character + 1 },
+        end: { line: selection.end.line + 1, character: selection.end.character + 1 },
+      } : undefined,
+    } : undefined,
+  };
+}
+
 function parseUnifiedDiffForVirtualDocuments(diff) {
   const oldLines = [];
   const newLines = [];
@@ -268,6 +294,8 @@ async function callTool(name, args) {
           : undefined,
       };
     }
+    case 'getStatus':
+      return getExtensionStatus();
     case 'getDiagnostics':
       return { files: getDiagnostics(args || {}) };
     case 'openDiff':
@@ -301,6 +329,7 @@ async function handleRpcMessage(clientId, message) {
           tools: [
             toolDefinition('getCurrentSelection', 'Return VS Code active editor selection and text.'),
             toolDefinition('getOpenedFile', 'Return VS Code active editor file path.'),
+            toolDefinition('getStatus', 'Return Iris VS Code extension debug status.'),
             toolDefinition('getDiagnostics', 'Return VS Code diagnostics.', {
               type: 'object',
               properties: { filePath: { type: 'string' } },

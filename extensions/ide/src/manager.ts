@@ -7,6 +7,7 @@ import type {
   DetectedIde,
   IdeAtMentioned,
   IdeConfig,
+  IdeDebugSnapshot,
   IdeConnectionState,
   IdeManagerService,
   IdeSelection,
@@ -36,9 +37,11 @@ export class IdeManager implements IdeManagerService {
   private connectedIde: DetectedIde | undefined;
   private selection: IdeSelection | undefined;
   private openedFile: string | undefined;
+  private readonly debugEvents: IdeDebugSnapshot['recentEvents'] = [];
 
   constructor(private readonly options: IdeManagerOptions) {
     this.config = options.config;
+    this.logDebug('init', 'IDE manager created', { dataDir: options.dataDir, enabled: options.config.enabled });
   }
 
   async initialize(): Promise<void> {
@@ -57,6 +60,7 @@ export class IdeManager implements IdeManagerService {
 
   updateConfig(config: IdeConfig): void {
     this.config = config;
+    this.logDebug('config', 'IDE config updated', { enabled: config.enabled, autoConnect: config.autoConnect, lockDir: config.lockDir });
     if (!config.enabled) {
       void this.disconnect().catch(() => {});
     }
@@ -72,6 +76,7 @@ export class IdeManager implements IdeManagerService {
 
     const previousState = this.state;
     if (this.state !== 'connected') this.state = 'detecting';
+    this.logDebug('detect', 'Scanning IDE lockfiles', { cwd: this.safeCwd(), dataDir: this.options.dataDir });
     this.emitChange();
     try {
       this.detected = await detectIDEs({
@@ -81,10 +86,12 @@ export class IdeManager implements IdeManagerService {
       });
       if (previousState !== 'connected') this.state = 'disconnected';
       this.error = undefined;
+      this.logDebug('detect', `Detected ${this.detected.length} IDE session(s)`, { valid: this.detected.filter((ide) => ide.isValid).length });
       return this.detected;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
       if (previousState !== 'connected') this.state = 'error';
+      this.logDebug('error', 'IDE detection failed', { error: this.error });
       return [];
     } finally {
       this.emitChange();
@@ -110,6 +117,19 @@ export class IdeManager implements IdeManagerService {
     };
   }
 
+  getDebugSnapshot(): IdeDebugSnapshot {
+    return {
+      status: this.status(),
+      config: this.config,
+      cwd: this.safeCwd(),
+      dataDir: this.options.dataDir,
+      detected: [...this.detected],
+      hasRpcClient: !!this.rpcClient,
+      currentUrl: this.connectedIde?.url,
+      recentEvents: [...this.debugEvents],
+    };
+  }
+
   async connect(target?: string): Promise<DetectedIde> {
     if (!this.config.enabled) throw new Error('IDE 集成已禁用');
     if (this.detected.length === 0) await this.detect();
@@ -121,6 +141,8 @@ export class IdeManager implements IdeManagerService {
       throw new Error(`IDE 工作区与当前 cwd 不匹配：${ide.name} (${ide.port})`);
     }
 
+    this.logDebug('connect', `Connecting to ${ide.name} (${ide.port})`, { target, url: ide.url, transport: ide.transport, lockfilePath: ide.lockfilePath });
+
     await this.disconnect();
     this.state = 'connecting';
     this.error = undefined;
@@ -130,10 +152,21 @@ export class IdeManager implements IdeManagerService {
     const disposers = [
       client.on('selection', (selection) => {
         this.selection = selection;
+        this.logDebug('selection', 'Selection changed', {
+          filePath: selection.filePath,
+          lineStart: selection.lineStart,
+          lineEnd: selection.lineEnd,
+          lineCount: selection.lineCount,
+        });
+        if (this.rpcClient === client && this.connectedIde) {
+          this.state = 'connected';
+          this.error = undefined;
+        }
         if (selection.filePath) this.openedFile = selection.filePath;
         this.emitChange();
       }),
       client.on('atMentioned', (payload) => {
+        this.logDebug('atMentioned', 'IDE sent @ mention', payload);
         this.events.emit('atMentioned', payload);
       }),
       client.on('close', () => {
@@ -143,11 +176,13 @@ export class IdeManager implements IdeManagerService {
         this.selection = undefined;
         this.openedFile = undefined;
         this.state = 'disconnected';
+        this.logDebug('close', 'IDE transport closed');
         this.emitChange();
       }),
       client.on('error', (error) => {
         this.error = error.message;
-        this.state = 'error';
+        this.state = this.rpcClient === client && this.connectedIde ? 'connected' : 'error';
+        this.logDebug('transportError', 'IDE transport reported error', { error: error.message, keptState: this.state });
         this.emitChange();
       }),
     ];
@@ -160,6 +195,7 @@ export class IdeManager implements IdeManagerService {
       this.selection = undefined;
       this.openedFile = undefined;
       (client as unknown as { __irisDisposers?: Array<() => void> }).__irisDisposers = disposers;
+      this.logDebug('connect', `Connected to ${ide.name} (${ide.port})`);
       this.emitChange();
       return ide;
     } catch (error) {
@@ -167,6 +203,7 @@ export class IdeManager implements IdeManagerService {
       await client.close().catch(() => {});
       this.state = 'error';
       this.error = error instanceof Error ? error.message : String(error);
+      this.logDebug('error', `Failed to connect to ${ide.name} (${ide.port})`, { error: this.error });
       this.emitChange();
       throw error;
     }
@@ -174,6 +211,7 @@ export class IdeManager implements IdeManagerService {
 
   async disconnect(): Promise<void> {
     const client = this.rpcClient;
+    if (client || this.connectedIde) this.logDebug('disconnect', 'Disconnecting IDE', { current: this.connectedIde?.id });
     this.rpcClient = undefined;
     this.connectedIde = undefined;
     this.selection = undefined;
@@ -197,16 +235,25 @@ export class IdeManager implements IdeManagerService {
   }
 
   async openDiffPreview(preview: ToolDiffPreviewResponseLike, index = 0): Promise<boolean> {
-    if (!this.rpcClient || this.state !== 'connected') return false;
+    if (!this.rpcClient || !this.connectedIde) return false;
     const items = preview.items ?? [];
     const item = items.length > 0 ? items[((index % items.length) + items.length) % items.length] : undefined;
     if (!item?.diff) return false;
-    await this.callRpc('openDiff', {
-      filePath: item.filePath,
-      diff: item.diff,
-      title: `${preview.toolLabel ?? preview.toolName}: ${item.filePath || 'diff'}`,
-    });
-    return true;
+    this.logDebug('openDiff', 'Opening IDE diff preview', { filePath: item.filePath, index, toolName: preview.toolName });
+    try {
+      await this.callRpc('openDiff', {
+        filePath: item.filePath,
+        diff: item.diff,
+        title: `${preview.toolLabel ?? preview.toolName}: ${item.filePath || 'diff'}`,
+      });
+      this.state = 'connected';
+      this.error = undefined;
+      this.logDebug('openDiff', 'IDE diff preview opened', { filePath: item.filePath });
+      return true;
+    } catch (error) {
+      this.logDebug('error', 'Failed to open IDE diff preview', { error: error instanceof Error ? error.message : String(error), filePath: item.filePath });
+      throw error;
+    }
   }
 
   getSelection(): IdeSelection | undefined {
@@ -283,5 +330,23 @@ export class IdeManager implements IdeManagerService {
 
   private emitChange(): void {
     this.events.emit('change');
+  }
+
+  private safeCwd(): string {
+    try {
+      return this.options.getCwd();
+    } catch (error) {
+      return `unknown (${error instanceof Error ? error.message : String(error)})`;
+    }
+  }
+
+  private logDebug(kind: string, message: string, data?: unknown): void {
+    this.debugEvents.push({
+      at: new Date().toISOString(),
+      kind,
+      message,
+      data,
+    });
+    while (this.debugEvents.length > 80) this.debugEvents.shift();
   }
 }

@@ -190,6 +190,7 @@ export async function detectIDEs(options: DetectIdeOptions): Promise<DetectedIde
       isValid,
       lockfilePath: lockfile.path,
       pid: info.pid,
+      extensionVersion: info.extensionVersion,
       authToken: info.authToken,
       runningInWindows: info.runningInWindows,
     });
