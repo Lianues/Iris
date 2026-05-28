@@ -91,8 +91,6 @@ export interface ToolStateChangeEvent {
  * 由 scheduler 创建并传入 handler，提供进度上报和中止信号。
  * handler 无需了解 ToolStateManager、invocation ID 或任何基础设施细节，
  * 只需调用 reportProgress 即可推送实时进度到前端。
- *
- * 设计参考：FastMCP 的 Context.report_progress 模式。
  */
 export interface ToolExecutionContext {
   /**

@@ -535,7 +535,7 @@ function createAbortResponse(call: FunctionCallPart, durationMs?: number): Funct
  *
  * 错误隔离：内部 try-catch 包裹 toolState.transition()，
  * 防止错误冒泡到 handler 的 onChunk/onTokens 回调中
- * 中断 LLM 流式读取循环（参考 LangChain PR #10102 的错误隔离设计）。
+ * 中断 LLM 流式读取循环。
  */
 function createThrottledReportProgress(
   toolState: ToolStateManager,

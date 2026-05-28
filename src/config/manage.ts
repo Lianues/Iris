@@ -196,7 +196,6 @@ interface EditableConfigShape {
 /**
  * 分层配置管理器
  *
- * 借鉴 VS Code ConfigurationService / Amplifier ConfigManager 的设计：
  *   - 读时合并（read merged）：返回 global + agent 深合并后的完整配置
  *   - 写时定向（write to overlay）：只写 agent 覆盖层，不动全局配置
  *

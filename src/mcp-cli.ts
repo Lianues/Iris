@@ -1,7 +1,7 @@
 /**
  * Iris MCP CLI 子命令。
  *
- * 目标是提供类似 `claude mcp add ...` 的一次性命令体验，但写入 Iris 自己的
+ * 目标是提供一次性命令体验，写入 Iris 自己的
  * 运行时配置目录（默认 ~/.iris/configs/mcp.yaml，可通过 IRIS_DATA_DIR 覆盖）。
  *
  * 支持：

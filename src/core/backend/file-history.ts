@@ -1,7 +1,6 @@
 /**
  * Per-session 文件历史快照，用于 /rewind 的 code/both 恢复。
  *
- * 设计目标与 Claude Code fileHistory 类似：
  * - 每条普通用户消息创建一个 checkpoint snapshot；
  * - 编辑类工具真正写文件前，向当前 snapshot 记录该文件的“编辑前”备份；
  * - code rewind 时将已跟踪文件恢复到目标 checkpoint 对应状态。
