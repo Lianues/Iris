@@ -982,6 +982,7 @@ export function App({
         exitConfirmArmed={exitConfirm.exitConfirmArmed}
         backgroundTaskCount={appState.backgroundTaskCount}
         planModeActive={appState.planModeActive}
+        autoEditActive={appState.autoEditActive}
         noteContent={appState.noteContent}
         noteEditorOpen={appState.noteEditorOpen}
         noteEditorInitialValue={appState.noteEditorInitialValue}

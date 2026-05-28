@@ -510,6 +510,29 @@ export function useAppKeyboard({
       return;
     }
 
+    // Ctrl+E：切换当前会话自动编辑。
+    // 与 Plan Mode 类似，允许生成中切换；避开审批、确认、问答和工具应用等接管键盘的状态。
+    if (
+      key.ctrl
+      && key.name === 'e'
+      && (viewMode === 'chat' || viewMode === 'tool-list' || viewMode === 'tool-detail')
+      && pendingApprovals.length === 0
+      && pendingApplies.length === 0
+      && !pendingConfirm
+      && !askQuestionActive
+    ) {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      if (!onAutoEditCommand) {
+        appendCommandMessage(setMessages, '自动编辑服务不可用。', { label: '自动编辑', isError: true, beforeActiveAssistant: isGenerating });
+      } else {
+        void onAutoEditCommand('').then((result) => {
+          appendCommandMessage(setMessages, result.message, result.ok ? { label: '自动编辑', beforeActiveAssistant: isGenerating } : { label: '自动编辑', isError: true, beforeActiveAssistant: isGenerating });
+        }).catch((err) => appendCommandMessage(setMessages, `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: '自动编辑', isError: true, beforeActiveAssistant: isGenerating }));
+      }
+      return;
+    }
+
     // Ctrl+T：打开工具执行详情（由 index.ts 从 _activeHandles 中选择目标）
     if (key.name === 't' && key.ctrl) {
       onOpenToolDetail('');

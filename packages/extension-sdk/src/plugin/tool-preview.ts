@@ -55,6 +55,10 @@ export interface ToolDiffPreviewItemLike {
   filetype?: string;
   added: number;
   removed: number;
+  /** 完整旧文件内容，仅供 IDE/GUI diff 视图使用；不会发送给 LLM。 */
+  beforeText?: string;
+  /** 完整新文件内容，仅供 IDE/GUI diff 视图使用；不会发送给 LLM。 */
+  afterText?: string;
   message?: string;
 }
 

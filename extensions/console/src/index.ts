@@ -3040,7 +3040,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       const note = service.getNote();
       this.appHandle?.setNoteContent(note);
       this.appHandle?.openNoteEditor(note);
-      return { ok: true, message: '已打开 Note 编辑器。Ctrl+S 保存，Esc 取消。' };
+      return { ok: true, message: '已打开 Note 编辑器。Enter 保存，Shift+Enter 换行，Ctrl+C 清空，Esc 取消。' };
     }
 
     if (lower === 'show' || lower === 'status' || normalized === '查看' || normalized === '状态') {
@@ -3065,7 +3065,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.appHandle?.closeNoteEditor();
     return {
       ok: true,
-      message: `Note 已保存。输入 /note edit 可继续编辑，/note clear 可清空。`,
+      message: `Note 已保存。输入 /note 可继续编辑，/note clear 可清空。`,
     };
   }
 

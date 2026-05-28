@@ -46,6 +46,8 @@ interface BottomPanelProps {
   backgroundTaskCount?: number;
   /** 当前会话是否处于 Plan Mode */
   planModeActive?: boolean;
+  /** 当前会话是否启用自动编辑 */
+  autoEditActive?: boolean;
   /** 当前 Agent 的 /note 内容 */
   noteContent?: string;
   /** Note 编辑器是否打开 */
@@ -115,6 +117,7 @@ export function BottomPanel({
   exitConfirmArmed,
   backgroundTaskCount,
   planModeActive,
+  autoEditActive,
   noteContent,
   noteEditorOpen,
   noteEditorInitialValue,
@@ -238,6 +241,7 @@ export function BottomPanel({
         exitConfirmArmed={exitConfirmArmed}
         remoteHost={remoteHost}
         pathDisplay={pathDisplay}
+        autoEditActive={autoEditActive}
       />
     </box>
   );

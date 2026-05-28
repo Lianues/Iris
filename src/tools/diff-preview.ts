@@ -16,6 +16,10 @@ import {
   normalizeInsertArgs,
   normalizeWriteArgs,
   parseUnifiedDiff,
+  applySearchReplaceBestEffort,
+  applyUnifiedDiffBestEffort,
+  convertHunksToSearchReplace,
+  parseLoosePatchToSearchReplace,
   resolveProjectPath as resolveProjectPathRaw,
 } from 'irises-extension-sdk/tool-utils';
 import { collectSearchFiles, normalizeSearchGlobArgs } from './internal/search_in_files';
@@ -256,9 +260,19 @@ function createMsg(id: string, filePath: string, label: string, message: string)
   return { id, filePath, label, filetype: inferFiletype(filePath), added: 0, removed: 0, message };
 }
 
-function createItem(id: string, filePath: string, label: string, diff: string): ToolDiffPreviewItemLike {
+function createItem(
+  id: string,
+  filePath: string,
+  label: string,
+  diff: string,
+  beforeText?: string,
+  afterText?: string,
+): ToolDiffPreviewItemLike {
   const { added, removed } = countDiffStats(diff);
-  return { id, filePath, label, diff, filetype: inferFiletype(filePath), added, removed };
+  return {
+    id, filePath, label, diff, filetype: inferFiletype(filePath), added, removed,
+    ...(beforeText !== undefined && afterText !== undefined ? { beforeText, afterText } : {}),
+  };
 }
 
 function toDiffLinePrefix(type: 'context' | 'add' | 'del'): string {
@@ -320,20 +334,65 @@ function buildDisplayPatchDiff(filePath: string, patch: string): string {
   }
 }
 
-function buildApplyDiffPreview(inv: ToolInvocation): ToolDiffPreviewResponseLike {
+function applyPatchForFullPreview(before: string, patch: string): string | undefined {
+  const cleaned = sanitizePatchText(patch);
+  if (!cleaned.trim()) return undefined;
+
+  try {
+    const parsed = parseUnifiedDiff(cleaned);
+    const applied = applyUnifiedDiffBestEffort(before, parsed);
+    let bestContent = applied.newContent;
+    let appliedCount = applied.results.filter((result) => result.ok).length;
+
+    if (appliedCount < parsed.hunks.length) {
+      const srBlocks = convertHunksToSearchReplace(parsed.hunks);
+      const srResult = applySearchReplaceBestEffort(before, srBlocks);
+      if (srResult.appliedCount > appliedCount) {
+        bestContent = srResult.newContent;
+        appliedCount = srResult.appliedCount;
+      }
+    }
+
+    return appliedCount > 0 ? bestContent : undefined;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.startsWith('Invalid hunk header')) return undefined;
+    const looseBlocks = parseLoosePatchToSearchReplace(cleaned);
+    const looseResult = applySearchReplaceBestEffort(before, looseBlocks);
+    return looseResult.appliedCount > 0 ? looseResult.newContent : undefined;
+  }
+}
+
+function buildApplyDiffPreview(inv: ToolInvocation, options: BuildPreviewOptions): ToolDiffPreviewResponseLike {
   const filePath = typeof inv.args.path === 'string' ? inv.args.path : '';
   const rawPatch = getSafePatch(inv.args.patch);
   const diff = buildDisplayPatchDiff(filePath, rawPatch);
+  let beforeText: string | undefined;
+  let afterText: string | undefined;
+
+  if (filePath && diff) {
+    try {
+      const resolved = resolveProjectPath(filePath, options.cwd);
+      beforeText = fs.readFileSync(resolved, 'utf-8');
+      afterText = applyPatchForFullPreview(beforeText, rawPatch);
+    } catch {
+      beforeText = undefined;
+      afterText = undefined;
+    }
+  }
+
   return {
     toolName: 'apply_diff',
     title: 'Diff 审批',
     toolLabel: 'apply_diff',
     summary: [filePath ? `目标文件：${filePath}` : '目标文件：未提供'],
     items: [diff
-      ? createItem(`${inv.id}:apply_diff`, filePath, filePath || '补丁预览', diff)
+      ? createItem(`${inv.id}:apply_diff`, filePath, filePath || '补丁预览', diff, beforeText, afterText)
       : createMsg(`${inv.id}:apply_diff.empty`, filePath, filePath || '补丁预览', '当前补丁为空，无法显示 diff。')],
   };
 }
+
+
 
 function buildWriteFilePreview(inv: ToolInvocation, options: BuildPreviewOptions): ToolDiffPreviewResponseLike {
   const fileList = normalizeWriteArgs(inv.args);
@@ -360,7 +419,7 @@ function buildWriteFilePreview(inv: ToolInvocation, options: BuildPreviewOptions
       const diff = buildUnifiedLineDiff(entry.path, before, entry.content, existed);
       const action = existed ? '修改' : '新增';
       items.push(diff
-        ? createItem(`${inv.id}:write_file:${i}`, entry.path, `${entry.path} · ${action}`, diff)
+        ? createItem(`${inv.id}:write_file:${i}`, entry.path, `${entry.path} · ${action}`, diff, before, entry.content)
         : createMsg(`${inv.id}:write_file:${i}`, entry.path, `${entry.path} · ${action}`, existed ? '不会产生可显示的 diff。' : '将创建空文件。'));
       if (existed) modified++; else created++;
     } catch (err: unknown) {
@@ -394,7 +453,7 @@ function buildInsertCodePreview(inv: ToolInvocation, options: BuildPreviewOption
       const transformed = applyInsertCodeTransform(before, entry.line, entry.content);
       const diff = buildUnifiedLineDiff(entry.path, before, transformed.newContent, true);
       items.push(diff
-        ? createItem(`${inv.id}:insert_code:${i}`, entry.path, `${entry.path} · 第 ${entry.line} 行前插入 ${transformed.insertedLines} 行`, diff)
+        ? createItem(`${inv.id}:insert_code:${i}`, entry.path, `${entry.path} · 第 ${entry.line} 行前插入 ${transformed.insertedLines} 行`, diff, before, transformed.newContent)
         : createMsg(`${inv.id}:insert_code:${i}`, entry.path, `${entry.path} · 插入`, '不会产生可显示的 diff。'));
       successCount++;
     } catch (err: unknown) {
@@ -428,7 +487,7 @@ function buildDeleteCodePreview(inv: ToolInvocation, options: BuildPreviewOption
       const transformed = applyDeleteCodeTransform(before, entry.start_line, entry.end_line);
       const diff = buildUnifiedLineDiff(entry.path, before, transformed.newContent, true);
       items.push(diff
-        ? createItem(`${inv.id}:delete_code:${i}`, entry.path, `${entry.path} · 删除第 ${entry.start_line}-${entry.end_line} 行（${transformed.deletedLines} 行）`, diff)
+        ? createItem(`${inv.id}:delete_code:${i}`, entry.path, `${entry.path} · 删除第 ${entry.start_line}-${entry.end_line} 行（${transformed.deletedLines} 行）`, diff, before, transformed.newContent)
         : createMsg(`${inv.id}:delete_code:${i}`, entry.path, `${entry.path} · 删除`, '不会产生可显示的 diff。'));
       successCount++;
     } catch (err: unknown) {
@@ -502,7 +561,7 @@ function buildSearchReplacePreview(inv: ToolInvocation, options: BuildPreviewOpt
 
       const diff = buildUnifiedLineDiff(displayPath, decoded.text, newText, true);
       items.push(diff
-        ? createItem(`${inv.id}:search_replace:${displayPath}`, displayPath, `${displayPath} · ${replacements} 处替换`, diff)
+        ? createItem(`${inv.id}:search_replace:${displayPath}`, displayPath, `${displayPath} · ${replacements} 处替换`, diff, decoded.text, newText)
         : createMsg(`${inv.id}:search_replace:${displayPath}`, displayPath, `${displayPath} · ${replacements} 处替换`, '文件将变化，但无法显示 diff。'));
       changedFiles++;
       totalReplacements += replacements;
@@ -533,7 +592,7 @@ function buildSearchReplacePreview(inv: ToolInvocation, options: BuildPreviewOpt
 
 export function buildToolDiffPreview(invocation: ToolInvocation, options: BuildPreviewOptions): ToolDiffPreviewResponseLike {
   switch (invocation.toolName) {
-    case 'apply_diff': return buildApplyDiffPreview(invocation);
+    case 'apply_diff': return buildApplyDiffPreview(invocation, options);
     case 'write_file': return buildWriteFilePreview(invocation, options);
     case 'insert_code': return buildInsertCodePreview(invocation, options);
     case 'delete_code': return buildDeleteCodePreview(invocation, options);

@@ -27,7 +27,7 @@ export function NotePanel({ content, maxLines = 4 }: NotePanelProps) {
     >
       <text>
         <span fg={C.accent}><strong>✎ Note</strong></span>
-        <span fg={C.dim}>  /note edit 编辑 · /note clear 清空</span>
+        <span fg={C.dim}>  /note 编辑 · /note clear 清空</span>
       </text>
       {visible.map((line, index) => (
         <text key={index}><span fg={C.textSec}>{line || ' '}</span></text>

@@ -244,6 +244,8 @@ export class IdeManager implements IdeManagerService {
       await this.callRpc('openDiff', {
         filePath: item.filePath,
         diff: item.diff,
+        beforeText: item.beforeText,
+        afterText: item.afterText,
         title: `${preview.toolLabel ?? preview.toolName}: ${item.filePath || 'diff'}`,
       });
       this.state = 'connected';

@@ -17,6 +17,8 @@ interface HintBarProps {
   remoteHost?: string;
   /** 左下角路径显示快照（扩展 provider 可覆盖默认 cwd） */
   pathDisplay?: ConsolePathDisplaySnapshot;
+  /** 当前会话是否启用自动编辑 */
+  autoEditActive?: boolean;
 }
 
 /* ---------- 路径截断工具 ---------- */
@@ -74,7 +76,7 @@ function resolveDisplayColor(color?: string): string {
 
 /* ---------- 组件 ---------- */
 
-export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, pathDisplay }: HintBarProps) {
+export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, pathDisplay, autoEditActive = false }: HintBarProps) {
   const cwd = process.cwd();
   const effectivePath = pathDisplay?.path ?? cwd;
   const hasQueue = (queueSize ?? 0) > 0;
@@ -86,6 +88,7 @@ export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queue
     hintStr = '再次按 ctrl+c 退出';
   } else {
     const parts: string[] = [];
+    parts.push('ctrl+e 自动编辑');
     parts.push(escAction);
     parts.push('ctrl+t 工具详情');
     if (isGenerating && hasQueue) {
@@ -119,6 +122,8 @@ export function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queue
       ) : (
         <box flexShrink={0}>
           <text fg={C.dim}>
+            <span fg={autoEditActive ? C.autoEdit : C.dim}>ctrl+e 自动编辑</span>
+            {`  ${ICONS.separator}  `}
             {escAction}
             {`  ${ICONS.separator}  ctrl+t 工具详情`}
             {isGenerating && hasQueue ? (

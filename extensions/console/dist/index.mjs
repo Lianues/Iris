@@ -3273,7 +3273,7 @@ function NotePanel({ content, maxLines = 4 }) {
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV8("span", {
             fg: C.dim,
-            children: "  /note edit 编辑 · /note clear 清空"
+            children: "  /note 编辑 · /note clear 清空"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
@@ -3394,8 +3394,12 @@ function NoteEditorPanel({ initialValue, onSave, onCancel, onDraftChange }) {
     if (key.name === "return" || key.name === "enter") {
       key.preventDefault?.();
       key.stopPropagation?.();
-      actions.insert(`
+      if (key.shift) {
+        actions.insert(`
 `);
+      } else {
+        save();
+      }
       return;
     }
     actions.handleKey(key);
@@ -3418,7 +3422,7 @@ function NoteEditorPanel({ initialValue, onSave, onCancel, onDraftChange }) {
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV9("span", {
             fg: C.dim,
-            children: "  Ctrl+S 保存 · Ctrl+C 清空 · Enter 换行 · Esc 取消"
+            children: "  Enter 保存 · Shift+Enter 换行 · Ctrl+C 清空 · Esc 取消"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
@@ -3503,7 +3507,7 @@ function resolveDisplayColor(color) {
     return C.error;
   return color ?? C.dim;
 }
-function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, pathDisplay }) {
+function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, copyMode, exitConfirmArmed, remoteHost, pathDisplay, autoEditActive = false }) {
   const cwd = process.cwd();
   const effectivePath = pathDisplay?.path ?? cwd;
   const hasQueue = (queueSize ?? 0) > 0;
@@ -3513,6 +3517,7 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
     hintStr = "再次按 ctrl+c 退出";
   } else {
     const parts = [];
+    parts.push("ctrl+e 自动编辑");
     parts.push(escAction);
     parts.push("ctrl+t 工具详情");
     if (isGenerating && hasQueue) {
@@ -3561,6 +3566,11 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
         children: /* @__PURE__ */ jsxDEV10("text", {
           fg: C.dim,
           children: [
+            /* @__PURE__ */ jsxDEV10("span", {
+              fg: autoEditActive ? C.autoEdit : C.dim,
+              children: "ctrl+e 自动编辑"
+            }, undefined, false, undefined, this),
+            `  ${ICONS.separator}  `,
             escAction,
             `  ${ICONS.separator}  ctrl+t 工具详情`,
             isGenerating && hasQueue ? /* @__PURE__ */ jsxDEV10(Fragment3, {
@@ -3649,6 +3659,12 @@ var COMMANDS = [
   },
   { name: "/exit", description: "退出应用" }
 ];
+function isSlashCommandInput(value) {
+  return value.startsWith("/") || value.startsWith("、");
+}
+function normalizeSlashCommandInput(value) {
+  return value.startsWith("、") ? `/${value.slice(1)}` : value;
+}
 function getCommandInput(cmd) {
   return cmd.acceptsArgs || cmd.name === "/sh" || cmd.name === "/model" || cmd.name === "/remote" || cmd.name === "/file" || cmd.name === "/plan" || cmd.name === "/note" ? `${cmd.name} ` : cmd.name;
 }
@@ -3820,43 +3836,44 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
   const lastKeyTimeRef = useRef4(0);
   const rapidKeyCountRef = useRef4(0);
   const value = inputState.value;
+  const normalizedCommandValue = useMemo4(() => normalizeSlashCommandInput(value), [value]);
   const inputDisabled = disabled;
   const isQueueMode = !disabled && isGenerating;
   const exactMatchIndex = useMemo4(() => {
-    return visibleCommands.findIndex((cmd) => isExactCommandValue(value, cmd));
-  }, [value, visibleCommands]);
+    return visibleCommands.findIndex((cmd) => isExactCommandValue(normalizedCommandValue, cmd));
+  }, [normalizedCommandValue, visibleCommands]);
   const activeArgCommand = useMemo4(() => {
-    if (inputDisabled || !value.startsWith("/"))
+    if (inputDisabled || !isSlashCommandInput(value))
       return;
-    return visibleCommands.filter((cmd) => cmd.acceptsArgs && (value === cmd.name || value.startsWith(`${cmd.name} `))).sort((a, b) => b.name.length - a.name.length)[0];
-  }, [inputDisabled, value, visibleCommands]);
+    return visibleCommands.filter((cmd) => cmd.acceptsArgs && (normalizedCommandValue === cmd.name || normalizedCommandValue.startsWith(`${cmd.name} `))).sort((a, b) => b.name.length - a.name.length)[0];
+  }, [inputDisabled, normalizedCommandValue, value, visibleCommands]);
   const argQuery = useMemo4(() => {
     if (!activeArgCommand)
       return "";
-    if (value === activeArgCommand.name)
+    if (normalizedCommandValue === activeArgCommand.name)
       return "";
-    return value.slice(activeArgCommand.name.length).trimStart();
-  }, [activeArgCommand, value]);
+    return normalizedCommandValue.slice(activeArgCommand.name.length).trimStart();
+  }, [activeArgCommand, normalizedCommandValue]);
   const argSuggestions = useMemo4(() => {
     if (!activeArgCommand?.getArgSuggestions)
       return [];
-    const all = activeArgCommand.getArgSuggestions({ arg: argQuery, raw: value });
+    const all = activeArgCommand.getArgSuggestions({ arg: argQuery, raw: normalizedCommandValue });
     const q = argQuery.trim().toLowerCase();
     if (!q)
       return all;
     return all.filter((item) => item.value.toLowerCase().includes(q));
-  }, [activeArgCommand, argQuery, value]);
+  }, [activeArgCommand, argQuery, normalizedCommandValue]);
   const commandQuery = useMemo4(() => {
     if (inputDisabled)
       return "";
-    if (!value.startsWith("/"))
+    if (!isSlashCommandInput(value))
       return "";
-    if (activeArgCommand && value.startsWith(`${activeArgCommand.name} `))
+    if (activeArgCommand && normalizedCommandValue.startsWith(`${activeArgCommand.name} `))
       return "";
-    if (/\s/.test(value) && exactMatchIndex < 0)
+    if (/\s/.test(normalizedCommandValue) && exactMatchIndex < 0)
       return "";
-    return value;
-  }, [inputDisabled, value, exactMatchIndex, activeArgCommand]);
+    return normalizedCommandValue;
+  }, [inputDisabled, value, normalizedCommandValue, exactMatchIndex, activeArgCommand]);
   const [commandsDismissed, setCommandsDismissed] = useState6(false);
   useEffect6(() => {
     setCommandsDismissed(false);
@@ -3897,11 +3914,11 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
     onRestoreInputConsumed?.();
   }, [restoreInputText, inputActions, onRestoreInputConsumed]);
   const showCommands = commandQuery.length > 0 && !commandsDismissed;
-  const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && value.startsWith(`${activeArgCommand.name} `);
+  const showArgSuggestions = !!activeArgCommand && argSuggestions.length > 0 && !commandsDismissed && normalizedCommandValue.startsWith(`${activeArgCommand.name} `);
   const fileMention = useFileMentionCompletion({
     value,
     cursor: inputState.cursor,
-    disabled: inputDisabled || !!isRemote || value.startsWith("/"),
+    disabled: inputDisabled || !!isRemote || isSlashCommandInput(value),
     onListFiles: onListFileMentionFiles
   });
   const fileMentionKey = fileMention.token ? `${fileMention.token.start}:${fileMention.token.end}:${fileMention.token.query}` : null;
@@ -3997,7 +4014,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         }
         const current = filtered[selectedIndex];
         if (current) {
-          if (isExactCommandValue(value, current)) {
+          if (isExactCommandValue(normalizedCommandValue, current)) {
             const nextIndex = ((selectedIndex - 1) % filtered.length + filtered.length) % filtered.length;
             const nextCmd = filtered[nextIndex];
             if (nextCmd) {
@@ -4092,6 +4109,11 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
     if (key.name === "backspace" && !value && pendingFiles.length > 0) {
       key.preventDefault?.();
       onRemoveFile(pendingFiles.length - 1);
+      return;
+    }
+    if (!value && key.sequence === "、" && !key.ctrl && !key.meta) {
+      key.preventDefault?.();
+      inputActions.insert("/");
       return;
     }
     inputActions.handleKey(key);
@@ -4686,6 +4708,7 @@ function BottomPanel({
   exitConfirmArmed,
   backgroundTaskCount,
   planModeActive,
+  autoEditActive,
   noteContent,
   noteEditorOpen,
   noteEditorInitialValue,
@@ -4814,7 +4837,8 @@ function BottomPanel({
         copyMode,
         exitConfirmArmed,
         remoteHost,
-        pathDisplay
+        pathDisplay,
+        autoEditActive
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
@@ -12054,6 +12078,18 @@ function useAppKeyboard({
       }).catch((err) => appendCommandMessage(setMessages, `Plan Mode 操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "plan", isError: true, beforeActiveAssistant: isGenerating }));
       return;
     }
+    if (key.ctrl && key.name === "e" && (viewMode === "chat" || viewMode === "tool-list" || viewMode === "tool-detail") && pendingApprovals.length === 0 && pendingApplies.length === 0 && !pendingConfirm && !askQuestionActive) {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      if (!onAutoEditCommand) {
+        appendCommandMessage(setMessages, "自动编辑服务不可用。", { label: "自动编辑", isError: true, beforeActiveAssistant: isGenerating });
+      } else {
+        onAutoEditCommand("").then((result) => {
+          appendCommandMessage(setMessages, result.message, result.ok ? { label: "自动编辑", beforeActiveAssistant: isGenerating } : { label: "自动编辑", isError: true, beforeActiveAssistant: isGenerating });
+        }).catch((err) => appendCommandMessage(setMessages, `自动编辑操作失败: ${err instanceof Error ? err.message : String(err)}`, { label: "自动编辑", isError: true, beforeActiveAssistant: isGenerating }));
+      }
+      return;
+    }
     if (key.name === "t" && key.ctrl) {
       onOpenToolDetail("");
       return;
@@ -13236,6 +13272,8 @@ function useCommandDispatch({
   queueSize
 }) {
   return useCallback7((text) => {
+    const rawText = text;
+    text = normalizeSlashCommandInput(text);
     if (text === "/exit") {
       onExit();
       return;
@@ -13602,7 +13640,7 @@ function useCommandDispatch({
       onFileAttach(filePath);
       return;
     }
-    if (text.startsWith("/") && slashCommandService?.canHandle(text)) {
+    if (isSlashCommandInput(text) && slashCommandService?.canHandle(text)) {
       slashCommandService.dispatch(text, { sessionId: getCurrentSessionId?.() }).then((result) => {
         if (!result?.message)
           return;
@@ -13616,7 +13654,7 @@ function useCommandDispatch({
       return;
     }
     resetRedo(undoRedoRef, onClearRedoStack);
-    onSubmit(text);
+    onSubmit(rawText);
   }, [
     commitTools,
     onFileAttach,
@@ -14661,6 +14699,7 @@ function App({
         exitConfirmArmed: exitConfirm.exitConfirmArmed,
         backgroundTaskCount: appState.backgroundTaskCount,
         planModeActive: appState.planModeActive,
+        autoEditActive: appState.autoEditActive,
         noteContent: appState.noteContent,
         noteEditorOpen: appState.noteEditorOpen,
         noteEditorInitialValue: appState.noteEditorInitialValue,
@@ -18187,7 +18226,7 @@ ${trailer}`;
       const note = service.getNote();
       this.appHandle?.setNoteContent(note);
       this.appHandle?.openNoteEditor(note);
-      return { ok: true, message: "已打开 Note 编辑器。Ctrl+S 保存，Esc 取消。" };
+      return { ok: true, message: "已打开 Note 编辑器。Enter 保存，Shift+Enter 换行，Ctrl+C 清空，Esc 取消。" };
     }
     if (lower === "show" || lower === "status" || normalized === "查看" || normalized === "状态") {
       const state2 = service.getState();
@@ -18212,7 +18251,7 @@ ${state2.content.trim()}
     this.appHandle?.closeNoteEditor();
     return {
       ok: true,
-      message: `Note 已保存。输入 /note edit 可继续编辑，/note clear 可清空。`
+      message: `Note 已保存。输入 /note 可继续编辑，/note clear 可清空。`
     };
   }
   async handlePlanCommand(arg) {

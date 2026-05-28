@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const EXTENSION_VERSION = '0.1.2';
+const EXTENSION_VERSION = '0.1.4';
 const DEFAULT_PROTOCOL_VERSION = '2025-11-25';
 
 let server = null;
@@ -200,6 +200,123 @@ function getDiagnostics(params) {
     .filter((entry) => entry.diagnostics.length > 0);
 }
 
+
+function splitTextLines(text) {
+  if (!text) return [];
+  const normalized = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = normalized.split('\n');
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+function findSubsequence(lines, expected, preferredIndex) {
+  if (expected.length === 0) return Math.max(0, Math.min(preferredIndex, lines.length));
+
+  const candidates = [preferredIndex, preferredIndex - 1, preferredIndex + 1]
+    .filter((index) => index >= 0 && index + expected.length <= lines.length);
+  for (const index of candidates) {
+    let ok = true;
+    for (let i = 0; i < expected.length; i++) {
+      if (lines[index + i] !== expected[i]) { ok = false; break; }
+    }
+    if (ok) return index;
+  }
+
+  outer: for (let index = 0; index + expected.length <= lines.length; index++) {
+    for (let i = 0; i < expected.length; i++) {
+      if (lines[index + i] !== expected[i]) continue outer;
+    }
+    return index;
+  }
+  return -1;
+}
+
+function parseUnifiedDiffHunks(diff) {
+  const hunks = [];
+  let current = null;
+  for (const line of String(diff || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')) {
+    const header = /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/.exec(line);
+    if (header) {
+      current = {
+        oldStart: Number(header[1]),
+        newStart: Number(header[3]),
+        lines: [],
+      };
+      hunks.push(current);
+      continue;
+    }
+    if (!current) continue;
+    if (line.startsWith('\\ No newline at end of file')) continue;
+    if (line.startsWith('+') && !line.startsWith('+++')) current.lines.push({ type: 'add', text: line.slice(1) });
+    else if (line.startsWith('-') && !line.startsWith('---')) current.lines.push({ type: 'del', text: line.slice(1) });
+    else if (line.startsWith(' ')) current.lines.push({ type: 'ctx', text: line.slice(1) });
+  }
+  return hunks;
+}
+
+function applyParsedHunksToText(text, diff, reverse = false) {
+  const hunks = parseUnifiedDiffHunks(diff);
+  if (hunks.length === 0) return undefined;
+
+  const lines = splitTextLines(text);
+  let offset = 0;
+  for (const hunk of hunks) {
+    const expected = [];
+    const replacement = [];
+    for (const line of hunk.lines) {
+      if (line.type === 'ctx') {
+        expected.push(line.text);
+        replacement.push(line.text);
+      } else if (reverse ? line.type === 'add' : line.type === 'del') {
+        expected.push(line.text);
+      } else {
+        replacement.push(line.text);
+      }
+    }
+
+    const baseStart = (reverse ? hunk.newStart : hunk.oldStart) - 1;
+    const preferred = Math.max(0, baseStart + offset);
+    const index = findSubsequence(lines, expected, preferred);
+    if (index < 0) return undefined;
+    lines.splice(index, expected.length, ...replacement);
+    offset += replacement.length - expected.length;
+  }
+
+  return lines.join('\n');
+}
+
+function resolveExistingWorkspaceFile(filePath) {
+  if (!filePath || typeof filePath !== 'string') return undefined;
+  if (path.isAbsolute(filePath) && fs.existsSync(filePath)) return filePath;
+
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    if (folder.uri.scheme !== 'file') continue;
+    const candidate = path.join(folder.uri.fsPath, filePath);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function buildFullContentFromCurrentFile(filePath, diff) {
+  const resolved = resolveExistingWorkspaceFile(filePath);
+  if (!resolved) return undefined;
+
+  let current;
+  try {
+    current = fs.readFileSync(resolved, 'utf8');
+  } catch {
+    return undefined;
+  }
+
+  const forward = applyParsedHunksToText(current, diff, false);
+  if (forward !== undefined) return { oldText: current, newText: forward };
+
+  const backward = applyParsedHunksToText(current, diff, true);
+  if (backward !== undefined) return { oldText: backward, newText: current };
+
+  return undefined;
+}
+
 function getExtensionStatus() {
   const editor = vscode.window.activeTextEditor;
   const selection = editor?.selection;
@@ -267,7 +384,11 @@ async function openDiffInIde(params) {
     ? params.title.trim()
     : `Iris Diff: ${path.basename(filePath)}`;
   const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const { oldText, newText } = parseUnifiedDiffForVirtualDocuments(diff);
+  const hasFullContent = typeof params?.beforeText === 'string' && typeof params?.afterText === 'string';
+  const fullContentFromCurrentFile = hasFullContent ? undefined : buildFullContentFromCurrentFile(filePath, diff);
+  const { oldText, newText } = fullContentFromCurrentFile ?? (hasFullContent
+    ? { oldText: params.beforeText, newText: params.afterText }
+    : parseUnifiedDiffForVirtualDocuments(diff));
   const leftPath = `/before/${encodeURIComponent(filePath)}/${nonce}`;
   const rightPath = `/after/${encodeURIComponent(filePath)}/${nonce}`;
   const leftUri = vscode.Uri.from({ scheme: 'iris-diff', path: leftPath });
@@ -340,6 +461,8 @@ async function handleRpcMessage(clientId, message) {
               properties: {
                 filePath: { type: 'string' },
                 diff: { type: 'string' },
+                beforeText: { type: 'string' },
+                afterText: { type: 'string' },
                 title: { type: 'string' },
               },
               required: ['diff'],
