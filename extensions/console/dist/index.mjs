@@ -1344,7 +1344,7 @@ var init_remote_wizard = __esm(() => {
 });
 
 // src/index.ts
-import React16 from "react";
+import React17 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
@@ -1877,6 +1877,9 @@ function getCharacterCount(text) {
 // src/App.tsx
 import { useCallback as useCallback11, useEffect as useEffect16, useMemo as useMemo10, useRef as useRef11, useState as useState19 } from "react";
 import { useRenderer } from "@opentui/react";
+
+// src/components/BottomPanel.tsx
+import React6 from "react";
 
 // src/theme.ts
 var C = {
@@ -3318,6 +3321,9 @@ function usePaste(handler) {
 
 // src/components/NoteEditorPanel.tsx
 import { jsxDEV as jsxDEV9 } from "@opentui/react/jsx-dev-runtime";
+function isEnterKey(key) {
+  return key?.name === "return" || key?.name === "enter";
+}
 function NoteEditorPanel({ initialValue, onSave, onCancel, onDraftChange }) {
   const [state, actions] = useTextInput(initialValue);
   const [saving, setSaving] = useState4(false);
@@ -3384,22 +3390,11 @@ function NoteEditorPanel({ initialValue, onSave, onCancel, onDraftChange }) {
       save();
       return;
     }
-    if (key.ctrl && key.name === "j" || key.ctrl && key.name === "enter") {
+    if (key.ctrl && key.name === "j" || isEnterKey(key)) {
       key.preventDefault?.();
       key.stopPropagation?.();
       actions.insert(`
 `);
-      return;
-    }
-    if (key.name === "return" || key.name === "enter") {
-      key.preventDefault?.();
-      key.stopPropagation?.();
-      if (key.shift) {
-        actions.insert(`
-`);
-      } else {
-        save();
-      }
       return;
     }
     actions.handleKey(key);
@@ -3422,7 +3417,7 @@ function NoteEditorPanel({ initialValue, onSave, onCancel, onDraftChange }) {
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsxDEV9("span", {
             fg: C.dim,
-            children: "  Enter 保存 · Shift+Enter 换行 · Ctrl+C 清空 · Esc 取消"
+            children: "  Ctrl+S 保存 · Ctrl+C 清空 · Enter 换行 · Esc 取消"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
@@ -3819,7 +3814,7 @@ function isPlanModeToggleShortcut(key) {
 function isPrioritySubmitShortcut(key) {
   return key.ctrl && key.name === "s" || key.sequence === "\x13" || key.raw === "\x13";
 }
-function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed }) {
+function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed, onOverlayActiveChange }) {
   const [inputState, inputActions] = useTextInput("");
   const [selectedIndex, setSelectedIndex] = useState6(0);
   const [fileSelectedIndex, setFileSelectedIndex] = useState6(0);
@@ -3930,6 +3925,10 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       return visibleCommands;
     return visibleCommands.filter((cmd) => cmd.name.startsWith(commandQuery.trim()));
   }, [showCommands, exactMatchIndex, commandQuery, visibleCommands]);
+  const overlayActive = showArgSuggestions || showCommands && filtered.length > 0 || showFileMentionSuggestions;
+  useEffect6(() => {
+    onOverlayActiveChange?.(overlayActive);
+  }, [onOverlayActiveChange, overlayActive]);
   useEffect6(() => {
     if (showArgSuggestions) {
       setSelectedIndex((prev) => Math.min(prev, argSuggestions.length - 1));
@@ -4737,6 +4736,8 @@ function BottomPanel({
   onRestoreInputConsumed
 }) {
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
+  const [inputOverlayActive, setInputOverlayActive] = React6.useState(false);
+  const showNotePreview = !!noteContent?.trim() && !inputOverlayActive;
   return /* @__PURE__ */ jsxDEV14("box", {
     flexDirection: "column",
     flexShrink: 0,
@@ -4774,8 +4775,8 @@ function BottomPanel({
             onSave: onSaveNote,
             onCancel: onCancelNoteEdit,
             onDraftChange: onNoteEditorDraftChange
-          }, undefined, false, undefined, this) : noteContent?.trim() ? /* @__PURE__ */ jsxDEV14(NotePanel, {
-            content: noteContent
+          }, undefined, false, undefined, this) : showNotePreview ? /* @__PURE__ */ jsxDEV14(NotePanel, {
+            content: noteContent ?? ""
           }, undefined, false, undefined, this) : null,
           /* @__PURE__ */ jsxDEV14("box", {
             flexDirection: "column",
@@ -4808,7 +4809,8 @@ function BottomPanel({
                 thinkingControlEnabled,
                 inputControllerRef,
                 restoreInputText,
-                onRestoreInputConsumed
+                onRestoreInputConsumed,
+                onOverlayActiveChange: setInputOverlayActive
               }, undefined, false, undefined, this),
               /* @__PURE__ */ jsxDEV14(StatusBar, {
                 agentName,
@@ -5020,7 +5022,7 @@ function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
 }
 
 // src/components/MessageItem.tsx
-import React10, { useEffect as useEffect10, useRef as useRef7, useState as useState10 } from "react";
+import React11, { useEffect as useEffect10, useRef as useRef7, useState as useState10 } from "react";
 import { useTerminalDimensions as useTerminalDimensions7 } from "@opentui/react";
 
 // src/components/ToolCall.tsx
@@ -6670,7 +6672,7 @@ function NotificationPayloadBlock({ payload }) {
     }, undefined, true, undefined, this)
   }, undefined, false, undefined, this);
 }
-var MessageItem = React10.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal, toolDisplayService }) {
+var MessageItem = React11.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal, toolDisplayService }) {
   const { width: rawTermWidth } = useTerminalDimensions7();
   const termWidth = rawTermWidth - 1;
   const [thoughtsExpanded, setThoughtsExpanded] = useState10(false);
@@ -16796,7 +16798,7 @@ ${summaryText}`;
         process.on("SIGCONT", this._sigcontHandler);
       }
       const consoleServices = this.getConsoleServicesBundle();
-      const element = React16.createElement(App, {
+      const element = React17.createElement(App, {
         onReady: (handle) => {
           this.appHandle = handle;
           this.syncPlanModeStatus();
@@ -18226,7 +18228,7 @@ ${trailer}`;
       const note = service.getNote();
       this.appHandle?.setNoteContent(note);
       this.appHandle?.openNoteEditor(note);
-      return { ok: true, message: "已打开 Note 编辑器。Enter 保存，Shift+Enter 换行，Ctrl+C 清空，Esc 取消。" };
+      return { ok: true, message: "已打开 Note 编辑器。Ctrl+S 保存，Ctrl+C 清空，Enter 换行，Esc 取消。" };
     }
     if (lower === "show" || lower === "status" || normalized === "查看" || normalized === "状态") {
       const state2 = service.getState();

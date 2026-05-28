@@ -102,6 +102,8 @@ interface InputBarProps {
   /** 外部请求恢复输入框文本（如 rewind 后把旧用户消息放回输入框） */
   restoreInputText?: string | null;
   onRestoreInputConsumed?: () => void;
+  /** 输入框上方浮层（slash 命令/@ 文件候选）是否展开。 */
+  onOverlayActiveChange?: (active: boolean) => void;
 }
 
 function isPrioritySubmitShortcut(key: any): boolean {
@@ -110,7 +112,7 @@ function isPrioritySubmitShortcut(key: any): boolean {
     || key.raw === '\x13';
 }
 
-export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed }: InputBarProps) {
+export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed, onOverlayActiveChange }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [fileSelectedIndex, setFileSelectedIndex] = useState(0);
@@ -242,12 +244,16 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
     && fileMentionDismissedKey !== fileMentionKey
     && !showCommands
     && !showArgSuggestions;
-
   const filtered = useMemo(() => {
     if (!showCommands) return [];
     if (exactMatchIndex >= 0) return visibleCommands;
     return visibleCommands.filter((cmd) => cmd.name.startsWith(commandQuery.trim()));
   }, [showCommands, exactMatchIndex, commandQuery, visibleCommands]);
+
+  const overlayActive = showArgSuggestions || (showCommands && filtered.length > 0) || showFileMentionSuggestions;
+  useEffect(() => {
+    onOverlayActiveChange?.(overlayActive);
+  }, [onOverlayActiveChange, overlayActive]);
 
   useEffect(() => {
     if (showArgSuggestions) {

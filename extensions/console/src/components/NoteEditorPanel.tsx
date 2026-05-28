@@ -15,6 +15,10 @@ interface NoteEditorPanelProps {
   onDraftChange?: (content: string) => void;
 }
 
+function isEnterKey(key: any): boolean {
+  return key?.name === 'return' || key?.name === 'enter';
+}
+
 export function NoteEditorPanel({ initialValue, onSave, onCancel, onDraftChange }: NoteEditorPanelProps) {
   const [state, actions] = useTextInput(initialValue);
   const [saving, setSaving] = useState(false);
@@ -78,20 +82,10 @@ export function NoteEditorPanel({ initialValue, onSave, onCancel, onDraftChange 
       void save();
       return;
     }
-    if ((key.ctrl && key.name === 'j') || (key.ctrl && key.name === 'enter')) {
+    if ((key.ctrl && key.name === 'j') || isEnterKey(key)) {
       key.preventDefault?.();
       key.stopPropagation?.();
       actions.insert('\n');
-      return;
-    }
-    if (key.name === 'return' || key.name === 'enter') {
-      key.preventDefault?.();
-      key.stopPropagation?.();
-      if (key.shift) {
-        actions.insert('\n');
-      } else {
-        void save();
-      }
       return;
     }
     actions.handleKey(key as any);
@@ -108,7 +102,7 @@ export function NoteEditorPanel({ initialValue, onSave, onCancel, onDraftChange 
     >
       <text>
         <span fg={C.accent}><strong>✎ Edit Note</strong></span>
-        <span fg={C.dim}>  Enter 保存 · Shift+Enter 换行 · Ctrl+C 清空 · Esc 取消</span>
+        <span fg={C.dim}>  Ctrl+S 保存 · Ctrl+C 清空 · Enter 换行 · Esc 取消</span>
       </text>
       <scrollbox
         height={editorHeight}

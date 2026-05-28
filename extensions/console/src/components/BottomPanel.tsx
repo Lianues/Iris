@@ -147,6 +147,9 @@ export function BottomPanel({
 }: BottomPanelProps) {
   // 输入框仅在审批/确认对话框期间完全禁用
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
+  // slash 命令/@ 文件候选浮层打开时，临时隐藏 Note 预览，避免 Note 框遮挡候选列表。
+  const [inputOverlayActive, setInputOverlayActive] = React.useState(false);
+  const showNotePreview = !!noteContent?.trim() && !inputOverlayActive;
 
   return (
     <box
@@ -183,8 +186,8 @@ export function BottomPanel({
               onCancel={onCancelNoteEdit}
               onDraftChange={onNoteEditorDraftChange}
             />
-          ) : noteContent?.trim() ? (
-            <NotePanel content={noteContent} />
+          ) : showNotePreview ? (
+            <NotePanel content={noteContent ?? ''} />
           ) : null}
           <box
             flexDirection="column"
@@ -212,6 +215,7 @@ export function BottomPanel({
               inputControllerRef={inputControllerRef}
               restoreInputText={restoreInputText}
               onRestoreInputConsumed={onRestoreInputConsumed}
+              onOverlayActiveChange={setInputOverlayActive}
             />
             <StatusBar
               agentName={agentName}
