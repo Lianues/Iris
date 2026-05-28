@@ -57,6 +57,8 @@ interface UseAppKeyboardOptions {
   hasRunningBackgroundTasks?: boolean;
   /** AskQuestionFirst 交互面板是否正在接管键盘 */
   askQuestionActive?: boolean;
+  /** Note 编辑器是否正在接管键盘 */
+  noteEditorActive?: boolean;
   pendingApplies: ToolInvocation[];
   pendingApprovals: ToolInvocation[];
   /** 打开工具详情 */
@@ -256,6 +258,7 @@ export function useAppKeyboard({
   exitConfirm,
   isGenerating,
   askQuestionActive,
+  noteEditorActive,
   pendingApplies,
   pendingApprovals,
   onOpenToolDetail,
@@ -420,6 +423,10 @@ export function useAppKeyboard({
   });
 
   useKeyboard((key) => {
+    // NoteEditorPanel 有自己的键盘处理；全局快捷键（Ctrl+C、Esc、Shift+Tab 等）
+    // 在编辑器打开时必须让位，避免误触退出/Plan Mode/abort。
+    if (noteEditorActive) return;
+
     if (key.ctrl && key.name === 'c') {
       if (viewMode === 'chat'
         && !pendingConfirm

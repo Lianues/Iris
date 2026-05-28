@@ -48,6 +48,8 @@ export interface ToolInvocation {
  * 由 scheduler 创建并传入 handler，提供进度上报和中止信号。
  */
 export interface ToolExecutionContext {
+  /** 请求用户通过 TUI Y/N 弹窗进行交互式确认；不可交互上下文中为 undefined。 */
+  requestApproval?: () => Promise<boolean>;
   /** 上报实时进度，scheduler 内部做节流处理 */
   reportProgress?: (data: Record<string, unknown>) => void;
   /** 中止信号 */

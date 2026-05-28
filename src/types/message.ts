@@ -21,6 +21,8 @@ export interface TextPart {
   };
   /** 连续 thought 片段的累计耗时（毫秒） */
   thoughtDurationMs?: number;
+  /** 内部字段：提示词缓存策略；发送给 provider 前应过滤或转换。 */
+  cacheBehavior?: 'stable' | 'dynamic';
 }
 
 /** 内联数据部分（图片等二进制数据，base64 编码） */

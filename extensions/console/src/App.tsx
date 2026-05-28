@@ -155,6 +155,8 @@ export function App({
   onPlanCommand,
   onAutoEditCommand,
   onCallmeCommand,
+  onNoteCommand,
+  onSaveNote,
   onListAgents,
   onSelectAgent,
   onThinkingEffortChange,
@@ -487,6 +489,7 @@ export function App({
     onPlanCommand,
     onAutoEditCommand,
     onCallmeCommand,
+    onNoteCommand,
     undoRedoRef,
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
@@ -642,6 +645,12 @@ export function App({
     isGenerating: appState.isGenerating,
     hasRunningBackgroundTasks: appState.backgroundTaskCount + appState.delegateTaskCount > 0,
     askQuestionActive: !!askQuestionInvocation,
+    noteEditorActive: appState.noteEditorOpen
+      && viewMode === 'chat'
+      && !pendingConfirm
+      && !askQuestionInvocation
+      && appState.pendingApprovals.length === 0
+      && appState.pendingApplies.length === 0,
     pendingApplies: appState.pendingApplies,
     pendingApprovals: appState.pendingApprovals,
     onOpenToolDetail,
@@ -973,6 +982,13 @@ export function App({
         exitConfirmArmed={exitConfirm.exitConfirmArmed}
         backgroundTaskCount={appState.backgroundTaskCount}
         planModeActive={appState.planModeActive}
+        noteContent={appState.noteContent}
+        noteEditorOpen={appState.noteEditorOpen}
+        noteEditorInitialValue={appState.noteEditorInitialValue}
+        noteEditorDraft={appState.noteEditorDraft}
+        onSaveNote={onSaveNote}
+        onNoteEditorDraftChange={appState.setNoteEditorDraft}
+        onCancelNoteEdit={() => appState.closeNoteEditor()}
         delegateTaskCount={appState.delegateTaskCount}
         backgroundTaskTokens={appState.backgroundTaskTokens}
         backgroundTaskSpinnerFrame={appState.backgroundTaskSpinnerFrame}

@@ -10,6 +10,8 @@ export interface TextPart {
     [key: string]: string | undefined;
   };
   thoughtDurationMs?: number;
+  /** 内部字段：提示词缓存策略；发送给 provider 前应过滤或转换。 */
+  cacheBehavior?: 'stable' | 'dynamic';
 }
 
 export interface InlineDataPart {

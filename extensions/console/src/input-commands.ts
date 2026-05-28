@@ -56,6 +56,16 @@ export const COMMANDS: Command[] = [
       { value: 'status', description: '查看当前状态' },
     ],
   },
+  {
+    name: '/note',
+    description: '编辑当前 Agent 的长期 Note（作为系统提示词注入）',
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: 'edit', description: '打开编辑器' },
+      { value: 'show', description: '查看当前 note' },
+      { value: 'clear', description: '清空 note' },
+    ],
+  },
   { name: '/net',         description: '配置多端互联（Net）' },
   { name: '/remote',      description: '连接远程 Iris 实例' },
   { name: '/disconnect', description: '断开远程连接', remoteOnly: true, color: '#fdcb6e' },
@@ -79,7 +89,7 @@ export const COMMANDS: Command[] = [
 ];
 
 export function getCommandInput(cmd: Command): string {
-  return cmd.acceptsArgs || cmd.name === '/sh' || cmd.name === '/model' || cmd.name === '/remote' || cmd.name === '/file' || cmd.name === '/plan' ? `${cmd.name} ` : cmd.name;
+  return cmd.acceptsArgs || cmd.name === '/sh' || cmd.name === '/model' || cmd.name === '/remote' || cmd.name === '/file' || cmd.name === '/plan' || cmd.name === '/note' ? `${cmd.name} ` : cmd.name;
 }
 
 export function isExactCommandValue(value: string, cmd: Command): boolean {

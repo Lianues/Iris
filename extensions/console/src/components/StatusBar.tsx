@@ -14,6 +14,8 @@ interface StatusBarProps {
   queueSize?: number;
   /** 当前会话是否处于 Plan Mode */
   planModeActive?: boolean;
+  /** 当前 Agent 是否存在 active /note */
+  noteActive?: boolean;
   /** 远程连接的主机地址（非空时显示远程标识） */
   remoteHost?: string;
   /** 当前后台运行中的异步子代理数量 */
@@ -36,7 +38,7 @@ function statusColor(color: ConsoleStatusSegmentSnapshot['color'] | undefined): 
   return color ?? C.dim;
 }
 
-export function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, planModeActive, remoteHost, backgroundTaskCount, delegateTaskCount, backgroundTaskTokens, backgroundTaskSpinnerFrame, statusSegments }: StatusBarProps) {
+export function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, planModeActive, noteActive, remoteHost, backgroundTaskCount, delegateTaskCount, backgroundTaskTokens, backgroundTaskSpinnerFrame, statusSegments }: StatusBarProps) {
   const resolvedModeName = modeName ?? 'normal';
   const modeNameCapitalized = resolvedModeName.charAt(0).toUpperCase() + resolvedModeName.slice(1);
   const contextStr = contextTokens > 0 ? contextTokens.toLocaleString() : '-';
@@ -93,6 +95,15 @@ export function StatusBar({ agentName, modeName, modelName, contextTokens, conte
           <text>
             <span fg={C.dim}> {ICONS.separator}  </span>
             <span fg={C.warn}><strong>{ICONS.planMode} Plan Mode</strong></span>
+            <span fg={C.dim}>  </span>
+          </text>
+        </box>
+      ) : null}
+      {noteActive ? (
+        <box flexShrink={0}>
+          <text>
+            <span fg={C.dim}> {ICONS.separator}  </span>
+            <span fg={C.accent}><strong>✎ Note</strong></span>
             <span fg={C.dim}>  </span>
           </text>
         </box>

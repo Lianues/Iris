@@ -9,6 +9,9 @@ import { ApprovalBar } from './ApprovalBar';
 import { ConfirmBar } from './ConfirmBar';
 import { AskQuestionFirstPanel } from './AskQuestionFirstPanel';
 import { PlanApprovalBar } from './PlanApprovalBar';
+import { NoteUpdateApprovalBar } from './NoteUpdateApprovalBar';
+import { NotePanel } from './NotePanel';
+import { NoteEditorPanel } from './NoteEditorPanel';
 import { HintBar } from './HintBar';
 import { InputBar, type PendingFile, type PromptInputController } from './InputBar';
 import type { Command } from '../input-commands';
@@ -43,6 +46,17 @@ interface BottomPanelProps {
   backgroundTaskCount?: number;
   /** 当前会话是否处于 Plan Mode */
   planModeActive?: boolean;
+  /** 当前 Agent 的 /note 内容 */
+  noteContent?: string;
+  /** Note 编辑器是否打开 */
+  noteEditorOpen?: boolean;
+  /** Note 编辑器初始值 */
+  noteEditorInitialValue?: string;
+  /** Note 编辑器草稿（用于临时切换到审批面板后恢复） */
+  noteEditorDraft?: string;
+  onSaveNote?: (content: string) => Promise<{ ok: boolean; message?: string }> | { ok: boolean; message?: string } | void;
+  onNoteEditorDraftChange?: (content: string) => void;
+  onCancelNoteEdit?: () => void;
   /** 当前后台运行中的委派任务数量（delegate_to_agent） */
   delegateTaskCount?: number;
   /** 所有后台任务的累计 token 数 */
@@ -101,6 +115,13 @@ export function BottomPanel({
   exitConfirmArmed,
   backgroundTaskCount,
   planModeActive,
+  noteContent,
+  noteEditorOpen,
+  noteEditorInitialValue,
+  noteEditorDraft,
+  onSaveNote,
+  onNoteEditorDraftChange,
+  onCancelNoteEdit,
   delegateTaskCount,
   backgroundTaskTokens,
   backgroundTaskSpinnerFrame,
@@ -140,6 +161,8 @@ export function BottomPanel({
         <AskQuestionFirstPanel key={askQuestionKey} invocation={askQuestionInvocation} onToolMessage={onToolMessage} planModeActive={planModeActive} />
       ) : pendingApprovals.length > 0 && pendingApprovals[0].toolName === 'ExitPlanMode' ? (
         <PlanApprovalBar invocation={pendingApprovals[0]} remainingCount={pendingApprovals.length} choice={approvalChoice} />
+      ) : pendingApprovals.length > 0 && pendingApprovals[0].toolName === 'propose_update_note' ? (
+        <NoteUpdateApprovalBar invocation={pendingApprovals[0]} remainingCount={pendingApprovals.length} choice={approvalChoice} />
       ) : pendingApprovals.length > 0 ? (
         <ApprovalBar
           toolName={pendingApprovals[0].toolName}
@@ -149,48 +172,61 @@ export function BottomPanel({
           approvalPage={approvalPage}
         />
       ) : (
-        <box
-          flexDirection="column"
-          borderStyle="single"
-          borderColor={isGenerating ? C.warn : C.border}
-          paddingX={1}
-          paddingTop={0}
-          paddingBottom={0}
-        >
-          <ThinkingIndicator level={thinkingEffort} providerLevels={providerLevels} showHint={!hasMessages} isRemote={isRemote} thinkingControlEnabled={thinkingControlEnabled} />
-          <InputBar
-            disabled={inputDisabled}
-            isGenerating={isGenerating}
-            queueSize={queueSize}
-            onSubmit={onSubmit}
-            onPrioritySubmit={onPrioritySubmit}
-            onCycleThinkingEffort={onCycleThinkingEffort}
-            pendingFiles={pendingFiles}
-            onRemoveFile={onRemoveFile}
-            onListFileMentionFiles={onListFileMentionFiles}
-            isRemote={isRemote}
-            dynamicCommands={dynamicCommands}
-            supportsHeadlessTransition={supportsHeadlessTransition}
-            thinkingControlEnabled={thinkingControlEnabled}
-            inputControllerRef={inputControllerRef}
-            restoreInputText={restoreInputText}
-            onRestoreInputConsumed={onRestoreInputConsumed}
-          />
-          <StatusBar
-            agentName={agentName}
-            modeName={modeName}
-            modelName={modelName}
-            contextTokens={contextTokens}
-            contextWindow={contextWindow}
-            queueSize={queueSize}
-            planModeActive={planModeActive}
-            remoteHost={remoteHost}
-            backgroundTaskCount={backgroundTaskCount}
-            delegateTaskCount={delegateTaskCount}
-            backgroundTaskTokens={backgroundTaskTokens}
-            backgroundTaskSpinnerFrame={backgroundTaskSpinnerFrame}
-            statusSegments={statusSegments}
-          />
+        <box flexDirection="column">
+          {noteEditorOpen ? (
+            <NoteEditorPanel
+              initialValue={noteEditorDraft ?? noteEditorInitialValue ?? noteContent ?? ''}
+              onSave={onSaveNote}
+              onCancel={onCancelNoteEdit}
+              onDraftChange={onNoteEditorDraftChange}
+            />
+          ) : noteContent?.trim() ? (
+            <NotePanel content={noteContent} />
+          ) : null}
+          <box
+            flexDirection="column"
+            borderStyle="single"
+            borderColor={isGenerating ? C.warn : C.border}
+            paddingX={1}
+            paddingTop={0}
+            paddingBottom={0}
+          >
+            <ThinkingIndicator level={thinkingEffort} providerLevels={providerLevels} showHint={!hasMessages} isRemote={isRemote} thinkingControlEnabled={thinkingControlEnabled} />
+            <InputBar
+              disabled={inputDisabled || !!noteEditorOpen}
+              isGenerating={isGenerating}
+              queueSize={queueSize}
+              onSubmit={onSubmit}
+              onPrioritySubmit={onPrioritySubmit}
+              onCycleThinkingEffort={onCycleThinkingEffort}
+              pendingFiles={pendingFiles}
+              onRemoveFile={onRemoveFile}
+              onListFileMentionFiles={onListFileMentionFiles}
+              isRemote={isRemote}
+              dynamicCommands={dynamicCommands}
+              supportsHeadlessTransition={supportsHeadlessTransition}
+              thinkingControlEnabled={thinkingControlEnabled}
+              inputControllerRef={inputControllerRef}
+              restoreInputText={restoreInputText}
+              onRestoreInputConsumed={onRestoreInputConsumed}
+            />
+            <StatusBar
+              agentName={agentName}
+              modeName={modeName}
+              modelName={modelName}
+              contextTokens={contextTokens}
+              contextWindow={contextWindow}
+              queueSize={queueSize}
+              planModeActive={planModeActive}
+              remoteHost={remoteHost}
+              backgroundTaskCount={backgroundTaskCount}
+              delegateTaskCount={delegateTaskCount}
+              backgroundTaskTokens={backgroundTaskTokens}
+              backgroundTaskSpinnerFrame={backgroundTaskSpinnerFrame}
+              statusSegments={statusSegments}
+              noteActive={!!noteContent?.trim()}
+            />
+          </box>
         </box>
       )}
 

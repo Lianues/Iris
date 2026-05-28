@@ -76,7 +76,7 @@ import {
   type ConsoleRemoteBridgeApi,
 } from './ipc-bridge';
 import { handleConsoleToggleExtension } from './extension-toggle';
-import { attachResultDiffPreview } from './tool-renderers/diff-preview-meta.js';
+import { attachResultDiffPreview, extractResultDiffPreview } from './tool-renderers/diff-preview-meta.js';
 import { listFileMentionFiles as listLocalFileMentionFiles } from './file-mention-files';
 
 /**
@@ -116,6 +116,7 @@ type DiscoverLanInstancesFn = () => Promise<import('./remote-wizard').Discovered
 const REMOTE_CONNECT_WS_CLIENT_SERVICE = 'remote-connect:WsIPCClient';
 const REMOTE_CONNECT_DISCOVERY_SERVICE = 'remote-connect:discoverLanInstances';
 const PLAN_MODE_SERVICE_ID = 'plan-mode';
+const NOTE_SERVICE_ID = 'note';
 const REMOTE_EXEC_ENVIRONMENT_SERVICE_ID = 'remote-exec:environment';
 
 interface RemoteExecEnvironmentRestoreResultLike {
@@ -141,6 +142,14 @@ interface PlanModeServiceLike {
   isActive(sessionId?: string): boolean;
   getState(sessionId?: string): { planFilePath: string; active: boolean } | null;
   readPlan(sessionId: string): string | null;
+}
+
+interface NoteServiceLike {
+  getNote(): string;
+  setNote(content: string, metadata?: { updatedBy?: 'user' | 'model-approved' }): { content: string; noteFilePath: string; updatedAt?: number };
+  clearNote(metadata?: { updatedBy?: 'user' | 'model-approved' }): { content: string; noteFilePath: string; updatedAt?: number };
+  getState(): { content: string; noteFilePath: string; updatedAt?: number };
+  getNoteFilePath(): string;
 }
 
 interface ConsoleLocalServicesBundle {
@@ -730,6 +739,10 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     return (this.api?.services as any)?.get?.(PLAN_MODE_SERVICE_ID) as PlanModeServiceLike | undefined;
   }
 
+  private getNoteService(): NoteServiceLike | undefined {
+    return (this.api?.services as any)?.get?.(NOTE_SERVICE_ID) as NoteServiceLike | undefined;
+  }
+
   private getRemoteExecEnvironmentService(): RemoteExecEnvironmentServiceLike | undefined {
     return (this.api?.services as any)?.get?.(REMOTE_EXEC_ENVIRONMENT_SERVICE_ID) as RemoteExecEnvironmentServiceLike | undefined;
   }
@@ -846,11 +859,9 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     if (!services?.has?.('ide.manager')) return;
 
     const ideManager = services.get('ide.manager') as {
-      status?: () => { state?: string };
       openDiffPreview?: (preview: ToolDiffPreviewResponseLike, index?: number) => Promise<boolean> | boolean;
     } | undefined;
     if (!ideManager || typeof ideManager.openDiffPreview !== 'function') return;
-    if (ideManager.status?.().state !== 'connected') return;
 
     this.ideDiffOpenedToolIds.add(toolId);
     try {
@@ -934,6 +945,15 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.appHandle?.setPlanModeActive(active);
     } catch {
       this.appHandle?.setPlanModeActive(false);
+    }
+  }
+
+  private syncNoteStatus(): void {
+    try {
+      const content = this.getNoteService()?.getNote?.() ?? '';
+      this.appHandle?.setNoteContent(content);
+    } catch {
+      this.appHandle?.setNoteContent('');
     }
   }
 
@@ -1063,11 +1083,16 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
                 snapshot.children = childHandles.map((ch: any) => ch.getSnapshot());
               }
             }
+            const resultPreview = extractResultDiffPreview(snapshot.result);
+            if (resultPreview) {
+              void this.maybeOpenToolDiffInIde(snapshot.id, resultPreview);
+            }
             return snapshot;
           });
         this.appHandle?.setToolInvocations(invocations);
         this.refreshToolDetailIfNeeded();
         this.syncPlanModeStatus();
+        this.syncNoteStatus();
       };
       handle.on('state', refreshUI);
       handle.on('progress', refreshUI);
@@ -1115,6 +1140,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
           this.refreshGeneratingState();
         }
         this.syncPlanModeStatus();
+        this.syncNoteStatus();
         void this.refreshRemoteConsoleServices(sid);
       }
     });
@@ -1289,6 +1315,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
           this.syncPlanModeStatus();
           void this.syncProgress();
           this.syncAutoEditStatus();
+          this.syncNoteStatus();
           resolve();
         },
         onSubmit: (text: string) => this.handleInput(text),
@@ -1423,6 +1450,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onPlanCommand: (arg: string) => this.handlePlanCommand(arg),
         onAutoEditCommand: (arg: string) => this.handleAutoEditCommand(arg),
         onCallmeCommand: (arg: string) => this.handleCallmeCommand(arg),
+        onNoteCommand: (arg: string) => this.handleNoteCommand(arg),
+        onSaveNote: (content: string) => this.handleSaveNote(content),
         onListAgents: () => this.handleListAgents(),
         onSelectAgent: (name: string) => this.handleSelectAgent(name),
         onDream: () => this.handleDream(),
@@ -1929,6 +1958,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this._activeHandles.clear();
     this.appHandle?.setPlanModeActive(false);
     this.appHandle?.setProgress(null);
+    this.appHandle?.setNoteContent('');
     this.clearRemoteExecSession(this.sessionId);
     this.appHandle?.setAutoEditActive(false);
     void this.refreshRemoteConsoleServices(this.sessionId);
@@ -2232,6 +2262,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     const userInputEpochAtLoadStart = this.userInputEpoch;
     const envRestorePromise = this.restoreRemoteExecEnvironmentForSession(id, true);
     this.syncPlanModeStatus();
+    this.syncNoteStatus();
     await this.refreshRemoteConsoleServices(id);
     await this.syncProgress();
     this.syncAutoEditStatus();
@@ -2986,6 +3017,55 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     return {
       ok: true,
       message: `${formatStatus(isActiveState(state))}${isActiveState(state) && planActive ? '\n提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。' : ''}`,
+    };
+  }
+
+  private async handleSaveNote(content: string): Promise<{ ok: boolean; message?: string }> {
+    const service = this.getNoteService();
+    if (!service) return { ok: false, message: 'Note 服务不可用。' };
+    const state = service.setNote(content, { updatedBy: 'user' });
+    this.appHandle?.setNoteContent(state.content);
+    this.appHandle?.closeNoteEditor();
+    return { ok: true, message: state.content.trim() ? 'Note 已保存。' : 'Note 已清空。' };
+  }
+
+  private async handleNoteCommand(arg: string): Promise<{ ok: boolean; message?: string }> {
+    const service = this.getNoteService();
+    if (!service) return { ok: false, message: 'Note 服务不可用。' };
+
+    const normalized = arg.trim();
+    const lower = normalized.toLowerCase();
+
+    if (!normalized || lower === 'edit' || normalized === '编辑') {
+      const note = service.getNote();
+      this.appHandle?.setNoteContent(note);
+      this.appHandle?.openNoteEditor(note);
+      return { ok: true, message: '已打开 Note 编辑器。Ctrl+S 保存，Esc 取消。' };
+    }
+
+    if (lower === 'show' || lower === 'status' || normalized === '查看' || normalized === '状态') {
+      const state = service.getState();
+      return {
+        ok: true,
+        message: state.content.trim()
+          ? `当前 Note：\n\n${state.content.trim()}\n\n文件：${state.noteFilePath}`
+          : `当前 Note 为空。\n文件：${state.noteFilePath}`,
+      };
+    }
+
+    if (lower === 'clear' || normalized === '清空') {
+      const state = service.clearNote({ updatedBy: 'user' });
+      this.appHandle?.setNoteContent(state.content);
+      this.appHandle?.closeNoteEditor();
+      return { ok: true, message: 'Note 已清空。' };
+    }
+
+    const state = service.setNote(normalized, { updatedBy: 'user' });
+    this.appHandle?.setNoteContent(state.content);
+    this.appHandle?.closeNoteEditor();
+    return {
+      ok: true,
+      message: `Note 已保存。输入 /note edit 可继续编辑，/note clear 可清空。`,
     };
   }
 

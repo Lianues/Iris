@@ -20,12 +20,8 @@ export class ClaudeFormat implements FormatAdapter {
   encodeRequest(request: LLMRequest, stream?: boolean): unknown {
     const body: Record<string, unknown> = { model: this.model };
 
-    // systemInstruction → system 字符串
-    if (request.systemInstruction?.parts) {
-      const text = request.systemInstruction.parts
-        .filter(isVisibleTextPart).map(p => p.text).join('\n');
-      if (text) body.system = text;
-    }
+    // systemInstruction → system 字符串或 content-block 数组（存在 dynamic part 时保留块粒度）
+    encodeSystemInstruction(request, body);
 
     // contents → messages
     const messages: Record<string, unknown>[] = [];
@@ -358,13 +354,33 @@ export class ClaudeFormat implements FormatAdapter {
     // 2. 将 system 从字符串转换为 content-block 数组并标记。
     //    Anthropic 接受 system 为字符串或内容块数组；
     //    需要数组形式才能附加 cache_control。
+    //    如果存在 dynamic system block（如 /note），缓存断点落在最后一个 stable block，
+    //    避免用户 note 变化导致稳定系统提示词缓存失效。
     if (typeof body.system === 'string' && body.system) {
       body.system = [
         { type: 'text', text: body.system, cache_control: cacheControl },
       ];
     } else if (Array.isArray(body.system) && body.system.length > 0) {
-      (body.system as any[])[body.system.length - 1].cache_control = cacheControl;
+      const blocks = body.system as any[];
+      let targetIndex = -1;
+
+      const firstDynamicIndex = blocks.findIndex((block) => block?.__irisCacheBehavior === 'dynamic');
+      const searchStart = firstDynamicIndex >= 0 ? firstDynamicIndex - 1 : blocks.length - 1;
+      for (let i = searchStart; i >= 0; i--) {
+        if (blocks[i]?.__irisCacheBehavior !== 'dynamic') {
+          targetIndex = i;
+          break;
+        }
+      }
+
+      // 如果 dynamic block 位于最前面，则没有稳定 system 前缀可标记；跳过 system
+      // cache_control，避免把缓存断点放到 dynamic 内容之后。
+      if (targetIndex >= 0) {
+        blocks[targetIndex].cache_control = cacheControl;
+      }
     }
+
+    stripClaudeSystemInternalFields(body);
 
     // 3. 标记最后一条用户消息的最后一个内容块。
     //    这会缓存整个对话历史前缀。
@@ -384,6 +400,46 @@ export class ClaudeFormat implements FormatAdapter {
         lastBlock.cache_control = cacheControl;
         break;
       }
+    }
+  }
+}
+
+function setInternalCacheBehavior(block: Record<string, unknown>, behavior: unknown): void {
+  if (behavior !== 'dynamic' && behavior !== 'stable') return;
+  Object.defineProperty(block, '__irisCacheBehavior', {
+    value: behavior,
+    enumerable: false,
+    configurable: true,
+  });
+}
+
+function encodeSystemInstruction(request: LLMRequest, body: Record<string, unknown>): void {
+  const parts = request.systemInstruction?.parts?.filter(isVisibleTextPart) ?? [];
+  if (parts.length === 0) return;
+
+  const hasDynamic = parts.some((part) => (part as any).cacheBehavior === 'dynamic');
+  if (!hasDynamic) {
+    const text = parts.map(p => p.text).join('\n');
+    if (text) body.system = text;
+    return;
+  }
+
+  const blocks: Record<string, unknown>[] = [];
+  for (const part of parts) {
+    if (!part.text) continue;
+    const block: Record<string, unknown> = { type: 'text', text: part.text };
+    setInternalCacheBehavior(block, (part as any).cacheBehavior);
+    blocks.push(block);
+  }
+  if (blocks.length > 0) body.system = blocks;
+}
+
+function stripClaudeSystemInternalFields(body: Record<string, unknown>): void {
+  const system = body.system;
+  if (!Array.isArray(system)) return;
+  for (const block of system as any[]) {
+    if (block && typeof block === 'object') {
+      delete block.__irisCacheBehavior;
     }
   }
 }

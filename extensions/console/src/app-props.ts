@@ -85,6 +85,10 @@ export interface AppProps {
   onAutoEditCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   /** /callme：显式开启/关闭 git commit co-author 署名。 */
   onCallmeCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
+  /** /note：编辑当前 Agent 的长期 Note。 */
+  onNoteCommand?: (arg: string) => Promise<{ ok: boolean; message?: string }>;
+  /** Note 编辑器保存回调。 */
+  onSaveNote?: (content: string) => Promise<{ ok: boolean; message?: string }>;
   /** 获取可切换的 Agent 列表（/agent 命令触发） */
   onListAgents?: () => AgentDefinitionLike[];
   /** 用户在 agent-list 视图中确认选择后，执行实际的 Agent 切换 */

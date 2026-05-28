@@ -59,6 +59,7 @@ interface UseCommandDispatchOptions {
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
   onAutoEditCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   onCallmeCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
+  onNoteCommand?: (arg: string) => Promise<{ ok: boolean; message?: string }>;
   setAgentList: SetAgentList;
   onDream?: () => Promise<{ ok: boolean; message: string }>;
   onListMemories?: () => Promise<MemoryItem[]>;
@@ -137,6 +138,7 @@ export function useCommandDispatch({
   onPlanCommand,
   onAutoEditCommand,
   onCallmeCommand,
+  onNoteCommand,
   setAgentList,
 
   onDream,
@@ -513,6 +515,27 @@ export function useCommandDispatch({
       return;
     }
 
+    if (text === '/note' || text.startsWith('/note ')) {
+      const arg = text.slice('/note'.length).trim();
+      const messageOptions = { label: 'note' as const, beforeActiveAssistant: isGenerating };
+      if (!onNoteCommand) {
+        appendCommandMessage(setMessages, 'Note 服务不可用。', { ...messageOptions, isError: true });
+        return;
+      }
+      void onNoteCommand(arg).then((result) => {
+        if (result.message) {
+          appendCommandMessage(setMessages, result.message, result.ok ? messageOptions : { ...messageOptions, isError: true });
+        }
+      }).catch((err) => {
+        appendCommandMessage(
+          setMessages,
+          `Note 操作失败: ${err instanceof Error ? err.message : String(err)}`,
+          { ...messageOptions, isError: true },
+        );
+      });
+      return;
+    }
+
     if (text === '/auto-edit' || text.startsWith('/auto-edit ')) {
       const arg = text.slice('/auto-edit'.length).trim();
       const messageOptions = { label: '自动编辑' as const, beforeActiveAssistant: isGenerating };
@@ -635,6 +658,7 @@ export function useCommandDispatch({
     onPlanCommand,
     onAutoEditCommand,
     onCallmeCommand,
+    onNoteCommand,
     onUndo,
     queueClear,
     queueSize,

@@ -93,6 +93,7 @@ import { resolveProjectPath } from '../tools/utils';
 import { supportsVision as checkVision, supportsNativePDF as checkNativePDF, supportsNativeOffice as checkNativeOffice, isDocumentMimeType as checkDocMime } from '../llm/vision';
 import { setExtensionLogLevel } from 'irises-extension-sdk';
 import { planModePlugin } from '../plan-mode/plugin';
+import { notePlugin } from '../note/plugin';
 import { PLAN_MODE_SERVICE_ID, type PlanModeService } from '../plan-mode/types';
 
 
@@ -242,7 +243,11 @@ export class IrisCore {
     }
 
     // ---- 0. 预加载插件 + PreBootstrap 阶段 ----
-    const inlinePlugins = [{ plugin: planModePlugin, priority: 10_000 }, ...(options.inlinePlugins ?? [])];
+    const inlinePlugins = [
+      { plugin: notePlugin, priority: 11_000 },
+      { plugin: planModePlugin, priority: 10_000 },
+      ...(options.inlinePlugins ?? []),
+    ];
     const pluginManager = new PluginManager();
 
     // 自动发现所有 plugin 类型的 extension，与 plugins.yaml 显式配置合并

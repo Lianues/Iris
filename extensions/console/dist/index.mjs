@@ -1344,7 +1344,7 @@ var init_remote_wizard = __esm(() => {
 });
 
 // src/index.ts
-import React15 from "react";
+import React16 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
@@ -1875,7 +1875,7 @@ function getCharacterCount(text) {
 }
 
 // src/App.tsx
-import { useCallback as useCallback11, useEffect as useEffect15, useMemo as useMemo10, useRef as useRef10, useState as useState18 } from "react";
+import { useCallback as useCallback11, useEffect as useEffect16, useMemo as useMemo10, useRef as useRef11, useState as useState19 } from "react";
 import { useRenderer } from "@opentui/react";
 
 // src/theme.ts
@@ -3128,9 +3128,334 @@ function PlanApprovalBar({ invocation, remainingCount, choice }) {
   }, undefined, true, undefined, this);
 }
 
+// src/components/NoteUpdateApprovalBar.tsx
+import { useTerminalDimensions as useTerminalDimensions3 } from "@opentui/react";
+import { jsxDEV as jsxDEV7 } from "@opentui/react/jsx-dev-runtime";
+function linesOf(text, fallback) {
+  const value = text?.trim();
+  return value ? value.split(/\r?\n/) : [fallback];
+}
+function NoteUpdateApprovalBar({ invocation, remainingCount, choice }) {
+  const { height } = useTerminalDimensions3();
+  const progress = invocation.progress;
+  const borderColor = choice === "approve" ? C.accent : C.error;
+  const currentLines = linesOf(progress?.currentNote, "(当前为空)");
+  const proposedLines = linesOf(progress?.proposedNote, progress?.mode === "clear" ? "(清空)" : "(拟写入为空)");
+  const maxSectionHeight = Math.max(2, Math.min(7, Math.floor(height * 0.18)));
+  return /* @__PURE__ */ jsxDEV7("box", {
+    flexDirection: "column",
+    borderStyle: "single",
+    borderColor,
+    paddingX: 1,
+    paddingY: 0,
+    children: [
+      /* @__PURE__ */ jsxDEV7("text", {
+        children: [
+          /* @__PURE__ */ jsxDEV7("span", {
+            fg: C.accent,
+            children: /* @__PURE__ */ jsxDEV7("strong", {
+              children: "? "
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV7("span", {
+            fg: C.text,
+            children: "批准更新当前 Agent 的 Note？"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV7("span", {
+            fg: C.dim,
+            children: "  "
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV7("span", {
+            fg: choice === "approve" ? C.accent : C.textSec,
+            children: choice === "approve" ? "[(Y/Enter)批准]" : " (Y/Enter)批准 "
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV7("span", {
+            fg: C.dim,
+            children: " "
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV7("span", {
+            fg: choice === "reject" ? C.error : C.textSec,
+            children: choice === "reject" ? "[(N)拒绝]" : " (N)拒绝 "
+          }, undefined, false, undefined, this),
+          remainingCount > 1 ? /* @__PURE__ */ jsxDEV7("span", {
+            fg: C.dim,
+            children: `  (剩余 ${remainingCount - 1} 个)`
+          }, undefined, false, undefined, this) : null,
+          /* @__PURE__ */ jsxDEV7("span", {
+            fg: C.dim,
+            children: "  ←/→ 选择"
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      progress?.reason ? /* @__PURE__ */ jsxDEV7("text", {
+        children: [
+          /* @__PURE__ */ jsxDEV7("span", {
+            fg: C.dim,
+            children: "原因："
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV7("span", {
+            fg: C.textSec,
+            children: progress.reason
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this) : null,
+      progress?.noteFilePath ? /* @__PURE__ */ jsxDEV7("text", {
+        children: /* @__PURE__ */ jsxDEV7("span", {
+          fg: C.dim,
+          children: [
+            "文件：",
+            progress.noteFilePath
+          ]
+        }, undefined, true, undefined, this)
+      }, undefined, false, undefined, this) : null,
+      /* @__PURE__ */ jsxDEV7("text", {
+        fg: C.dim,
+        children: "当前 Note"
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV7("scrollbox", {
+        height: Math.min(currentLines.length, maxSectionHeight),
+        borderStyle: "single",
+        borderColor: C.border,
+        verticalScrollbarOptions: { visible: currentLines.length > maxSectionHeight },
+        horizontalScrollbarOptions: { visible: false },
+        children: currentLines.map((line, index) => /* @__PURE__ */ jsxDEV7("text", {
+          children: /* @__PURE__ */ jsxDEV7("span", {
+            fg: C.textSec,
+            children: line || " "
+          }, undefined, false, undefined, this)
+        }, index, false, undefined, this))
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV7("text", {
+        fg: C.dim,
+        children: "拟更新为"
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV7("scrollbox", {
+        height: Math.min(proposedLines.length, maxSectionHeight),
+        borderStyle: "single",
+        borderColor: C.border,
+        verticalScrollbarOptions: { visible: proposedLines.length > maxSectionHeight },
+        horizontalScrollbarOptions: { visible: false },
+        children: proposedLines.map((line, index) => /* @__PURE__ */ jsxDEV7("text", {
+          children: /* @__PURE__ */ jsxDEV7("span", {
+            fg: C.text,
+            children: line || " "
+          }, undefined, false, undefined, this)
+        }, index, false, undefined, this))
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+
+// src/components/NotePanel.tsx
+import { jsxDEV as jsxDEV8 } from "@opentui/react/jsx-dev-runtime";
+function NotePanel({ content, maxLines = 4 }) {
+  const trimmed = content.trim();
+  if (!trimmed)
+    return null;
+  const lines = trimmed.split(/\r?\n/);
+  const visible = lines.slice(0, maxLines);
+  const truncated = lines.length > visible.length;
+  return /* @__PURE__ */ jsxDEV8("box", {
+    flexDirection: "column",
+    borderStyle: "single",
+    borderColor: C.accent,
+    paddingX: 1,
+    paddingY: 0,
+    marginBottom: 1,
+    children: [
+      /* @__PURE__ */ jsxDEV8("text", {
+        children: [
+          /* @__PURE__ */ jsxDEV8("span", {
+            fg: C.accent,
+            children: /* @__PURE__ */ jsxDEV8("strong", {
+              children: "✎ Note"
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV8("span", {
+            fg: C.dim,
+            children: "  /note edit 编辑 · /note clear 清空"
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      visible.map((line, index) => /* @__PURE__ */ jsxDEV8("text", {
+        children: /* @__PURE__ */ jsxDEV8("span", {
+          fg: C.textSec,
+          children: line || " "
+        }, undefined, false, undefined, this)
+      }, index, false, undefined, this)),
+      truncated ? /* @__PURE__ */ jsxDEV8("text", {
+        fg: C.dim,
+        children: "…"
+      }, undefined, false, undefined, this) : null
+    ]
+  }, undefined, true, undefined, this);
+}
+
+// src/components/NoteEditorPanel.tsx
+import { useEffect as useEffect4, useRef as useRef2, useState as useState4 } from "react";
+import { useKeyboard as useKeyboard2, useTerminalDimensions as useTerminalDimensions4 } from "@opentui/react";
+
+// src/hooks/use-paste.ts
+import { useEffect as useEffect3, useCallback as useCallback2, useLayoutEffect, useRef } from "react";
+import { decodePasteBytes } from "@opentui/core";
+import { useAppContext } from "@opentui/react";
+function usePaste(handler) {
+  const { keyHandler } = useAppContext();
+  const handlerRef = useRef(handler);
+  useLayoutEffect(() => {
+    handlerRef.current = handler;
+  });
+  const stableHandler = useCallback2((event) => {
+    handlerRef.current(decodePasteBytes(event.bytes));
+  }, []);
+  useEffect3(() => {
+    keyHandler?.on("paste", stableHandler);
+    return () => {
+      keyHandler?.off("paste", stableHandler);
+    };
+  }, [keyHandler, stableHandler]);
+}
+
+// src/components/NoteEditorPanel.tsx
+import { jsxDEV as jsxDEV9 } from "@opentui/react/jsx-dev-runtime";
+function NoteEditorPanel({ initialValue, onSave, onCancel, onDraftChange }) {
+  const [state, actions] = useTextInput(initialValue);
+  const [saving, setSaving] = useState4(false);
+  const [error, setError] = useState4(null);
+  const mountedRef = useRef2(true);
+  const cursorVisible = useCursorBlink();
+  const { width, height } = useTerminalDimensions4();
+  const editorHeight = Math.max(3, Math.min(10, Math.floor(height * 0.25)));
+  useEffect4(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  useEffect4(() => {
+    onDraftChange?.(state.value);
+  }, [state.value, onDraftChange]);
+  usePaste((text) => {
+    if (saving)
+      return;
+    actions.insert(text.replace(/\r\n/g, `
+`).replace(/\r/g, `
+`));
+  });
+  const save = async () => {
+    if (saving)
+      return;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await onSave?.(state.value);
+      if (result && result.ok === false) {
+        setError(result.message ?? "保存失败");
+      }
+    } catch (err) {
+      if (mountedRef.current)
+        setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (mountedRef.current)
+        setSaving(false);
+    }
+  };
+  useKeyboard2((key) => {
+    if (saving) {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      return;
+    }
+    if (key.ctrl && key.name === "c" || key.sequence === "\x03") {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      actions.setValue("");
+      setError(null);
+      return;
+    }
+    if (key.name === "escape") {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      onCancel?.();
+      return;
+    }
+    if (key.ctrl && key.name === "s" || key.sequence === "\x13") {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      save();
+      return;
+    }
+    if (key.ctrl && key.name === "j" || key.ctrl && key.name === "enter") {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      actions.insert(`
+`);
+      return;
+    }
+    if (key.name === "return" || key.name === "enter") {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      actions.insert(`
+`);
+      return;
+    }
+    actions.handleKey(key);
+  });
+  return /* @__PURE__ */ jsxDEV9("box", {
+    flexDirection: "column",
+    borderStyle: "single",
+    borderColor: error ? C.error : C.accent,
+    paddingX: 1,
+    paddingY: 0,
+    marginBottom: 1,
+    children: [
+      /* @__PURE__ */ jsxDEV9("text", {
+        children: [
+          /* @__PURE__ */ jsxDEV9("span", {
+            fg: C.accent,
+            children: /* @__PURE__ */ jsxDEV9("strong", {
+              children: "✎ Edit Note"
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV9("span", {
+            fg: C.dim,
+            children: "  Ctrl+S 保存 · Ctrl+C 清空 · Enter 换行 · Esc 取消"
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ jsxDEV9("scrollbox", {
+        height: editorHeight,
+        borderStyle: "single",
+        borderColor: C.border,
+        paddingX: 1,
+        verticalScrollbarOptions: { visible: state.value.split(/\r?\n/).length > editorHeight },
+        horizontalScrollbarOptions: { visible: false },
+        children: /* @__PURE__ */ jsxDEV9(InputDisplay, {
+          value: state.value,
+          cursor: state.cursor,
+          availableWidth: Math.max(20, width - 8),
+          isActive: !saving,
+          cursorVisible,
+          placeholder: "输入当前 Agent 的长期 Note…"
+        }, undefined, false, undefined, this)
+      }, undefined, false, undefined, this),
+      error ? /* @__PURE__ */ jsxDEV9("text", {
+        fg: C.error,
+        children: [
+          "保存失败：",
+          error
+        ]
+      }, undefined, true, undefined, this) : null,
+      saving ? /* @__PURE__ */ jsxDEV9("text", {
+        fg: C.dim,
+        children: "保存中…"
+      }, undefined, false, undefined, this) : null
+    ]
+  }, undefined, true, undefined, this);
+}
+
 // src/components/HintBar.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV7, Fragment as Fragment3 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV10, Fragment as Fragment3 } from "@opentui/react/jsx-dev-runtime";
 function truncatePath(fullPath, maxWidth) {
   if (maxWidth <= 0)
     return "";
@@ -3203,15 +3528,15 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
   const availableForCwd = usableWidth - hintWidth - gap;
   const displayPath = truncatePath(effectivePath, Math.max(availableForCwd, 20));
   const displayColor = resolveDisplayColor(pathDisplay?.color);
-  return /* @__PURE__ */ jsxDEV7("box", {
+  return /* @__PURE__ */ jsxDEV10("box", {
     flexDirection: "row",
     paddingTop: 0,
     paddingRight: 1,
     children: [
-      /* @__PURE__ */ jsxDEV7("box", {
+      /* @__PURE__ */ jsxDEV10("box", {
         flexGrow: 1,
         flexShrink: 1,
-        children: remoteHost ? /* @__PURE__ */ jsxDEV7("text", {
+        children: remoteHost ? /* @__PURE__ */ jsxDEV10("text", {
           fg: C.warn,
           children: [
             ICONS.lightning,
@@ -3220,28 +3545,28 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
             " 所有操作和配置均作用于 ",
             remoteHost
           ]
-        }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV7("text", {
+        }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV10("text", {
           fg: displayColor,
           children: displayPath
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      exitConfirmArmed ? /* @__PURE__ */ jsxDEV7("box", {
+      exitConfirmArmed ? /* @__PURE__ */ jsxDEV10("box", {
         flexShrink: 0,
-        children: /* @__PURE__ */ jsxDEV7("text", {
+        children: /* @__PURE__ */ jsxDEV10("text", {
           fg: C.warn,
           children: "再次按 ctrl+c 退出"
         }, undefined, false, undefined, this)
-      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV7("box", {
+      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV10("box", {
         flexShrink: 0,
-        children: /* @__PURE__ */ jsxDEV7("text", {
+        children: /* @__PURE__ */ jsxDEV10("text", {
           fg: C.dim,
           children: [
             escAction,
             `  ${ICONS.separator}  ctrl+t 工具详情`,
-            isGenerating && hasQueue ? /* @__PURE__ */ jsxDEV7(Fragment3, {
+            isGenerating && hasQueue ? /* @__PURE__ */ jsxDEV10(Fragment3, {
               children: [
                 `  ${ICONS.separator}  `,
-                /* @__PURE__ */ jsxDEV7("span", {
+                /* @__PURE__ */ jsxDEV10("span", {
                   fg: C.warn,
                   children: "/queue 管理队列"
                 }, undefined, false, undefined, this)
@@ -3257,8 +3582,8 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
 }
 
 // src/components/InputBar.tsx
-import { useEffect as useEffect5, useMemo as useMemo4, useRef as useRef3, useState as useState5 } from "react";
-import { useKeyboard as useKeyboard2, useTerminalDimensions as useTerminalDimensions3 } from "@opentui/react";
+import { useEffect as useEffect6, useMemo as useMemo4, useRef as useRef4, useState as useState6 } from "react";
+import { useKeyboard as useKeyboard3, useTerminalDimensions as useTerminalDimensions5 } from "@opentui/react";
 
 // src/input-commands.ts
 var COMMANDS = [
@@ -3293,6 +3618,16 @@ var COMMANDS = [
       { value: "status", description: "查看当前状态" }
     ]
   },
+  {
+    name: "/note",
+    description: "编辑当前 Agent 的长期 Note（作为系统提示词注入）",
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: "edit", description: "打开编辑器" },
+      { value: "show", description: "查看当前 note" },
+      { value: "clear", description: "清空 note" }
+    ]
+  },
   { name: "/net", description: "配置多端互联（Net）" },
   { name: "/remote", description: "连接远程 Iris 实例" },
   { name: "/disconnect", description: "断开远程连接", remoteOnly: true, color: "#fdcb6e" },
@@ -3315,14 +3650,14 @@ var COMMANDS = [
   { name: "/exit", description: "退出应用" }
 ];
 function getCommandInput(cmd) {
-  return cmd.acceptsArgs || cmd.name === "/sh" || cmd.name === "/model" || cmd.name === "/remote" || cmd.name === "/file" || cmd.name === "/plan" ? `${cmd.name} ` : cmd.name;
+  return cmd.acceptsArgs || cmd.name === "/sh" || cmd.name === "/model" || cmd.name === "/remote" || cmd.name === "/file" || cmd.name === "/plan" || cmd.name === "/note" ? `${cmd.name} ` : cmd.name;
 }
 function isExactCommandValue(value, cmd) {
   return value === cmd.name || value === getCommandInput(cmd);
 }
 
 // src/hooks/use-file-mention-completion.ts
-import { useEffect as useEffect3, useMemo as useMemo3, useRef, useState as useState4 } from "react";
+import { useEffect as useEffect5, useMemo as useMemo3, useRef as useRef3, useState as useState5 } from "react";
 
 // src/file-mention-completion.ts
 var DEFAULT_FILE_MENTION_LIMIT = 30;
@@ -3398,15 +3733,15 @@ function filterFileMentionCandidates(files, query, limit = DEFAULT_FILE_MENTION_
 // src/hooks/use-file-mention-completion.ts
 function useFileMentionCompletion(options) {
   const { value, cursor, disabled, onListFiles } = options;
-  const [files, setFiles] = useState4(null);
-  const [loading, setLoading] = useState4(false);
-  const requestIdRef = useRef(0);
+  const [files, setFiles] = useState5(null);
+  const [loading, setLoading] = useState5(false);
+  const requestIdRef = useRef3(0);
   const token = useMemo3(() => {
     if (disabled || !onListFiles)
       return null;
     return findFileMentionToken(value, cursor);
   }, [cursor, disabled, onListFiles, value]);
-  useEffect3(() => {
+  useEffect5(() => {
     if (!token || token.query.length === 0) {
       requestIdRef.current++;
       setLoading(false);
@@ -3440,30 +3775,9 @@ function useFileMentionCompletion(options) {
   return { token, candidates, loading };
 }
 
-// src/hooks/use-paste.ts
-import { useEffect as useEffect4, useCallback as useCallback2, useLayoutEffect, useRef as useRef2 } from "react";
-import { decodePasteBytes } from "@opentui/core";
-import { useAppContext } from "@opentui/react";
-function usePaste(handler) {
-  const { keyHandler } = useAppContext();
-  const handlerRef = useRef2(handler);
-  useLayoutEffect(() => {
-    handlerRef.current = handler;
-  });
-  const stableHandler = useCallback2((event) => {
-    handlerRef.current(decodePasteBytes(event.bytes));
-  }, []);
-  useEffect4(() => {
-    keyHandler?.on("paste", stableHandler);
-    return () => {
-      keyHandler?.off("paste", stableHandler);
-    };
-  }, [keyHandler, stableHandler]);
-}
-
 // src/components/InputBar.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV8 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV11 } from "@opentui/react/jsx-dev-runtime";
 var FILE_TYPE_ICONS = {
   image: "\uD83D\uDCF7",
   document: "\uD83D\uDCC4",
@@ -3491,20 +3805,20 @@ function isPrioritySubmitShortcut(key) {
 }
 function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed }) {
   const [inputState, inputActions] = useTextInput("");
-  const [selectedIndex, setSelectedIndex] = useState5(0);
-  const [fileSelectedIndex, setFileSelectedIndex] = useState5(0);
-  const [fileMentionDismissedKey, setFileMentionDismissedKey] = useState5(null);
-  const [queuePromptFrame, setQueuePromptFrame] = useState5(0);
+  const [selectedIndex, setSelectedIndex] = useState6(0);
+  const [fileSelectedIndex, setFileSelectedIndex] = useState6(0);
+  const [fileMentionDismissedKey, setFileMentionDismissedKey] = useState6(null);
+  const [queuePromptFrame, setQueuePromptFrame] = useState6(0);
   const cursorVisible = useCursorBlink();
-  const { width: termWidth, height: termHeight } = useTerminalDimensions3();
+  const { width: termWidth, height: termHeight } = useTerminalDimensions5();
   const visibleCommands = useMemo4(() => {
     const commands = [...COMMANDS, ...dynamicCommands];
     const seen = new Set;
     return commands.filter((cmd) => (!cmd.remoteOnly || isRemote) && (!cmd.requiresHeadlessSupport || supportsHeadlessTransition) && !seen.has(cmd.name) && seen.add(cmd.name));
   }, [isRemote, supportsHeadlessTransition, dynamicCommands]);
-  const pasteGuardRef = useRef3(false);
-  const lastKeyTimeRef = useRef3(0);
-  const rapidKeyCountRef = useRef3(0);
+  const pasteGuardRef = useRef4(false);
+  const lastKeyTimeRef = useRef4(0);
+  const rapidKeyCountRef = useRef4(0);
   const value = inputState.value;
   const inputDisabled = disabled;
   const isQueueMode = !disabled && isGenerating;
@@ -3543,11 +3857,11 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       return "";
     return value;
   }, [inputDisabled, value, exactMatchIndex, activeArgCommand]);
-  const [commandsDismissed, setCommandsDismissed] = useState5(false);
-  useEffect5(() => {
+  const [commandsDismissed, setCommandsDismissed] = useState6(false);
+  useEffect6(() => {
     setCommandsDismissed(false);
   }, [commandQuery]);
-  useEffect5(() => {
+  useEffect6(() => {
     if (!inputControllerRef)
       return;
     const controller = {
@@ -3573,7 +3887,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         inputControllerRef.current = null;
     };
   }, [inputControllerRef, inputActions, value]);
-  useEffect5(() => {
+  useEffect6(() => {
     if (restoreInputText == null)
       return;
     inputActions.setValue(restoreInputText);
@@ -3599,7 +3913,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       return visibleCommands;
     return visibleCommands.filter((cmd) => cmd.name.startsWith(commandQuery.trim()));
   }, [showCommands, exactMatchIndex, commandQuery, visibleCommands]);
-  useEffect5(() => {
+  useEffect6(() => {
     if (showArgSuggestions) {
       setSelectedIndex((prev) => Math.min(prev, argSuggestions.length - 1));
       return;
@@ -3614,7 +3928,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
     }
     setSelectedIndex((prev) => Math.min(prev, filtered.length - 1));
   }, [showCommands, filtered.length, exactMatchIndex, showArgSuggestions, argSuggestions.length]);
-  useEffect5(() => {
+  useEffect6(() => {
     if (!showFileMentionSuggestions) {
       setFileSelectedIndex(0);
       return;
@@ -3645,7 +3959,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
     const normalizedIndex = (index % count + count) % count;
     setFileSelectedIndex(normalizedIndex);
   };
-  useKeyboard2((key) => {
+  useKeyboard3((key) => {
     if (inputDisabled)
       return;
     if (pasteGuardRef.current)
@@ -3796,7 +4110,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
       pasteGuardRef.current = false;
     }, 150);
   });
-  useEffect5(() => {
+  useEffect6(() => {
     if (!isQueueMode) {
       setQueuePromptFrame(0);
       return;
@@ -3832,20 +4146,20 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
   const needsInputScroll = visualLineCount > MAX_VISIBLE_INPUT_LINES;
   const inputVisibleRows = Math.min(visualLineCount, MAX_VISIBLE_INPUT_LINES);
   const availableWidth = needsInputScroll ? Math.max(1, baseAvailableWidth - 1) : baseAvailableWidth;
-  const inputRow = /* @__PURE__ */ jsxDEV8("box", {
+  const inputRow = /* @__PURE__ */ jsxDEV11("box", {
     flexDirection: "row",
     border: false,
     children: [
-      /* @__PURE__ */ jsxDEV8("text", {
+      /* @__PURE__ */ jsxDEV11("text", {
         fg: promptColor,
-        children: /* @__PURE__ */ jsxDEV8("strong", {
+        children: /* @__PURE__ */ jsxDEV11("strong", {
           children: promptText
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV8("box", {
+      /* @__PURE__ */ jsxDEV11("box", {
         flexGrow: 1,
         flexShrink: 1,
-        children: /* @__PURE__ */ jsxDEV8(InputDisplay, {
+        children: /* @__PURE__ */ jsxDEV11(InputDisplay, {
           value,
           cursor: inputState.cursor,
           availableWidth,
@@ -3857,12 +4171,12 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
     ]
   }, undefined, true, undefined, this);
   const slashPanelBottom = inputVisibleRows + pendingFiles.length;
-  return /* @__PURE__ */ jsxDEV8("box", {
+  return /* @__PURE__ */ jsxDEV11("box", {
     flexDirection: "column",
     position: "relative",
     width: "100%",
     children: [
-      showArgSuggestions && argSuggestions.length > 0 && /* @__PURE__ */ jsxDEV8("box", {
+      showArgSuggestions && argSuggestions.length > 0 && /* @__PURE__ */ jsxDEV11("box", {
         position: "absolute",
         left: 0,
         width: "100%",
@@ -3879,28 +4193,28 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         children: [...visibleArgRows].reverse().map(({ item, index }) => {
           const padded = item.value.padEnd(maxArgLen);
           const isSelected = index === selectedIndex;
-          return /* @__PURE__ */ jsxDEV8("box", {
+          return /* @__PURE__ */ jsxDEV11("box", {
             width: "100%",
             height: 1,
             overflow: "hidden",
             paddingLeft: 1,
             backgroundColor: isSelected ? C.border : C.panelBg,
-            children: /* @__PURE__ */ jsxDEV8("text", {
+            children: /* @__PURE__ */ jsxDEV11("text", {
               children: [
-                /* @__PURE__ */ jsxDEV8("span", {
+                /* @__PURE__ */ jsxDEV11("span", {
                   fg: isSelected ? C.accent : C.dim,
                   children: isSelected ? `${ICONS.triangleRight} ` : "  "
                 }, undefined, false, undefined, this),
-                isSelected ? /* @__PURE__ */ jsxDEV8("strong", {
-                  children: /* @__PURE__ */ jsxDEV8("span", {
+                isSelected ? /* @__PURE__ */ jsxDEV11("strong", {
+                  children: /* @__PURE__ */ jsxDEV11("span", {
                     fg: item.color ?? C.text,
                     children: padded
                   }, undefined, false, undefined, this)
-                }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV8("span", {
+                }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV11("span", {
                   fg: item.color ?? C.textSec,
                   children: padded
                 }, undefined, false, undefined, this),
-                item.description ? /* @__PURE__ */ jsxDEV8("span", {
+                item.description ? /* @__PURE__ */ jsxDEV11("span", {
                   fg: isSelected ? C.textSec : C.dim,
                   children: [
                     "  ",
@@ -3912,7 +4226,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
           }, `${item.value}-${index}`, false, undefined, this);
         })
       }, undefined, false, undefined, this),
-      !showArgSuggestions && filtered.length > 0 && /* @__PURE__ */ jsxDEV8("box", {
+      !showArgSuggestions && filtered.length > 0 && /* @__PURE__ */ jsxDEV11("box", {
         position: "absolute",
         left: 0,
         width: "100%",
@@ -3929,28 +4243,28 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         children: [...visibleCommandRows].reverse().map(({ item: cmd, index }) => {
           const padded = cmd.name.padEnd(maxLen);
           const isSelected = index === selectedIndex;
-          return /* @__PURE__ */ jsxDEV8("box", {
+          return /* @__PURE__ */ jsxDEV11("box", {
             width: "100%",
             height: 1,
             overflow: "hidden",
             paddingLeft: 1,
             backgroundColor: isSelected ? C.border : C.panelBg,
-            children: /* @__PURE__ */ jsxDEV8("text", {
+            children: /* @__PURE__ */ jsxDEV11("text", {
               children: [
-                /* @__PURE__ */ jsxDEV8("span", {
+                /* @__PURE__ */ jsxDEV11("span", {
                   fg: isSelected ? C.accent : C.dim,
                   children: isSelected ? `${ICONS.triangleRight} ` : "  "
                 }, undefined, false, undefined, this),
-                isSelected ? /* @__PURE__ */ jsxDEV8("strong", {
-                  children: /* @__PURE__ */ jsxDEV8("span", {
+                isSelected ? /* @__PURE__ */ jsxDEV11("strong", {
+                  children: /* @__PURE__ */ jsxDEV11("span", {
                     fg: cmd.color ?? C.text,
                     children: padded
                   }, undefined, false, undefined, this)
-                }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV8("span", {
+                }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV11("span", {
                   fg: cmd.color ?? C.textSec,
                   children: padded
                 }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsxDEV8("span", {
+                /* @__PURE__ */ jsxDEV11("span", {
                   fg: isSelected ? C.textSec : C.dim,
                   children: [
                     "  ",
@@ -3962,7 +4276,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
           }, cmd.name, false, undefined, this);
         })
       }, undefined, false, undefined, this),
-      !showArgSuggestions && !showCommands && showFileMentionSuggestions && /* @__PURE__ */ jsxDEV8("box", {
+      !showArgSuggestions && !showCommands && showFileMentionSuggestions && /* @__PURE__ */ jsxDEV11("box", {
         position: "absolute",
         left: 0,
         width: "100%",
@@ -3979,24 +4293,24 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         children: [...visibleFileRows].reverse().map(({ item, index }) => {
           const padded = item.path.padEnd(maxFileLen);
           const isSelected = index === fileSelectedIndex;
-          return /* @__PURE__ */ jsxDEV8("box", {
+          return /* @__PURE__ */ jsxDEV11("box", {
             width: "100%",
             height: 1,
             overflow: "hidden",
             paddingLeft: 1,
             backgroundColor: isSelected ? C.border : C.panelBg,
-            children: /* @__PURE__ */ jsxDEV8("text", {
+            children: /* @__PURE__ */ jsxDEV11("text", {
               children: [
-                /* @__PURE__ */ jsxDEV8("span", {
+                /* @__PURE__ */ jsxDEV11("span", {
                   fg: isSelected ? C.accent : C.dim,
                   children: isSelected ? `${ICONS.triangleRight} ` : "  "
                 }, undefined, false, undefined, this),
-                isSelected ? /* @__PURE__ */ jsxDEV8("strong", {
-                  children: /* @__PURE__ */ jsxDEV8("span", {
+                isSelected ? /* @__PURE__ */ jsxDEV11("strong", {
+                  children: /* @__PURE__ */ jsxDEV11("span", {
                     fg: C.text,
                     children: padded
                   }, undefined, false, undefined, this)
-                }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV8("span", {
+                }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV11("span", {
                   fg: C.textSec,
                   children: padded
                 }, undefined, false, undefined, this)
@@ -4005,7 +4319,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
           }, `${item.path}-${index}`, false, undefined, this);
         })
       }, undefined, false, undefined, this),
-      pendingFiles.length > 0 && /* @__PURE__ */ jsxDEV8("box", {
+      pendingFiles.length > 0 && /* @__PURE__ */ jsxDEV11("box", {
         flexDirection: "column",
         backgroundColor: C.panelBg,
         paddingX: 1,
@@ -4013,11 +4327,11 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
           const icon = FILE_TYPE_ICONS[file.fileType] || "\uD83D\uDCCE";
           const maxNameLen = Math.max(20, termWidth - 20);
           const displayPath = file.path.length > maxNameLen ? `${file.path.slice(0, Math.floor((maxNameLen - 3) / 2))}${ICONS.ellipsis}${file.path.slice(file.path.length - Math.floor((maxNameLen - 3) / 2))}` : file.path;
-          return /* @__PURE__ */ jsxDEV8("box", {
+          return /* @__PURE__ */ jsxDEV11("box", {
             paddingLeft: 1,
-            children: /* @__PURE__ */ jsxDEV8("text", {
+            children: /* @__PURE__ */ jsxDEV11("text", {
               children: [
-                /* @__PURE__ */ jsxDEV8("span", {
+                /* @__PURE__ */ jsxDEV11("span", {
                   fg: C.primaryLight,
                   children: [
                     icon,
@@ -4025,7 +4339,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
                     displayPath
                   ]
                 }, undefined, true, undefined, this),
-                /* @__PURE__ */ jsxDEV8("span", {
+                /* @__PURE__ */ jsxDEV11("span", {
                   fg: C.dim,
                   children: [
                     " (",
@@ -4038,7 +4352,7 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
           }, `file-${i}`, false, undefined, this);
         })
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV8("scrollbox", {
+      /* @__PURE__ */ jsxDEV11("scrollbox", {
         height: inputVisibleRows,
         stickyScroll: true,
         stickyStart: "bottom",
@@ -4051,9 +4365,9 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
 }
 
 // src/components/StatusBar.tsx
-import React4 from "react";
+import React5 from "react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV9, Fragment as Fragment4 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV12, Fragment as Fragment4 } from "@opentui/react/jsx-dev-runtime";
 function statusColor(color) {
   if (color === "dim")
     return C.dim;
@@ -4065,7 +4379,7 @@ function statusColor(color) {
     return C.error;
   return color ?? C.dim;
 }
-function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, planModeActive, remoteHost, backgroundTaskCount, delegateTaskCount, backgroundTaskTokens, backgroundTaskSpinnerFrame, statusSegments }) {
+function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindow, queueSize, planModeActive, noteActive, remoteHost, backgroundTaskCount, delegateTaskCount, backgroundTaskTokens, backgroundTaskSpinnerFrame, statusSegments }) {
   const resolvedModeName = modeName ?? "normal";
   const modeNameCapitalized = resolvedModeName.charAt(0).toUpperCase() + resolvedModeName.slice(1);
   const contextStr = contextTokens > 0 ? contextTokens.toLocaleString() : "-";
@@ -4074,18 +4388,18 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
   const hasBackgroundTasks = (backgroundTaskCount ?? 0) > 0;
   const hasDelegateTasks = (delegateTaskCount ?? 0) > 0;
   const spinner = hasBackgroundTasks ? SPINNER_FRAMES[(backgroundTaskSpinnerFrame ?? 0) % SPINNER_FRAMES.length] : "";
-  return /* @__PURE__ */ jsxDEV9("box", {
+  return /* @__PURE__ */ jsxDEV12("box", {
     flexDirection: "row",
     marginTop: 1,
     children: [
-      /* @__PURE__ */ jsxDEV9("box", {
+      /* @__PURE__ */ jsxDEV12("box", {
         flexGrow: 1,
         flexShrink: 1,
-        children: /* @__PURE__ */ jsxDEV9("text", {
+        children: /* @__PURE__ */ jsxDEV12("text", {
           children: [
-            remoteHost ? /* @__PURE__ */ jsxDEV9("span", {
+            remoteHost ? /* @__PURE__ */ jsxDEV12("span", {
               fg: C.warn,
-              children: /* @__PURE__ */ jsxDEV9("strong", {
+              children: /* @__PURE__ */ jsxDEV12("strong", {
                 children: [
                   "[远程: ",
                   remoteHost,
@@ -4093,7 +4407,7 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                 ]
               }, undefined, true, undefined, this)
             }, undefined, false, undefined, this) : null,
-            remoteHost ? /* @__PURE__ */ jsxDEV9("span", {
+            remoteHost ? /* @__PURE__ */ jsxDEV12("span", {
               fg: C.dim,
               children: [
                 " ",
@@ -4101,9 +4415,9 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                 " "
               ]
             }, undefined, true, undefined, this) : null,
-            agentName ? /* @__PURE__ */ jsxDEV9("span", {
+            agentName ? /* @__PURE__ */ jsxDEV12("span", {
               fg: C.accent,
-              children: /* @__PURE__ */ jsxDEV9("strong", {
+              children: /* @__PURE__ */ jsxDEV12("strong", {
                 children: [
                   "[",
                   agentName,
@@ -4111,7 +4425,7 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                 ]
               }, undefined, true, undefined, this)
             }, undefined, false, undefined, this) : null,
-            agentName ? /* @__PURE__ */ jsxDEV9("span", {
+            agentName ? /* @__PURE__ */ jsxDEV12("span", {
               fg: C.dim,
               children: [
                 " ",
@@ -4119,13 +4433,13 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                 " "
               ]
             }, undefined, true, undefined, this) : null,
-            /* @__PURE__ */ jsxDEV9("span", {
+            /* @__PURE__ */ jsxDEV12("span", {
               fg: C.primaryLight,
-              children: /* @__PURE__ */ jsxDEV9("strong", {
+              children: /* @__PURE__ */ jsxDEV12("strong", {
                 children: modeNameCapitalized
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV9("span", {
+            /* @__PURE__ */ jsxDEV12("span", {
               fg: C.dim,
               children: [
                 " ",
@@ -4133,13 +4447,13 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                 " "
               ]
             }, undefined, true, undefined, this),
-            /* @__PURE__ */ jsxDEV9("span", {
+            /* @__PURE__ */ jsxDEV12("span", {
               fg: C.textSec,
               children: modelName
             }, undefined, false, undefined, this),
-            queueSize != null && queueSize > 0 ? /* @__PURE__ */ jsxDEV9(Fragment4, {
+            queueSize != null && queueSize > 0 ? /* @__PURE__ */ jsxDEV12(Fragment4, {
               children: [
-                /* @__PURE__ */ jsxDEV9("span", {
+                /* @__PURE__ */ jsxDEV12("span", {
                   fg: C.dim,
                   children: [
                     " ",
@@ -4147,7 +4461,7 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                     " "
                   ]
                 }, undefined, true, undefined, this),
-                /* @__PURE__ */ jsxDEV9("span", {
+                /* @__PURE__ */ jsxDEV12("span", {
                   fg: C.warn,
                   children: [
                     queueSize,
@@ -4156,9 +4470,9 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                 }, undefined, true, undefined, this)
               ]
             }, undefined, true, undefined, this) : null,
-            hasBackgroundTasks ? /* @__PURE__ */ jsxDEV9(Fragment4, {
+            hasBackgroundTasks ? /* @__PURE__ */ jsxDEV12(Fragment4, {
               children: [
-                /* @__PURE__ */ jsxDEV9("span", {
+                /* @__PURE__ */ jsxDEV12("span", {
                   fg: C.dim,
                   children: [
                     " ",
@@ -4166,7 +4480,7 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                     " "
                   ]
                 }, undefined, true, undefined, this),
-                /* @__PURE__ */ jsxDEV9("span", {
+                /* @__PURE__ */ jsxDEV12("span", {
                   fg: C.accent,
                   children: [
                     spinner,
@@ -4178,9 +4492,9 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                 }, undefined, true, undefined, this)
               ]
             }, undefined, true, undefined, this) : null,
-            hasDelegateTasks ? /* @__PURE__ */ jsxDEV9(Fragment4, {
+            hasDelegateTasks ? /* @__PURE__ */ jsxDEV12(Fragment4, {
               children: [
-                /* @__PURE__ */ jsxDEV9("span", {
+                /* @__PURE__ */ jsxDEV12("span", {
                   fg: C.dim,
                   children: [
                     " ",
@@ -4188,7 +4502,7 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                     " "
                   ]
                 }, undefined, true, undefined, this),
-                /* @__PURE__ */ jsxDEV9("span", {
+                /* @__PURE__ */ jsxDEV12("span", {
                   fg: C.warn,
                   children: [
                     ICONS.delegateArrow,
@@ -4202,11 +4516,11 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      planModeActive ? /* @__PURE__ */ jsxDEV9("box", {
+      planModeActive ? /* @__PURE__ */ jsxDEV12("box", {
         flexShrink: 0,
-        children: /* @__PURE__ */ jsxDEV9("text", {
+        children: /* @__PURE__ */ jsxDEV12("text", {
           children: [
-            /* @__PURE__ */ jsxDEV9("span", {
+            /* @__PURE__ */ jsxDEV12("span", {
               fg: C.dim,
               children: [
                 " ",
@@ -4214,27 +4528,52 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                 "  "
               ]
             }, undefined, true, undefined, this),
-            /* @__PURE__ */ jsxDEV9("span", {
+            /* @__PURE__ */ jsxDEV12("span", {
               fg: C.warn,
-              children: /* @__PURE__ */ jsxDEV9("strong", {
+              children: /* @__PURE__ */ jsxDEV12("strong", {
                 children: [
                   ICONS.planMode,
                   " Plan Mode"
                 ]
               }, undefined, true, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV9("span", {
+            /* @__PURE__ */ jsxDEV12("span", {
               fg: C.dim,
               children: "  "
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this) : null,
-      /* @__PURE__ */ jsxDEV9("box", {
+      noteActive ? /* @__PURE__ */ jsxDEV12("box", {
         flexShrink: 0,
-        children: /* @__PURE__ */ jsxDEV9("text", {
+        children: /* @__PURE__ */ jsxDEV12("text", {
           children: [
-            /* @__PURE__ */ jsxDEV9("span", {
+            /* @__PURE__ */ jsxDEV12("span", {
+              fg: C.dim,
+              children: [
+                " ",
+                ICONS.separator,
+                "  "
+              ]
+            }, undefined, true, undefined, this),
+            /* @__PURE__ */ jsxDEV12("span", {
+              fg: C.accent,
+              children: /* @__PURE__ */ jsxDEV12("strong", {
+                children: "✎ Note"
+              }, undefined, false, undefined, this)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV12("span", {
+              fg: C.dim,
+              children: "  "
+            }, undefined, false, undefined, this)
+          ]
+        }, undefined, true, undefined, this)
+      }, undefined, false, undefined, this) : null,
+      /* @__PURE__ */ jsxDEV12("box", {
+        flexShrink: 0,
+        children: /* @__PURE__ */ jsxDEV12("text", {
+          children: [
+            /* @__PURE__ */ jsxDEV12("span", {
               fg: C.dim,
               children: [
                 " ctx ",
@@ -4243,9 +4582,9 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                 contextPercent
               ]
             }, undefined, true, undefined, this),
-            (statusSegments ?? []).map((segment) => /* @__PURE__ */ jsxDEV9(React4.Fragment, {
+            (statusSegments ?? []).map((segment) => /* @__PURE__ */ jsxDEV12(React5.Fragment, {
               children: [
-                /* @__PURE__ */ jsxDEV9("span", {
+                /* @__PURE__ */ jsxDEV12("span", {
                   fg: C.dim,
                   children: [
                     " ",
@@ -4253,7 +4592,7 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
                     " "
                   ]
                 }, undefined, true, undefined, this),
-                /* @__PURE__ */ jsxDEV9("span", {
+                /* @__PURE__ */ jsxDEV12("span", {
                   fg: statusColor(segment.color),
                   children: segment.text
                 }, undefined, false, undefined, this)
@@ -4268,7 +4607,7 @@ function StatusBar({ agentName, modeName, modelName, contextTokens, contextWindo
 
 // src/components/ThinkingIndicator.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV10 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV13 } from "@opentui/react/jsx-dev-runtime";
 var FILLED_CHAR = ICONS.thinkingFilled;
 var DIM_CHAR = ICONS.thinkingDim;
 function ThinkingIndicator({ level, providerLevels, showHint, isRemote, thinkingControlEnabled }) {
@@ -4281,20 +4620,20 @@ function ThinkingIndicator({ level, providerLevels, showHint, isRemote, thinking
   const blocks = [];
   for (let i = 0;i < blockCount; i++) {
     const isFilled = i < filled;
-    blocks.push(/* @__PURE__ */ jsxDEV10("span", {
+    blocks.push(/* @__PURE__ */ jsxDEV13("span", {
       fg: isFilled ? C.accent : C.dim,
       children: isFilled ? FILLED_CHAR : DIM_CHAR
     }, i, false, undefined, this));
   }
-  return /* @__PURE__ */ jsxDEV10("box", {
+  return /* @__PURE__ */ jsxDEV13("box", {
     flexDirection: "row",
     children: [
-      /* @__PURE__ */ jsxDEV10("box", {
+      /* @__PURE__ */ jsxDEV13("box", {
         flexGrow: 1,
-        children: /* @__PURE__ */ jsxDEV10("text", {
+        children: /* @__PURE__ */ jsxDEV13("text", {
           children: [
             blocks,
-            /* @__PURE__ */ jsxDEV10("span", {
+            /* @__PURE__ */ jsxDEV13("span", {
               fg: isNotSet ? C.dim : C.accent,
               children: [
                 " ",
@@ -4304,16 +4643,16 @@ function ThinkingIndicator({ level, providerLevels, showHint, isRemote, thinking
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      isRemote ? /* @__PURE__ */ jsxDEV10("box", {
+      isRemote ? /* @__PURE__ */ jsxDEV13("box", {
         flexShrink: 0,
-        children: /* @__PURE__ */ jsxDEV10("text", {
+        children: /* @__PURE__ */ jsxDEV13("text", {
           fg: C.dim,
           children: "输入 /disconnect 断开远程连接"
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this) : null,
-      showHint ? /* @__PURE__ */ jsxDEV10("box", {
+      showHint ? /* @__PURE__ */ jsxDEV13("box", {
         flexShrink: 0,
-        children: /* @__PURE__ */ jsxDEV10("text", {
+        children: /* @__PURE__ */ jsxDEV13("text", {
           fg: C.dim,
           children: `shift+${ICONS.arrowLeft}/${ICONS.arrowRight} 调整思考强度`
         }, undefined, false, undefined, this)
@@ -4323,7 +4662,7 @@ function ThinkingIndicator({ level, providerLevels, showHint, isRemote, thinking
 }
 
 // src/components/BottomPanel.tsx
-import { jsxDEV as jsxDEV11 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV14 } from "@opentui/react/jsx-dev-runtime";
 function BottomPanel({
   hasMessages,
   pendingConfirm,
@@ -4347,6 +4686,13 @@ function BottomPanel({
   exitConfirmArmed,
   backgroundTaskCount,
   planModeActive,
+  noteContent,
+  noteEditorOpen,
+  noteEditorInitialValue,
+  noteEditorDraft,
+  onSaveNote,
+  onNoteEditorDraftChange,
+  onCancelNoteEdit,
   delegateTaskCount,
   backgroundTaskTokens,
   backgroundTaskSpinnerFrame,
@@ -4368,7 +4714,7 @@ function BottomPanel({
   onRestoreInputConsumed
 }) {
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
-  return /* @__PURE__ */ jsxDEV11("box", {
+  return /* @__PURE__ */ jsxDEV14("box", {
     flexDirection: "column",
     flexShrink: 0,
     paddingX: 1,
@@ -4376,74 +4722,92 @@ function BottomPanel({
     paddingTop: hasMessages ? 1 : 0,
     zIndex: 10,
     children: [
-      pendingConfirm ? /* @__PURE__ */ jsxDEV11(ConfirmBar, {
+      pendingConfirm ? /* @__PURE__ */ jsxDEV14(ConfirmBar, {
         message: pendingConfirm.message,
         choice: confirmChoice
-      }, undefined, false, undefined, this) : askQuestionInvocation && onToolMessage ? /* @__PURE__ */ jsxDEV11(AskQuestionFirstPanel, {
+      }, undefined, false, undefined, this) : askQuestionInvocation && onToolMessage ? /* @__PURE__ */ jsxDEV14(AskQuestionFirstPanel, {
         invocation: askQuestionInvocation,
         onToolMessage,
         planModeActive
-      }, askQuestionKey, false, undefined, this) : pendingApprovals.length > 0 && pendingApprovals[0].toolName === "ExitPlanMode" ? /* @__PURE__ */ jsxDEV11(PlanApprovalBar, {
+      }, askQuestionKey, false, undefined, this) : pendingApprovals.length > 0 && pendingApprovals[0].toolName === "ExitPlanMode" ? /* @__PURE__ */ jsxDEV14(PlanApprovalBar, {
         invocation: pendingApprovals[0],
         remainingCount: pendingApprovals.length,
         choice: approvalChoice
-      }, undefined, false, undefined, this) : pendingApprovals.length > 0 ? /* @__PURE__ */ jsxDEV11(ApprovalBar, {
+      }, undefined, false, undefined, this) : pendingApprovals.length > 0 && pendingApprovals[0].toolName === "propose_update_note" ? /* @__PURE__ */ jsxDEV14(NoteUpdateApprovalBar, {
+        invocation: pendingApprovals[0],
+        remainingCount: pendingApprovals.length,
+        choice: approvalChoice
+      }, undefined, false, undefined, this) : pendingApprovals.length > 0 ? /* @__PURE__ */ jsxDEV14(ApprovalBar, {
         toolName: pendingApprovals[0].toolName,
         choice: approvalChoice,
         remainingCount: pendingApprovals.length,
         isCommandTool: pendingApprovals[0].toolName === "shell" || pendingApprovals[0].toolName === "bash",
         approvalPage
-      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV11("box", {
+      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV14("box", {
         flexDirection: "column",
-        borderStyle: "single",
-        borderColor: isGenerating ? C.warn : C.border,
-        paddingX: 1,
-        paddingTop: 0,
-        paddingBottom: 0,
         children: [
-          /* @__PURE__ */ jsxDEV11(ThinkingIndicator, {
-            level: thinkingEffort,
-            providerLevels,
-            showHint: !hasMessages,
-            isRemote,
-            thinkingControlEnabled
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV11(InputBar, {
-            disabled: inputDisabled,
-            isGenerating,
-            queueSize,
-            onSubmit,
-            onPrioritySubmit,
-            onCycleThinkingEffort,
-            pendingFiles,
-            onRemoveFile,
-            onListFileMentionFiles,
-            isRemote,
-            dynamicCommands,
-            supportsHeadlessTransition,
-            thinkingControlEnabled,
-            inputControllerRef,
-            restoreInputText,
-            onRestoreInputConsumed
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV11(StatusBar, {
-            agentName,
-            modeName,
-            modelName,
-            contextTokens,
-            contextWindow,
-            queueSize,
-            planModeActive,
-            remoteHost,
-            backgroundTaskCount,
-            delegateTaskCount,
-            backgroundTaskTokens,
-            backgroundTaskSpinnerFrame,
-            statusSegments
-          }, undefined, false, undefined, this)
+          noteEditorOpen ? /* @__PURE__ */ jsxDEV14(NoteEditorPanel, {
+            initialValue: noteEditorDraft ?? noteEditorInitialValue ?? noteContent ?? "",
+            onSave: onSaveNote,
+            onCancel: onCancelNoteEdit,
+            onDraftChange: onNoteEditorDraftChange
+          }, undefined, false, undefined, this) : noteContent?.trim() ? /* @__PURE__ */ jsxDEV14(NotePanel, {
+            content: noteContent
+          }, undefined, false, undefined, this) : null,
+          /* @__PURE__ */ jsxDEV14("box", {
+            flexDirection: "column",
+            borderStyle: "single",
+            borderColor: isGenerating ? C.warn : C.border,
+            paddingX: 1,
+            paddingTop: 0,
+            paddingBottom: 0,
+            children: [
+              /* @__PURE__ */ jsxDEV14(ThinkingIndicator, {
+                level: thinkingEffort,
+                providerLevels,
+                showHint: !hasMessages,
+                isRemote,
+                thinkingControlEnabled
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsxDEV14(InputBar, {
+                disabled: inputDisabled || !!noteEditorOpen,
+                isGenerating,
+                queueSize,
+                onSubmit,
+                onPrioritySubmit,
+                onCycleThinkingEffort,
+                pendingFiles,
+                onRemoveFile,
+                onListFileMentionFiles,
+                isRemote,
+                dynamicCommands,
+                supportsHeadlessTransition,
+                thinkingControlEnabled,
+                inputControllerRef,
+                restoreInputText,
+                onRestoreInputConsumed
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsxDEV14(StatusBar, {
+                agentName,
+                modeName,
+                modelName,
+                contextTokens,
+                contextWindow,
+                queueSize,
+                planModeActive,
+                remoteHost,
+                backgroundTaskCount,
+                delegateTaskCount,
+                backgroundTaskTokens,
+                backgroundTaskSpinnerFrame,
+                statusSegments,
+                noteActive: !!noteContent?.trim()
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV11(HintBar, {
+      /* @__PURE__ */ jsxDEV14(HintBar, {
         isGenerating,
         hasRunningBackgroundTasks: (backgroundTaskCount ?? 0) + (delegateTaskCount ?? 0) > 0,
         queueSize,
@@ -4458,30 +4822,30 @@ function BottomPanel({
 
 // src/components/AgentListView.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV12 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV15 } from "@opentui/react/jsx-dev-runtime";
 function AgentListView({ agents, selectedIndex, currentAgentName }) {
-  return /* @__PURE__ */ jsxDEV12("box", {
+  return /* @__PURE__ */ jsxDEV15("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV12("box", {
+      /* @__PURE__ */ jsxDEV15("box", {
         padding: 1,
         children: [
-          /* @__PURE__ */ jsxDEV12("text", {
+          /* @__PURE__ */ jsxDEV15("text", {
             fg: C.primary,
             children: "切换 Agent"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV12("text", {
+          /* @__PURE__ */ jsxDEV15("text", {
             fg: C.dim,
             children: `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 切换  Esc 返回`
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV12("scrollbox", {
+      /* @__PURE__ */ jsxDEV15("scrollbox", {
         flexGrow: 1,
         children: [
-          agents.length === 0 && /* @__PURE__ */ jsxDEV12("text", {
+          agents.length === 0 && /* @__PURE__ */ jsxDEV15("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: "暂无可用 Agent"
@@ -4490,31 +4854,31 @@ function AgentListView({ agents, selectedIndex, currentAgentName }) {
             const isSelected = index === selectedIndex;
             const isCurrent = agent.name === currentAgentName;
             const currentMarker = isCurrent ? ICONS.bullet : " ";
-            return /* @__PURE__ */ jsxDEV12("box", {
+            return /* @__PURE__ */ jsxDEV15("box", {
               paddingLeft: 1,
-              children: /* @__PURE__ */ jsxDEV12("text", {
+              children: /* @__PURE__ */ jsxDEV15("text", {
                 children: [
-                  /* @__PURE__ */ jsxDEV12("span", {
+                  /* @__PURE__ */ jsxDEV15("span", {
                     fg: isSelected ? C.accent : C.dim,
                     children: isSelected ? `${ICONS.selectorArrow} ` : "  "
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV12("span", {
+                  /* @__PURE__ */ jsxDEV15("span", {
                     fg: isCurrent ? C.accent : C.dim,
                     children: [
                       currentMarker,
                       " "
                     ]
                   }, undefined, true, undefined, this),
-                  isSelected ? /* @__PURE__ */ jsxDEV12("strong", {
-                    children: /* @__PURE__ */ jsxDEV12("span", {
+                  isSelected ? /* @__PURE__ */ jsxDEV15("strong", {
+                    children: /* @__PURE__ */ jsxDEV15("span", {
                       fg: C.text,
                       children: agent.name
                     }, undefined, false, undefined, this)
-                  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV12("span", {
+                  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV15("span", {
                     fg: C.textSec,
                     children: agent.name
                   }, undefined, false, undefined, this),
-                  agent.description ? /* @__PURE__ */ jsxDEV12("span", {
+                  agent.description ? /* @__PURE__ */ jsxDEV15("span", {
                     fg: C.dim,
                     children: [
                       "  ",
@@ -4533,19 +4897,19 @@ function AgentListView({ agents, selectedIndex, currentAgentName }) {
 
 // src/components/ChatMessageList.tsx
 import { useMemo as useMemo7 } from "react";
-import { useTerminalDimensions as useTerminalDimensions6 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions8 } from "@opentui/react";
 
 // src/components/GeneratingTimer.tsx
-import { useState as useState7, useEffect as useEffect7, useRef as useRef5 } from "react";
+import { useState as useState8, useEffect as useEffect8, useRef as useRef6 } from "react";
 
 // src/components/Spinner.tsx
-import { useState as useState6, useEffect as useEffect6, useRef as useRef4 } from "react";
+import { useState as useState7, useEffect as useEffect7, useRef as useRef5 } from "react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV13 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV16 } from "@opentui/react/jsx-dev-runtime";
 function Spinner({ color = C.accent, frames = SPINNER_FRAMES, intervalMs = SPINNER_INTERVAL_MS }) {
-  const [frame, setFrame] = useState6(0);
-  const mountedRef = useRef4(true);
-  useEffect6(() => {
+  const [frame, setFrame] = useState7(0);
+  const mountedRef = useRef5(true);
+  useEffect7(() => {
     mountedRef.current = true;
     const timer = setInterval(() => {
       if (mountedRef.current) {
@@ -4557,24 +4921,24 @@ function Spinner({ color = C.accent, frames = SPINNER_FRAMES, intervalMs = SPINN
       clearInterval(timer);
     };
   }, [frames, intervalMs]);
-  return /* @__PURE__ */ jsxDEV13("span", {
+  return /* @__PURE__ */ jsxDEV16("span", {
     fg: color,
     children: frames[frame % frames.length]
   }, undefined, false, undefined, this);
 }
 
 // src/components/GeneratingTimer.tsx
-import { jsxDEV as jsxDEV14 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV17 } from "@opentui/react/jsx-dev-runtime";
 function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
-  const [time, setTime] = useState7(0);
-  const timerRef = useRef5(null);
+  const [time, setTime] = useState8(0);
+  const timerRef = useRef6(null);
   const active = isGenerating && !paused;
-  useEffect7(() => {
+  useEffect8(() => {
     if (isGenerating) {
       setTime(0);
     }
   }, [isGenerating]);
-  useEffect7(() => {
+  useEffect8(() => {
     if (active) {
       timerRef.current = setInterval(() => {
         setTime((t) => +(t + 0.1).toFixed(1));
@@ -4597,33 +4961,33 @@ function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
   if (retryInfo) {
     const briefError = (retryInfo.error || "").split(`
 `)[0].slice(0, 60);
-    return /* @__PURE__ */ jsxDEV14("box", {
+    return /* @__PURE__ */ jsxDEV17("box", {
       flexDirection: "column",
       children: [
-        /* @__PURE__ */ jsxDEV14("text", {
+        /* @__PURE__ */ jsxDEV17("text", {
           children: [
-            /* @__PURE__ */ jsxDEV14(Spinner, {}, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV14("span", {
+            /* @__PURE__ */ jsxDEV17(Spinner, {}, undefined, false, undefined, this),
+            /* @__PURE__ */ jsxDEV17("span", {
               fg: C.warn,
-              children: /* @__PURE__ */ jsxDEV14("em", {
+              children: /* @__PURE__ */ jsxDEV17("em", {
                 children: ` retrying (${retryInfo.attempt}/${retryInfo.maxRetries})... (${time}s)`
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this),
-        /* @__PURE__ */ jsxDEV14("text", {
+        /* @__PURE__ */ jsxDEV17("text", {
           fg: C.dim,
           children: `  └ ${briefError}`
         }, undefined, false, undefined, this)
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV14("text", {
+  return /* @__PURE__ */ jsxDEV17("text", {
     children: [
-      /* @__PURE__ */ jsxDEV14(Spinner, {}, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV14("span", {
+      /* @__PURE__ */ jsxDEV17(Spinner, {}, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV17("span", {
         fg: C.dim,
-        children: /* @__PURE__ */ jsxDEV14("em", {
+        children: /* @__PURE__ */ jsxDEV17("em", {
           children: ` ${label ?? "generating..."} (${time}s)`
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this)
@@ -4632,21 +4996,21 @@ function GeneratingTimer({ isGenerating, retryInfo, label, paused }) {
 }
 
 // src/components/MessageItem.tsx
-import React9, { useEffect as useEffect9, useRef as useRef6, useState as useState9 } from "react";
-import { useTerminalDimensions as useTerminalDimensions5 } from "@opentui/react";
+import React10, { useEffect as useEffect10, useRef as useRef7, useState as useState10 } from "react";
+import { useTerminalDimensions as useTerminalDimensions7 } from "@opentui/react";
 
 // src/components/ToolCall.tsx
-import { useEffect as useEffect8, useState as useState8 } from "react";
+import { useEffect as useEffect9, useState as useState9 } from "react";
 
 // src/tool-renderers/default.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV15 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV18 } from "@opentui/react/jsx-dev-runtime";
 function DefaultRenderer({ result }) {
   const text = typeof result === "string" ? result.replace(/\n/g, " ") : JSON.stringify(result).replace(/\n/g, " ");
   const truncated = text.length > 80 ? text.slice(0, 80) + "..." : text;
-  return /* @__PURE__ */ jsxDEV15("text", {
+  return /* @__PURE__ */ jsxDEV18("text", {
     fg: "#888",
-    children: /* @__PURE__ */ jsxDEV15("em", {
+    children: /* @__PURE__ */ jsxDEV18("em", {
       children: [
         " ",
         ICONS.resultArrow,
@@ -4659,7 +5023,7 @@ function DefaultRenderer({ result }) {
 
 // src/tool-renderers/shell.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV16 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV19 } from "@opentui/react/jsx-dev-runtime";
 function lineCount(text) {
   if (!text)
     return 0;
@@ -4678,9 +5042,9 @@ function ShellRenderer({ result }) {
   const exitCode = r.exitCode ?? 0;
   const isError = exitCode !== 0;
   if (r.abortedByUser) {
-    return /* @__PURE__ */ jsxDEV16("text", {
+    return /* @__PURE__ */ jsxDEV19("text", {
       fg: "#ff0000",
-      children: /* @__PURE__ */ jsxDEV16("em", {
+      children: /* @__PURE__ */ jsxDEV19("em", {
         children: [
           ` ${ICONS.resultArrow} `,
           "被用户终止"
@@ -4689,9 +5053,9 @@ function ShellRenderer({ result }) {
     }, undefined, false, undefined, this);
   }
   if (r.killed) {
-    return /* @__PURE__ */ jsxDEV16("text", {
+    return /* @__PURE__ */ jsxDEV19("text", {
       fg: "#ff0000",
-      children: /* @__PURE__ */ jsxDEV16("em", {
+      children: /* @__PURE__ */ jsxDEV19("em", {
         children: [
           ` ${ICONS.resultArrow} `,
           "killed (timeout)"
@@ -4701,9 +5065,9 @@ function ShellRenderer({ result }) {
   }
   if (isError) {
     const reason = firstLine(r.stderr, 100) || `exit ${exitCode}`;
-    return /* @__PURE__ */ jsxDEV16("text", {
+    return /* @__PURE__ */ jsxDEV19("text", {
       fg: "#ff0000",
-      children: /* @__PURE__ */ jsxDEV16("em", {
+      children: /* @__PURE__ */ jsxDEV19("em", {
         children: [
           ` ${ICONS.resultArrow} `,
           reason
@@ -4713,9 +5077,9 @@ function ShellRenderer({ result }) {
   }
   const lines = lineCount(r.stdout);
   const summary = lines > 0 ? `${lines} lines output` : "done (no output)";
-  return /* @__PURE__ */ jsxDEV16("text", {
+  return /* @__PURE__ */ jsxDEV19("text", {
     fg: "#888",
-    children: /* @__PURE__ */ jsxDEV16("em", {
+    children: /* @__PURE__ */ jsxDEV19("em", {
       children: [
         ` ${ICONS.resultArrow} `,
         summary
@@ -4726,7 +5090,7 @@ function ShellRenderer({ result }) {
 
 // src/tool-renderers/read-file.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV17 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV20 } from "@opentui/react/jsx-dev-runtime";
 function basename2(p) {
   return p.split("/").pop() || p;
 }
@@ -4734,9 +5098,9 @@ function ReadFileRenderer({ result }) {
   const r = result || {};
   const items = r.results || [];
   if (items.length === 0) {
-    return /* @__PURE__ */ jsxDEV17("text", {
+    return /* @__PURE__ */ jsxDEV20("text", {
       fg: "#888",
-      children: /* @__PURE__ */ jsxDEV17("em", {
+      children: /* @__PURE__ */ jsxDEV20("em", {
         children: [
           ` ${ICONS.resultArrow}`,
           " read 0 lines (-)"
@@ -4749,9 +5113,9 @@ function ReadFileRenderer({ result }) {
     const lines = item.lineCount ?? 0;
     const name = item.path ?? "?";
     const range = item.startLine !== undefined && item.endLine !== undefined ? `:${item.startLine}-${item.endLine}` : "";
-    return /* @__PURE__ */ jsxDEV17("text", {
+    return /* @__PURE__ */ jsxDEV20("text", {
       fg: "#888",
-      children: /* @__PURE__ */ jsxDEV17("em", {
+      children: /* @__PURE__ */ jsxDEV20("em", {
         children: [
           ` ${ICONS.resultArrow}`,
           " read ",
@@ -4766,9 +5130,9 @@ function ReadFileRenderer({ result }) {
   }
   const totalLines = items.reduce((sum, item) => sum + (item.lineCount ?? 0), 0);
   const names = items.map((item) => basename2(item.path ?? "?")).join(", ");
-  return /* @__PURE__ */ jsxDEV17("text", {
+  return /* @__PURE__ */ jsxDEV20("text", {
     fg: "#888",
-    children: /* @__PURE__ */ jsxDEV17("em", {
+    children: /* @__PURE__ */ jsxDEV20("em", {
       children: [
         ` ${ICONS.resultArrow}`,
         " read ",
@@ -4786,7 +5150,7 @@ init_terminal_compat();
 
 // src/tool-renderers/diff-preview.tsx
 init_terminal_compat();
-import { useTerminalDimensions as useTerminalDimensions4 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions6 } from "@opentui/react";
 
 // src/tool-renderers/diff-preview-layout.ts
 init_terminal_compat();
@@ -5014,7 +5378,7 @@ function attachResultDiffPreview(result, preview) {
 }
 
 // src/tool-renderers/diff-preview.tsx
-import { jsxDEV as jsxDEV18, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV21, Fragment as Fragment5 } from "@opentui/react/jsx-dev-runtime";
 var DEFAULT_MAX_ITEMS = 3;
 var DEFAULT_MAX_LINES = 80;
 function getLineColor(kind, hunkStatus) {
@@ -5044,7 +5408,7 @@ function CompactDiffPreview({
   maxLines = DEFAULT_MAX_LINES,
   hunkStatuses = []
 }) {
-  const { width: terminalWidth } = useTerminalDimensions4();
+  const { width: terminalWidth } = useTerminalDimensions6();
   const layout = layoutCompactDiffPreview({ preview, terminalWidth, maxItems, maxLines, hunkStatuses });
   if (!layout || layout.rows.length === 0)
     return null;
@@ -5056,40 +5420,40 @@ function CompactDiffPreview({
     lineNumberWidth,
     separatorText
   } = layout;
-  return /* @__PURE__ */ jsxDEV18("box", {
+  return /* @__PURE__ */ jsxDEV21("box", {
     flexDirection: "column",
     children: [
-      rows.map((row) => /* @__PURE__ */ jsxDEV18("text", {
+      rows.map((row) => /* @__PURE__ */ jsxDEV21("text", {
         wrapMode: "none",
         children: row.showGutter ? (() => {
           const oldNum = lineNumberWidth > 0 ? formatDiffPreviewLineNumber(row.oldLineNumber, lineNumberWidth) : "";
           const newNum = lineNumberWidth > 0 ? formatDiffPreviewLineNumber(row.newLineNumber, lineNumberWidth) : "";
           const numberColumns = lineNumberWidth > 0 ? `${oldNum} ${newNum}` : "";
-          return /* @__PURE__ */ jsxDEV18(Fragment5, {
+          return /* @__PURE__ */ jsxDEV21(Fragment5, {
             children: [
-              lineNumberWidth > 0 ? /* @__PURE__ */ jsxDEV18("span", {
+              lineNumberWidth > 0 ? /* @__PURE__ */ jsxDEV21("span", {
                 fg: "#6b7280",
                 children: numberColumns
               }, undefined, false, undefined, this) : null,
-              /* @__PURE__ */ jsxDEV18("span", {
+              /* @__PURE__ */ jsxDEV21("span", {
                 fg: "#6b7280",
                 children: separatorText
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV18("span", {
+              /* @__PURE__ */ jsxDEV21("span", {
                 fg: getLineColor(row.kind, row.hunkStatus),
                 children: row.text
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this);
-        })() : /* @__PURE__ */ jsxDEV18("span", {
+        })() : /* @__PURE__ */ jsxDEV21("span", {
           fg: getLineColor(row.kind, row.hunkStatus),
           children: row.text
         }, undefined, false, undefined, this)
       }, row.key, false, undefined, this)),
-      hiddenLines > 0 || hiddenItems > 0 || clippedRows > 0 ? /* @__PURE__ */ jsxDEV18("text", {
-        children: /* @__PURE__ */ jsxDEV18("span", {
+      hiddenLines > 0 || hiddenItems > 0 || clippedRows > 0 ? /* @__PURE__ */ jsxDEV21("text", {
+        children: /* @__PURE__ */ jsxDEV21("span", {
           fg: "#6b7280",
-          children: /* @__PURE__ */ jsxDEV18("em", {
+          children: /* @__PURE__ */ jsxDEV21("em", {
             children: `${ICONS.ellipsis} 已截断${hiddenItems > 0 ? ` ${hiddenItems} 个文件` : ""}${hiddenLines + clippedRows > 0 ? ` ${hiddenLines + clippedRows} 行` : ""}`
           }, undefined, false, undefined, this)
         }, undefined, false, undefined, this)
@@ -5099,7 +5463,7 @@ function CompactDiffPreview({
 }
 
 // src/tool-renderers/apply-diff.tsx
-import { jsxDEV as jsxDEV19 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV22 } from "@opentui/react/jsx-dev-runtime";
 function countPatchLines(patch) {
   if (typeof patch !== "string")
     return { added: 0, deleted: 0 };
@@ -5124,15 +5488,15 @@ function ApplyDiffRenderer({ args, result }) {
   const hunkResults = Array.isArray(r.results) ? r.results : [];
   const preview = extractResultDiffPreview(result);
   const hasStats = added > 0 || deleted > 0;
-  return /* @__PURE__ */ jsxDEV19("box", {
+  return /* @__PURE__ */ jsxDEV22("box", {
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsxDEV19("text", {
+      /* @__PURE__ */ jsxDEV22("text", {
         fg: isError ? "#ffff00" : "#888",
-        children: /* @__PURE__ */ jsxDEV19("em", {
+        children: /* @__PURE__ */ jsxDEV22("em", {
           children: [
             ` ${ICONS.resultArrow} `,
-            added > 0 && /* @__PURE__ */ jsxDEV19("span", {
+            added > 0 && /* @__PURE__ */ jsxDEV22("span", {
               fg: "#57ab5a",
               children: [
                 "+",
@@ -5140,7 +5504,7 @@ function ApplyDiffRenderer({ args, result }) {
               ]
             }, undefined, true, undefined, this),
             added > 0 && deleted > 0 && " ",
-            deleted > 0 && /* @__PURE__ */ jsxDEV19("span", {
+            deleted > 0 && /* @__PURE__ */ jsxDEV22("span", {
               fg: "#f47067",
               children: [
                 "-",
@@ -5157,7 +5521,7 @@ function ApplyDiffRenderer({ args, result }) {
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV19(CompactDiffPreview, {
+      /* @__PURE__ */ jsxDEV22(CompactDiffPreview, {
         preview,
         hunkStatuses: hunkResults.map((hunk) => ({
           success: hunk.success,
@@ -5172,7 +5536,7 @@ function ApplyDiffRenderer({ args, result }) {
 
 // src/tool-renderers/search-in-files.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV20 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV23 } from "@opentui/react/jsx-dev-runtime";
 function truncStr(s, max) {
   return s.length > max ? s.slice(0, max) + ICONS.ellipsis : s;
 }
@@ -5187,21 +5551,21 @@ function SearchInFilesRenderer({ args, result }) {
     const replace = typeof args?.replace === "string" ? truncStr(args.replace, 16) : "";
     const transform = query ? ` "${query}" ${ICONS.arrowRight} "${replace}"` : "";
     const changedFiles = r.results ? r.results.filter((f) => f.changed).length : files;
-    return /* @__PURE__ */ jsxDEV20("box", {
+    return /* @__PURE__ */ jsxDEV23("box", {
       flexDirection: "column",
       children: [
-        /* @__PURE__ */ jsxDEV20("text", {
+        /* @__PURE__ */ jsxDEV23("text", {
           fg: "#888",
-          children: /* @__PURE__ */ jsxDEV20("em", {
+          children: /* @__PURE__ */ jsxDEV23("em", {
             children: [
               ` ${ICONS.resultArrow} `,
-              /* @__PURE__ */ jsxDEV20("span", {
+              /* @__PURE__ */ jsxDEV23("span", {
                 fg: "#d2a8ff",
                 children: total
               }, undefined, false, undefined, this),
               " replacements in",
               " ",
-              /* @__PURE__ */ jsxDEV20("span", {
+              /* @__PURE__ */ jsxDEV23("span", {
                 fg: "#d2a8ff",
                 children: changedFiles
               }, undefined, false, undefined, this),
@@ -5213,7 +5577,7 @@ function SearchInFilesRenderer({ args, result }) {
             ]
           }, undefined, true, undefined, this)
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV20(CompactDiffPreview, {
+        /* @__PURE__ */ jsxDEV23(CompactDiffPreview, {
           preview
         }, undefined, false, undefined, this)
       ]
@@ -5221,9 +5585,9 @@ function SearchInFilesRenderer({ args, result }) {
   }
   const count = r.count ?? 0;
   const suffix = r.truncated ? " (truncated)" : "";
-  return /* @__PURE__ */ jsxDEV20("text", {
+  return /* @__PURE__ */ jsxDEV23("text", {
     fg: "#888",
-    children: /* @__PURE__ */ jsxDEV20("em", {
+    children: /* @__PURE__ */ jsxDEV23("em", {
       children: [
         ` ${ICONS.resultArrow} `,
         count,
@@ -5236,14 +5600,14 @@ function SearchInFilesRenderer({ args, result }) {
 
 // src/tool-renderers/find-files.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV21 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV24 } from "@opentui/react/jsx-dev-runtime";
 function FindFilesRenderer({ result }) {
   const r = result || {};
   const count = r.count ?? 0;
   const suffix = r.truncated ? " (truncated)" : "";
-  return /* @__PURE__ */ jsxDEV21("text", {
+  return /* @__PURE__ */ jsxDEV24("text", {
     fg: "#888",
-    children: /* @__PURE__ */ jsxDEV21("em", {
+    children: /* @__PURE__ */ jsxDEV24("em", {
       children: [
         ` ${ICONS.resultArrow} `,
         " ",
@@ -5257,7 +5621,7 @@ function FindFilesRenderer({ result }) {
 
 // src/tool-renderers/list-files.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV22 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV25 } from "@opentui/react/jsx-dev-runtime";
 function ListFilesRenderer({ result }) {
   const r = result || {};
   const items = r.results || [];
@@ -5270,9 +5634,9 @@ function ListFilesRenderer({ result }) {
     summary += ` (${paths})`;
   if (failCount > 0)
     summary += ` | ${failCount} failed`;
-  return /* @__PURE__ */ jsxDEV22("text", {
+  return /* @__PURE__ */ jsxDEV25("text", {
     fg: failCount > 0 ? "#ffff00" : "#888",
-    children: /* @__PURE__ */ jsxDEV22("em", {
+    children: /* @__PURE__ */ jsxDEV25("em", {
       children: [
         ` ${ICONS.resultArrow} `,
         summary
@@ -5283,7 +5647,7 @@ function ListFilesRenderer({ result }) {
 
 // src/tool-renderers/write-file.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV23 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV26 } from "@opentui/react/jsx-dev-runtime";
 function countLines(content) {
   if (typeof content !== "string")
     return 0;
@@ -5302,9 +5666,9 @@ function WriteFileRenderer({ args, result }) {
   const hasLines = lines > 0 && action !== "unchanged";
   const preview = extractResultDiffPreview(result);
   if (!r.path) {
-    return /* @__PURE__ */ jsxDEV23("text", {
+    return /* @__PURE__ */ jsxDEV26("text", {
       fg: "#888",
-      children: /* @__PURE__ */ jsxDEV23("em", {
+      children: /* @__PURE__ */ jsxDEV26("em", {
         children: [
           ` ${ICONS.resultArrow}`,
           " wrote 0 files"
@@ -5312,21 +5676,21 @@ function WriteFileRenderer({ args, result }) {
       }, undefined, true, undefined, this)
     }, undefined, false, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV23("box", {
+  return /* @__PURE__ */ jsxDEV26("box", {
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsxDEV23("text", {
+      /* @__PURE__ */ jsxDEV26("text", {
         fg,
-        children: /* @__PURE__ */ jsxDEV23("em", {
+        children: /* @__PURE__ */ jsxDEV26("em", {
           children: [
             ` ${ICONS.resultArrow} `,
-            hasLines && (action === "created" ? /* @__PURE__ */ jsxDEV23("span", {
+            hasLines && (action === "created" ? /* @__PURE__ */ jsxDEV26("span", {
               fg: "#57ab5a",
               children: [
                 "+",
                 lines
               ]
-            }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV23("span", {
+            }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV26("span", {
               fg: "#d2a8ff",
               children: [
                 "~",
@@ -5341,7 +5705,7 @@ function WriteFileRenderer({ args, result }) {
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV23(CompactDiffPreview, {
+      /* @__PURE__ */ jsxDEV26(CompactDiffPreview, {
         preview
       }, undefined, false, undefined, this)
     ]
@@ -5350,14 +5714,14 @@ function WriteFileRenderer({ args, result }) {
 
 // src/tool-renderers/delete-code.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV24 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV27 } from "@opentui/react/jsx-dev-runtime";
 function DeleteCodeRenderer({ result }) {
   const r = result || {};
   const preview = extractResultDiffPreview(result);
   if (!r.path) {
-    return /* @__PURE__ */ jsxDEV24("text", {
+    return /* @__PURE__ */ jsxDEV27("text", {
       fg: "#888",
-      children: /* @__PURE__ */ jsxDEV24("em", {
+      children: /* @__PURE__ */ jsxDEV27("em", {
         children: [
           ` ${ICONS.resultArrow}`,
           " deleted 0 lines"
@@ -5366,9 +5730,9 @@ function DeleteCodeRenderer({ result }) {
     }, undefined, false, undefined, this);
   }
   if (r.success === false) {
-    return /* @__PURE__ */ jsxDEV24("text", {
+    return /* @__PURE__ */ jsxDEV27("text", {
       fg: "#ff0000",
-      children: /* @__PURE__ */ jsxDEV24("em", {
+      children: /* @__PURE__ */ jsxDEV27("em", {
         children: [
           ` ${ICONS.resultArrow}`,
           " failed (",
@@ -5380,16 +5744,16 @@ function DeleteCodeRenderer({ result }) {
   }
   const deleted = r.deletedLines ?? 0;
   const range = r.start_line != null && r.end_line != null ? `:${r.start_line}-${r.end_line}` : "";
-  return /* @__PURE__ */ jsxDEV24("box", {
+  return /* @__PURE__ */ jsxDEV27("box", {
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsxDEV24("text", {
+      /* @__PURE__ */ jsxDEV27("text", {
         fg: "#888",
-        children: /* @__PURE__ */ jsxDEV24("em", {
+        children: /* @__PURE__ */ jsxDEV27("em", {
           children: [
             ` ${ICONS.resultArrow}`,
             " ",
-            /* @__PURE__ */ jsxDEV24("span", {
+            /* @__PURE__ */ jsxDEV27("span", {
               fg: "#f47067",
               children: [
                 "-",
@@ -5403,7 +5767,7 @@ function DeleteCodeRenderer({ result }) {
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV24(CompactDiffPreview, {
+      /* @__PURE__ */ jsxDEV27(CompactDiffPreview, {
         preview
       }, undefined, false, undefined, this)
     ]
@@ -5412,14 +5776,14 @@ function DeleteCodeRenderer({ result }) {
 
 // src/tool-renderers/insert-code.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV25 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV28 } from "@opentui/react/jsx-dev-runtime";
 function InsertCodeRenderer({ result }) {
   const r = result || {};
   const preview = extractResultDiffPreview(result);
   if (!r.path) {
-    return /* @__PURE__ */ jsxDEV25("text", {
+    return /* @__PURE__ */ jsxDEV28("text", {
       fg: "#888",
-      children: /* @__PURE__ */ jsxDEV25("em", {
+      children: /* @__PURE__ */ jsxDEV28("em", {
         children: [
           ` ${ICONS.resultArrow}`,
           " inserted 0 lines"
@@ -5428,9 +5792,9 @@ function InsertCodeRenderer({ result }) {
     }, undefined, false, undefined, this);
   }
   if (r.success === false) {
-    return /* @__PURE__ */ jsxDEV25("text", {
+    return /* @__PURE__ */ jsxDEV28("text", {
       fg: "#ff0000",
-      children: /* @__PURE__ */ jsxDEV25("em", {
+      children: /* @__PURE__ */ jsxDEV28("em", {
         children: [
           ` ${ICONS.resultArrow}`,
           " failed (",
@@ -5442,16 +5806,16 @@ function InsertCodeRenderer({ result }) {
   }
   const inserted = r.insertedLines ?? 0;
   const pos = r.line != null ? ` at L${r.line}` : "";
-  return /* @__PURE__ */ jsxDEV25("box", {
+  return /* @__PURE__ */ jsxDEV28("box", {
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsxDEV25("text", {
+      /* @__PURE__ */ jsxDEV28("text", {
         fg: "#888",
-        children: /* @__PURE__ */ jsxDEV25("em", {
+        children: /* @__PURE__ */ jsxDEV28("em", {
           children: [
             ` ${ICONS.resultArrow}`,
             " ",
-            /* @__PURE__ */ jsxDEV25("span", {
+            /* @__PURE__ */ jsxDEV28("span", {
               fg: "#57ab5a",
               children: [
                 "+",
@@ -5466,7 +5830,7 @@ function InsertCodeRenderer({ result }) {
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV25(CompactDiffPreview, {
+      /* @__PURE__ */ jsxDEV28(CompactDiffPreview, {
         preview
       }, undefined, false, undefined, this)
     ]
@@ -5475,16 +5839,16 @@ function InsertCodeRenderer({ result }) {
 
 // src/tool-renderers/ask-question-first.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV26 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV29 } from "@opentui/react/jsx-dev-runtime";
 function truncate2(text, max = 90) {
   return text.length > max ? `${text.slice(0, max - 1)}${ICONS.ellipsis}` : text;
 }
 function AskQuestionFirstRenderer({ result }) {
   const record = result && typeof result === "object" && !Array.isArray(result) ? result : {};
   if (record.cancelled === true) {
-    return /* @__PURE__ */ jsxDEV26("text", {
+    return /* @__PURE__ */ jsxDEV29("text", {
       fg: C.warn,
-      children: /* @__PURE__ */ jsxDEV26("em", {
+      children: /* @__PURE__ */ jsxDEV29("em", {
         children: [
           " ",
           ICONS.resultArrow,
@@ -5494,9 +5858,9 @@ function AskQuestionFirstRenderer({ result }) {
     }, undefined, false, undefined, this);
   }
   if (record.action === "chat_about_this") {
-    return /* @__PURE__ */ jsxDEV26("text", {
+    return /* @__PURE__ */ jsxDEV29("text", {
       fg: C.warn,
-      children: /* @__PURE__ */ jsxDEV26("em", {
+      children: /* @__PURE__ */ jsxDEV29("em", {
         children: [
           " ",
           ICONS.resultArrow,
@@ -5506,9 +5870,9 @@ function AskQuestionFirstRenderer({ result }) {
     }, undefined, false, undefined, this);
   }
   if (record.action === "skip_interview") {
-    return /* @__PURE__ */ jsxDEV26("text", {
+    return /* @__PURE__ */ jsxDEV29("text", {
       fg: C.warn,
-      children: /* @__PURE__ */ jsxDEV26("em", {
+      children: /* @__PURE__ */ jsxDEV29("em", {
         children: [
           " ",
           ICONS.resultArrow,
@@ -5520,9 +5884,9 @@ function AskQuestionFirstRenderer({ result }) {
   const answers = record.answers && typeof record.answers === "object" && !Array.isArray(record.answers) ? record.answers : {};
   const entries = Object.entries(answers);
   if (entries.length === 0) {
-    return /* @__PURE__ */ jsxDEV26("text", {
+    return /* @__PURE__ */ jsxDEV29("text", {
       fg: C.dim,
-      children: /* @__PURE__ */ jsxDEV26("em", {
+      children: /* @__PURE__ */ jsxDEV29("em", {
         children: [
           " ",
           ICONS.resultArrow,
@@ -5533,9 +5897,9 @@ function AskQuestionFirstRenderer({ result }) {
   }
   const preview = entries.slice(0, 3).map(([question, answer]) => `${truncate2(question, 36)} → ${truncate2(String(answer), 42)}`).join("; ");
   const suffix = entries.length > 3 ? ` (+${entries.length - 3})` : "";
-  return /* @__PURE__ */ jsxDEV26("text", {
+  return /* @__PURE__ */ jsxDEV29("text", {
     fg: C.dim,
-    children: /* @__PURE__ */ jsxDEV26("em", {
+    children: /* @__PURE__ */ jsxDEV29("em", {
       children: [
         " ",
         ICONS.resultArrow,
@@ -5591,7 +5955,7 @@ function formatToolError(error) {
 
 // src/components/ToolCall.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV27 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV30 } from "@opentui/react/jsx-dev-runtime";
 var TERMINAL_STATUSES = new Set(["success", "warning", "error"]);
 function getArgsSummary(toolName, args) {
   switch (toolName) {
@@ -5663,15 +6027,15 @@ function getArgsSummary(toolName, args) {
 function ToolCall({ invocation, toolDisplayService }) {
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
   const displayError = formatToolError(error);
-  const [asyncArgsSummary, setAsyncArgsSummary] = useState8();
-  const [asyncProgressLine, setAsyncProgressLine] = useState8();
-  const [asyncResultSummary, setAsyncResultSummary] = useState8();
+  const [asyncArgsSummary, setAsyncArgsSummary] = useState9();
+  const [asyncProgressLine, setAsyncProgressLine] = useState9();
+  const [asyncResultSummary, setAsyncResultSummary] = useState9();
   const displayResult = useResultWithResolvedDiffPreview(result);
   const progress = invocation.progress;
   const progressTokens = typeof progress?.tokens === "number" ? progress.tokens : undefined;
   const progressFrame = typeof progress?.frame === "number" ? progress.frame : undefined;
   const displayProvider = toolDisplayService?.get(toolName);
-  useEffect8(() => {
+  useEffect9(() => {
     let cancelled = false;
     if (!displayProvider?.getArgsSummaryAsync) {
       setAsyncArgsSummary(undefined);
@@ -5688,7 +6052,7 @@ function ToolCall({ invocation, toolDisplayService }) {
       cancelled = true;
     };
   }, [displayProvider, toolName, args]);
-  useEffect8(() => {
+  useEffect9(() => {
     let cancelled = false;
     if (!displayProvider?.getProgressLineAsync) {
       setAsyncProgressLine(undefined);
@@ -5705,7 +6069,7 @@ function ToolCall({ invocation, toolDisplayService }) {
       cancelled = true;
     };
   }, [displayProvider, toolName, args, progress]);
-  useEffect8(() => {
+  useEffect9(() => {
     let cancelled = false;
     if (!displayProvider?.getResultSummaryAsync || !(TERMINAL_STATUSES.has(status) && displayResult != null)) {
       setAsyncResultSummary(undefined);
@@ -5737,16 +6101,16 @@ function ToolCall({ invocation, toolDisplayService }) {
   const customResultSummary = isFinal && displayResult != null ? displayProvider?.getResultSummary?.({ toolName, args, result: displayResult }) ?? asyncResultSummary ?? "" : "";
   const nameBg = status === "error" ? C.error : isAwaitingApproval ? C.warn : C.accent;
   const progressLineText = customProgressLine || asyncProgressLine || "";
-  return /* @__PURE__ */ jsxDEV27("box", {
+  return /* @__PURE__ */ jsxDEV30("box", {
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsxDEV27("box", {
+      /* @__PURE__ */ jsxDEV30("box", {
         flexDirection: "row",
         gap: 1,
         children: [
-          /* @__PURE__ */ jsxDEV27("text", {
+          /* @__PURE__ */ jsxDEV30("text", {
             children: [
-              /* @__PURE__ */ jsxDEV27("span", {
+              /* @__PURE__ */ jsxDEV30("span", {
                 bg: nameBg,
                 fg: C.cursorFg,
                 children: [
@@ -5755,36 +6119,36 @@ function ToolCall({ invocation, toolDisplayService }) {
                   " "
                 ]
               }, undefined, true, undefined, this),
-              argsSummary.length > 0 && /* @__PURE__ */ jsxDEV27("span", {
+              argsSummary.length > 0 && /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.dim,
                 children: [
                   " ",
                   argsSummary
                 ]
               }, undefined, true, undefined, this),
-              status === "success" ? /* @__PURE__ */ jsxDEV27("span", {
+              status === "success" ? /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.accent,
                 children: [
                   " ",
                   ICONS.checkmark
                 ]
               }, undefined, true, undefined, this) : null,
-              status === "warning" ? /* @__PURE__ */ jsxDEV27("span", {
+              status === "warning" ? /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.warn,
                 children: " !"
               }, undefined, false, undefined, this) : null,
-              status === "error" ? /* @__PURE__ */ jsxDEV27("span", {
+              status === "error" ? /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.error,
                 children: [
                   " ",
                   ICONS.crossmark
                 ]
               }, undefined, true, undefined, this) : null,
-              isAwaitingApproval ? /* @__PURE__ */ jsxDEV27("span", {
+              isAwaitingApproval ? /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.warn,
                 children: " [待确认]"
               }, undefined, false, undefined, this) : null,
-              !isFinal && !isExecuting && !isAwaitingApproval ? /* @__PURE__ */ jsxDEV27("span", {
+              !isFinal && !isExecuting && !isAwaitingApproval ? /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.dim,
                 children: [
                   " [",
@@ -5792,21 +6156,21 @@ function ToolCall({ invocation, toolDisplayService }) {
                   "]"
                 ]
               }, undefined, true, undefined, this) : null,
-              duration ? /* @__PURE__ */ jsxDEV27("span", {
+              duration ? /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.dim,
                 children: [
                   " ",
                   duration
                 ]
               }, undefined, true, undefined, this) : null,
-              customResultSummary ? /* @__PURE__ */ jsxDEV27("span", {
+              customResultSummary ? /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.dim,
                 children: [
                   " ",
                   customResultSummary
                 ]
               }, undefined, true, undefined, this) : null,
-              isExecuting && progressTokens != null && progressTokens > 0 ? /* @__PURE__ */ jsxDEV27("span", {
+              isExecuting && progressTokens != null && progressTokens > 0 ? /* @__PURE__ */ jsxDEV30("span", {
                 fg: C.dim,
                 children: [
                   " ",
@@ -5817,27 +6181,27 @@ function ToolCall({ invocation, toolDisplayService }) {
               }, undefined, true, undefined, this) : null
             ]
           }, undefined, true, undefined, this),
-          isExecuting && hasProgress ? /* @__PURE__ */ jsxDEV27("text", {
-            children: /* @__PURE__ */ jsxDEV27("span", {
+          isExecuting && hasProgress ? /* @__PURE__ */ jsxDEV30("text", {
+            children: /* @__PURE__ */ jsxDEV30("span", {
               fg: C.accent,
               children: SPINNER_FRAMES[(progressFrame ?? 0) % SPINNER_FRAMES.length]
             }, undefined, false, undefined, this)
-          }, undefined, false, undefined, this) : isExecuting ? /* @__PURE__ */ jsxDEV27("text", {
-            children: /* @__PURE__ */ jsxDEV27(Spinner, {}, undefined, false, undefined, this)
+          }, undefined, false, undefined, this) : isExecuting ? /* @__PURE__ */ jsxDEV30("text", {
+            children: /* @__PURE__ */ jsxDEV30(Spinner, {}, undefined, false, undefined, this)
           }, undefined, false, undefined, this) : null
         ]
       }, undefined, true, undefined, this),
-      status === "error" && displayError && /* @__PURE__ */ jsxDEV27("text", {
+      status === "error" && displayError && /* @__PURE__ */ jsxDEV30("text", {
         fg: C.error,
-        children: /* @__PURE__ */ jsxDEV27("em", {
+        children: /* @__PURE__ */ jsxDEV30("em", {
           children: [
             "  ",
             displayError
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      isExecuting && progressLineText.length > 0 && /* @__PURE__ */ jsxDEV27("text", {
-        children: /* @__PURE__ */ jsxDEV27("span", {
+      isExecuting && progressLineText.length > 0 && /* @__PURE__ */ jsxDEV30("text", {
+        children: /* @__PURE__ */ jsxDEV30("span", {
           fg: C.accent,
           children: [
             "  ",
@@ -5845,10 +6209,10 @@ function ToolCall({ invocation, toolDisplayService }) {
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      isExecuting && toolName === "sub_agent" && subAgentStatusLine.length > 0 && /* @__PURE__ */ jsxDEV27("text", {
-        children: /* @__PURE__ */ jsxDEV27("span", {
+      isExecuting && toolName === "sub_agent" && subAgentStatusLine.length > 0 && /* @__PURE__ */ jsxDEV30("text", {
+        children: /* @__PURE__ */ jsxDEV30("span", {
           fg: C.dim,
-          children: /* @__PURE__ */ jsxDEV27("em", {
+          children: /* @__PURE__ */ jsxDEV30("em", {
             children: [
               "  ",
               subAgentStatusLine
@@ -5856,15 +6220,15 @@ function ToolCall({ invocation, toolDisplayService }) {
           }, undefined, true, undefined, this)
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      invocation.children && invocation.children.length > 0 && /* @__PURE__ */ jsxDEV27("box", {
+      invocation.children && invocation.children.length > 0 && /* @__PURE__ */ jsxDEV30("box", {
         flexDirection: "column",
         paddingLeft: 2,
-        children: invocation.children.map((child) => /* @__PURE__ */ jsxDEV27(ToolCall, {
+        children: invocation.children.map((child) => /* @__PURE__ */ jsxDEV30(ToolCall, {
           invocation: child,
           toolDisplayService
         }, child.id, false, undefined, this))
       }, undefined, false, undefined, this),
-      Renderer && displayResult != null && /* @__PURE__ */ jsxDEV27("box", {
+      Renderer && displayResult != null && /* @__PURE__ */ jsxDEV30("box", {
         paddingLeft: 2,
         children: Renderer({ toolName, args, result: displayResult })
       }, undefined, false, undefined, this)
@@ -5875,7 +6239,7 @@ function ToolCall({ invocation, toolDisplayService }) {
 // src/components/ProgressListView.tsx
 import { useMemo as useMemo6 } from "react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV28, Fragment as Fragment6 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV31, Fragment as Fragment6 } from "@opentui/react/jsx-dev-runtime";
 var PROGRESS_PANEL_MAX_ITEMS = 8;
 function compareProgressItems(a, b) {
   return a.createdAt - b.createdAt || a.title.localeCompare(b.title);
@@ -5989,13 +6353,13 @@ function ProgressListView({
       return null;
     const currentIcon = currentItem ? getStatusIcon(currentItem.status) : undefined;
     const currentText = currentItem ? truncate3(currentItem.status === "in_progress" ? currentItem.activeForm ?? currentItem.title : currentItem.title, 72) : "暂无进度";
-    return /* @__PURE__ */ jsxDEV28("text", {
+    return /* @__PURE__ */ jsxDEV31("text", {
       children: [
-        /* @__PURE__ */ jsxDEV28("span", {
+        /* @__PURE__ */ jsxDEV31("span", {
           fg: C.primaryLight,
           children: "Iris 进度"
         }, undefined, false, undefined, this),
-        showControls && canCollapse ? /* @__PURE__ */ jsxDEV28("span", {
+        showControls && canCollapse ? /* @__PURE__ */ jsxDEV31("span", {
           fg: C.dim,
           children: [
             " ",
@@ -6004,7 +6368,7 @@ function ProgressListView({
             controlHintText(effectiveCollapsed, canScroll)
           ]
         }, undefined, true, undefined, this) : null,
-        /* @__PURE__ */ jsxDEV28("span", {
+        /* @__PURE__ */ jsxDEV31("span", {
           fg: C.dim,
           children: [
             " ",
@@ -6012,27 +6376,27 @@ function ProgressListView({
             " "
           ]
         }, undefined, true, undefined, this),
-        /* @__PURE__ */ jsxDEV28("span", {
+        /* @__PURE__ */ jsxDEV31("span", {
           fg: C.text,
-          children: /* @__PURE__ */ jsxDEV28("strong", {
+          children: /* @__PURE__ */ jsxDEV31("strong", {
             children: stats.completed
           }, undefined, false, undefined, this)
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV28("span", {
+        /* @__PURE__ */ jsxDEV31("span", {
           fg: C.dim,
           children: "/"
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV28("span", {
+        /* @__PURE__ */ jsxDEV31("span", {
           fg: C.text,
-          children: /* @__PURE__ */ jsxDEV28("strong", {
+          children: /* @__PURE__ */ jsxDEV31("strong", {
             children: stats.total
           }, undefined, false, undefined, this)
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV28("span", {
+        /* @__PURE__ */ jsxDEV31("span", {
           fg: C.dim,
           children: " 已完成"
         }, undefined, false, undefined, this),
-        stats.inProgress > 0 ? /* @__PURE__ */ jsxDEV28("span", {
+        stats.inProgress > 0 ? /* @__PURE__ */ jsxDEV31("span", {
           fg: C.accent,
           children: [
             " ",
@@ -6042,7 +6406,7 @@ function ProgressListView({
             " 进行中"
           ]
         }, undefined, true, undefined, this) : null,
-        stats.blocked > 0 ? /* @__PURE__ */ jsxDEV28("span", {
+        stats.blocked > 0 ? /* @__PURE__ */ jsxDEV31("span", {
           fg: C.warn,
           children: [
             " ",
@@ -6052,9 +6416,9 @@ function ProgressListView({
             " 受阻"
           ]
         }, undefined, true, undefined, this) : null,
-        effectiveCollapsed ? /* @__PURE__ */ jsxDEV28(Fragment6, {
+        effectiveCollapsed ? /* @__PURE__ */ jsxDEV31(Fragment6, {
           children: [
-            /* @__PURE__ */ jsxDEV28("span", {
+            /* @__PURE__ */ jsxDEV31("span", {
               fg: C.dim,
               children: [
                 " ",
@@ -6064,14 +6428,14 @@ function ProgressListView({
                 "："
               ]
             }, undefined, true, undefined, this),
-            currentIcon ? /* @__PURE__ */ jsxDEV28("span", {
+            currentIcon ? /* @__PURE__ */ jsxDEV31("span", {
               fg: currentIcon.color,
               children: [
                 currentIcon.icon,
                 " "
               ]
             }, undefined, true, undefined, this) : null,
-            /* @__PURE__ */ jsxDEV28("span", {
+            /* @__PURE__ */ jsxDEV31("span", {
               fg: currentItem?.status === "in_progress" ? C.text : C.textSec,
               children: currentText
             }, undefined, false, undefined, this)
@@ -6081,14 +6445,14 @@ function ProgressListView({
     }, undefined, true, undefined, this);
   };
   if (effectiveCollapsed) {
-    return /* @__PURE__ */ jsxDEV28("box", {
+    return /* @__PURE__ */ jsxDEV31("box", {
       flexDirection: "column",
       marginTop: standalone ? 1 : 0,
       paddingLeft: standalone ? 1 : 0,
       children: renderHeader()
     }, undefined, false, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV28("box", {
+  return /* @__PURE__ */ jsxDEV31("box", {
     flexDirection: "column",
     marginTop: standalone ? 1 : 0,
     paddingLeft: standalone ? 1 : 0,
@@ -6100,30 +6464,30 @@ function ProgressListView({
         const isActive = item.status === "in_progress";
         const isDim = isCompleted || item.status === "cancelled";
         const title = truncate3(item.title, 90);
-        return /* @__PURE__ */ jsxDEV28("box", {
+        return /* @__PURE__ */ jsxDEV31("box", {
           flexDirection: "column",
           children: [
-            /* @__PURE__ */ jsxDEV28("text", {
+            /* @__PURE__ */ jsxDEV31("text", {
               children: [
-                /* @__PURE__ */ jsxDEV28("span", {
+                /* @__PURE__ */ jsxDEV31("span", {
                   fg: C.dim,
                   children: "  "
                 }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsxDEV28("span", {
+                /* @__PURE__ */ jsxDEV31("span", {
                   fg: color,
                   children: icon
                 }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsxDEV28("span", {
+                /* @__PURE__ */ jsxDEV31("span", {
                   fg: C.dim,
                   children: " "
                 }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsxDEV28("span", {
+                /* @__PURE__ */ jsxDEV31("span", {
                   fg: isDim ? C.dim : isActive ? C.text : C.textSec,
-                  children: isActive ? /* @__PURE__ */ jsxDEV28("strong", {
+                  children: isActive ? /* @__PURE__ */ jsxDEV31("strong", {
                     children: title
                   }, undefined, false, undefined, this) : title
                 }, undefined, false, undefined, this),
-                item.status !== "pending" && item.status !== "completed" ? /* @__PURE__ */ jsxDEV28("span", {
+                item.status !== "pending" && item.status !== "completed" ? /* @__PURE__ */ jsxDEV31("span", {
                   fg: C.dim,
                   children: [
                     " [",
@@ -6133,7 +6497,7 @@ function ProgressListView({
                 }, undefined, true, undefined, this) : null
               ]
             }, undefined, true, undefined, this),
-            isActive && item.activeForm ? /* @__PURE__ */ jsxDEV28("text", {
+            isActive && item.activeForm ? /* @__PURE__ */ jsxDEV31("text", {
               fg: C.dim,
               children: [
                 "    ",
@@ -6144,7 +6508,7 @@ function ProgressListView({
           ]
         }, `${effectiveScrollOffset + index}:${item.createdAt}:${item.title}`, true, undefined, this);
       }),
-      hiddenSummary ? /* @__PURE__ */ jsxDEV28("text", {
+      hiddenSummary ? /* @__PURE__ */ jsxDEV31("text", {
         fg: C.dim,
         children: [
           "  ",
@@ -6157,7 +6521,7 @@ function ProgressListView({
 
 // src/components/MessageItem.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV29 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV32 } from "@opentui/react/jsx-dev-runtime";
 function truncateMiddle(text, maxChars) {
   if (text.length <= maxChars)
     return text;
@@ -6257,21 +6621,21 @@ function NotificationPayloadBlock({ payload }) {
   const firstLine2 = content.split(`
 `).filter((l) => l.trim())[0] || "";
   const preview = firstLine2.length > 60 ? firstLine2.slice(0, 57) + "..." : firstLine2;
-  return /* @__PURE__ */ jsxDEV29("box", {
-    children: /* @__PURE__ */ jsxDEV29("text", {
+  return /* @__PURE__ */ jsxDEV32("box", {
+    children: /* @__PURE__ */ jsxDEV32("text", {
       children: [
-        /* @__PURE__ */ jsxDEV29("span", {
+        /* @__PURE__ */ jsxDEV32("span", {
           fg: iconColor,
           children: icon
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV29("span", {
+        /* @__PURE__ */ jsxDEV32("span", {
           fg: C.text,
           children: [
             " ",
             payload.description
           ]
         }, undefined, true, undefined, this),
-        preview ? /* @__PURE__ */ jsxDEV29("span", {
+        preview ? /* @__PURE__ */ jsxDEV32("span", {
           fg: C.dim,
           children: [
             ` ${ICONS.emDash} `,
@@ -6282,12 +6646,12 @@ function NotificationPayloadBlock({ payload }) {
     }, undefined, true, undefined, this)
   }, undefined, false, undefined, this);
 }
-var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal, toolDisplayService }) {
-  const { width: rawTermWidth } = useTerminalDimensions5();
+var MessageItem = React10.memo(function MessageItem2({ msg, liveTools, liveParts, isStreaming, modelName, thoughtsToggleSignal, toolDisplayService }) {
+  const { width: rawTermWidth } = useTerminalDimensions7();
   const termWidth = rawTermWidth - 1;
-  const [thoughtsExpanded, setThoughtsExpanded] = useState9(false);
-  const prevSignalRef = useRef6(thoughtsToggleSignal);
-  useEffect9(() => {
+  const [thoughtsExpanded, setThoughtsExpanded] = useState10(false);
+  const prevSignalRef = useRef7(thoughtsToggleSignal);
+  useEffect10(() => {
     const prev = prevSignalRef.current;
     prevSignalRef.current = thoughtsToggleSignal;
     if (prev != null && thoughtsToggleSignal != null && thoughtsToggleSignal !== prev) {
@@ -6301,34 +6665,34 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
     const separatorLen2 = Math.max(2, termWidth - headerText2.length - 2);
     const preview = getSummaryPreview(msg.parts.filter((p) => p.type === "text").map((p) => p.text).join(`
 `), Math.max(30, termWidth - 20));
-    return /* @__PURE__ */ jsxDEV29("box", {
+    return /* @__PURE__ */ jsxDEV32("box", {
       flexDirection: "column",
       width: "100%",
       children: [
-        /* @__PURE__ */ jsxDEV29("box", {
+        /* @__PURE__ */ jsxDEV32("box", {
           marginBottom: 1,
-          children: /* @__PURE__ */ jsxDEV29("text", {
+          children: /* @__PURE__ */ jsxDEV32("text", {
             children: [
-              /* @__PURE__ */ jsxDEV29("span", {
+              /* @__PURE__ */ jsxDEV32("span", {
                 fg: C.warn,
-                children: /* @__PURE__ */ jsxDEV29("strong", {
+                children: /* @__PURE__ */ jsxDEV32("strong", {
                   children: headerText2
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV29("span", {
+              /* @__PURE__ */ jsxDEV32("span", {
                 fg: C.warn,
                 children: "─".repeat(separatorLen2)
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this)
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV29("text", {
+        /* @__PURE__ */ jsxDEV32("text", {
           fg: C.dim,
           children: preview
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV29("box", {
+        /* @__PURE__ */ jsxDEV32("box", {
           marginTop: 1,
-          children: /* @__PURE__ */ jsxDEV29("text", {
+          children: /* @__PURE__ */ jsxDEV32("text", {
             fg: C.dim,
             children: [
               msg.createdAt != null ? formatTime(msg.createdAt) : "",
@@ -6342,40 +6706,40 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
   if (msg.isNotificationSummary && msg.notificationPayloads && msg.notificationPayloads.length > 0) {
     const headerText2 = `${ICONS.separator} bg-tasks completed `;
     const separatorLen2 = Math.max(2, termWidth - headerText2.length - 2);
-    return /* @__PURE__ */ jsxDEV29("box", {
+    return /* @__PURE__ */ jsxDEV32("box", {
       flexDirection: "column",
       width: "100%",
       children: [
-        /* @__PURE__ */ jsxDEV29("box", {
+        /* @__PURE__ */ jsxDEV32("box", {
           marginBottom: 1,
-          children: /* @__PURE__ */ jsxDEV29("text", {
+          children: /* @__PURE__ */ jsxDEV32("text", {
             children: [
-              /* @__PURE__ */ jsxDEV29("span", {
+              /* @__PURE__ */ jsxDEV32("span", {
                 fg: C.warn,
-                children: /* @__PURE__ */ jsxDEV29("strong", {
+                children: /* @__PURE__ */ jsxDEV32("strong", {
                   children: headerText2
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV29("span", {
+              /* @__PURE__ */ jsxDEV32("span", {
                 fg: C.warn,
                 children: "─".repeat(separatorLen2)
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this)
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV29("box", {
+        /* @__PURE__ */ jsxDEV32("box", {
           flexDirection: "column",
           backgroundColor: C.toolPendingBg,
           paddingLeft: 1,
-          children: msg.notificationPayloads.map((p, i) => /* @__PURE__ */ jsxDEV29("box", {
-            children: /* @__PURE__ */ jsxDEV29(NotificationPayloadBlock, {
+          children: msg.notificationPayloads.map((p, i) => /* @__PURE__ */ jsxDEV32("box", {
+            children: /* @__PURE__ */ jsxDEV32(NotificationPayloadBlock, {
               payload: p
             }, undefined, false, undefined, this)
           }, `notif-${p.taskId || i}`, false, undefined, this))
         }, undefined, false, undefined, this),
-        msg.createdAt != null && /* @__PURE__ */ jsxDEV29("box", {
+        msg.createdAt != null && /* @__PURE__ */ jsxDEV32("box", {
           marginTop: 1,
-          children: /* @__PURE__ */ jsxDEV29("text", {
+          children: /* @__PURE__ */ jsxDEV32("text", {
             fg: C.dim,
             children: formatTime(msg.createdAt)
           }, undefined, false, undefined, this)
@@ -6396,46 +6760,46 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
   const hasAnyContent = displayParts.length > 0;
   const separatorLen = Math.max(2, termWidth - headerText.length - 2);
   const groups = groupParts(displayParts);
-  return /* @__PURE__ */ jsxDEV29("box", {
+  return /* @__PURE__ */ jsxDEV32("box", {
     flexDirection: "column",
     width: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV29("box", {
+      /* @__PURE__ */ jsxDEV32("box", {
         marginBottom: 1,
-        children: /* @__PURE__ */ jsxDEV29("text", {
+        children: /* @__PURE__ */ jsxDEV32("text", {
           children: [
-            /* @__PURE__ */ jsxDEV29("span", {
+            /* @__PURE__ */ jsxDEV32("span", {
               fg: labelColor,
-              children: /* @__PURE__ */ jsxDEV29("strong", {
+              children: /* @__PURE__ */ jsxDEV32("strong", {
                 children: headerText
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV29("span", {
+            /* @__PURE__ */ jsxDEV32("span", {
               fg: labelColor,
               children: "─".repeat(separatorLen)
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV29("box", {
+      /* @__PURE__ */ jsxDEV32("box", {
         flexDirection: "column",
         width: "100%",
         children: [
           groups.map((group, gi) => {
             if (group.kind === "text" && group.part.text.length > 0) {
               const isLastGroup = gi === groups.length - 1;
-              return /* @__PURE__ */ jsxDEV29("box", {
+              return /* @__PURE__ */ jsxDEV32("box", {
                 marginTop: gi > 0 ? 1 : 0,
-                children: isUser ? /* @__PURE__ */ jsxDEV29("text", {
+                children: isUser ? /* @__PURE__ */ jsxDEV32("text", {
                   fg: C.text,
                   children: group.part.text
-                }, undefined, false, undefined, this) : msg.isError ? /* @__PURE__ */ jsxDEV29("text", {
+                }, undefined, false, undefined, this) : msg.isError ? /* @__PURE__ */ jsxDEV32("text", {
                   fg: C.error,
                   children: group.part.text
-                }, undefined, false, undefined, this) : msg.isCommand ? /* @__PURE__ */ jsxDEV29("text", {
+                }, undefined, false, undefined, this) : msg.isCommand ? /* @__PURE__ */ jsxDEV32("text", {
                   fg: C.textSec,
                   children: group.part.text
-                }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV29(MarkdownText, {
+                }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV32(MarkdownText, {
                   text: group.part.text,
                   showCursor: isLastGroup && isStreaming
                 }, undefined, false, undefined, this)
@@ -6454,35 +6818,35 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
               const hiddenLines = Math.max(0, totalLines - 2);
               const showFull = thoughtsExpanded && hiddenLines > 0;
               const displayLines = showFull ? allLines : getThoughtTailPreview(group.part.text, maxChars);
-              return /* @__PURE__ */ jsxDEV29("box", {
+              return /* @__PURE__ */ jsxDEV32("box", {
                 marginTop: isAfterTools ? 0 : gi > 0 ? 1 : 0,
                 flexDirection: "column",
                 backgroundColor: C.thinkingBg,
                 paddingLeft: 1,
                 children: [
-                  /* @__PURE__ */ jsxDEV29("text", {
+                  /* @__PURE__ */ jsxDEV32("text", {
                     fg: C.primaryLight,
-                    children: /* @__PURE__ */ jsxDEV29("em", {
+                    children: /* @__PURE__ */ jsxDEV32("em", {
                       children: `${ICONS.separator} ` + prefix
                     }, undefined, false, undefined, this)
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV29("box", {
+                  /* @__PURE__ */ jsxDEV32("box", {
                     flexDirection: "column",
-                    children: displayLines.length > 0 ? displayLines.map((line, li) => /* @__PURE__ */ jsxDEV29("text", {
+                    children: displayLines.length > 0 ? displayLines.map((line, li) => /* @__PURE__ */ jsxDEV32("text", {
                       fg: C.dim,
-                      children: /* @__PURE__ */ jsxDEV29("em", {
+                      children: /* @__PURE__ */ jsxDEV32("em", {
                         children: [
                           "    ",
                           line,
-                          li === displayLines.length - 1 && isLastGroup && isStreaming ? /* @__PURE__ */ jsxDEV29("span", {
+                          li === displayLines.length - 1 && isLastGroup && isStreaming ? /* @__PURE__ */ jsxDEV32("span", {
                             bg: C.accent,
                             children: " "
                           }, undefined, false, undefined, this) : null
                         ]
                       }, undefined, true, undefined, this)
-                    }, li, false, undefined, this)) : /* @__PURE__ */ jsxDEV29("text", {
+                    }, li, false, undefined, this)) : /* @__PURE__ */ jsxDEV32("text", {
                       fg: C.dim,
-                      children: /* @__PURE__ */ jsxDEV29("em", {
+                      children: /* @__PURE__ */ jsxDEV32("em", {
                         children: [
                           "    ",
                           "..."
@@ -6490,9 +6854,9 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
                       }, undefined, true, undefined, this)
                     }, undefined, false, undefined, this)
                   }, undefined, false, undefined, this),
-                  hiddenLines > 0 ? /* @__PURE__ */ jsxDEV29("text", {
+                  hiddenLines > 0 ? /* @__PURE__ */ jsxDEV32("text", {
                     fg: C.dim,
-                    children: /* @__PURE__ */ jsxDEV29("em", {
+                    children: /* @__PURE__ */ jsxDEV32("em", {
                       children: [
                         `    ${ICONS.ellipsis} +`,
                         hiddenLines,
@@ -6509,22 +6873,22 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
               const prevGroup = gi > 0 ? groups[gi - 1] : undefined;
               const isConsecutiveTools = prevGroup?.kind === "tools";
               const isAfterThought = prevGroup?.kind === "thought";
-              return /* @__PURE__ */ jsxDEV29("box", {
+              return /* @__PURE__ */ jsxDEV32("box", {
                 flexDirection: "column",
                 width: "100%",
                 marginTop: isConsecutiveTools || isAfterThought ? 0 : gi > 0 ? 1 : 0,
-                children: /* @__PURE__ */ jsxDEV29("box", {
+                children: /* @__PURE__ */ jsxDEV32("box", {
                   flexDirection: "column",
                   backgroundColor: C.toolPendingBg,
                   paddingLeft: 1,
                   children: [
-                    /* @__PURE__ */ jsxDEV29("text", {
+                    /* @__PURE__ */ jsxDEV32("text", {
                       fg: C.accent,
-                      children: /* @__PURE__ */ jsxDEV29("strong", {
+                      children: /* @__PURE__ */ jsxDEV32("strong", {
                         children: `${ICONS.separator} tools`
                       }, undefined, false, undefined, this)
                     }, undefined, false, undefined, this),
-                    group.tools.map((inv) => /* @__PURE__ */ jsxDEV29(ToolCall, {
+                    group.tools.map((inv) => /* @__PURE__ */ jsxDEV32(ToolCall, {
                       invocation: inv,
                       toolDisplayService
                     }, inv.id, false, undefined, this))
@@ -6533,9 +6897,9 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
               }, `tools-${group.startIndex}`, false, undefined, this);
             }
             if (group.kind === "progress_snapshot") {
-              return /* @__PURE__ */ jsxDEV29("box", {
+              return /* @__PURE__ */ jsxDEV32("box", {
                 marginTop: gi > 0 ? 1 : 0,
-                children: /* @__PURE__ */ jsxDEV29(ProgressListView, {
+                children: /* @__PURE__ */ jsxDEV32(ProgressListView, {
                   snapshot: group.part.snapshot,
                   standalone: true
                 }, undefined, false, undefined, this)
@@ -6545,11 +6909,11 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
               const icon = FILE_TYPE_ICONS2[group.part.fileType] || "\uD83D\uDCCE";
               const maxNameLen = Math.max(20, termWidth - 15);
               const displayName = truncateMiddle(group.part.fileName, maxNameLen);
-              return /* @__PURE__ */ jsxDEV29("box", {
+              return /* @__PURE__ */ jsxDEV32("box", {
                 marginTop: gi > 0 ? 1 : 0,
-                children: /* @__PURE__ */ jsxDEV29("text", {
+                children: /* @__PURE__ */ jsxDEV32("text", {
                   children: [
-                    /* @__PURE__ */ jsxDEV29("span", {
+                    /* @__PURE__ */ jsxDEV32("span", {
                       fg: C.primaryLight,
                       children: [
                         icon,
@@ -6557,7 +6921,7 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
                         displayName
                       ]
                     }, undefined, true, undefined, this),
-                    /* @__PURE__ */ jsxDEV29("span", {
+                    /* @__PURE__ */ jsxDEV32("span", {
                       fg: C.dim,
                       children: [
                         " (",
@@ -6571,9 +6935,9 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
             }
             return null;
           }),
-          isUser && (msg.createdAt != null || msg.tokenIn != null) && /* @__PURE__ */ jsxDEV29("box", {
+          isUser && (msg.createdAt != null || msg.tokenIn != null) && /* @__PURE__ */ jsxDEV32("box", {
             marginTop: hasAnyContent ? 1 : 0,
-            children: /* @__PURE__ */ jsxDEV29("text", {
+            children: /* @__PURE__ */ jsxDEV32("text", {
               fg: C.dim,
               children: [
                 msg.createdAt != null ? formatTime(msg.createdAt) : "",
@@ -6581,9 +6945,9 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
               ]
             }, undefined, true, undefined, this)
           }, undefined, false, undefined, this),
-          !isUser && !isStreaming && (msg.createdAt != null || msg.durationMs != null || msg.tokenIn != null) && /* @__PURE__ */ jsxDEV29("box", {
+          !isUser && !isStreaming && (msg.createdAt != null || msg.durationMs != null || msg.tokenIn != null) && /* @__PURE__ */ jsxDEV32("box", {
             marginTop: hasAnyContent ? 1 : 0,
-            children: /* @__PURE__ */ jsxDEV29("text", {
+            children: /* @__PURE__ */ jsxDEV32("text", {
               fg: C.dim,
               children: [
                 msg.createdAt != null ? formatTime(msg.createdAt) : "",
@@ -6594,12 +6958,12 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
               ]
             }, undefined, true, undefined, this)
           }, undefined, false, undefined, this),
-          !hasAnyContent && isStreaming && /* @__PURE__ */ jsxDEV29("box", {
-            children: /* @__PURE__ */ jsxDEV29(GeneratingTimer, {
+          !hasAnyContent && isStreaming && /* @__PURE__ */ jsxDEV32("box", {
+            children: /* @__PURE__ */ jsxDEV32(GeneratingTimer, {
               isGenerating: true
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          !hasAnyContent && !isStreaming && /* @__PURE__ */ jsxDEV29("text", {
+          !hasAnyContent && !isStreaming && /* @__PURE__ */ jsxDEV32("text", {
             children: " "
           }, undefined, false, undefined, this)
         ]
@@ -6609,7 +6973,7 @@ var MessageItem = React9.memo(function MessageItem2({ msg, liveTools, liveParts,
 });
 
 // src/components/ChatMessageList.tsx
-import { jsxDEV as jsxDEV30 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV33 } from "@opentui/react/jsx-dev-runtime";
 function ChatMessageList({
   messages,
   streamingParts,
@@ -6631,7 +6995,7 @@ function ChatMessageList({
   onCopySelectionSnapshot,
   toolDisplayService
 }) {
-  const { height: termHeight } = useTerminalDimensions6();
+  const { height: termHeight } = useTerminalDimensions8();
   const captureSelectionSnapshot = (scrollBox) => {
     const text = scrollBox?.ctx?.getSelection?.()?.getSelectedText?.() ?? "";
     if (text.trim())
@@ -6674,7 +7038,7 @@ function ChatMessageList({
     createdAt: msg.createdAt,
     isQueuedPreview: true
   })), [queuedMessages]);
-  return /* @__PURE__ */ jsxDEV30("scrollbox", {
+  return /* @__PURE__ */ jsxDEV33("scrollbox", {
     ref: scrollBoxRef,
     flexGrow: 1,
     stickyScroll: true,
@@ -6699,10 +7063,10 @@ function ChatMessageList({
         const liveParts = isLastActive && streamingParts.length > 0 ? streamingParts : undefined;
         const hasVisibleContent = message.parts.length > 0 || !!liveParts;
         if (isLastActive && !hasVisibleContent) {
-          return /* @__PURE__ */ jsxDEV30("box", {
+          return /* @__PURE__ */ jsxDEV33("box", {
             flexDirection: "column",
             paddingBottom: 1,
-            children: /* @__PURE__ */ jsxDEV30(GeneratingTimer, {
+            children: /* @__PURE__ */ jsxDEV33(GeneratingTimer, {
               isGenerating,
               retryInfo,
               label: generatingLabel,
@@ -6710,11 +7074,11 @@ function ChatMessageList({
             }, undefined, false, undefined, this)
           }, message.id, false, undefined, this);
         }
-        return /* @__PURE__ */ jsxDEV30("box", {
+        return /* @__PURE__ */ jsxDEV33("box", {
           flexDirection: "column",
           paddingBottom: 1,
           children: [
-            /* @__PURE__ */ jsxDEV30(MessageItem, {
+            /* @__PURE__ */ jsxDEV33(MessageItem, {
               msg: message,
               liveParts,
               isStreaming: isLastActive ? isStreaming : undefined,
@@ -6722,7 +7086,7 @@ function ChatMessageList({
               thoughtsToggleSignal: index === lastAssistantIndex ? thoughtsToggleSignal : undefined,
               toolDisplayService
             }, undefined, false, undefined, this),
-            isLastActive && isStreaming && streamingParts.length === 0 ? /* @__PURE__ */ jsxDEV30(GeneratingTimer, {
+            isLastActive && isStreaming && streamingParts.length === 0 ? /* @__PURE__ */ jsxDEV33(GeneratingTimer, {
               isGenerating,
               retryInfo,
               label: generatingLabel,
@@ -6731,10 +7095,10 @@ function ChatMessageList({
           ]
         }, message.id, true, undefined, this);
       }),
-      progressSnapshot && progressSnapshot.items.length > 0 ? /* @__PURE__ */ jsxDEV30("box", {
+      progressSnapshot && progressSnapshot.items.length > 0 ? /* @__PURE__ */ jsxDEV33("box", {
         flexDirection: "column",
         paddingBottom: 1,
-        children: /* @__PURE__ */ jsxDEV30(ProgressListView, {
+        children: /* @__PURE__ */ jsxDEV33(ProgressListView, {
           snapshot: progressSnapshot,
           standalone: true,
           collapsed: progressCollapsed,
@@ -6742,20 +7106,20 @@ function ChatMessageList({
           showControls: true
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this) : null,
-      isGenerating && !hasActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? /* @__PURE__ */ jsxDEV30("box", {
+      isGenerating && !hasActiveAssistant && streamingParts.length === 0 && !hasActiveTools ? /* @__PURE__ */ jsxDEV33("box", {
         flexDirection: "column",
         paddingBottom: 1,
-        children: /* @__PURE__ */ jsxDEV30(GeneratingTimer, {
+        children: /* @__PURE__ */ jsxDEV33(GeneratingTimer, {
           isGenerating,
           retryInfo,
           label: generatingLabel,
           paused: timerPaused
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this) : null,
-      queuedPreviewMessages.map((message) => /* @__PURE__ */ jsxDEV30("box", {
+      queuedPreviewMessages.map((message) => /* @__PURE__ */ jsxDEV33("box", {
         flexDirection: "column",
         paddingBottom: 1,
-        children: /* @__PURE__ */ jsxDEV30(MessageItem, {
+        children: /* @__PURE__ */ jsxDEV33(MessageItem, {
           msg: message,
           modelName,
           toolDisplayService
@@ -6766,9 +7130,9 @@ function ChatMessageList({
 }
 
 // src/components/DiffApprovalView.tsx
-import { useEffect as useEffect10, useMemo as useMemo8, useState as useState10 } from "react";
+import { useEffect as useEffect11, useMemo as useMemo8, useState as useState11 } from "react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV31 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV34 } from "@opentui/react/jsx-dev-runtime";
 function normalizePreviewIndex(index, itemCount) {
   return itemCount > 0 ? (index % itemCount + itemCount) % itemCount : 0;
 }
@@ -6807,9 +7171,9 @@ function DiffApprovalView({
   previewIndex = 0,
   getPreview
 }) {
-  const [preview, setPreview] = useState10(() => loadingPreview(invocation));
-  const [loading, setLoading] = useState10(false);
-  useEffect10(() => {
+  const [preview, setPreview] = useState11(() => loadingPreview(invocation));
+  const [loading, setLoading] = useState11(false);
+  useEffect11(() => {
     let cancelled = false;
     if (!getPreview) {
       setLoading(false);
@@ -6845,14 +7209,14 @@ function DiffApprovalView({
       return ["正在加载 diff 预览…"];
     return preview.summary ?? [];
   }, [loading, preview.summary]);
-  return /* @__PURE__ */ jsxDEV31("box", {
+  return /* @__PURE__ */ jsxDEV34("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     padding: 1,
     backgroundColor: "#0d1117",
     children: [
-      /* @__PURE__ */ jsxDEV31("box", {
+      /* @__PURE__ */ jsxDEV34("box", {
         flexDirection: "column",
         borderStyle: "double",
         borderColor: C.warn,
@@ -6860,59 +7224,59 @@ function DiffApprovalView({
         paddingY: 0,
         flexShrink: 0,
         children: [
-          /* @__PURE__ */ jsxDEV31("text", {
+          /* @__PURE__ */ jsxDEV34("text", {
             children: [
-              /* @__PURE__ */ jsxDEV31("span", {
+              /* @__PURE__ */ jsxDEV34("span", {
                 fg: C.warn,
-                children: /* @__PURE__ */ jsxDEV31("strong", {
+                children: /* @__PURE__ */ jsxDEV34("strong", {
                   children: preview.title || "Diff 审批"
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV31("span", {
+              /* @__PURE__ */ jsxDEV34("span", {
                 fg: C.dim,
                 children: `  ${toolLabel}`
               }, undefined, false, undefined, this),
-              pendingCount > 1 ? /* @__PURE__ */ jsxDEV31("span", {
+              pendingCount > 1 ? /* @__PURE__ */ jsxDEV34("span", {
                 fg: C.dim,
                 children: `  (剩余 ${pendingCount - 1} 个)`
               }, undefined, false, undefined, this) : null,
-              items.length > 1 ? /* @__PURE__ */ jsxDEV31("span", {
+              items.length > 1 ? /* @__PURE__ */ jsxDEV34("span", {
                 fg: C.dim,
                 children: `  (预览 ${normalizedPreviewIndex + 1}/${items.length})`
               }, undefined, false, undefined, this) : null,
-              currentItem?.diff ? /* @__PURE__ */ jsxDEV31("span", {
+              currentItem?.diff ? /* @__PURE__ */ jsxDEV34("span", {
                 fg: C.dim,
                 children: `  +${currentItem.added} -${currentItem.removed}`
               }, undefined, false, undefined, this) : null
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV31("text", {
+          /* @__PURE__ */ jsxDEV34("text", {
             children: [
-              /* @__PURE__ */ jsxDEV31("span", {
+              /* @__PURE__ */ jsxDEV34("span", {
                 fg: C.text,
                 children: "文件 "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV31("span", {
+              /* @__PURE__ */ jsxDEV34("span", {
                 fg: C.primaryLight,
                 children: currentItem?.filePath || "(未提供路径)"
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV31("span", {
+              /* @__PURE__ */ jsxDEV34("span", {
                 fg: C.dim,
                 children: `  视图:${view === "split" ? "分栏" : "统一"}  行号:${showLineNumbers ? "开" : "关"}  换行:${wrapMode === "word" ? "开" : "关"}`
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          currentItem?.label ? /* @__PURE__ */ jsxDEV31("text", {
+          currentItem?.label ? /* @__PURE__ */ jsxDEV34("text", {
             fg: C.dim,
             children: currentItem.label
           }, undefined, false, undefined, this) : null,
-          summaryLines.map((line, index) => /* @__PURE__ */ jsxDEV31("text", {
+          summaryLines.map((line, index) => /* @__PURE__ */ jsxDEV34("text", {
             fg: C.dim,
             children: line
           }, `${toolLabel}.summary.${index}`, false, undefined, this))
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV31("scrollbox", {
+      /* @__PURE__ */ jsxDEV34("scrollbox", {
         flexGrow: 1,
         flexShrink: 1,
         marginTop: 1,
@@ -6920,12 +7284,12 @@ function DiffApprovalView({
         borderColor: C.border,
         verticalScrollbarOptions: { visible: true },
         horizontalScrollbarOptions: { visible: false },
-        children: loading ? /* @__PURE__ */ jsxDEV31("text", {
+        children: loading ? /* @__PURE__ */ jsxDEV34("text", {
           fg: C.dim,
           paddingX: 1,
           paddingY: 1,
           children: "加载 diff 预览中…"
-        }, undefined, false, undefined, this) : currentItem?.diff ? /* @__PURE__ */ jsxDEV31("diff", {
+        }, undefined, false, undefined, this) : currentItem?.diff ? /* @__PURE__ */ jsxDEV34("diff", {
           diff: currentItem.diff,
           view,
           filetype: currentItem.filetype,
@@ -6943,14 +7307,14 @@ function DiffApprovalView({
           selectionBg: "#264f78",
           selectionFg: "#ffffff",
           style: { width: "100%" }
-        }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV31("text", {
+        }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV34("text", {
           fg: currentItem?.message ? C.textSec : C.dim,
           paddingX: 1,
           paddingY: 1,
           children: currentItem?.message ?? "当前没有可显示的 diff。"
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV31("box", {
+      /* @__PURE__ */ jsxDEV34("box", {
         flexDirection: "column",
         marginTop: 1,
         borderStyle: "single",
@@ -6959,27 +7323,27 @@ function DiffApprovalView({
         paddingY: 0,
         flexShrink: 0,
         children: [
-          /* @__PURE__ */ jsxDEV31("text", {
+          /* @__PURE__ */ jsxDEV34("text", {
             children: [
-              /* @__PURE__ */ jsxDEV31("span", {
+              /* @__PURE__ */ jsxDEV34("span", {
                 fg: C.text,
                 children: "审批结果 "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV31("span", {
+              /* @__PURE__ */ jsxDEV34("span", {
                 fg: choice === "approve" ? C.accent : C.textSec,
                 children: choice === "approve" ? "[批准]" : " 批准 "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV31("span", {
+              /* @__PURE__ */ jsxDEV34("span", {
                 fg: C.dim,
                 children: " "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV31("span", {
+              /* @__PURE__ */ jsxDEV34("span", {
                 fg: choice === "reject" ? C.error : C.textSec,
                 children: choice === "reject" ? "[拒绝]" : " 拒绝 "
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV31("text", {
+          /* @__PURE__ */ jsxDEV34("text", {
             fg: C.dim,
             children: [
               items.length > 1 ? `${ICONS.arrowUp} / ${ICONS.arrowDown} 切换文件　` : "",
@@ -6994,30 +7358,30 @@ function DiffApprovalView({
 
 // src/components/InitWarnings.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV32 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV35 } from "@opentui/react/jsx-dev-runtime";
 var MAX_VISIBLE_LINES = 3;
 function InitWarnings({ warnings, color, icon }) {
   if (warnings.length === 0)
     return null;
   const fg = color ?? C.warn;
   const prefix = icon ?? ICONS.warning;
-  return /* @__PURE__ */ jsxDEV32("box", {
+  return /* @__PURE__ */ jsxDEV35("box", {
     flexDirection: "column",
     paddingLeft: 2,
     paddingRight: 2,
     paddingBottom: 1,
     maxHeight: MAX_VISIBLE_LINES + 1,
-    children: warnings.map((msg, i) => /* @__PURE__ */ jsxDEV32("box", {
-      children: /* @__PURE__ */ jsxDEV32("text", {
+    children: warnings.map((msg, i) => /* @__PURE__ */ jsxDEV35("box", {
+      children: /* @__PURE__ */ jsxDEV35("text", {
         children: [
-          /* @__PURE__ */ jsxDEV32("span", {
+          /* @__PURE__ */ jsxDEV35("span", {
             fg,
             children: [
               prefix,
               " "
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV32("span", {
+          /* @__PURE__ */ jsxDEV35("span", {
             fg,
             children: msg
           }, undefined, false, undefined, this)
@@ -7029,7 +7393,7 @@ function InitWarnings({ warnings, color, icon }) {
 
 // src/components/FileBrowserView.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV33 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV36 } from "@opentui/react/jsx-dev-runtime";
 var FILE_TYPE_ICONS3 = {
   image: { modern: "\uD83D\uDCF7", basic: "[I]" },
   audio: { modern: "\uD83C\uDFB5", basic: "[A]" },
@@ -7052,43 +7416,43 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}G`;
 }
 function FileBrowserView({ currentPath, entries, selectedIndex, showHidden }) {
-  return /* @__PURE__ */ jsxDEV33("box", {
+  return /* @__PURE__ */ jsxDEV36("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV33("box", {
+      /* @__PURE__ */ jsxDEV36("box", {
         flexDirection: "column",
         paddingX: 1,
         paddingTop: 1,
         children: [
-          /* @__PURE__ */ jsxDEV33("text", {
+          /* @__PURE__ */ jsxDEV36("text", {
             children: [
-              /* @__PURE__ */ jsxDEV33("span", {
+              /* @__PURE__ */ jsxDEV36("span", {
                 fg: C.primary,
                 children: "文件浏览器"
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV33("span", {
+              /* @__PURE__ */ jsxDEV36("span", {
                 fg: C.dim,
                 children: `  ${ICONS.arrowUp}${ICONS.arrowDown} 导航  Enter 选择/进入  Backspace 上级  `
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV33("span", {
+              /* @__PURE__ */ jsxDEV36("span", {
                 fg: C.dim,
                 children: `. 隐藏文件${showHidden ? "(显示中)" : "(已隐藏)"}  Esc 取消`
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV33("text", {
+          /* @__PURE__ */ jsxDEV36("text", {
             fg: C.warn,
             children: `${ICONS.selectorArrow} ${currentPath}`
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV33("scrollbox", {
+      /* @__PURE__ */ jsxDEV36("scrollbox", {
         flexGrow: 1,
         paddingTop: 1,
         children: [
-          entries.length === 0 && /* @__PURE__ */ jsxDEV33("text", {
+          entries.length === 0 && /* @__PURE__ */ jsxDEV36("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: "(空目录)"
@@ -7097,33 +7461,33 @@ function FileBrowserView({ currentPath, entries, selectedIndex, showHidden }) {
             const isSelected = index === selectedIndex;
             const icon = entry.isDirectory ? DIR_ICON : fileIcon(entry.fileType);
             const nameColor = entry.isDirectory ? isSelected ? C.warn : "#e0ac69" : isSelected ? C.text : C.textSec;
-            return /* @__PURE__ */ jsxDEV33("box", {
+            return /* @__PURE__ */ jsxDEV36("box", {
               paddingLeft: 1,
-              children: /* @__PURE__ */ jsxDEV33("text", {
+              children: /* @__PURE__ */ jsxDEV36("text", {
                 children: [
-                  /* @__PURE__ */ jsxDEV33("span", {
+                  /* @__PURE__ */ jsxDEV36("span", {
                     fg: isSelected ? C.accent : C.dim,
                     children: isSelected ? `${ICONS.selectorArrow} ` : "  "
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV33("span", {
+                  /* @__PURE__ */ jsxDEV36("span", {
                     children: [
                       icon,
                       " "
                     ]
                   }, undefined, true, undefined, this),
-                  isSelected ? /* @__PURE__ */ jsxDEV33("strong", {
-                    children: /* @__PURE__ */ jsxDEV33("span", {
+                  isSelected ? /* @__PURE__ */ jsxDEV36("strong", {
+                    children: /* @__PURE__ */ jsxDEV36("span", {
                       fg: nameColor,
                       children: entry.name
                     }, undefined, false, undefined, this)
-                  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV33("span", {
+                  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV36("span", {
                     fg: nameColor,
                     children: entry.name
                   }, undefined, false, undefined, this),
-                  entry.isDirectory ? /* @__PURE__ */ jsxDEV33("span", {
+                  entry.isDirectory ? /* @__PURE__ */ jsxDEV36("span", {
                     fg: C.dim,
                     children: "/"
-                  }, undefined, false, undefined, this) : entry.size != null ? /* @__PURE__ */ jsxDEV33("span", {
+                  }, undefined, false, undefined, this) : entry.size != null ? /* @__PURE__ */ jsxDEV36("span", {
                     fg: C.dim,
                     children: `  ${formatSize(entry.size)}`
                   }, undefined, false, undefined, this) : null
@@ -7138,42 +7502,42 @@ function FileBrowserView({ currentPath, entries, selectedIndex, showHidden }) {
 }
 
 // src/components/LogoScreen.tsx
-import { jsxDEV as jsxDEV34 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV37 } from "@opentui/react/jsx-dev-runtime";
 function LogoScreen() {
-  return /* @__PURE__ */ jsxDEV34("box", {
+  return /* @__PURE__ */ jsxDEV37("box", {
     flexDirection: "column",
     flexGrow: 1,
     padding: 1,
     alignItems: "center",
     justifyContent: "center",
-    children: /* @__PURE__ */ jsxDEV34("box", {
+    children: /* @__PURE__ */ jsxDEV37("box", {
       flexDirection: "column",
       border: false,
       padding: 2,
       alignItems: "center",
       children: [
-        /* @__PURE__ */ jsxDEV34("text", {
+        /* @__PURE__ */ jsxDEV37("text", {
           fg: C.primary,
-          children: /* @__PURE__ */ jsxDEV34("strong", {
+          children: /* @__PURE__ */ jsxDEV37("strong", {
             children: "▀█▀ █▀█ ▀█▀ █▀▀"
           }, undefined, false, undefined, this)
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV34("text", {
+        /* @__PURE__ */ jsxDEV37("text", {
           fg: C.primary,
-          children: /* @__PURE__ */ jsxDEV34("strong", {
+          children: /* @__PURE__ */ jsxDEV37("strong", {
             children: " █  █▀▄  █  ▀▀█"
           }, undefined, false, undefined, this)
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV34("text", {
+        /* @__PURE__ */ jsxDEV37("text", {
           fg: C.primary,
-          children: /* @__PURE__ */ jsxDEV34("strong", {
+          children: /* @__PURE__ */ jsxDEV37("strong", {
             children: "▀▀▀ ▀ ▀ ▀▀▀ ▀▀▀"
           }, undefined, false, undefined, this)
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV34("text", {
+        /* @__PURE__ */ jsxDEV37("text", {
           children: " "
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV34("text", {
+        /* @__PURE__ */ jsxDEV37("text", {
           fg: C.dim,
           children: "模块化 AI 智能代理框架"
         }, undefined, false, undefined, this)
@@ -7183,10 +7547,10 @@ function LogoScreen() {
 }
 
 // src/components/ToolDetailView.tsx
-import { useState as useState11, useCallback as useCallback3 } from "react";
-import { useKeyboard as useKeyboard3 } from "@opentui/react";
+import { useState as useState12, useCallback as useCallback3 } from "react";
+import { useKeyboard as useKeyboard4 } from "@opentui/react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV35 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV38 } from "@opentui/react/jsx-dev-runtime";
 var TERMINAL_STATUSES2 = new Set(["success", "warning", "error"]);
 var STATUS_ICON = {
   streaming: ICONS.statusStreaming,
@@ -7269,27 +7633,27 @@ function childArgsSummary(toolName, args) {
 }
 function Divider({ label }) {
   if (label) {
-    return /* @__PURE__ */ jsxDEV35("text", {
+    return /* @__PURE__ */ jsxDEV38("text", {
       children: [
-        /* @__PURE__ */ jsxDEV35("span", {
+        /* @__PURE__ */ jsxDEV38("span", {
           fg: C.dim,
           children: "─── "
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV35("span", {
+        /* @__PURE__ */ jsxDEV38("span", {
           fg: C.accent,
-          children: /* @__PURE__ */ jsxDEV35("strong", {
+          children: /* @__PURE__ */ jsxDEV38("strong", {
             children: label
           }, undefined, false, undefined, this)
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV35("span", {
+        /* @__PURE__ */ jsxDEV38("span", {
           fg: C.dim,
           children: " " + "─".repeat(50)
         }, undefined, false, undefined, this)
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV35("text", {
-    children: /* @__PURE__ */ jsxDEV35("span", {
+  return /* @__PURE__ */ jsxDEV38("text", {
+    children: /* @__PURE__ */ jsxDEV38("span", {
       fg: C.dim,
       children: "─".repeat(60)
     }, undefined, false, undefined, this)
@@ -7298,13 +7662,13 @@ function Divider({ label }) {
 function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort }) {
   const { invocation, output, children } = data;
   const { toolName, status, args, result, error, createdAt, updatedAt } = invocation;
-  const [selectedIdx, setSelectedIdx] = useState11(0);
+  const [selectedIdx, setSelectedIdx] = useState12(0);
   const displayResult = useResultWithResolvedDiffPreview(result);
   const isFinal = TERMINAL_STATUSES2.has(status);
   const isExecuting = status === "executing";
   const DetailRenderer = getToolDetailRenderer(toolName);
   const ResultRenderer = isFinal && displayResult != null ? getToolRenderer(toolName) : null;
-  useKeyboard3(useCallback3((key) => {
+  useKeyboard4(useCallback3((key) => {
     if (key.name === "escape" || key.name === "q") {
       key.preventDefault?.();
       onClose();
@@ -7331,16 +7695,16 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
     }
   }, [onClose, onAbort, isFinal, invocation.id, children, selectedIdx, onNavigateChild]));
   if (DetailRenderer) {
-    return /* @__PURE__ */ jsxDEV35("box", {
+    return /* @__PURE__ */ jsxDEV38("box", {
       flexDirection: "column",
       width: "100%",
       children: [
-        /* @__PURE__ */ jsxDEV35(BreadcrumbBar, {
+        /* @__PURE__ */ jsxDEV38(BreadcrumbBar, {
           breadcrumb,
           toolName
         }, undefined, false, undefined, this),
         DetailRenderer({ invocation, output, children, onNavigateChild }),
-        /* @__PURE__ */ jsxDEV35(FooterBar, {
+        /* @__PURE__ */ jsxDEV38(FooterBar, {
           isFinal,
           hasAbort: !!onAbort,
           hasChildren: children.length > 0
@@ -7348,22 +7712,22 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV35("box", {
+  return /* @__PURE__ */ jsxDEV38("box", {
     flexDirection: "column",
     width: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV35(BreadcrumbBar, {
+      /* @__PURE__ */ jsxDEV38(BreadcrumbBar, {
         breadcrumb,
         toolName
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV35("box", {
+      /* @__PURE__ */ jsxDEV38("box", {
         children: [
-          /* @__PURE__ */ jsxDEV35("text", {
+          /* @__PURE__ */ jsxDEV38("text", {
             children: [
-              /* @__PURE__ */ jsxDEV35("span", {
+              /* @__PURE__ */ jsxDEV38("span", {
                 bg: status === "error" ? C.error : C.accent,
                 fg: C.cursorFg,
-                children: /* @__PURE__ */ jsxDEV35("strong", {
+                children: /* @__PURE__ */ jsxDEV38("strong", {
                   children: [
                     " ",
                     toolName,
@@ -7372,7 +7736,7 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
                 }, undefined, true, undefined, this)
               }, undefined, false, undefined, this),
               "  ",
-              /* @__PURE__ */ jsxDEV35("span", {
+              /* @__PURE__ */ jsxDEV38("span", {
                 fg: isFinal ? status === "error" ? C.error : C.accent : C.dim,
                 children: [
                   STATUS_ICON[status] || ICONS.statusQueued,
@@ -7380,7 +7744,7 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
                   STATUS_LABEL[status] || status
                 ]
               }, undefined, true, undefined, this),
-              dur(createdAt, updatedAt) ? /* @__PURE__ */ jsxDEV35("span", {
+              dur(createdAt, updatedAt) ? /* @__PURE__ */ jsxDEV38("span", {
                 fg: C.dim,
                 children: [
                   "  ",
@@ -7390,16 +7754,16 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
               "  "
             ]
           }, undefined, true, undefined, this),
-          isExecuting && /* @__PURE__ */ jsxDEV35("text", {
-            children: /* @__PURE__ */ jsxDEV35(Spinner, {}, undefined, false, undefined, this)
+          isExecuting && /* @__PURE__ */ jsxDEV38("text", {
+            children: /* @__PURE__ */ jsxDEV38(Spinner, {}, undefined, false, undefined, this)
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV35("box", {
+      /* @__PURE__ */ jsxDEV38("box", {
         marginTop: 0,
-        children: /* @__PURE__ */ jsxDEV35("text", {
+        children: /* @__PURE__ */ jsxDEV38("text", {
           children: [
-            /* @__PURE__ */ jsxDEV35("span", {
+            /* @__PURE__ */ jsxDEV38("span", {
               fg: C.dim,
               children: [
                 "  ",
@@ -7408,55 +7772,55 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
                 ts(createdAt)
               ]
             }, undefined, true, undefined, this),
-            isFinal ? /* @__PURE__ */ jsxDEV35("span", {
+            isFinal ? /* @__PURE__ */ jsxDEV38("span", {
               fg: C.dim,
               children: [
                 ` ${ICONS.arrowRight} `,
                 ts(updatedAt)
               ]
-            }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV35("span", {
+            }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV38("span", {
               fg: C.dim,
               children: ` ${ICONS.arrowRight} ${ICONS.ellipsis}`
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV35(Divider, {
+      /* @__PURE__ */ jsxDEV38(Divider, {
         label: "参数"
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV35(ArgsSection, {
+      /* @__PURE__ */ jsxDEV38(ArgsSection, {
         args
       }, undefined, false, undefined, this),
-      output.length > 0 && /* @__PURE__ */ jsxDEV35("box", {
+      output.length > 0 && /* @__PURE__ */ jsxDEV38("box", {
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsxDEV35(Divider, {
+          /* @__PURE__ */ jsxDEV38(Divider, {
             label: `输出 (${output.length})`
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV35(OutputSection, {
+          /* @__PURE__ */ jsxDEV38(OutputSection, {
             output
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      children.length > 0 && /* @__PURE__ */ jsxDEV35("box", {
+      children.length > 0 && /* @__PURE__ */ jsxDEV38("box", {
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsxDEV35(Divider, {
+          /* @__PURE__ */ jsxDEV38(Divider, {
             label: `子工具 (${children.length})`
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV35(ChildrenSection, {
+          /* @__PURE__ */ jsxDEV38(ChildrenSection, {
             children,
             selectedIdx
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      isFinal && /* @__PURE__ */ jsxDEV35("box", {
+      isFinal && /* @__PURE__ */ jsxDEV38("box", {
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsxDEV35(Divider, {
+          /* @__PURE__ */ jsxDEV38(Divider, {
             label: "结果"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV35(ResultSection, {
+          /* @__PURE__ */ jsxDEV38(ResultSection, {
             status,
             error,
             result: displayResult,
@@ -7466,8 +7830,8 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV35(Divider, {}, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV35(FooterBar, {
+      /* @__PURE__ */ jsxDEV38(Divider, {}, undefined, false, undefined, this),
+      /* @__PURE__ */ jsxDEV38(FooterBar, {
         isFinal,
         hasAbort: !!onAbort,
         hasChildren: children.length > 0
@@ -7476,29 +7840,29 @@ function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onAbort })
   }, undefined, true, undefined, this);
 }
 function BreadcrumbBar({ breadcrumb, toolName }) {
-  return /* @__PURE__ */ jsxDEV35("box", {
+  return /* @__PURE__ */ jsxDEV38("box", {
     marginBottom: 0,
-    children: /* @__PURE__ */ jsxDEV35("text", {
+    children: /* @__PURE__ */ jsxDEV38("text", {
       children: [
-        /* @__PURE__ */ jsxDEV35("span", {
+        /* @__PURE__ */ jsxDEV38("span", {
           fg: C.dim,
           children: `${ICONS.arrowLeft} [Esc] `
         }, undefined, false, undefined, this),
-        breadcrumb.map((b) => /* @__PURE__ */ jsxDEV35("span", {
+        breadcrumb.map((b) => /* @__PURE__ */ jsxDEV38("span", {
           children: [
-            /* @__PURE__ */ jsxDEV35("span", {
+            /* @__PURE__ */ jsxDEV38("span", {
               fg: C.dim,
               children: b.toolName
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV35("span", {
+            /* @__PURE__ */ jsxDEV38("span", {
               fg: C.dim,
               children: " › "
             }, undefined, false, undefined, this)
           ]
         }, b.toolId, true, undefined, this)),
-        /* @__PURE__ */ jsxDEV35("span", {
+        /* @__PURE__ */ jsxDEV38("span", {
           fg: C.accent,
-          children: /* @__PURE__ */ jsxDEV35("strong", {
+          children: /* @__PURE__ */ jsxDEV38("strong", {
             children: toolName
           }, undefined, false, undefined, this)
         }, undefined, false, undefined, this)
@@ -7509,12 +7873,12 @@ function BreadcrumbBar({ breadcrumb, toolName }) {
 function ArgsSection({ args }) {
   const entries = Object.entries(args);
   if (entries.length === 0) {
-    return /* @__PURE__ */ jsxDEV35("text", {
+    return /* @__PURE__ */ jsxDEV38("text", {
       fg: C.dim,
       children: "  (无参数)"
     }, undefined, false, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV35("box", {
+  return /* @__PURE__ */ jsxDEV38("box", {
     flexDirection: "column",
     children: [
       entries.slice(0, 8).map(([key, val]) => {
@@ -7528,26 +7892,26 @@ function ArgsSection({ args }) {
         } else {
           display = String(val);
         }
-        return /* @__PURE__ */ jsxDEV35("text", {
+        return /* @__PURE__ */ jsxDEV38("text", {
           children: [
-            /* @__PURE__ */ jsxDEV35("span", {
+            /* @__PURE__ */ jsxDEV38("span", {
               fg: C.accent,
               children: [
                 "  ",
                 key
               ]
             }, undefined, true, undefined, this),
-            /* @__PURE__ */ jsxDEV35("span", {
+            /* @__PURE__ */ jsxDEV38("span", {
               fg: C.dim,
               children: " = "
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV35("span", {
+            /* @__PURE__ */ jsxDEV38("span", {
               children: display
             }, undefined, false, undefined, this)
           ]
         }, key, true, undefined, this);
       }),
-      entries.length > 8 && /* @__PURE__ */ jsxDEV35("text", {
+      entries.length > 8 && /* @__PURE__ */ jsxDEV38("text", {
         fg: C.dim,
         children: `  ${ICONS.ellipsis} +${entries.length - 8} 更多参数`
       }, undefined, false, undefined, this)
@@ -7557,16 +7921,16 @@ function ArgsSection({ args }) {
 function OutputSection({ output }) {
   const visible = output.length > 20 ? output.slice(-20) : output;
   const skipped = output.length - visible.length;
-  return /* @__PURE__ */ jsxDEV35("box", {
+  return /* @__PURE__ */ jsxDEV38("box", {
     flexDirection: "column",
     children: [
-      skipped > 0 && /* @__PURE__ */ jsxDEV35("text", {
+      skipped > 0 && /* @__PURE__ */ jsxDEV38("text", {
         fg: C.dim,
         children: `  ${ICONS.ellipsis} 省略 ${skipped} 条`
       }, undefined, false, undefined, this),
-      visible.map((entry, i) => /* @__PURE__ */ jsxDEV35("text", {
+      visible.map((entry, i) => /* @__PURE__ */ jsxDEV38("text", {
         children: [
-          /* @__PURE__ */ jsxDEV35("span", {
+          /* @__PURE__ */ jsxDEV38("span", {
             fg: C.dim,
             children: [
               "  ",
@@ -7574,7 +7938,7 @@ function OutputSection({ output }) {
               " "
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV35("span", {
+          /* @__PURE__ */ jsxDEV38("span", {
             fg: OUTPUT_COLOR[entry.type] || C.dim,
             children: [
               "[",
@@ -7582,7 +7946,7 @@ function OutputSection({ output }) {
               "]"
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV35("span", {
+          /* @__PURE__ */ jsxDEV38("span", {
             children: [
               " ",
               truncate4(entry.content, 100)
@@ -7594,20 +7958,20 @@ function OutputSection({ output }) {
   }, undefined, true, undefined, this);
 }
 function ChildrenSection({ children, selectedIdx }) {
-  return /* @__PURE__ */ jsxDEV35("box", {
+  return /* @__PURE__ */ jsxDEV38("box", {
     flexDirection: "column",
     children: children.map((child, i) => {
       const sel = i === selectedIdx;
       const icon = STATUS_ICON[child.status] || ICONS.statusQueued;
       const d = dur(child.createdAt, child.updatedAt);
       const summary = childArgsSummary(child.toolName, child.args);
-      return /* @__PURE__ */ jsxDEV35("text", {
+      return /* @__PURE__ */ jsxDEV38("text", {
         children: [
-          /* @__PURE__ */ jsxDEV35("span", {
+          /* @__PURE__ */ jsxDEV38("span", {
             fg: sel ? C.accent : C.dim,
             children: sel ? ` ${ICONS.triangleRight} ` : "   "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV35("span", {
+          /* @__PURE__ */ jsxDEV38("span", {
             bg: child.status === "error" ? C.error : C.accent,
             fg: C.cursorFg,
             children: [
@@ -7616,20 +7980,20 @@ function ChildrenSection({ children, selectedIdx }) {
               " "
             ]
           }, undefined, true, undefined, this),
-          summary ? /* @__PURE__ */ jsxDEV35("span", {
+          summary ? /* @__PURE__ */ jsxDEV38("span", {
             fg: C.dim,
             children: [
               " ",
               summary
             ]
           }, undefined, true, undefined, this) : null,
-          /* @__PURE__ */ jsxDEV35("span", {
+          /* @__PURE__ */ jsxDEV38("span", {
             children: [
               " ",
               icon
             ]
           }, undefined, true, undefined, this),
-          d ? /* @__PURE__ */ jsxDEV35("span", {
+          d ? /* @__PURE__ */ jsxDEV38("span", {
             fg: C.dim,
             children: [
               " ",
@@ -7643,7 +8007,7 @@ function ChildrenSection({ children, selectedIdx }) {
 }
 function ResultSection({ status, error, result, toolName, args, Renderer }) {
   if (status === "error" && error) {
-    return /* @__PURE__ */ jsxDEV35("text", {
+    return /* @__PURE__ */ jsxDEV38("text", {
       fg: C.error,
       children: [
         "  ",
@@ -7652,7 +8016,7 @@ function ResultSection({ status, error, result, toolName, args, Renderer }) {
     }, undefined, true, undefined, this);
   }
   if (Renderer && result != null) {
-    return /* @__PURE__ */ jsxDEV35("box", {
+    return /* @__PURE__ */ jsxDEV38("box", {
       paddingLeft: 2,
       children: Renderer({ toolName, args, result })
     }, undefined, false, undefined, this);
@@ -7662,41 +8026,41 @@ function ResultSection({ status, error, result, toolName, args, Renderer }) {
     const lines = text_content.split(`
 `);
     const visible = lines.length > 10 ? lines.slice(0, 10) : lines;
-    return /* @__PURE__ */ jsxDEV35("box", {
+    return /* @__PURE__ */ jsxDEV38("box", {
       flexDirection: "column",
       children: [
-        visible.map((line, i) => /* @__PURE__ */ jsxDEV35("text", {
+        visible.map((line, i) => /* @__PURE__ */ jsxDEV38("text", {
           fg: C.dim,
           children: [
             "  ",
             line
           ]
         }, i, true, undefined, this)),
-        lines.length > 10 && /* @__PURE__ */ jsxDEV35("text", {
+        lines.length > 10 && /* @__PURE__ */ jsxDEV38("text", {
           fg: C.dim,
           children: `  ${ICONS.ellipsis} +${lines.length - 10} 行`
         }, undefined, false, undefined, this)
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV35("text", {
+  return /* @__PURE__ */ jsxDEV38("text", {
     fg: C.dim,
     children: "  (无结果)"
   }, undefined, false, undefined, this);
 }
 function FooterBar({ isFinal, hasAbort, hasChildren }) {
-  return /* @__PURE__ */ jsxDEV35("box", {
-    children: /* @__PURE__ */ jsxDEV35("text", {
+  return /* @__PURE__ */ jsxDEV38("box", {
+    children: /* @__PURE__ */ jsxDEV38("text", {
       children: [
-        /* @__PURE__ */ jsxDEV35("span", {
+        /* @__PURE__ */ jsxDEV38("span", {
           fg: C.dim,
           children: " [Esc/q] 返回"
         }, undefined, false, undefined, this),
-        !isFinal && hasAbort ? /* @__PURE__ */ jsxDEV35("span", {
+        !isFinal && hasAbort ? /* @__PURE__ */ jsxDEV38("span", {
           fg: C.dim,
           children: "  [a] 终止"
         }, undefined, false, undefined, this) : null,
-        hasChildren ? /* @__PURE__ */ jsxDEV35("span", {
+        hasChildren ? /* @__PURE__ */ jsxDEV38("span", {
           fg: C.dim,
           children: `  [${ICONS.arrowUp}${ICONS.arrowDown}] 选择子工具  [Enter] 查看详情`
         }, undefined, false, undefined, this) : null
@@ -7707,7 +8071,7 @@ function FooterBar({ isFinal, hasAbort, hasChildren }) {
 
 // src/components/ModelListView.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV36, Fragment as Fragment7 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV39, Fragment as Fragment7 } from "@opentui/react/jsx-dev-runtime";
 function formatContextWindow(tokens) {
   if (tokens == null || tokens <= 0)
     return "";
@@ -7749,37 +8113,37 @@ function ModelListView({
   const count = models.length;
   const visionStatus = selected ? getVisionStatus(selected.supportsVision) : undefined;
   const cursorVisible = useCursorBlink();
-  return /* @__PURE__ */ jsxDEV36("box", {
+  return /* @__PURE__ */ jsxDEV39("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV36("box", {
+      /* @__PURE__ */ jsxDEV39("box", {
         padding: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsxDEV36("text", {
+          /* @__PURE__ */ jsxDEV39("text", {
             fg: C.primary,
             children: `切换模型 (${count})`
           }, undefined, false, undefined, this),
-          editingField ? /* @__PURE__ */ jsxDEV36(Fragment7, {
+          editingField ? /* @__PURE__ */ jsxDEV39(Fragment7, {
             children: [
-              /* @__PURE__ */ jsxDEV36("text", {
+              /* @__PURE__ */ jsxDEV39("text", {
                 fg: C.dim,
                 children: `Enter 保存  Esc 取消  Ctrl+U 清空`
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV36("text", {
+              /* @__PURE__ */ jsxDEV39("text", {
                 fg: C.dim,
                 children: editingField === "contextWindow" ? "留空可清除上下文窗口配置" : "编辑模型别名（会同步更新 /model 使用名称）"
               }, undefined, false, undefined, this)
             ]
-          }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV36(Fragment7, {
+          }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV39(Fragment7, {
             children: [
-              /* @__PURE__ */ jsxDEV36("text", {
+              /* @__PURE__ */ jsxDEV39("text", {
                 fg: C.dim,
                 children: `${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 切换  d 设默认  r 刷新`
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV36("text", {
+              /* @__PURE__ */ jsxDEV39("text", {
                 fg: C.dim,
                 children: `n 改名  w 改上下文  Esc 返回`
               }, undefined, false, undefined, this)
@@ -7787,26 +8151,26 @@ function ModelListView({
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      statusMessage && /* @__PURE__ */ jsxDEV36("box", {
+      statusMessage && /* @__PURE__ */ jsxDEV39("box", {
         paddingLeft: 2,
         paddingRight: 2,
         paddingBottom: 1,
-        children: /* @__PURE__ */ jsxDEV36("text", {
+        children: /* @__PURE__ */ jsxDEV39("text", {
           fg: statusIsError ? C.error : C.accent,
           children: statusMessage
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      editingField && selected && /* @__PURE__ */ jsxDEV36("box", {
+      editingField && selected && /* @__PURE__ */ jsxDEV39("box", {
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
         paddingBottom: 1,
         children: [
-          /* @__PURE__ */ jsxDEV36("text", {
+          /* @__PURE__ */ jsxDEV39("text", {
             fg: C.warn,
             children: editingField === "modelName" ? `编辑模型名：${selected.modelName}` : `编辑上下文窗口：${selected.modelName}`
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV36(InputDisplay, {
+          /* @__PURE__ */ jsxDEV39(InputDisplay, {
             value: editingValue,
             cursor: editingCursor,
             isActive: true,
@@ -7815,10 +8179,10 @@ function ModelListView({
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV36("scrollbox", {
+      /* @__PURE__ */ jsxDEV39("scrollbox", {
         flexGrow: 1,
         children: [
-          count === 0 && /* @__PURE__ */ jsxDEV36("text", {
+          count === 0 && /* @__PURE__ */ jsxDEV39("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: "暂无可用模型。请在 /settings 中配置。"
@@ -7843,48 +8207,48 @@ function ModelListView({
               details.push(ctxStr);
             const detailLine = details.join(` ${ICONS.separator} `);
             const visionIcon = info.supportsVision ? " \uD83D\uDC41" : "";
-            return /* @__PURE__ */ jsxDEV36("box", {
+            return /* @__PURE__ */ jsxDEV39("box", {
               flexDirection: "column",
               paddingLeft: 1,
               children: [
-                /* @__PURE__ */ jsxDEV36("box", {
-                  children: /* @__PURE__ */ jsxDEV36("text", {
+                /* @__PURE__ */ jsxDEV39("box", {
+                  children: /* @__PURE__ */ jsxDEV39("text", {
                     children: [
-                      /* @__PURE__ */ jsxDEV36("span", {
+                      /* @__PURE__ */ jsxDEV39("span", {
                         fg: isSelected ? C.accent : C.dim,
                         children: isSelected ? `${ICONS.selectorArrow} ` : "  "
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV36("span", {
+                      /* @__PURE__ */ jsxDEV39("span", {
                         fg: isCurrent ? C.accent : C.dim,
                         children: [
                           isCurrent ? ICONS.bullet : " ",
                           " "
                         ]
                       }, undefined, true, undefined, this),
-                      isSelected ? /* @__PURE__ */ jsxDEV36("strong", {
-                        children: /* @__PURE__ */ jsxDEV36("span", {
+                      isSelected ? /* @__PURE__ */ jsxDEV39("strong", {
+                        children: /* @__PURE__ */ jsxDEV39("span", {
                           fg: C.text,
                           children: info.modelName
                         }, undefined, false, undefined, this)
-                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV36("span", {
+                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV39("span", {
                         fg: C.textSec,
                         children: info.modelName
                       }, undefined, false, undefined, this),
-                      isCurrent && /* @__PURE__ */ jsxDEV36("span", {
+                      isCurrent && /* @__PURE__ */ jsxDEV39("span", {
                         fg: C.accent,
                         children: " [当前]"
                       }, undefined, false, undefined, this),
-                      isDefault && /* @__PURE__ */ jsxDEV36("span", {
+                      isDefault && /* @__PURE__ */ jsxDEV39("span", {
                         fg: C.primaryLight,
                         children: " [默认]"
                       }, undefined, false, undefined, this)
                     ]
                   }, undefined, true, undefined, this)
                 }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsxDEV36("box", {
+                /* @__PURE__ */ jsxDEV39("box", {
                   paddingLeft: 4,
-                  children: /* @__PURE__ */ jsxDEV36("text", {
-                    children: /* @__PURE__ */ jsxDEV36("span", {
+                  children: /* @__PURE__ */ jsxDEV39("text", {
+                    children: /* @__PURE__ */ jsxDEV39("span", {
                       fg: C.dim,
                       children: [
                         detailLine,
@@ -7898,46 +8262,46 @@ function ModelListView({
           })
         ]
       }, undefined, true, undefined, this),
-      selected && /* @__PURE__ */ jsxDEV36("box", {
+      selected && /* @__PURE__ */ jsxDEV39("box", {
         paddingLeft: 2,
         paddingRight: 2,
         paddingTop: 0,
         paddingBottom: 1,
-        children: /* @__PURE__ */ jsxDEV36("text", {
+        children: /* @__PURE__ */ jsxDEV39("text", {
           children: [
-            /* @__PURE__ */ jsxDEV36("span", {
+            /* @__PURE__ */ jsxDEV39("span", {
               fg: C.dim,
               children: "提供商："
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV36("span", {
+            /* @__PURE__ */ jsxDEV39("span", {
               fg: C.textSec,
               children: selected.provider ?? "未知"
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV36("span", {
+            /* @__PURE__ */ jsxDEV39("span", {
               fg: C.dim,
               children: " | 模型："
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV36("span", {
+            /* @__PURE__ */ jsxDEV39("span", {
               fg: C.textSec,
               children: selected.modelId
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV36("span", {
+            /* @__PURE__ */ jsxDEV39("span", {
               fg: C.dim,
               children: " | 上下文："
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV36("span", {
+            /* @__PURE__ */ jsxDEV39("span", {
               fg: C.textSec,
               children: formatContextWindowFull(selected.contextWindow)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV36("span", {
+            /* @__PURE__ */ jsxDEV39("span", {
               fg: C.dim,
               children: " | 视觉："
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV36("span", {
+            /* @__PURE__ */ jsxDEV39("span", {
               fg: visionStatus?.color ?? C.dim,
               children: visionStatus?.symbol ?? "?"
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV36("span", {
+            /* @__PURE__ */ jsxDEV39("span", {
               fg: visionStatus?.color ?? C.dim,
               children: ` ${visionStatus?.label ?? "未知"}`
             }, undefined, false, undefined, this)
@@ -7950,7 +8314,7 @@ function ModelListView({
 
 // src/components/QueueListView.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV37 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV40 } from "@opentui/react/jsx-dev-runtime";
 function formatQueueTime(timestamp) {
   const d = new Date(timestamp);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
@@ -7973,43 +8337,43 @@ function countNewlines(text) {
 function QueueListView({ queue, selectedIndex, editingId, editingValue, editingCursor }) {
   const isEditing = editingId != null;
   const cursorVisible = useCursorBlink();
-  return /* @__PURE__ */ jsxDEV37("box", {
+  return /* @__PURE__ */ jsxDEV40("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV37("box", {
+      /* @__PURE__ */ jsxDEV40("box", {
         padding: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsxDEV37("box", {
+          /* @__PURE__ */ jsxDEV40("box", {
             children: [
-              /* @__PURE__ */ jsxDEV37("text", {
+              /* @__PURE__ */ jsxDEV40("text", {
                 fg: C.primary,
                 children: "消息队列"
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV37("text", {
+              /* @__PURE__ */ jsxDEV40("text", {
                 fg: C.dim,
                 children: `  (${queue.length} 条待发送)`
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV37("box", {
+          /* @__PURE__ */ jsxDEV40("box", {
             paddingTop: 0,
-            children: isEditing ? /* @__PURE__ */ jsxDEV37("text", {
+            children: isEditing ? /* @__PURE__ */ jsxDEV40("text", {
               fg: C.dim,
               children: "  Ctrl+J 换行  Enter 确认  Ctrl+U 清空  Esc 取消"
-            }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV37("text", {
+            }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV40("text", {
               fg: C.dim,
               children: `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Ctrl/Shift+${ICONS.arrowUp}${ICONS.arrowDown} 移动  e 编辑  d 删除  c 清空队列  Esc 返回`
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV37("scrollbox", {
+      /* @__PURE__ */ jsxDEV40("scrollbox", {
         flexGrow: 1,
         children: [
-          queue.length === 0 && /* @__PURE__ */ jsxDEV37("text", {
+          queue.length === 0 && /* @__PURE__ */ jsxDEV40("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: "队列为空"
@@ -8020,37 +8384,37 @@ function QueueListView({ queue, selectedIndex, editingId, editingValue, editingC
             const time = formatQueueTime(msg.createdAt);
             if (isMsgEditing) {
               const nlCount = countNewlines(editingValue);
-              return /* @__PURE__ */ jsxDEV37("box", {
+              return /* @__PURE__ */ jsxDEV40("box", {
                 paddingLeft: 1,
                 flexDirection: "column",
                 children: [
-                  /* @__PURE__ */ jsxDEV37("text", {
+                  /* @__PURE__ */ jsxDEV40("text", {
                     children: [
-                      /* @__PURE__ */ jsxDEV37("span", {
+                      /* @__PURE__ */ jsxDEV40("span", {
                         fg: C.accent,
                         children: "❯ "
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV37("span", {
+                      /* @__PURE__ */ jsxDEV40("span", {
                         fg: C.dim,
                         children: `${index + 1}. `
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV37("span", {
+                      /* @__PURE__ */ jsxDEV40("span", {
                         fg: C.warn,
                         children: "[编辑中]"
                       }, undefined, false, undefined, this),
-                      nlCount > 0 ? /* @__PURE__ */ jsxDEV37("span", {
+                      nlCount > 0 ? /* @__PURE__ */ jsxDEV40("span", {
                         fg: C.dim,
                         children: ` (${nlCount + 1} 行)`
                       }, undefined, false, undefined, this) : null,
-                      /* @__PURE__ */ jsxDEV37("span", {
+                      /* @__PURE__ */ jsxDEV40("span", {
                         fg: C.dim,
                         children: `  ${time}`
                       }, undefined, false, undefined, this)
                     ]
                   }, undefined, true, undefined, this),
-                  /* @__PURE__ */ jsxDEV37("box", {
+                  /* @__PURE__ */ jsxDEV40("box", {
                     paddingLeft: 4,
-                    children: /* @__PURE__ */ jsxDEV37(InputDisplay, {
+                    children: /* @__PURE__ */ jsxDEV40(InputDisplay, {
                       value: editingValue,
                       cursor: editingCursor,
                       isActive: true,
@@ -8061,28 +8425,28 @@ function QueueListView({ queue, selectedIndex, editingId, editingValue, editingC
               }, msg.id, true, undefined, this);
             }
             const preview = truncatePreview(msg.text, 60);
-            return /* @__PURE__ */ jsxDEV37("box", {
+            return /* @__PURE__ */ jsxDEV40("box", {
               paddingLeft: 1,
-              children: /* @__PURE__ */ jsxDEV37("text", {
+              children: /* @__PURE__ */ jsxDEV40("text", {
                 children: [
-                  /* @__PURE__ */ jsxDEV37("span", {
+                  /* @__PURE__ */ jsxDEV40("span", {
                     fg: isSelected ? C.accent : C.dim,
                     children: isSelected ? "❯ " : "  "
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV37("span", {
+                  /* @__PURE__ */ jsxDEV40("span", {
                     fg: C.dim,
                     children: `${index + 1}. `
                   }, undefined, false, undefined, this),
-                  isSelected ? /* @__PURE__ */ jsxDEV37("strong", {
-                    children: /* @__PURE__ */ jsxDEV37("span", {
+                  isSelected ? /* @__PURE__ */ jsxDEV40("strong", {
+                    children: /* @__PURE__ */ jsxDEV40("span", {
                       fg: C.text,
                       children: preview
                     }, undefined, false, undefined, this)
-                  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV37("span", {
+                  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV40("span", {
                     fg: C.textSec,
                     children: preview
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV37("span", {
+                  /* @__PURE__ */ jsxDEV40("span", {
                     fg: C.dim,
                     children: `  ${time}`
                   }, undefined, false, undefined, this)
@@ -8098,7 +8462,7 @@ function QueueListView({ queue, selectedIndex, editingId, editingValue, editingC
 
 // src/components/ToolListView.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV38 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV41 } from "@opentui/react/jsx-dev-runtime";
 var STATUS_ICON2 = {
   streaming: ICONS.statusStreaming,
   queued: ICONS.statusQueued,
@@ -8153,38 +8517,38 @@ function argsSummary(toolName, args) {
 }
 function ToolListView({ tools, selectedIndex }) {
   if (tools.length === 0) {
-    return /* @__PURE__ */ jsxDEV38("box", {
+    return /* @__PURE__ */ jsxDEV41("box", {
       flexDirection: "column",
       paddingX: 1,
       children: [
-        /* @__PURE__ */ jsxDEV38("text", {
+        /* @__PURE__ */ jsxDEV41("text", {
           fg: C.dim,
           children: "当前会话没有工具执行记录。"
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV38("text", {
+        /* @__PURE__ */ jsxDEV41("text", {
           fg: C.dim,
           children: " "
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsxDEV38("text", {
+        /* @__PURE__ */ jsxDEV41("text", {
           fg: C.dim,
           children: "Esc 返回"
         }, undefined, false, undefined, this)
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV38("box", {
+  return /* @__PURE__ */ jsxDEV41("box", {
     flexDirection: "column",
     paddingX: 1,
     children: [
-      /* @__PURE__ */ jsxDEV38("text", {
+      /* @__PURE__ */ jsxDEV41("text", {
         children: [
-          /* @__PURE__ */ jsxDEV38("span", {
+          /* @__PURE__ */ jsxDEV41("span", {
             fg: C.accent,
-            children: /* @__PURE__ */ jsxDEV38("strong", {
+            children: /* @__PURE__ */ jsxDEV41("strong", {
               children: " 工具执行记录 "
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV38("span", {
+          /* @__PURE__ */ jsxDEV41("span", {
             fg: C.dim,
             children: [
               "(",
@@ -8194,11 +8558,11 @@ function ToolListView({ tools, selectedIndex }) {
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV38("text", {
+      /* @__PURE__ */ jsxDEV41("text", {
         fg: C.dim,
         children: "─".repeat(60)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV38("scrollbox", {
+      /* @__PURE__ */ jsxDEV41("scrollbox", {
         flexGrow: 1,
         children: tools.map((inv, i) => {
           const sel = i === selectedIndex;
@@ -8207,20 +8571,20 @@ function ToolListView({ tools, selectedIndex }) {
           const summary = argsSummary(inv.toolName, inv.args);
           const time = new Date(inv.createdAt);
           const timeStr = `${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}:${String(time.getSeconds()).padStart(2, "0")}`;
-          return /* @__PURE__ */ jsxDEV38("text", {
+          return /* @__PURE__ */ jsxDEV41("text", {
             children: [
-              /* @__PURE__ */ jsxDEV38("span", {
+              /* @__PURE__ */ jsxDEV41("span", {
                 fg: sel ? C.accent : C.dim,
                 children: sel ? ` ${ICONS.selectorArrow} ` : "   "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV38("span", {
+              /* @__PURE__ */ jsxDEV41("span", {
                 fg: C.dim,
                 children: [
                   timeStr,
                   " "
                 ]
               }, undefined, true, undefined, this),
-              /* @__PURE__ */ jsxDEV38("span", {
+              /* @__PURE__ */ jsxDEV41("span", {
                 bg: inv.status === "error" ? C.error : C.accent,
                 fg: C.cursorFg,
                 children: [
@@ -8229,20 +8593,20 @@ function ToolListView({ tools, selectedIndex }) {
                   " "
                 ]
               }, undefined, true, undefined, this),
-              summary ? /* @__PURE__ */ jsxDEV38("span", {
+              summary ? /* @__PURE__ */ jsxDEV41("span", {
                 fg: sel ? undefined : C.dim,
                 children: [
                   " ",
                   summary
                 ]
               }, undefined, true, undefined, this) : null,
-              /* @__PURE__ */ jsxDEV38("span", {
+              /* @__PURE__ */ jsxDEV41("span", {
                 children: [
                   " ",
                   icon
                 ]
               }, undefined, true, undefined, this),
-              d ? /* @__PURE__ */ jsxDEV38("span", {
+              d ? /* @__PURE__ */ jsxDEV41("span", {
                 fg: C.dim,
                 children: [
                   " ",
@@ -8253,11 +8617,11 @@ function ToolListView({ tools, selectedIndex }) {
           }, inv.id, true, undefined, this);
         })
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV38("text", {
+      /* @__PURE__ */ jsxDEV41("text", {
         fg: C.dim,
         children: "─".repeat(60)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV38("text", {
+      /* @__PURE__ */ jsxDEV41("text", {
         fg: C.dim,
         children: ` ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 查看详情  Esc 返回`
       }, undefined, false, undefined, this)
@@ -8266,9 +8630,9 @@ function ToolListView({ tools, selectedIndex }) {
 }
 
 // src/components/SessionListView.tsx
-import { useTerminalDimensions as useTerminalDimensions7 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions9 } from "@opentui/react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV39 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV42 } from "@opentui/react/jsx-dev-runtime";
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -8305,7 +8669,7 @@ function buildSeparator(totalWidth) {
 }
 var ROWS_PER_ITEM = 3;
 function SessionListView({ sessions, selectedIndex, pendingDeleteId, statusMessage, statusIsError }) {
-  const { height: terminalHeight, width: terminalWidth } = useTerminalDimensions7();
+  const { height: terminalHeight, width: terminalWidth } = useTerminalDimensions9();
   const rowWidth = Math.max(20, terminalWidth || 80);
   const safeSelectedIndex = sessions.length > 0 ? clamp(selectedIndex, 0, sessions.length - 1) : 0;
   const reservedRows = 4 + (statusMessage ? 1 : 0);
@@ -8371,42 +8735,42 @@ function SessionListView({ sessions, selectedIndex, pendingDeleteId, statusMessa
   while (rows.length < bodyRows) {
     rows.push({ key: `blank:${rows.length}`, text: "", color: C.dim });
   }
-  return /* @__PURE__ */ jsxDEV39("box", {
+  return /* @__PURE__ */ jsxDEV42("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV39("box", {
+      /* @__PURE__ */ jsxDEV42("box", {
         padding: 1,
         children: [
-          /* @__PURE__ */ jsxDEV39("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.primary,
             children: "对话"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV39("text", {
+          /* @__PURE__ */ jsxDEV42("text", {
             fg: C.dim,
             children: `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 加载  D 删除  Esc 返回`
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      statusMessage && /* @__PURE__ */ jsxDEV39("box", {
+      statusMessage && /* @__PURE__ */ jsxDEV42("box", {
         paddingLeft: 2,
         paddingRight: 2,
         paddingBottom: 1,
-        children: /* @__PURE__ */ jsxDEV39("text", {
+        children: /* @__PURE__ */ jsxDEV42("text", {
           wrapMode: "none",
           fg: statusIsError ? C.error : C.accent,
           children: fitLine(statusMessage, rowWidth - 4)
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV39("box", {
+      /* @__PURE__ */ jsxDEV42("box", {
         flexDirection: "column",
         flexGrow: 1,
         height: bodyRows,
-        children: rows.slice(0, bodyRows).map((row) => /* @__PURE__ */ jsxDEV39("text", {
+        children: rows.slice(0, bodyRows).map((row) => /* @__PURE__ */ jsxDEV42("text", {
           wrapMode: "none",
           fg: row.color,
-          children: row.bold ? /* @__PURE__ */ jsxDEV39("strong", {
+          children: row.bold ? /* @__PURE__ */ jsxDEV42("strong", {
             children: fitLine(row.text, rowWidth)
           }, undefined, false, undefined, this) : fitLine(row.text, rowWidth)
         }, row.key, false, undefined, this))
@@ -8416,9 +8780,9 @@ function SessionListView({ sessions, selectedIndex, pendingDeleteId, statusMessa
 }
 
 // src/components/RewindSelectorView.tsx
-import { useTerminalDimensions as useTerminalDimensions8 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions10 } from "@opentui/react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV40 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV43 } from "@opentui/react/jsx-dev-runtime";
 function clamp2(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -8511,35 +8875,35 @@ function CodeStatsSummaryLine({ checkpoint, maxWidth }) {
   }
   const fullText = `代码快照：${fileCount} 个文件 · +${stats.insertions} -${stats.deletions}。`;
   const compact = getTextWidth(fullText) > maxWidth;
-  return /* @__PURE__ */ jsxDEV40("box", {
+  return /* @__PURE__ */ jsxDEV43("box", {
     flexDirection: "row",
     border: false,
     children: [
-      /* @__PURE__ */ jsxDEV40("text", {
+      /* @__PURE__ */ jsxDEV43("text", {
         fg: C.text,
         children: compact ? "代码：" : "代码快照："
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV40("text", {
+      /* @__PURE__ */ jsxDEV43("text", {
         fg: C.accent,
         children: String(fileCount)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV40("text", {
+      /* @__PURE__ */ jsxDEV43("text", {
         fg: C.text,
         children: compact ? "文件 " : " 个文件 · "
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV40("text", {
+      /* @__PURE__ */ jsxDEV43("text", {
         fg: C.accent,
         children: `+${stats.insertions}`
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV40("text", {
+      /* @__PURE__ */ jsxDEV43("text", {
         fg: C.text,
         children: " "
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV40("text", {
+      /* @__PURE__ */ jsxDEV43("text", {
         fg: C.error,
         children: `-${stats.deletions}`
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV40("text", {
+      /* @__PURE__ */ jsxDEV43("text", {
         fg: C.text,
         children: "。"
       }, undefined, false, undefined, this)
@@ -8558,7 +8922,7 @@ function RewindSelectorView({
   isRestoring,
   selectedMode = "conversation"
 }) {
-  const { width: terminalWidth } = useTerminalDimensions8();
+  const { width: terminalWidth } = useTerminalDimensions10();
   const screenWidth = Math.max(40, terminalWidth || 80);
   const headerWidth = Math.max(20, screenWidth - 4);
   const rowWidth = Math.max(20, screenWidth - 4);
@@ -8575,78 +8939,78 @@ function RewindSelectorView({
     const conversationModeColor = getModeColor("conversation", effectiveSelectedMode, canRestoreSelectedCode);
     const codeModeColor = getModeColor("code", effectiveSelectedMode, canRestoreSelectedCode);
     const bothModeColor = getModeColor("both", effectiveSelectedMode, canRestoreSelectedCode);
-    return /* @__PURE__ */ jsxDEV40("box", {
+    return /* @__PURE__ */ jsxDEV43("box", {
       flexDirection: "column",
       width: "100%",
       height: "100%",
       children: [
-        /* @__PURE__ */ jsxDEV40("box", {
+        /* @__PURE__ */ jsxDEV43("box", {
           padding: 1,
           flexDirection: "column",
           flexShrink: 0,
           children: [
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: C.primary,
               children: fitText("Rewind 回溯 · 确认恢复", headerWidth)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: C.dim,
               children: fitText(hintText, headerWidth)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: C.dim,
               children: fitText(`回溯点：${selected.preview}`, headerWidth)
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this),
-        /* @__PURE__ */ jsxDEV40("box", {
+        /* @__PURE__ */ jsxDEV43("box", {
           padding: 1,
           flexDirection: "column",
           borderStyle: "single",
           borderColor: C.warn,
           flexShrink: 0,
           children: [
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: C.warn,
               children: fitText("确认恢复到所选回溯点？", confirmWidth)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: C.dim,
               children: fitText("恢复模式：", confirmWidth)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: conversationModeColor,
               children: fitText(formatModeRow("conversation", effectiveSelectedMode, canRestoreSelectedCode), confirmWidth)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: codeModeColor,
               children: fitText(formatModeRow("code", effectiveSelectedMode, canRestoreSelectedCode), confirmWidth)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: bothModeColor,
               children: fitText(formatModeRow("both", effectiveSelectedMode, canRestoreSelectedCode), confirmWidth)
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this),
-        /* @__PURE__ */ jsxDEV40("box", {
+        /* @__PURE__ */ jsxDEV43("box", {
           paddingX: 2,
           paddingTop: 1,
           flexDirection: "column",
           flexShrink: 0,
           children: [
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: C.text,
               children: fitText(formatConversationAction(selected, effectiveSelectedMode), headerWidth)
             }, undefined, false, undefined, this),
-            shouldShowCodeStatsLine(selected, effectiveSelectedMode) ? /* @__PURE__ */ jsxDEV40(CodeStatsSummaryLine, {
+            shouldShowCodeStatsLine(selected, effectiveSelectedMode) ? /* @__PURE__ */ jsxDEV43(CodeStatsSummaryLine, {
               checkpoint: selected,
               maxWidth: headerWidth
             }, undefined, false, undefined, this) : null,
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: C.dim,
               children: fitText(formatCodeScopeNotice(selected, effectiveSelectedMode), headerWidth)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV40("text", {
+            /* @__PURE__ */ jsxDEV43("text", {
               fg: C.dim,
               children: fitText(formatBranchNotice(effectiveSelectedMode), headerWidth)
             }, undefined, false, undefined, this)
@@ -8655,46 +9019,46 @@ function RewindSelectorView({
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV40("box", {
+  return /* @__PURE__ */ jsxDEV43("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV40("box", {
+      /* @__PURE__ */ jsxDEV43("box", {
         padding: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsxDEV40("box", {
-            children: /* @__PURE__ */ jsxDEV40("text", {
+          /* @__PURE__ */ jsxDEV43("box", {
+            children: /* @__PURE__ */ jsxDEV43("text", {
               fg: C.primary,
               children: fitText(`Rewind 回溯  (${checkpoints.length} 个可回溯点)`, headerWidth)
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV40("box", {
+          /* @__PURE__ */ jsxDEV43("box", {
             paddingTop: 0,
-            children: /* @__PURE__ */ jsxDEV40("text", {
+            children: /* @__PURE__ */ jsxDEV43("text", {
               fg: C.dim,
               children: fitText(hintText, headerWidth)
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          statusMessage ? /* @__PURE__ */ jsxDEV40("box", {
+          statusMessage ? /* @__PURE__ */ jsxDEV43("box", {
             paddingTop: 0,
-            children: /* @__PURE__ */ jsxDEV40("text", {
+            children: /* @__PURE__ */ jsxDEV43("text", {
               fg: statusIsError ? C.error : C.dim,
               children: fitText(statusMessage, headerWidth)
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this) : null
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV40("scrollbox", {
+      /* @__PURE__ */ jsxDEV43("scrollbox", {
         flexGrow: 1,
         children: [
-          checkpoints.length === 0 ? /* @__PURE__ */ jsxDEV40("text", {
+          checkpoints.length === 0 ? /* @__PURE__ */ jsxDEV43("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: fitText("暂无可回溯的用户消息。", rowWidth)
           }, undefined, false, undefined, this) : null,
-          startIndex > 0 ? /* @__PURE__ */ jsxDEV40("text", {
+          startIndex > 0 ? /* @__PURE__ */ jsxDEV43("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: fitText(`${ICONS.arrowUp} 上方还有 ${startIndex} 条`, rowWidth)
@@ -8712,40 +9076,40 @@ function RewindSelectorView({
               checkpoint.hasAttachments ? "含附件" : undefined,
               formatStats2(checkpoint)
             ].filter(Boolean).join(" · ");
-            return /* @__PURE__ */ jsxDEV40("box", {
+            return /* @__PURE__ */ jsxDEV43("box", {
               paddingLeft: 1,
               flexDirection: "column",
               children: [
-                /* @__PURE__ */ jsxDEV40("box", {
+                /* @__PURE__ */ jsxDEV43("box", {
                   flexDirection: "row",
                   border: false,
                   children: [
-                    /* @__PURE__ */ jsxDEV40("text", {
+                    /* @__PURE__ */ jsxDEV43("text", {
                       fg: isSelected ? C.accent : C.dim,
                       children: marker
                     }, undefined, false, undefined, this),
-                    /* @__PURE__ */ jsxDEV40("box", {
+                    /* @__PURE__ */ jsxDEV43("box", {
                       flexGrow: 1,
                       flexShrink: 1,
-                      children: /* @__PURE__ */ jsxDEV40("text", {
+                      children: /* @__PURE__ */ jsxDEV43("text", {
                         fg: isSelected ? C.text : C.textSec,
                         children: fitText(`${index + 1}. ${checkpoint.preview}`, titleWidth)
                       }, undefined, false, undefined, this)
                     }, undefined, false, undefined, this)
                   ]
                 }, undefined, true, undefined, this),
-                /* @__PURE__ */ jsxDEV40("text", {
+                /* @__PURE__ */ jsxDEV43("text", {
                   fg: C.dim,
                   children: fitText(`     ${suffix}`, rowWidth)
                 }, undefined, false, undefined, this),
-                isSelected && checkpoint.assistantText ? /* @__PURE__ */ jsxDEV40("text", {
+                isSelected && checkpoint.assistantText ? /* @__PURE__ */ jsxDEV43("text", {
                   fg: C.dim,
                   children: fitText(`     回复：${checkpoint.assistantText}`, rowWidth)
                 }, undefined, false, undefined, this) : null
               ]
             }, checkpoint.id, true, undefined, this);
           }),
-          startIndex + visible.length < checkpoints.length ? /* @__PURE__ */ jsxDEV40("text", {
+          startIndex + visible.length < checkpoints.length ? /* @__PURE__ */ jsxDEV43("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: fitText(`${ICONS.arrowDown} 下方还有 ${checkpoints.length - startIndex - visible.length} 条`, rowWidth)
@@ -8758,7 +9122,7 @@ function RewindSelectorView({
 
 // src/components/MemoryListView.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV41 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV44 } from "@opentui/react/jsx-dev-runtime";
 var TYPE_LABELS = {
   user: "user",
   feedback: "feedback",
@@ -8780,36 +9144,36 @@ function MemoryListView({ memories, selectedIndex, expandedId, filter, pendingDe
   const total = memories.length;
   const shown = filtered.length;
   const filterLabel = filter === "all" ? `(${total} ${ICONS.separator} Tab ${ICONS.triangleRight})` : `[${filter}] (${shown}/${total} ${ICONS.separator} Tab ${ICONS.triangleRight})`;
-  return /* @__PURE__ */ jsxDEV41("box", {
+  return /* @__PURE__ */ jsxDEV44("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV41("box", {
+      /* @__PURE__ */ jsxDEV44("box", {
         padding: 1,
         children: [
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV44("text", {
             fg: C.primary,
             children: `${ICONS.bullet} `
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV44("text", {
             fg: C.primary,
             children: "Memory "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV44("text", {
             fg: C.dim,
             children: filterLabel
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV41("text", {
+          /* @__PURE__ */ jsxDEV44("text", {
             fg: C.dim,
             children: `  ${ICONS.arrowUp}${ICONS.arrowDown} select  Enter expand  D delete  Esc back`
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV41("scrollbox", {
+      /* @__PURE__ */ jsxDEV44("scrollbox", {
         flexGrow: 1,
         children: [
-          filtered.length === 0 && /* @__PURE__ */ jsxDEV41("text", {
+          filtered.length === 0 && /* @__PURE__ */ jsxDEV44("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: filter === "all" ? "No memories yet." : `No ${filter} memories.`
@@ -8820,52 +9184,52 @@ function MemoryListView({ memories, selectedIndex, expandedId, filter, pendingDe
             const isPendingDelete = item.id === pendingDeleteId;
             const typeTag = TYPE_LABELS[item.type] ?? item.type;
             const age = formatAge(item.updatedAt);
-            return /* @__PURE__ */ jsxDEV41("box", {
+            return /* @__PURE__ */ jsxDEV44("box", {
               flexDirection: "column",
               paddingLeft: 1,
               children: [
-                /* @__PURE__ */ jsxDEV41("box", {
-                  children: /* @__PURE__ */ jsxDEV41("text", {
+                /* @__PURE__ */ jsxDEV44("box", {
+                  children: /* @__PURE__ */ jsxDEV44("text", {
                     children: [
-                      /* @__PURE__ */ jsxDEV41("span", {
+                      /* @__PURE__ */ jsxDEV44("span", {
                         fg: isSelected ? C.accent : C.dim,
                         children: isSelected ? `${ICONS.selectorArrow} ` : "  "
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV41("span", {
+                      /* @__PURE__ */ jsxDEV44("span", {
                         fg: C.dim,
                         children: `[${typeTag}] `
                       }, undefined, false, undefined, this),
-                      isSelected ? /* @__PURE__ */ jsxDEV41("strong", {
-                        children: /* @__PURE__ */ jsxDEV41("span", {
+                      isSelected ? /* @__PURE__ */ jsxDEV44("strong", {
+                        children: /* @__PURE__ */ jsxDEV44("span", {
                           fg: C.text,
                           children: item.name || `#${item.id}`
                         }, undefined, false, undefined, this)
-                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV41("span", {
+                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV44("span", {
                         fg: C.textSec,
                         children: item.name || `#${item.id}`
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV41("span", {
+                      /* @__PURE__ */ jsxDEV44("span", {
                         fg: C.dim,
                         children: ` ${ICONS.emDash} ${item.description || "(no description)"}`
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV41("span", {
+                      /* @__PURE__ */ jsxDEV44("span", {
                         fg: C.dim,
                         children: `  ${age}`
                       }, undefined, false, undefined, this)
                     ]
                   }, undefined, true, undefined, this)
                 }, undefined, false, undefined, this),
-                isPendingDelete && /* @__PURE__ */ jsxDEV41("box", {
+                isPendingDelete && /* @__PURE__ */ jsxDEV44("box", {
                   paddingLeft: 4,
-                  children: /* @__PURE__ */ jsxDEV41("text", {
+                  children: /* @__PURE__ */ jsxDEV44("text", {
                     fg: C.error,
                     children: "Delete this memory? (D) confirm  (Esc) cancel"
                   }, undefined, false, undefined, this)
                 }, undefined, false, undefined, this),
-                isExpanded && !isPendingDelete && /* @__PURE__ */ jsxDEV41("box", {
+                isExpanded && !isPendingDelete && /* @__PURE__ */ jsxDEV44("box", {
                   paddingLeft: 4,
                   paddingBottom: 1,
-                  children: /* @__PURE__ */ jsxDEV41("text", {
+                  children: /* @__PURE__ */ jsxDEV44("text", {
                     fg: C.textSec,
                     children: item.content
                   }, undefined, false, undefined, this)
@@ -8893,9 +9257,9 @@ function formatAge(unixSec) {
 }
 
 // src/components/ExtensionListView.tsx
-import { useTerminalDimensions as useTerminalDimensions9 } from "@opentui/react";
+import { useTerminalDimensions as useTerminalDimensions11 } from "@opentui/react";
 init_terminal_compat();
-import { jsxDEV as jsxDEV42, Fragment as Fragment8 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV45, Fragment as Fragment8 } from "@opentui/react/jsx-dev-runtime";
 var STATUS_LABELS = {
   active: { label: "active", color: "#2ecc71" },
   disabled: { label: "disabled", color: "#e74c3c" },
@@ -8925,11 +9289,11 @@ function splitFixedWidth(value, width) {
   return result.length > 0 ? result : [""];
 }
 function renderCursorChar(char, visible) {
-  return visible ? /* @__PURE__ */ jsxDEV42("span", {
+  return visible ? /* @__PURE__ */ jsxDEV45("span", {
     bg: C.accent,
     fg: C.cursorFg,
     children: char || " "
-  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV42("span", {
+  }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV45("span", {
     fg: C.text,
     children: char || " "
   }, undefined, false, undefined, this);
@@ -8939,7 +9303,7 @@ function GitInputFrame({
   cursor,
   cursorVisible
 }) {
-  const { width: terminalWidth } = useTerminalDimensions9();
+  const { width: terminalWidth } = useTerminalDimensions11();
   const safeTerminalWidth = Math.max(20, terminalWidth || 80);
   const frameWidth = Math.max(12, Math.min(88, safeTerminalWidth - 8));
   const innerWidth = Math.max(12, frameWidth - 4);
@@ -8950,13 +9314,13 @@ function GitInputFrame({
   if (value && safeCursor === value.length && value.length > 0 && value.length % innerWidth === 0) {
     lines.push("");
   }
-  return /* @__PURE__ */ jsxDEV42("box", {
+  return /* @__PURE__ */ jsxDEV45("box", {
     flexDirection: "column",
     width: frameWidth,
     height: Math.max(3, lines.length + 2),
     flexShrink: 0,
     children: [
-      /* @__PURE__ */ jsxDEV42("text", {
+      /* @__PURE__ */ jsxDEV45("text", {
         wrapMode: "none",
         fg: C.accent,
         children: topBorder
@@ -8964,18 +9328,18 @@ function GitInputFrame({
       lines.map((line, lineIndex) => {
         const start = value ? lineIndex * innerWidth : 0;
         const end = start + line.length;
-        const wrapLine = (node, visualWidth) => /* @__PURE__ */ jsxDEV42("text", {
+        const wrapLine = (node, visualWidth) => /* @__PURE__ */ jsxDEV45("text", {
           wrapMode: "none",
           children: [
-            /* @__PURE__ */ jsxDEV42("span", {
+            /* @__PURE__ */ jsxDEV45("span", {
               fg: C.accent,
               children: `${BORDER_CHARS.vertical} `
             }, undefined, false, undefined, this),
             node,
-            /* @__PURE__ */ jsxDEV42("span", {
+            /* @__PURE__ */ jsxDEV45("span", {
               children: " ".repeat(Math.max(0, innerWidth - visualWidth))
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsxDEV42("span", {
+            /* @__PURE__ */ jsxDEV45("span", {
               fg: C.accent,
               children: ` ${BORDER_CHARS.vertical}`
             }, undefined, false, undefined, this)
@@ -8983,10 +9347,10 @@ function GitInputFrame({
         }, `git-input-line-${lineIndex}`, true, undefined, this);
         if (!value) {
           const placeholderPart = line;
-          return wrapLine(/* @__PURE__ */ jsxDEV42(Fragment8, {
+          return wrapLine(/* @__PURE__ */ jsxDEV45(Fragment8, {
             children: [
               lineIndex === 0 && renderCursorChar(" ", cursorVisible),
-              /* @__PURE__ */ jsxDEV42("span", {
+              /* @__PURE__ */ jsxDEV45("span", {
                 fg: C.dim,
                 children: placeholderPart
               }, undefined, false, undefined, this)
@@ -8995,14 +9359,14 @@ function GitInputFrame({
         }
         if (safeCursor >= start && safeCursor < end) {
           const local = safeCursor - start;
-          return wrapLine(/* @__PURE__ */ jsxDEV42(Fragment8, {
+          return wrapLine(/* @__PURE__ */ jsxDEV45(Fragment8, {
             children: [
-              /* @__PURE__ */ jsxDEV42("span", {
+              /* @__PURE__ */ jsxDEV45("span", {
                 fg: C.text,
                 children: line.slice(0, local)
               }, undefined, false, undefined, this),
               renderCursorChar(line[local] || " ", cursorVisible),
-              /* @__PURE__ */ jsxDEV42("span", {
+              /* @__PURE__ */ jsxDEV45("span", {
                 fg: C.text,
                 children: line.slice(local + 1)
               }, undefined, false, undefined, this)
@@ -9010,9 +9374,9 @@ function GitInputFrame({
           }, undefined, true, undefined, this), line.length);
         }
         if (safeCursor === end && lineIndex === lines.length - 1) {
-          return wrapLine(/* @__PURE__ */ jsxDEV42(Fragment8, {
+          return wrapLine(/* @__PURE__ */ jsxDEV45(Fragment8, {
             children: [
-              /* @__PURE__ */ jsxDEV42("span", {
+              /* @__PURE__ */ jsxDEV45("span", {
                 fg: C.text,
                 children: line
               }, undefined, false, undefined, this),
@@ -9020,12 +9384,12 @@ function GitInputFrame({
             ]
           }, undefined, true, undefined, this), line.length + 1);
         }
-        return wrapLine(/* @__PURE__ */ jsxDEV42("span", {
+        return wrapLine(/* @__PURE__ */ jsxDEV45("span", {
           fg: C.text,
           children: line
         }, undefined, false, undefined, this), line.length);
       }),
-      /* @__PURE__ */ jsxDEV42("text", {
+      /* @__PURE__ */ jsxDEV45("text", {
         wrapMode: "none",
         fg: C.accent,
         children: bottomBorder
@@ -9052,89 +9416,89 @@ function ExtensionListView({
   const total = extensions.length;
   const pluginCount = extensions.filter((item) => item.hasPlugin).length;
   const platformCount = total - pluginCount;
-  return /* @__PURE__ */ jsxDEV42("box", {
+  return /* @__PURE__ */ jsxDEV45("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV42("box", {
+      /* @__PURE__ */ jsxDEV45("box", {
         padding: 1,
         children: [
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV45("text", {
             fg: C.primary,
             children: `${ICONS.bullet} `
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV45("text", {
             fg: C.primary,
             children: "Extension "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV45("text", {
             fg: C.dim,
             children: `(${pluginCount} plugins, ${platformCount} platforms)`
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV45("text", {
             fg: C.dim,
             children: busy ? "  处理中，请稍候..." : `  ${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 标记  S 保存(启用时会安装缺失依赖)  G 拉取 Git  U 升级  D 删除  Esc 返回`
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      scopePickMode && /* @__PURE__ */ jsxDEV42("box", {
+      scopePickMode && /* @__PURE__ */ jsxDEV45("box", {
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
         paddingBottom: 1,
         children: [
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV45("text", {
             fg: C.primary,
             children: "选择安装范围："
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV45("text", {
             fg: C.text,
             children: "  [1] 全局      ~/.iris/extensions/         （所有 agent 共享）"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV45("text", {
             fg: C.text,
             children: "  [2] 此 agent  ~/.iris/agents/<id>/extensions/（仅当前 agent，优先级更高）"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV45("text", {
             fg: C.dim,
             children: "按数字选择，Esc 取消。选完会进入 Git 地址输入。"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      gitInputMode && /* @__PURE__ */ jsxDEV42("box", {
+      gitInputMode && /* @__PURE__ */ jsxDEV45("box", {
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
         paddingBottom: 1,
         children: [
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV45("text", {
             fg: C.primary,
             children: `Git 地址（→ ${installScope === "global" ? "全局" : "此 agent"}，支持 #ref:subdir）：`
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV42(GitInputFrame, {
+          /* @__PURE__ */ jsxDEV45(GitInputFrame, {
             value: gitInputValue,
             cursor: gitInputCursor,
             cursorVisible: gitInputCursorVisible
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV42("text", {
+          /* @__PURE__ */ jsxDEV45("text", {
             fg: C.dim,
             children: "Enter 拉取并安装，Esc 取消。不会执行第三方 install/build 脚本。"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      statusMessage && /* @__PURE__ */ jsxDEV42("box", {
+      statusMessage && /* @__PURE__ */ jsxDEV45("box", {
         paddingLeft: 2,
         paddingBottom: 1,
-        children: /* @__PURE__ */ jsxDEV42("text", {
+        children: /* @__PURE__ */ jsxDEV45("text", {
           fg: statusIsError ? C.error : C.accent,
           children: statusMessage
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsxDEV42("scrollbox", {
+      /* @__PURE__ */ jsxDEV45("scrollbox", {
         flexGrow: 1,
         children: [
-          extensions.length === 0 && /* @__PURE__ */ jsxDEV42("text", {
+          extensions.length === 0 && /* @__PURE__ */ jsxDEV45("text", {
             fg: C.dim,
             paddingLeft: 2,
             children: "No extensions found."
@@ -9148,58 +9512,58 @@ function ExtensionListView({
             const isPendingDelete = pendingDeleteName === item.name;
             const isPendingUpdate = pendingUpdateName === item.name;
             const showHeader = index === 0 || extensions[index - 1]?.hasPlugin !== item.hasPlugin;
-            return /* @__PURE__ */ jsxDEV42("box", {
+            return /* @__PURE__ */ jsxDEV45("box", {
               flexDirection: "column",
               children: [
-                showHeader && /* @__PURE__ */ jsxDEV42("text", {
+                showHeader && /* @__PURE__ */ jsxDEV45("text", {
                   fg: C.primary,
                   children: item.hasPlugin ? "Plugins" : "Platforms"
                 }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsxDEV42("box", {
+                /* @__PURE__ */ jsxDEV45("box", {
                   paddingLeft: 1,
-                  children: /* @__PURE__ */ jsxDEV42("text", {
+                  children: /* @__PURE__ */ jsxDEV45("text", {
                     children: [
-                      /* @__PURE__ */ jsxDEV42("span", {
+                      /* @__PURE__ */ jsxDEV45("span", {
                         fg: isSelected ? C.accent : C.dim,
                         children: isSelected ? `${ICONS.selectorArrow} ` : "  "
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV42("span", {
+                      /* @__PURE__ */ jsxDEV45("span", {
                         fg: statusInfo.color,
                         children: `[${isToggling ? "..." : `${statusInfo.label}${isDirty ? "*" : ""}`}] `
                       }, undefined, false, undefined, this),
                       (() => {
                         const badge = SOURCE_BADGES[item.source];
-                        return badge ? /* @__PURE__ */ jsxDEV42("span", {
+                        return badge ? /* @__PURE__ */ jsxDEV45("span", {
                           fg: badge.color,
                           children: `[${badge.label}] `
                         }, undefined, false, undefined, this) : null;
                       })(),
-                      isSelected ? /* @__PURE__ */ jsxDEV42("strong", {
-                        children: /* @__PURE__ */ jsxDEV42("span", {
+                      isSelected ? /* @__PURE__ */ jsxDEV45("strong", {
+                        children: /* @__PURE__ */ jsxDEV45("span", {
                           fg: C.text,
                           children: item.name
                         }, undefined, false, undefined, this)
-                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV42("span", {
+                      }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV45("span", {
                         fg: C.textSec,
                         children: item.name
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV42("span", {
+                      /* @__PURE__ */ jsxDEV45("span", {
                         fg: C.dim,
                         children: ` v${item.version}`
                       }, undefined, false, undefined, this),
-                      isGit && /* @__PURE__ */ jsxDEV42("span", {
+                      isGit && /* @__PURE__ */ jsxDEV45("span", {
                         fg: "#74b9ff",
                         children: item.gitCommit ? ` [git:${item.gitCommit.slice(0, 8)}]` : " [git]"
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV42("span", {
+                      /* @__PURE__ */ jsxDEV45("span", {
                         fg: C.dim,
                         children: ` ${ICONS.emDash} ${item.description || "(no description)"}`
                       }, undefined, false, undefined, this),
-                      isPendingDelete && /* @__PURE__ */ jsxDEV42("span", {
+                      isPendingDelete && /* @__PURE__ */ jsxDEV45("span", {
                         fg: C.error,
                         children: "  再按 D 确认删除"
                       }, undefined, false, undefined, this),
-                      isPendingUpdate && /* @__PURE__ */ jsxDEV42("span", {
+                      isPendingUpdate && /* @__PURE__ */ jsxDEV45("span", {
                         fg: C.warn,
                         children: "  再按 U 确认升级"
                       }, undefined, false, undefined, this)
@@ -9216,8 +9580,8 @@ function ExtensionListView({
 }
 
 // src/components/SettingsView.tsx
-import { useCallback as useCallback4, useEffect as useEffect11, useMemo as useMemo9, useState as useState12 } from "react";
-import { useKeyboard as useKeyboard4, useTerminalDimensions as useTerminalDimensions10 } from "@opentui/react";
+import { useCallback as useCallback4, useEffect as useEffect12, useMemo as useMemo9, useState as useState13 } from "react";
+import { useKeyboard as useKeyboard5, useTerminalDimensions as useTerminalDimensions12 } from "@opentui/react";
 init_terminal_compat();
 
 // src/diff-approval.ts
@@ -9637,7 +10001,7 @@ class ConsoleSettingsController {
 }
 
 // src/components/SettingsView.tsx
-import { jsxDEV as jsxDEV43 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV46 } from "@opentui/react/jsx-dev-runtime";
 function getToolPolicyMode(configured, autoApprove) {
   if (!configured)
     return "disabled";
@@ -9837,20 +10201,20 @@ var BUILTIN_SECTIONS = [
   { id: "mcp", label: "MCP 服务", icon: "03" }
 ];
 function SettingsView({ initialSection = "general", onBack, onLoad, onSave, pluginTabs }) {
-  const { width: termWidth, height: termHeight } = useTerminalDimensions10();
-  const [loading, setLoading] = useState12(true);
-  const [saving, setSaving] = useState12(false);
-  const [draft, setDraft] = useState12(null);
-  const [baseline, setBaseline] = useState12(null);
-  const [selectedRowId, setSelectedRowId] = useState12("");
-  const [navFocused, setNavFocused] = useState12(true);
-  const [editor, setEditor] = useState12(null);
-  const [editorValue, setEditorValue] = useState12("");
-  const [statusText, setStatusText] = useState12("");
-  const [statusKind, setStatusKind] = useState12("info");
-  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState12(false);
-  const [pluginDraft, setPluginDraft] = useState12({});
-  const [pluginBaseline, setPluginBaseline] = useState12({});
+  const { width: termWidth, height: termHeight } = useTerminalDimensions12();
+  const [loading, setLoading] = useState13(true);
+  const [saving, setSaving] = useState13(false);
+  const [draft, setDraft] = useState13(null);
+  const [baseline, setBaseline] = useState13(null);
+  const [selectedRowId, setSelectedRowId] = useState13("");
+  const [navFocused, setNavFocused] = useState13(true);
+  const [editor, setEditor] = useState13(null);
+  const [editorValue, setEditorValue] = useState13("");
+  const [statusText, setStatusText] = useState13("");
+  const [statusKind, setStatusKind] = useState13("info");
+  const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState13(false);
+  const [pluginDraft, setPluginDraft] = useState13({});
+  const [pluginBaseline, setPluginBaseline] = useState13({});
   const sections = useMemo9(() => {
     const pluginSections = (pluginTabs ?? []).map((tab, i) => ({
       id: tab.id,
@@ -9939,7 +10303,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
   }, [selectableRows, selectedRowId]);
   const sectionSelectableRows = useMemo9(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
   const selectedSectionIndex = useMemo9(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
-  useEffect11(() => {
+  useEffect12(() => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -9981,7 +10345,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
       cancelled = true;
     };
   }, [onLoad, setStatus, pluginTabs]);
-  useEffect11(() => {
+  useEffect12(() => {
     if (rows.length === 0)
       return;
     if (selectedRowId && rows.some((row) => row.id === selectedRowId && row.target))
@@ -10381,7 +10745,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
       }
     }
   }, [currentSection, sections, selectableRows]);
-  useKeyboard4((key) => {
+  useKeyboard5((key) => {
     if (editor) {
       if (key.name === "escape") {
         setEditor(null);
@@ -10570,27 +10934,27 @@ ${JSON.stringify(result.data, null, 2)}` : "";
   }
   const visibleRows = sectionRows.slice(windowStart, windowEnd);
   if (loading && !draft) {
-    return /* @__PURE__ */ jsxDEV43("box", {
+    return /* @__PURE__ */ jsxDEV46("box", {
       width: "100%",
       height: "100%",
       justifyContent: "center",
       alignItems: "center",
-      children: /* @__PURE__ */ jsxDEV43("text", {
+      children: /* @__PURE__ */ jsxDEV46("text", {
         fg: "#888",
         children: "正在加载配置..."
       }, undefined, false, undefined, this)
     }, undefined, false, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV43("box", {
+  return /* @__PURE__ */ jsxDEV46("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      /* @__PURE__ */ jsxDEV43("box", {
+      /* @__PURE__ */ jsxDEV46("box", {
         flexDirection: "row",
         flexGrow: 1,
         children: [
-          /* @__PURE__ */ jsxDEV43("box", {
+          /* @__PURE__ */ jsxDEV46("box", {
             width: 24,
             flexShrink: 0,
             flexDirection: "column",
@@ -10598,16 +10962,16 @@ ${JSON.stringify(result.data, null, 2)}` : "";
             paddingLeft: 2,
             paddingRight: 1,
             children: [
-              /* @__PURE__ */ jsxDEV43("text", {
+              /* @__PURE__ */ jsxDEV46("text", {
                 fg: C.primary,
-                children: /* @__PURE__ */ jsxDEV43("strong", {
+                children: /* @__PURE__ */ jsxDEV46("strong", {
                   children: "IRIS"
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV43("box", {
+              /* @__PURE__ */ jsxDEV46("box", {
                 marginTop: 1,
                 flexDirection: "column",
-                children: sections.map((sec) => /* @__PURE__ */ jsxDEV43("text", {
+                children: sections.map((sec) => /* @__PURE__ */ jsxDEV46("text", {
                   fg: currentSection === sec.id ? navFocused ? "#00ffff" : C.accent : "#555",
                   children: [
                     currentSection === sec.id ? navFocused ? "❯" : ICONS.dotFilled : ICONS.dotEmpty,
@@ -10620,32 +10984,32 @@ ${JSON.stringify(result.data, null, 2)}` : "";
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsxDEV43("box", {
+          /* @__PURE__ */ jsxDEV46("box", {
             flexGrow: 1,
             flexDirection: "column",
             paddingTop: 1,
             paddingLeft: 2,
             children: [
-              /* @__PURE__ */ jsxDEV43("box", {
+              /* @__PURE__ */ jsxDEV46("box", {
                 alignItems: "center",
                 paddingBottom: 1,
                 flexShrink: 0,
-                children: /* @__PURE__ */ jsxDEV43("ascii-font", {
+                children: /* @__PURE__ */ jsxDEV46("ascii-font", {
                   text: "IRIS",
                   font: "block",
                   color: C.primary
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsxDEV43("box", {
+              /* @__PURE__ */ jsxDEV46("box", {
                 flexDirection: "column",
                 marginBottom: 1,
                 flexShrink: 0,
                 children: [
-                  /* @__PURE__ */ jsxDEV43("text", {
+                  /* @__PURE__ */ jsxDEV46("text", {
                     fg: "#888",
                     children: "在终端内管理模型池、系统参数、工具策略与 MCP 服务器。"
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV43("text", {
+                  /* @__PURE__ */ jsxDEV46("text", {
                     fg: isDirty ? C.warn : C.accent,
                     children: [
                       isDirty ? `${ICONS.dotFilled} 有未保存修改` : `${ICONS.checkmark} 当前草稿已同步`,
@@ -10654,37 +11018,37 @@ ${JSON.stringify(result.data, null, 2)}` : "";
                   }, undefined, true, undefined, this)
                 ]
               }, undefined, true, undefined, this),
-              /* @__PURE__ */ jsxDEV43("scrollbox", {
+              /* @__PURE__ */ jsxDEV46("scrollbox", {
                 flexGrow: 1,
                 children: [
-                  windowStart > 0 && /* @__PURE__ */ jsxDEV43("text", {
+                  windowStart > 0 && /* @__PURE__ */ jsxDEV46("text", {
                     fg: "#888",
                     children: ICONS.ellipsis
                   }, undefined, false, undefined, this),
                   visibleRows.map((row) => {
                     const isSelected = !navFocused && row.id === selectedRowId && !!row.target;
                     const prefix = row.kind === "action" ? isSelected ? "❯" : "•" : row.kind === "field" ? isSelected ? "❯" : " " : " ";
-                    return /* @__PURE__ */ jsxDEV43("box", {
+                    return /* @__PURE__ */ jsxDEV46("box", {
                       paddingLeft: row.indent ?? 0,
-                      children: /* @__PURE__ */ jsxDEV43("text", {
+                      children: /* @__PURE__ */ jsxDEV46("text", {
                         children: [
-                          /* @__PURE__ */ jsxDEV43("span", {
+                          /* @__PURE__ */ jsxDEV46("span", {
                             fg: isSelected ? "#00ffff" : C.dim,
                             children: prefix
                           }, undefined, false, undefined, this),
-                          /* @__PURE__ */ jsxDEV43("span", {
+                          /* @__PURE__ */ jsxDEV46("span", {
                             children: " "
                           }, undefined, false, undefined, this),
-                          isSelected && row.kind !== "info" ? /* @__PURE__ */ jsxDEV43("span", {
+                          isSelected && row.kind !== "info" ? /* @__PURE__ */ jsxDEV46("span", {
                             fg: C.accent,
-                            children: /* @__PURE__ */ jsxDEV43("strong", {
+                            children: /* @__PURE__ */ jsxDEV46("strong", {
                               children: row.label
                             }, undefined, false, undefined, this)
-                          }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV43("span", {
+                          }, undefined, false, undefined, this) : /* @__PURE__ */ jsxDEV46("span", {
                             fg: isSelected ? "#00ffff" : undefined,
                             children: row.label
                           }, undefined, false, undefined, this),
-                          row.value != null && /* @__PURE__ */ jsxDEV43("span", {
+                          row.value != null && /* @__PURE__ */ jsxDEV46("span", {
                             fg: isSelected ? "#00ffff" : C.dim,
                             children: `  ${row.value}`
                           }, undefined, false, undefined, this)
@@ -10692,7 +11056,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
                       }, undefined, true, undefined, this)
                     }, row.id, false, undefined, this);
                   }),
-                  windowEnd < sectionRows.length && /* @__PURE__ */ jsxDEV43("text", {
+                  windowEnd < sectionRows.length && /* @__PURE__ */ jsxDEV46("text", {
                     fg: "#888",
                     children: ICONS.ellipsis
                   }, undefined, false, undefined, this)
@@ -10702,62 +11066,62 @@ ${JSON.stringify(result.data, null, 2)}` : "";
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV43("box", {
+      /* @__PURE__ */ jsxDEV46("box", {
         flexDirection: "column",
         marginTop: 1,
         paddingX: 2,
         children: [
-          /* @__PURE__ */ jsxDEV43("text", {
+          /* @__PURE__ */ jsxDEV46("text", {
             fg: C.dim,
             children: "─".repeat(Math.max(3, termWidth - 4))
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV43("box", {
+          /* @__PURE__ */ jsxDEV46("box", {
             flexDirection: "column",
             minHeight: 4,
             children: [
-              selectedRow?.description && !editor && /* @__PURE__ */ jsxDEV43("text", {
+              selectedRow?.description && !editor && /* @__PURE__ */ jsxDEV46("text", {
                 fg: "#888",
                 children: selectedRow.description
               }, undefined, false, undefined, this),
-              statusText && /* @__PURE__ */ jsxDEV43("text", {
+              statusText && /* @__PURE__ */ jsxDEV46("text", {
                 fg: getStatusColor(statusKind),
                 children: statusText
               }, undefined, false, undefined, this),
-              editor ? /* @__PURE__ */ jsxDEV43("box", {
+              editor ? /* @__PURE__ */ jsxDEV46("box", {
                 flexDirection: "column",
                 children: [
-                  /* @__PURE__ */ jsxDEV43("text", {
+                  /* @__PURE__ */ jsxDEV46("text", {
                     fg: C.accent,
-                    children: /* @__PURE__ */ jsxDEV43("strong", {
+                    children: /* @__PURE__ */ jsxDEV46("strong", {
                       children: [
                         "编辑：",
                         editor.label
                       ]
                     }, undefined, true, undefined, this)
                   }, undefined, false, undefined, this),
-                  editor.hint && /* @__PURE__ */ jsxDEV43("text", {
+                  editor.hint && /* @__PURE__ */ jsxDEV46("text", {
                     fg: "#888",
                     children: editor.hint
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV43("box", {
+                  /* @__PURE__ */ jsxDEV46("box", {
                     children: [
-                      /* @__PURE__ */ jsxDEV43("text", {
+                      /* @__PURE__ */ jsxDEV46("text", {
                         fg: C.accent,
                         children: "❯ "
                       }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV43("input", {
+                      /* @__PURE__ */ jsxDEV46("input", {
                         value: editorValue,
                         onInput: setEditorValue,
                         focused: true
                       }, undefined, false, undefined, this)
                     ]
                   }, undefined, true, undefined, this),
-                  /* @__PURE__ */ jsxDEV43("text", {
+                  /* @__PURE__ */ jsxDEV46("text", {
                     fg: "#888",
                     children: `Enter 保存 ${ICONS.separator} Esc 取消`
                   }, undefined, false, undefined, this)
                 ]
-              }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV43("text", {
+              }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV46("text", {
                 fg: "#888",
                 children: `${ICONS.arrowUp}${ICONS.arrowDown} 选择  ${ICONS.arrowLeft}${ICONS.arrowRight} 切换  1~${sections.length} 分栏  Space 开关  Enter 编辑/执行  A 新增  D 删除  S 保存  R 重载  Esc 返回`
               }, undefined, false, undefined, this)
@@ -10770,7 +11134,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
 }
 
 // src/hooks/use-app-handle.ts
-import { useCallback as useCallback5, useEffect as useEffect12, useRef as useRef7, useState as useState13 } from "react";
+import { useCallback as useCallback5, useEffect as useEffect13, useRef as useRef8, useState as useState14 } from "react";
 
 // src/message-utils.ts
 var msgIdCounter = 0;
@@ -10895,49 +11259,57 @@ function clearRedo(stack) {
 
 // src/hooks/use-app-handle.ts
 function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, setExtensionListRef }) {
-  const [messages, setMessages] = useState13([]);
-  const [streamingParts, setStreamingParts] = useState13([]);
-  const [isStreaming, setIsStreaming] = useState13(false);
-  const [isGenerating, setIsGenerating] = useState13(false);
-  const [generatingLabel, setGeneratingLabelState] = useState13();
-  const [contextTokens, setContextTokens] = useState13(0);
-  const [retryInfo, setRetryInfo] = useState13(null);
-  const [pendingApprovals, setPendingApprovals] = useState13([]);
-  const [pendingApplies, setPendingApplies] = useState13([]);
-  const [planModeActive, setPlanModeActive] = useState13(false);
-  const [autoEditActive, setAutoEditActive] = useState13(false);
-  const [progressSnapshot, setProgressSnapshot] = useState13(null);
-  const progressSnapshotRef = useRef7(null);
-  const archivedProgressUpdatedAtRef = useRef7(null);
-  const [toolInvocations, setToolInvocationsState] = useState13([]);
-  const [backgroundTaskCount, setBackgroundTaskCount] = useState13(0);
-  const [delegateTaskCount, setDelegateTaskCount] = useState13(0);
-  const backgroundTaskTokenMapRef = useRef7(new Map);
-  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState13(0);
-  const spinnerFrameRef = useRef7(0);
-  const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState13(0);
-  const [toolDetailData, setToolDetailData] = useState13(null);
-  const [toolDetailStack, setToolDetailStack] = useState13([]);
-  const [toolListItems, setToolListItems] = useState13([]);
-  const streamPartsRef = useRef7([]);
-  const toolInvocationsRef = useRef7([]);
-  const throttleTimerRef = useRef7(null);
-  const uncommittedStreamPartsRef = useRef7([]);
-  const lastUsageRef = useRef7(null);
-  const notificationContextRef = useRef7({ active: false });
+  const [messages, setMessages] = useState14([]);
+  const [streamingParts, setStreamingParts] = useState14([]);
+  const [isStreaming, setIsStreaming] = useState14(false);
+  const [isGenerating, setIsGenerating] = useState14(false);
+  const [generatingLabel, setGeneratingLabelState] = useState14();
+  const [contextTokens, setContextTokens] = useState14(0);
+  const [retryInfo, setRetryInfo] = useState14(null);
+  const [pendingApprovals, setPendingApprovals] = useState14([]);
+  const [pendingApplies, setPendingApplies] = useState14([]);
+  const [planModeActive, setPlanModeActive] = useState14(false);
+  const [autoEditActive, setAutoEditActive] = useState14(false);
+  const [noteContent, setNoteContent] = useState14("");
+  const [noteEditorOpen, setNoteEditorOpen] = useState14(false);
+  const [noteEditorInitialValue, setNoteEditorInitialValue] = useState14("");
+  const [noteEditorDraft, setNoteEditorDraft] = useState14("");
+  const noteContentRef = useRef8("");
+  const [progressSnapshot, setProgressSnapshot] = useState14(null);
+  const progressSnapshotRef = useRef8(null);
+  const archivedProgressUpdatedAtRef = useRef8(null);
+  const [toolInvocations, setToolInvocationsState] = useState14([]);
+  const [backgroundTaskCount, setBackgroundTaskCount] = useState14(0);
+  const [delegateTaskCount, setDelegateTaskCount] = useState14(0);
+  const backgroundTaskTokenMapRef = useRef8(new Map);
+  const [backgroundTaskTokens, setBackgroundTaskTokens] = useState14(0);
+  const spinnerFrameRef = useRef8(0);
+  const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState14(0);
+  const [toolDetailData, setToolDetailData] = useState14(null);
+  const [toolDetailStack, setToolDetailStack] = useState14([]);
+  const [toolListItems, setToolListItems] = useState14([]);
+  const streamPartsRef = useRef8([]);
+  const toolInvocationsRef = useRef8([]);
+  const throttleTimerRef = useRef8(null);
+  const uncommittedStreamPartsRef = useRef8([]);
+  const lastUsageRef = useRef8(null);
+  const notificationContextRef = useRef8({ active: false });
   const commitTools = useCallback5(() => {
     toolInvocationsRef.current = [];
     setToolInvocationsState([]);
     setPendingApprovals([]);
     setPendingApplies([]);
   }, []);
-  useEffect12(() => {
+  useEffect13(() => {
     return () => {
       if (throttleTimerRef.current)
         clearTimeout(throttleTimerRef.current);
     };
   }, []);
-  useEffect12(() => {
+  useEffect13(() => {
+    noteContentRef.current = noteContent;
+  }, [noteContent]);
+  useEffect13(() => {
     const isCompletedProgressSnapshot = (snapshot) => {
       return !!snapshot && snapshot.items.length > 0 && snapshot.stats.open === 0;
     };
@@ -11209,6 +11581,21 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
       setAutoEditActive(active) {
         setAutoEditActive(active);
       },
+      setNoteContent(content) {
+        setNoteContent(content);
+      },
+      openNoteEditor(initialValue) {
+        const next = initialValue ?? noteContentRef.current;
+        setNoteEditorInitialValue(next);
+        setNoteEditorDraft(next);
+        setNoteEditorOpen(true);
+      },
+      closeNoteEditor() {
+        setNoteEditorOpen(false);
+      },
+      setNoteEditorDraft(content) {
+        setNoteEditorDraft(content);
+      },
       setProgress(snapshot) {
         const next = snapshot && snapshot.items.length > 0 ? snapshot : null;
         if (next && next.stats.open > 0) {
@@ -11374,6 +11761,18 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
     planModeActive,
     progressSnapshot,
     autoEditActive,
+    noteContent,
+    noteEditorOpen,
+    noteEditorInitialValue,
+    noteEditorDraft,
+    openNoteEditor: (initialValue) => {
+      const next = initialValue ?? noteContentRef.current;
+      setNoteEditorInitialValue(next);
+      setNoteEditorDraft(next);
+      setNoteEditorOpen(true);
+    },
+    closeNoteEditor: () => setNoteEditorOpen(false),
+    setNoteEditorDraft,
     toolInvocations,
     backgroundTaskCount,
     delegateTaskCount,
@@ -11388,7 +11787,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
 }
 
 // src/hooks/use-app-keyboard.ts
-import { useKeyboard as useKeyboard5 } from "@opentui/react";
+import { useKeyboard as useKeyboard6 } from "@opentui/react";
 init_terminal_compat();
 var PROGRESS_PANEL_MAX_ITEMS2 = 8;
 function closeConfirm(setPendingConfirm, setConfirmChoice) {
@@ -11447,6 +11846,7 @@ function useAppKeyboard({
   exitConfirm,
   isGenerating,
   askQuestionActive,
+  noteEditorActive,
   pendingApplies,
   pendingApprovals,
   onOpenToolDetail,
@@ -11600,7 +12000,9 @@ function useAppKeyboard({
       return;
     extensionGitInputActions.insert(normalized);
   });
-  useKeyboard5((key) => {
+  useKeyboard6((key) => {
+    if (noteEditorActive)
+      return;
     if (key.ctrl && key.name === "c") {
       if (viewMode === "chat" && !pendingConfirm && !askQuestionActive && pendingApprovals.length === 0 && pendingApplies.length === 0 && promptInputControllerRef?.current?.hasValue()) {
         promptInputControllerRef.current.clear();
@@ -12598,19 +13000,19 @@ function useAppKeyboard({
 }
 
 // src/hooks/use-approval.ts
-import { useCallback as useCallback6, useEffect as useEffect13, useState as useState14 } from "react";
+import { useCallback as useCallback6, useEffect as useEffect14, useState as useState15 } from "react";
 function useApproval(pendingApprovals, pendingApplies) {
-  const [approvalChoice, setApprovalChoice] = useState14("approve");
-  const [approvalPage, setApprovalPage] = useState14("basic");
-  const [diffView, setDiffView] = useState14("unified");
-  const [showLineNumbers, setShowLineNumbers] = useState14(true);
-  const [wrapMode, setWrapMode] = useState14("word");
-  const [previewIndex, setPreviewIndex] = useState14(0);
-  useEffect13(() => {
+  const [approvalChoice, setApprovalChoice] = useState15("approve");
+  const [approvalPage, setApprovalPage] = useState15("basic");
+  const [diffView, setDiffView] = useState15("unified");
+  const [showLineNumbers, setShowLineNumbers] = useState15(true);
+  const [wrapMode, setWrapMode] = useState15("word");
+  const [previewIndex, setPreviewIndex] = useState15(0);
+  useEffect14(() => {
     setApprovalChoice("approve");
     setApprovalPage("basic");
   }, [pendingApprovals[0]?.id]);
-  useEffect13(() => {
+  useEffect14(() => {
     setApprovalChoice("approve");
     setDiffView("unified");
     setShowLineNumbers(true);
@@ -12796,6 +13198,7 @@ function useCommandDispatch({
   onPlanCommand,
   onAutoEditCommand,
   onCallmeCommand,
+  onNoteCommand,
   setAgentList,
   onDream,
   onListMemories,
@@ -13126,6 +13529,22 @@ function useCommandDispatch({
       });
       return;
     }
+    if (text === "/note" || text.startsWith("/note ")) {
+      const arg = text.slice("/note".length).trim();
+      const messageOptions = { label: "note", beforeActiveAssistant: isGenerating };
+      if (!onNoteCommand) {
+        appendCommandMessage(setMessages, "Note 服务不可用。", { ...messageOptions, isError: true });
+        return;
+      }
+      onNoteCommand(arg).then((result) => {
+        if (result.message) {
+          appendCommandMessage(setMessages, result.message, result.ok ? messageOptions : { ...messageOptions, isError: true });
+        }
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `Note 操作失败: ${err instanceof Error ? err.message : String(err)}`, { ...messageOptions, isError: true });
+      });
+      return;
+    }
     if (text === "/auto-edit" || text.startsWith("/auto-edit ")) {
       const arg = text.slice("/auto-edit".length).trim();
       const messageOptions = { label: "自动编辑", beforeActiveAssistant: isGenerating };
@@ -13229,6 +13648,7 @@ function useCommandDispatch({
     onPlanCommand,
     onAutoEditCommand,
     onCallmeCommand,
+    onNoteCommand,
     onUndo,
     queueClear,
     queueSize,
@@ -13252,10 +13672,10 @@ function useCommandDispatch({
 }
 
 // src/hooks/use-exit-confirm.ts
-import { useCallback as useCallback8, useEffect as useEffect14, useRef as useRef8, useState as useState15 } from "react";
+import { useCallback as useCallback8, useEffect as useEffect15, useRef as useRef9, useState as useState16 } from "react";
 function useExitConfirm({ timeoutMs = 1500 } = {}) {
-  const [exitConfirmArmed, setExitConfirmArmed] = useState15(false);
-  const exitConfirmTimerRef = useRef8(null);
+  const [exitConfirmArmed, setExitConfirmArmed] = useState16(false);
+  const exitConfirmTimerRef = useRef9(null);
   const clearExitConfirm = useCallback8(() => {
     if (exitConfirmTimerRef.current) {
       clearTimeout(exitConfirmTimerRef.current);
@@ -13272,7 +13692,7 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
       setExitConfirmArmed(false);
     }, timeoutMs);
   }, [timeoutMs]);
-  useEffect14(() => {
+  useEffect15(() => {
     return () => {
       if (exitConfirmTimerRef.current)
         clearTimeout(exitConfirmTimerRef.current);
@@ -13286,11 +13706,11 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
 }
 
 // src/hooks/use-message-queue.ts
-import { useCallback as useCallback9, useRef as useRef9, useState as useState16 } from "react";
+import { useCallback as useCallback9, useRef as useRef10, useState as useState17 } from "react";
 var queueIdCounter = 0;
 function useMessageQueue() {
-  const [queue, setQueue] = useState16([]);
-  const queueRef = useRef9([]);
+  const [queue, setQueue] = useState17([]);
+  const queueRef = useRef10([]);
   const sync = useCallback9((next) => {
     queueRef.current = next;
     setQueue(next);
@@ -13384,13 +13804,13 @@ function useMessageQueue() {
 }
 
 // src/hooks/use-model-state.ts
-import { useCallback as useCallback10, useState as useState17 } from "react";
+import { useCallback as useCallback10, useState as useState18 } from "react";
 function useModelState({ modelId, modelName, contextWindow, modelProvider, thinkingControlEnabled }) {
-  const [currentModelId, setCurrentModelId] = useState17(modelId);
-  const [currentModelName, setCurrentModelName] = useState17(modelName);
-  const [currentContextWindow, setCurrentContextWindow] = useState17(contextWindow);
-  const [currentModelProvider, setCurrentModelProvider] = useState17(modelProvider);
-  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState17(thinkingControlEnabled);
+  const [currentModelId, setCurrentModelId] = useState18(modelId);
+  const [currentModelName, setCurrentModelName] = useState18(modelName);
+  const [currentContextWindow, setCurrentContextWindow] = useState18(contextWindow);
+  const [currentModelProvider, setCurrentModelProvider] = useState18(modelProvider);
+  const [currentThinkingControlEnabled, setCurrentThinkingControlEnabled] = useState18(thinkingControlEnabled);
   const updateModel = useCallback10((result) => {
     if (result.modelId)
       setCurrentModelId(result.modelId);
@@ -13415,7 +13835,7 @@ function useModelState({ modelId, modelName, contextWindow, modelProvider, think
 
 // src/App.tsx
 init_terminal_compat();
-import { jsxDEV as jsxDEV44 } from "@opentui/react/jsx-dev-runtime";
+import { jsxDEV as jsxDEV47 } from "@opentui/react/jsx-dev-runtime";
 var PROVIDER_LEVELS = {
   deepseek: ["not-set", "none", "high", "max"],
   claude: ["not-set", "none", "low", "medium", "high", "xhigh", "max"],
@@ -13523,6 +13943,8 @@ function App({
   onPlanCommand,
   onAutoEditCommand,
   onCallmeCommand,
+  onNoteCommand,
+  onSaveNote,
   onListAgents,
   onSelectAgent,
   onThinkingEffortChange,
@@ -13557,57 +13979,57 @@ function App({
   initWarningsColor,
   initWarningsIcon
 }) {
-  const [viewMode, setViewMode] = useState18("chat");
-  const [sessionList, setSessionList] = useState18([]);
-  const [selectedIndex, setSelectedIndex] = useState18(0);
-  const [settingsInitialSection, setSettingsInitialSection] = useState18("general");
-  const [modelList, setModelList] = useState18([]);
-  const [defaultModelName, setDefaultModelName] = useState18("");
-  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState18(null);
-  const [sessionStatusMessage, setSessionStatusMessage] = useState18(null);
-  const [sessionStatusIsError, setSessionStatusIsError] = useState18(false);
-  const [agentList, setAgentList] = useState18([]);
-  const [copyMode, setCopyMode] = useState18(false);
-  const [rewindCheckpoints, setRewindCheckpoints] = useState18([]);
-  const [rewindConfirmId, setRewindConfirmId] = useState18(null);
-  const [rewindStatusMessage, setRewindStatusMessage] = useState18(null);
-  const [rewindStatusIsError, setRewindStatusIsError] = useState18(false);
-  const [rewindInProgress, setRewindInProgress] = useState18(false);
-  const [rewindMode, setRewindMode] = useState18("conversation");
-  const [pendingInputRestore, setPendingInputRestore] = useState18(null);
-  const [pendingConfirm, setPendingConfirm] = useState18(null);
-  const [confirmChoice, setConfirmChoice] = useState18("confirm");
+  const [viewMode, setViewMode] = useState19("chat");
+  const [sessionList, setSessionList] = useState19([]);
+  const [selectedIndex, setSelectedIndex] = useState19(0);
+  const [settingsInitialSection, setSettingsInitialSection] = useState19("general");
+  const [modelList, setModelList] = useState19([]);
+  const [defaultModelName, setDefaultModelName] = useState19("");
+  const [sessionPendingDeleteId, setSessionPendingDeleteId] = useState19(null);
+  const [sessionStatusMessage, setSessionStatusMessage] = useState19(null);
+  const [sessionStatusIsError, setSessionStatusIsError] = useState19(false);
+  const [agentList, setAgentList] = useState19([]);
+  const [copyMode, setCopyMode] = useState19(false);
+  const [rewindCheckpoints, setRewindCheckpoints] = useState19([]);
+  const [rewindConfirmId, setRewindConfirmId] = useState19(null);
+  const [rewindStatusMessage, setRewindStatusMessage] = useState19(null);
+  const [rewindStatusIsError, setRewindStatusIsError] = useState19(false);
+  const [rewindInProgress, setRewindInProgress] = useState19(false);
+  const [rewindMode, setRewindMode] = useState19("conversation");
+  const [pendingInputRestore, setPendingInputRestore] = useState19(null);
+  const [pendingConfirm, setPendingConfirm] = useState19(null);
+  const [confirmChoice, setConfirmChoice] = useState19("confirm");
   const initialLevels = getProviderThinkingLevels(modelProvider);
   const initialMaxLevel = initialLevels[initialLevels.length - 1];
-  const [thinkingEffort, setThinkingEffort] = useState18(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
-  const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState18(0);
-  const [progressCollapsed, setProgressCollapsed] = useState18(false);
-  const [progressScrollOffset, setProgressScrollOffset] = useState18(0);
-  const [modelStatusMessage, setModelStatusMessage] = useState18(null);
-  const [modelStatusIsError, setModelStatusIsError] = useState18(false);
-  const [modelEditingField, setModelEditingField] = useState18(null);
-  const [modelEditTargetName, setModelEditTargetName] = useState18(null);
-  const [memoryList, setMemoryList] = useState18([]);
-  const [memoryFilter, setMemoryFilter] = useState18("all");
-  const [memoryExpandedId, setMemoryExpandedId] = useState18(null);
-  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState18(null);
-  const [extensionList, setExtensionList] = useState18([]);
-  const [extensionTogglingName, setExtensionTogglingName] = useState18(null);
-  const [extensionStatusMessage, setExtensionStatusMessage] = useState18(null);
-  const [extensionStatusIsError, setExtensionStatusIsError] = useState18(false);
-  const [extensionGitInputMode, setExtensionGitInputMode] = useState18(false);
-  const [extensionScopePickMode, setExtensionScopePickMode] = useState18(false);
-  const [extensionInstallScope, setExtensionInstallScope] = useState18("agent");
-  const [extensionPendingDeleteName, setExtensionPendingDeleteName] = useState18(null);
-  const [extensionPendingUpdateName, setExtensionPendingUpdateName] = useState18(null);
-  const [extensionBusy, setExtensionBusy] = useState18(false);
-  const [pendingFiles, setPendingFiles] = useState18([]);
-  const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState18(pluginSettingsTabs ?? []);
-  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState18(() => slashCommandService?.list() ?? []);
-  useEffect15(() => {
+  const [thinkingEffort, setThinkingEffort] = useState19(thinkingControlEnabled === false ? "not-set" : initialMaxLevel);
+  const [thoughtsToggleSignal, setThoughtsToggleSignal] = useState19(0);
+  const [progressCollapsed, setProgressCollapsed] = useState19(false);
+  const [progressScrollOffset, setProgressScrollOffset] = useState19(0);
+  const [modelStatusMessage, setModelStatusMessage] = useState19(null);
+  const [modelStatusIsError, setModelStatusIsError] = useState19(false);
+  const [modelEditingField, setModelEditingField] = useState19(null);
+  const [modelEditTargetName, setModelEditTargetName] = useState19(null);
+  const [memoryList, setMemoryList] = useState19([]);
+  const [memoryFilter, setMemoryFilter] = useState19("all");
+  const [memoryExpandedId, setMemoryExpandedId] = useState19(null);
+  const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState19(null);
+  const [extensionList, setExtensionList] = useState19([]);
+  const [extensionTogglingName, setExtensionTogglingName] = useState19(null);
+  const [extensionStatusMessage, setExtensionStatusMessage] = useState19(null);
+  const [extensionStatusIsError, setExtensionStatusIsError] = useState19(false);
+  const [extensionGitInputMode, setExtensionGitInputMode] = useState19(false);
+  const [extensionScopePickMode, setExtensionScopePickMode] = useState19(false);
+  const [extensionInstallScope, setExtensionInstallScope] = useState19("agent");
+  const [extensionPendingDeleteName, setExtensionPendingDeleteName] = useState19(null);
+  const [extensionPendingUpdateName, setExtensionPendingUpdateName] = useState19(null);
+  const [extensionBusy, setExtensionBusy] = useState19(false);
+  const [pendingFiles, setPendingFiles] = useState19([]);
+  const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState19(pluginSettingsTabs ?? []);
+  const [runtimeSlashCommands, setRuntimeSlashCommands] = useState19(() => slashCommandService?.list() ?? []);
+  useEffect16(() => {
     setRuntimePluginSettingsTabs(pluginSettingsTabs ?? []);
   }, [pluginSettingsTabs]);
-  useEffect15(() => {
+  useEffect16(() => {
     if (!slashCommandService) {
       setRuntimeSlashCommands([]);
       return;
@@ -13616,22 +14038,22 @@ function App({
     setRuntimeSlashCommands(slashCommandService.list());
     return () => disposable.dispose();
   }, [slashCommandService]);
-  const [statusSegmentVersion, setStatusSegmentVersion] = useState18(0);
-  useEffect15(() => {
+  const [statusSegmentVersion, setStatusSegmentVersion] = useState19(0);
+  useEffect16(() => {
     if (!statusSegmentService)
       return;
     const disposable = statusSegmentService.onDidChange(() => setStatusSegmentVersion((v) => v + 1));
     return () => disposable.dispose();
   }, [statusSegmentService]);
-  const [pathDisplayVersion, setPathDisplayVersion] = useState18(0);
-  useEffect15(() => {
+  const [pathDisplayVersion, setPathDisplayVersion] = useState19(0);
+  useEffect16(() => {
     if (!pathDisplayService)
       return;
     const disposable = pathDisplayService.onDidChange(() => setPathDisplayVersion((v) => v + 1));
     return () => disposable.dispose();
   }, [pathDisplayService]);
-  const [fileBrowserPath, setFileBrowserPath] = useState18("");
-  const [fileBrowserEntries, setFileBrowserEntries] = useState18([]);
+  const [fileBrowserPath, setFileBrowserPath] = useState19("");
+  const [fileBrowserEntries, setFileBrowserEntries] = useState19([]);
   const disabledExtensionNames = useMemo10(() => new Set(extensionList.filter((item) => (item.originalStatus ?? item.status) === "disabled").map((item) => item.name)), [extensionList]);
   const activePluginSettingsTabs = useMemo10(() => runtimePluginSettingsTabs.filter((tab) => !disabledExtensionNames.has(tab.id)), [runtimePluginSettingsTabs, disabledExtensionNames]);
   const dynamicCommands = useMemo10(() => {
@@ -13639,7 +14061,7 @@ function App({
     return [...pluginCommands, ...runtimeSlashCommands];
   }, [activePluginSettingsTabs, runtimeSlashCommands]);
   const canOpenLoverSettings = dynamicCommands.some((command) => command.name === "/lover");
-  const copySelectionBufferRef = useRef10("");
+  const copySelectionBufferRef = useRef11("");
   const resetCopySelectionBuffer = useCallback11(() => {
     copySelectionBufferRef.current = "";
   }, []);
@@ -13651,39 +14073,39 @@ function App({
   const refreshPluginSettingsTabs = useCallback11(() => {
     setRuntimePluginSettingsTabs(onListPluginSettingsTabs?.() ?? pluginSettingsTabs ?? []);
   }, [onListPluginSettingsTabs, pluginSettingsTabs]);
-  useEffect15(() => {
+  useEffect16(() => {
     if (!onPluginSettingsTabsChanged)
       return;
     const disposable = onPluginSettingsTabsChanged(() => refreshPluginSettingsTabs());
     return () => disposable.dispose();
   }, [onPluginSettingsTabsChanged, refreshPluginSettingsTabs]);
-  const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState18(false);
-  const [queueEditingId, setQueueEditingId] = useState18(null);
+  const [fileBrowserShowHidden, setFileBrowserShowHidden] = useState19(false);
+  const [queueEditingId, setQueueEditingId] = useState19(null);
   const [queueEditState, queueEditActions] = useTextInput("");
   const [modelEditState, modelEditActions] = useTextInput("");
   const [extensionGitInputState, extensionGitInputActions] = useTextInput("");
   const renderer = useRenderer();
-  const undoRedoRef = useRef10(createUndoRedoStack());
-  const promptInputControllerRef = useRef10(null);
-  useEffect15(() => {
+  const undoRedoRef = useRef11(createUndoRedoStack());
+  const promptInputControllerRef = useRef11(null);
+  useEffect16(() => {
     if (!inputService)
       return;
     const disposable = inputService.bindControllerGetter(() => promptInputControllerRef.current);
     return () => disposable.dispose();
   }, [inputService]);
-  const chatScrollBoxRef = useRef10(null);
+  const chatScrollBoxRef = useRef11(null);
   const messageQueue = useMessageQueue();
-  const drainCallbackRef = useRef10(null);
+  const drainCallbackRef = useRef11(null);
   drainCallbackRef.current = () => {
     if (viewMode === "queue-list")
       return;
     const msg = messageQueue.dequeue();
     return msg?.text;
   };
-  const setPendingFilesRef = useRef10(null);
+  const setPendingFilesRef = useRef11(null);
   setPendingFilesRef.current = setPendingFiles;
-  const openFileBrowserRef = useRef10(null);
-  const setExtensionListRef = useRef10(null);
+  const openFileBrowserRef = useRef11(null);
+  const setExtensionListRef = useRef11(null);
   setExtensionListRef.current = setExtensionList;
   openFileBrowserRef.current = (path4, entries) => {
     setFileBrowserPath(path4);
@@ -13691,7 +14113,7 @@ function App({
     setSelectedIndex(0);
     setViewMode("file-browser");
   };
-  const fileBrowserCallbackRef = useRef10(null);
+  const fileBrowserCallbackRef = useRef11(null);
   fileBrowserCallbackRef.current = {
     select: (dirPath, entry, showHidden) => onFileBrowserSelect?.(dirPath, entry, showHidden),
     goUp: (dirPath, showHidden) => onFileBrowserGoUp?.(dirPath, showHidden),
@@ -13730,7 +14152,7 @@ function App({
       return newLevel;
     });
   }, [onThinkingEffortChange, modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
-  useEffect15(() => {
+  useEffect16(() => {
     if (modelState.currentThinkingControlEnabled === false)
       return;
     const levels = getProviderThinkingLevels(modelState.currentModelProvider);
@@ -13742,7 +14164,7 @@ function App({
       return maxLevel;
     });
   }, [modelState.currentModelProvider, modelState.currentThinkingControlEnabled]);
-  useEffect15(() => {
+  useEffect16(() => {
     if (thinkingControlEnabled !== false && initialMaxLevel !== "not-set") {
       onThinkingEffortChange?.(initialMaxLevel);
     }
@@ -13794,6 +14216,7 @@ function App({
     onPlanCommand,
     onAutoEditCommand,
     onCallmeCommand,
+    onNoteCommand,
     undoRedoRef,
     setMessages: appState.setMessages,
     commitTools: appState.commitTools,
@@ -13815,12 +14238,12 @@ function App({
     queueClear: messageQueue.clear,
     queueSize: messageQueue.size
   });
-  useEffect15(() => {
+  useEffect16(() => {
     if (!renderer)
       return;
     renderer.useMouse = true;
   }, [renderer]);
-  useEffect15(() => {
+  useEffect16(() => {
     if (!renderer)
       return;
     const handleSelection = (selection) => {
@@ -13841,8 +14264,8 @@ function App({
       selectionRenderer.off?.("selection", handleSelection);
     };
   }, [renderer, copyMode]);
-  const prevViewModeRef = useRef10(viewMode);
-  useEffect15(() => {
+  const prevViewModeRef = useRef11(viewMode);
+  useEffect16(() => {
     const prev = prevViewModeRef.current;
     prevViewModeRef.current = viewMode;
     if (prev === "queue-list" && viewMode === "chat" && !appState.isGenerating && messageQueue.size > 0) {
@@ -13852,12 +14275,12 @@ function App({
       }
     }
   }, [viewMode, appState.isGenerating, messageQueue, onSubmit]);
-  useEffect15(() => {
+  useEffect16(() => {
     const total = appState.progressSnapshot?.items.length ?? 0;
     const maxOffset = Math.max(0, total - PROGRESS_PANEL_MAX_ITEMS);
     setProgressScrollOffset((prev) => Math.min(Math.max(0, prev), maxOffset));
   }, [appState.progressSnapshot?.items.length]);
-  useEffect15(() => {
+  useEffect16(() => {
     const snapshot = appState.progressSnapshot;
     if (!snapshot || snapshot.items.length === 0) {
       setProgressCollapsed(false);
@@ -13891,7 +14314,7 @@ function App({
       return next;
     });
   }, [appState.progressSnapshot, onSaveProgressUiState]);
-  useEffect15(() => {
+  useEffect16(() => {
     if (viewMode === "model-list")
       return;
     setModelStatusMessage(null);
@@ -13900,21 +14323,21 @@ function App({
     setModelEditTargetName(null);
     modelEditActions.setValue("");
   }, [viewMode]);
-  useEffect15(() => {
+  useEffect16(() => {
     if (viewMode === "session-list")
       return;
     setSessionPendingDeleteId(null);
     setSessionStatusMessage(null);
     setSessionStatusIsError(false);
   }, [viewMode]);
-  useEffect15(() => {
+  useEffect16(() => {
     if (appState.toolDetailData && viewMode !== "tool-detail") {
       setViewMode("tool-detail");
     } else if (!appState.toolDetailData && viewMode === "tool-detail") {
       setViewMode("chat");
     }
   }, [appState.toolDetailData, viewMode]);
-  useEffect15(() => {
+  useEffect16(() => {
     if (appState.toolListItems.length > 0 && viewMode !== "tool-list" && viewMode !== "tool-detail") {
       setSelectedIndex(0);
       setViewMode("tool-list");
@@ -13936,6 +14359,7 @@ function App({
     isGenerating: appState.isGenerating,
     hasRunningBackgroundTasks: appState.backgroundTaskCount + appState.delegateTaskCount > 0,
     askQuestionActive: !!askQuestionInvocation,
+    noteEditorActive: appState.noteEditorOpen && viewMode === "chat" && !pendingConfirm && !askQuestionInvocation && appState.pendingApprovals.length === 0 && appState.pendingApplies.length === 0,
     pendingApplies: appState.pendingApplies,
     pendingApprovals: appState.pendingApprovals,
     onOpenToolDetail,
@@ -14059,7 +14483,7 @@ function App({
   const rightStatusSegments = useMemo10(() => statusSegmentService?.list({ sessionId: getCurrentSessionId?.() }, "right") ?? [], [statusSegmentVersion, statusSegmentService, getCurrentSessionId, viewMode, appState.messages.length]);
   const consolePathDisplay = useMemo10(() => pathDisplayService?.resolve({ sessionId: getCurrentSessionId?.() }), [pathDisplayVersion, pathDisplayService, getCurrentSessionId, viewMode, appState.messages.length]);
   if (viewMode === "settings") {
-    return /* @__PURE__ */ jsxDEV44(SettingsView, {
+    return /* @__PURE__ */ jsxDEV47(SettingsView, {
       initialSection: settingsInitialSection,
       onBack: () => setViewMode("chat"),
       onLoad: onLoadSettings,
@@ -14068,7 +14492,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "session-list") {
-    return /* @__PURE__ */ jsxDEV44(SessionListView, {
+    return /* @__PURE__ */ jsxDEV47(SessionListView, {
       sessions: sessionList,
       selectedIndex,
       pendingDeleteId: sessionPendingDeleteId,
@@ -14077,7 +14501,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "model-list") {
-    return /* @__PURE__ */ jsxDEV44(ModelListView, {
+    return /* @__PURE__ */ jsxDEV47(ModelListView, {
       models: modelList,
       selectedIndex,
       defaultModelName,
@@ -14089,14 +14513,14 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "agent-list") {
-    return /* @__PURE__ */ jsxDEV44(AgentListView, {
+    return /* @__PURE__ */ jsxDEV47(AgentListView, {
       agents: agentList,
       selectedIndex,
       currentAgentName: agentName
     }, undefined, false, undefined, this);
   }
   if (viewMode === "memory-list") {
-    return /* @__PURE__ */ jsxDEV44(MemoryListView, {
+    return /* @__PURE__ */ jsxDEV47(MemoryListView, {
       memories: memoryList,
       selectedIndex,
       expandedId: memoryExpandedId,
@@ -14105,7 +14529,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "extension-list") {
-    return /* @__PURE__ */ jsxDEV44(ExtensionListView, {
+    return /* @__PURE__ */ jsxDEV47(ExtensionListView, {
       extensions: extensionList,
       selectedIndex,
       togglingName: extensionTogglingName,
@@ -14123,7 +14547,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "file-browser") {
-    return /* @__PURE__ */ jsxDEV44(FileBrowserView, {
+    return /* @__PURE__ */ jsxDEV47(FileBrowserView, {
       currentPath: fileBrowserPath,
       entries: fileBrowserEntries,
       selectedIndex,
@@ -14131,7 +14555,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "queue-list") {
-    return /* @__PURE__ */ jsxDEV44(QueueListView, {
+    return /* @__PURE__ */ jsxDEV47(QueueListView, {
       queue: messageQueue.queue,
       selectedIndex,
       editingId: queueEditingId,
@@ -14140,7 +14564,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "rewind-selector") {
-    return /* @__PURE__ */ jsxDEV44(RewindSelectorView, {
+    return /* @__PURE__ */ jsxDEV47(RewindSelectorView, {
       checkpoints: rewindCheckpoints,
       selectedIndex,
       confirmCheckpointId: rewindConfirmId,
@@ -14151,7 +14575,7 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (currentApply) {
-    return /* @__PURE__ */ jsxDEV44(DiffApprovalView, {
+    return /* @__PURE__ */ jsxDEV47(DiffApprovalView, {
       invocation: currentApply,
       pendingCount: appState.pendingApplies.length,
       choice: approval.approvalChoice,
@@ -14163,17 +14587,17 @@ function App({
     }, undefined, false, undefined, this);
   }
   if (viewMode === "tool-list") {
-    return /* @__PURE__ */ jsxDEV44(ToolListView, {
+    return /* @__PURE__ */ jsxDEV47(ToolListView, {
       tools: appState.toolListItems,
       selectedIndex
     }, undefined, false, undefined, this);
   }
   if (viewMode === "tool-detail" && appState.toolDetailData) {
-    return /* @__PURE__ */ jsxDEV44("box", {
+    return /* @__PURE__ */ jsxDEV47("box", {
       flexDirection: "column",
       width: "100%",
       height: "100%",
-      children: /* @__PURE__ */ jsxDEV44(ToolDetailView, {
+      children: /* @__PURE__ */ jsxDEV47(ToolDetailView, {
         data: appState.toolDetailData,
         breadcrumb: appState.toolDetailStack,
         onNavigateChild: onNavigateToolDetail,
@@ -14182,18 +14606,18 @@ function App({
       }, undefined, false, undefined, this)
     }, undefined, false, undefined, this);
   }
-  return /* @__PURE__ */ jsxDEV44("box", {
+  return /* @__PURE__ */ jsxDEV47("box", {
     flexDirection: "column",
     width: "100%",
     height: "100%",
     children: [
-      !hasMessages ? /* @__PURE__ */ jsxDEV44(LogoScreen, {}, undefined, false, undefined, this) : null,
-      !hasMessages && initWarnings && initWarnings.length > 0 ? /* @__PURE__ */ jsxDEV44(InitWarnings, {
+      !hasMessages ? /* @__PURE__ */ jsxDEV47(LogoScreen, {}, undefined, false, undefined, this) : null,
+      !hasMessages && initWarnings && initWarnings.length > 0 ? /* @__PURE__ */ jsxDEV47(InitWarnings, {
         warnings: initWarnings,
         color: initWarningsColor,
         icon: initWarningsIcon
       }, undefined, false, undefined, this) : null,
-      hasMessages ? /* @__PURE__ */ jsxDEV44(ChatMessageList, {
+      hasMessages ? /* @__PURE__ */ jsxDEV47(ChatMessageList, {
         messages: appState.messages,
         streamingParts: appState.streamingParts,
         isStreaming: appState.isStreaming,
@@ -14214,7 +14638,7 @@ function App({
         toolDisplayService,
         onCopySelectionSnapshot: captureCopySelectionSnapshot
       }, undefined, false, undefined, this) : null,
-      /* @__PURE__ */ jsxDEV44(BottomPanel, {
+      /* @__PURE__ */ jsxDEV47(BottomPanel, {
         hasMessages,
         pendingConfirm,
         confirmChoice,
@@ -14237,6 +14661,13 @@ function App({
         exitConfirmArmed: exitConfirm.exitConfirmArmed,
         backgroundTaskCount: appState.backgroundTaskCount,
         planModeActive: appState.planModeActive,
+        noteContent: appState.noteContent,
+        noteEditorOpen: appState.noteEditorOpen,
+        noteEditorInitialValue: appState.noteEditorInitialValue,
+        noteEditorDraft: appState.noteEditorDraft,
+        onSaveNote,
+        onNoteEditorDraftChange: appState.setNoteEditorDraft,
+        onCancelNoteEdit: () => appState.closeNoteEditor(),
         delegateTaskCount: appState.delegateTaskCount,
         backgroundTaskTokens: appState.backgroundTaskTokens,
         backgroundTaskSpinnerFrame: appState.backgroundTaskSpinnerFrame,
@@ -15410,6 +15841,7 @@ function generateCommandPatterns(command) {
 var REMOTE_CONNECT_WS_CLIENT_SERVICE = "remote-connect:WsIPCClient";
 var REMOTE_CONNECT_DISCOVERY_SERVICE = "remote-connect:discoverLanInstances";
 var PLAN_MODE_SERVICE_ID = "plan-mode";
+var NOTE_SERVICE_ID = "note";
 var REMOTE_EXEC_ENVIRONMENT_SERVICE_ID = "remote-exec:environment";
 function createToolInvocationFromFunctionCall(part, index, defaultStatus, response, diffPreview, durationMs) {
   let status = defaultStatus;
@@ -15816,6 +16248,9 @@ class ConsolePlatform extends PlatformAdapter {
   getPlanModeService() {
     return this.api?.services?.get?.(PLAN_MODE_SERVICE_ID);
   }
+  getNoteService() {
+    return this.api?.services?.get?.(NOTE_SERVICE_ID);
+  }
   getRemoteExecEnvironmentService() {
     return this.api?.services?.get?.(REMOTE_EXEC_ENVIRONMENT_SERVICE_ID);
   }
@@ -15928,8 +16363,6 @@ class ConsolePlatform extends PlatformAdapter {
     const ideManager = services.get("ide.manager");
     if (!ideManager || typeof ideManager.openDiffPreview !== "function")
       return;
-    if (ideManager.status?.().state !== "connected")
-      return;
     this.ideDiffOpenedToolIds.add(toolId);
     try {
       const opened = await ideManager.openDiffPreview(preview, 0);
@@ -16019,6 +16452,14 @@ class ConsolePlatform extends PlatformAdapter {
       this.appHandle?.setPlanModeActive(active);
     } catch {
       this.appHandle?.setPlanModeActive(false);
+    }
+  }
+  syncNoteStatus() {
+    try {
+      const content = this.getNoteService()?.getNote?.() ?? "";
+      this.appHandle?.setNoteContent(content);
+    } catch {
+      this.appHandle?.setNoteContent("");
     }
   }
   syncAutoEditStatus() {
@@ -16132,11 +16573,16 @@ class ConsolePlatform extends PlatformAdapter {
               snapshot.children = childHandles.map((ch) => ch.getSnapshot());
             }
           }
+          const resultPreview = extractResultDiffPreview(snapshot.result);
+          if (resultPreview) {
+            this.maybeOpenToolDiffInIde(snapshot.id, resultPreview);
+          }
           return snapshot;
         });
         this.appHandle?.setToolInvocations(invocations);
         this.refreshToolDetailIfNeeded();
         this.syncPlanModeStatus();
+        this.syncNoteStatus();
       };
       handle.on("state", refreshUI);
       handle.on("progress", refreshUI);
@@ -16178,6 +16624,7 @@ class ConsolePlatform extends PlatformAdapter {
           this.refreshGeneratingState();
         }
         this.syncPlanModeStatus();
+        this.syncNoteStatus();
         this.refreshRemoteConsoleServices(sid);
       }
     });
@@ -16310,12 +16757,13 @@ ${summaryText}`;
         process.on("SIGCONT", this._sigcontHandler);
       }
       const consoleServices = this.getConsoleServicesBundle();
-      const element = React15.createElement(App, {
+      const element = React16.createElement(App, {
         onReady: (handle) => {
           this.appHandle = handle;
           this.syncPlanModeStatus();
           this.syncProgress();
           this.syncAutoEditStatus();
+          this.syncNoteStatus();
           resolve4();
         },
         onSubmit: (text) => this.handleInput(text),
@@ -16450,6 +16898,8 @@ ${summaryText}`;
         onPlanCommand: (arg) => this.handlePlanCommand(arg),
         onAutoEditCommand: (arg) => this.handleAutoEditCommand(arg),
         onCallmeCommand: (arg) => this.handleCallmeCommand(arg),
+        onNoteCommand: (arg) => this.handleNoteCommand(arg),
+        onSaveNote: (content) => this.handleSaveNote(content),
         onListAgents: () => this.handleListAgents(),
         onSelectAgent: (name) => this.handleSelectAgent(name),
         onDream: () => this.handleDream(),
@@ -16841,6 +17291,7 @@ ${summaryText}`;
     this._activeHandles.clear();
     this.appHandle?.setPlanModeActive(false);
     this.appHandle?.setProgress(null);
+    this.appHandle?.setNoteContent("");
     this.clearRemoteExecSession(this.sessionId);
     this.appHandle?.setAutoEditActive(false);
     this.refreshRemoteConsoleServices(this.sessionId);
@@ -17085,6 +17536,7 @@ ${summaryText}`;
     const userInputEpochAtLoadStart = this.userInputEpoch;
     const envRestorePromise = this.restoreRemoteExecEnvironmentForSession(id, true);
     this.syncPlanModeStatus();
+    this.syncNoteStatus();
     await this.refreshRemoteConsoleServices(id);
     await this.syncProgress();
     this.syncAutoEditStatus();
@@ -17714,6 +18166,53 @@ ${trailer}`;
       ok: true,
       message: `${formatStatus(isActiveState(state))}${isActiveState(state) && planActive ? `
 提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。` : ""}`
+    };
+  }
+  async handleSaveNote(content) {
+    const service = this.getNoteService();
+    if (!service)
+      return { ok: false, message: "Note 服务不可用。" };
+    const state = service.setNote(content, { updatedBy: "user" });
+    this.appHandle?.setNoteContent(state.content);
+    this.appHandle?.closeNoteEditor();
+    return { ok: true, message: state.content.trim() ? "Note 已保存。" : "Note 已清空。" };
+  }
+  async handleNoteCommand(arg) {
+    const service = this.getNoteService();
+    if (!service)
+      return { ok: false, message: "Note 服务不可用。" };
+    const normalized = arg.trim();
+    const lower = normalized.toLowerCase();
+    if (!normalized || lower === "edit" || normalized === "编辑") {
+      const note = service.getNote();
+      this.appHandle?.setNoteContent(note);
+      this.appHandle?.openNoteEditor(note);
+      return { ok: true, message: "已打开 Note 编辑器。Ctrl+S 保存，Esc 取消。" };
+    }
+    if (lower === "show" || lower === "status" || normalized === "查看" || normalized === "状态") {
+      const state2 = service.getState();
+      return {
+        ok: true,
+        message: state2.content.trim() ? `当前 Note：
+
+${state2.content.trim()}
+
+文件：${state2.noteFilePath}` : `当前 Note 为空。
+文件：${state2.noteFilePath}`
+      };
+    }
+    if (lower === "clear" || normalized === "清空") {
+      const state2 = service.clearNote({ updatedBy: "user" });
+      this.appHandle?.setNoteContent(state2.content);
+      this.appHandle?.closeNoteEditor();
+      return { ok: true, message: "Note 已清空。" };
+    }
+    const state = service.setNote(normalized, { updatedBy: "user" });
+    this.appHandle?.setNoteContent(state.content);
+    this.appHandle?.closeNoteEditor();
+    return {
+      ok: true,
+      message: `Note 已保存。输入 /note edit 可继续编辑，/note clear 可清空。`
     };
   }
   async handlePlanCommand(arg) {

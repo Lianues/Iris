@@ -13,6 +13,7 @@ const READ_ONLY_TOOLS = new Set([
   'read_skill',
   'history_search',
   'memory_search',
+  'read_note',
 ]);
 
 const PLAN_TOOLS = new Set([
@@ -37,6 +38,7 @@ const BLOCKED_IN_PLAN = new Set([
   'memory_add',
   'memory_update',
   'memory_delete',
+  'propose_update_note',
 ]);
 
 export function isAllowedPlanModeTool(toolName: string, args: Record<string, unknown>): GuardDecision {
@@ -60,6 +62,13 @@ export function isAllowedPlanModeTool(toolName: string, args: Record<string, unk
     return {
       allowed: false,
       reason: 'Plan Mode 下只允许静态白名单判定为只读安全的 shell/bash 命令；请改用 read_file/search/list 等只读工具，或退出 Plan Mode 后执行。',
+    };
+  }
+
+  if (toolName === 'propose_update_note') {
+    return {
+      allowed: false,
+      reason: 'Plan Mode 下禁止修改长期 /note；请先完成计划并调用 ExitPlanMode，或退出 Plan Mode 后再更新。',
     };
   }
 

@@ -38,6 +38,14 @@ export interface AppHandle {
   setProgress(snapshot: ProgressSnapshotLike | null): void;
   /** 更新当前会话自动编辑指示状态 */
   setAutoEditActive(active: boolean): void;
+  /** 更新当前 Agent 的 /note 内容。 */
+  setNoteContent(content: string): void;
+  /** 打开 /note 简易编辑器。 */
+  openNoteEditor(initialValue?: string): void;
+  /** 关闭 /note 简易编辑器。 */
+  closeNoteEditor(): void;
+  /** 更新 /note 编辑器草稿，用于临时切走审批面板后恢复未保存内容。 */
+  setNoteEditorDraft(content: string): void;
   setUserTokens(tokenCount: number): void;
   addSummaryMessage(summaryText: string, tokenCount?: number): void;
   commitTools(): void;
@@ -127,6 +135,14 @@ export interface UseAppHandleReturn {
   progressSnapshot: ProgressSnapshotLike | null;
   /** 当前会话是否启用自动编辑 */
   autoEditActive: boolean;
+  /** 当前 Agent 的 /note 内容。 */
+  noteContent: string;
+  /** /note 简易编辑器是否打开。 */
+  noteEditorOpen: boolean;
+  /** /note 简易编辑器初始内容。 */
+  noteEditorInitialValue: string;
+  /** /note 简易编辑器草稿。 */
+  noteEditorDraft: string;
   /** 当前后台运行中的异步子代理数量 */
   backgroundTaskCount: number;
   /** 当前后台运行中的委派任务数量（delegate_to_agent），与子代理分开计数 */
@@ -140,6 +156,9 @@ export interface UseAppHandleReturn {
   toolDetailData: ToolDetailData | null;
   toolDetailStack: ToolDetailBreadcrumb[];
   toolListItems: ToolInvocation[];
+  openNoteEditor: (initialValue?: string) => void;
+  closeNoteEditor: () => void;
+  setNoteEditorDraft: (content: string) => void;
 }
 
 export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, setExtensionListRef }: UseAppHandleOptions): UseAppHandleReturn {
@@ -154,6 +173,11 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
   const [pendingApplies, setPendingApplies] = useState<ToolInvocation[]>([]);
   const [planModeActive, setPlanModeActive] = useState(false);
   const [autoEditActive, setAutoEditActive] = useState(false);
+  const [noteContent, setNoteContent] = useState('');
+  const [noteEditorOpen, setNoteEditorOpen] = useState(false);
+  const [noteEditorInitialValue, setNoteEditorInitialValue] = useState('');
+  const [noteEditorDraft, setNoteEditorDraft] = useState('');
+  const noteContentRef = useRef('');
   const [progressSnapshot, setProgressSnapshot] = useState<ProgressSnapshotLike | null>(null);
   const progressSnapshotRef = useRef<ProgressSnapshotLike | null>(null);
   const archivedProgressUpdatedAtRef = useRef<number | null>(null);
@@ -191,6 +215,10 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
       if (throttleTimerRef.current) clearTimeout(throttleTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    noteContentRef.current = noteContent;
+  }, [noteContent]);
 
   useEffect(() => {
     const isCompletedProgressSnapshot = (snapshot: ProgressSnapshotLike | null): snapshot is ProgressSnapshotLike => {
@@ -478,6 +506,21 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
       setAutoEditActive(active: boolean) {
         setAutoEditActive(active);
       },
+      setNoteContent(content: string) {
+        setNoteContent(content);
+      },
+      openNoteEditor(initialValue?: string) {
+        const next = initialValue ?? noteContentRef.current;
+        setNoteEditorInitialValue(next);
+        setNoteEditorDraft(next);
+        setNoteEditorOpen(true);
+      },
+      closeNoteEditor() {
+        setNoteEditorOpen(false);
+      },
+      setNoteEditorDraft(content: string) {
+        setNoteEditorDraft(content);
+      },
       setProgress(snapshot: ProgressSnapshotLike | null) {
         const next = snapshot && snapshot.items.length > 0 ? snapshot : null;
         if (next && next.stats.open > 0) {
@@ -648,6 +691,16 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
     planModeActive,
     progressSnapshot,
     autoEditActive,
+    noteContent,
+    noteEditorOpen,
+    noteEditorInitialValue,
+    noteEditorDraft,
+    openNoteEditor: (initialValue?: string) => {
+      const next = initialValue ?? noteContentRef.current;
+      setNoteEditorInitialValue(next); setNoteEditorDraft(next); setNoteEditorOpen(true);
+    },
+    closeNoteEditor: () => setNoteEditorOpen(false),
+    setNoteEditorDraft,
     toolInvocations,
     backgroundTaskCount,
     delegateTaskCount,

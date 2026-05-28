@@ -165,7 +165,7 @@ function filterInternalFields(obj: unknown): unknown {
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
     // 跳过内部字段
     // 注意：不要在这里过滤 thoughtSignatures，因为它需要由 mapSignaturesToProvider 处理
-    if (key === 'durationMs' || key === 'streamOutputDurationMs' || key === 'thoughtDurationMs' || key === 'usageMetadata') {
+    if (key === 'durationMs' || key === 'streamOutputDurationMs' || key === 'thoughtDurationMs' || key === 'usageMetadata' || key === 'cacheBehavior') {
       continue;
     }
     if (key === 'modelName') {
