@@ -4,7 +4,7 @@
 # 平台配置
 
 # 类型: console | web | telegram | discord | weixin | wxwork | lark | qq | headless
-# 注意：console / web / telegram / cron 由随发行包内嵌的 extensions 注册；lark / discord / qq / wxwork / weixin 为可选 extension，使用前需先安装。
+# 注意：console / web 由随发行包内嵌的 extensions 注册；telegram / cron / lark / discord / qq / wxwork / weixin 为可选 extension，使用前需先安装。
 # 支持单平台或多平台同时启动：
 #   type: console            # 单平台
 #   type: [console, web]     # 多平台同时启动
@@ -32,7 +32,7 @@ discord:
   token: your-discord-bot-token
 
 telegram:
-  # 该平台由内嵌 extension extensions/telegram/ 提供；发行包默认附带，无需单独安装
+  # 该平台由可选 extension extensions/telegram/ 提供；发行包默认不内嵌，使用前先执行 iris ext install telegram
   token: your-telegram-bot-token
   # 是否在流式回复中展示工具执行状态（默认 true）
   # showToolStatus: false
