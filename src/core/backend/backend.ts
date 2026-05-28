@@ -23,7 +23,7 @@ import type { BackendEvents } from './types';
 import { agentContext } from '../../logger';
 import * as path from 'path';
 import * as fs from 'fs';
-import { spawnSync } from 'child_process';
+import { spawnSync, type SpawnSyncReturns } from 'child_process';
 import { loadSkillsFromFilesystem } from '../../config/skill-loader';
 import type { LLMConfig, ToolsConfig, ToolPolicyConfig, SkillDefinition } from '../../config/types';
 import type { SummaryConfig } from '../../config/types';
@@ -58,6 +58,7 @@ import { dataDir as defaultDataDir } from '../../paths';
 import { FileHistoryManager } from './file-history';
 import { buildMinimalParts, estimateMultimodalTokens } from './media';
 import { maybeAddCallmeTrailerToGitCommit, type CallmeAttributionConfig } from '../../git/callme';
+import { buildNonInteractiveEnv } from '../../tools/internal/non-interactive-command';
 import { prepareHistoryForLLM, preparePartsForLLM } from './history';
 import { callLLMStream } from './stream';
 import { UndoRedoManager } from './undo-redo';
@@ -69,6 +70,28 @@ import { sessionContext, getSessionCwd, setSessionCwd, getRememberedCwd, getActi
 import type { SessionExecutionContext } from './session-context';
 
 const logger = createLogger('Backend');
+const RUN_COMMAND_TIMEOUT_MS = 30000;
+
+export function formatRunCommandFailureMessage(
+  result: Pick<SpawnSyncReturns<string>, 'status' | 'signal' | 'error'>,
+  timeoutMs = RUN_COMMAND_TIMEOUT_MS,
+): string {
+  const error = result.error as NodeJS.ErrnoException | undefined;
+  if (error) {
+    const code = typeof error.code === 'string' ? error.code : undefined;
+    const signal = result.signal ? `（signal: ${result.signal}）` : '';
+    if (code === 'ETIMEDOUT') {
+      return `命令执行超时（${timeoutMs}ms），进程已被终止${signal}`;
+    }
+    return `命令执行失败: ${error.message}${signal}`;
+  }
+
+  if (result.signal) {
+    return `命令被信号终止: ${result.signal}`;
+  }
+
+  return `命令执行失败 (exit code: ${result.status ?? 'unknown'})`;
+}
 
 /**
  * 解析合并后的 <task-notification> XML 文本为结构化数据。
@@ -733,9 +756,13 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const result = spawnSync(command, {
       cwd: getSessionCwd(),
       encoding: 'utf-8',
-      timeout: 30000,
+      timeout: RUN_COMMAND_TIMEOUT_MS,
       windowsHide: true,
       shell: true,
+      env: buildNonInteractiveEnv(
+        process.env,
+        process.platform === 'win32' ? 'powershell' : 'bash',
+      ),
     });
 
     const stdout = (result.stdout as string)?.trimEnd() || '';
@@ -743,7 +770,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const combined = [stdout, stderr].filter(Boolean).join('\n');
 
     if (result.status !== 0) {
-      throw new Error(combined || `命令执行失败 (exit code: ${result.status})`);
+      const failureMessage = formatRunCommandFailureMessage(result);
+      const abnormalTermination = result.status === null || !!result.error || !!result.signal;
+      throw new Error(combined && abnormalTermination ? `${combined}\n${failureMessage}` : (combined || failureMessage));
     }
     return { output: combined, cwd: getSessionCwd() };
   }

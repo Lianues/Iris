@@ -104,16 +104,36 @@ function resetRedo(undoRedoRef: MutableRefObject<UndoRedoStack>, onClearRedoStac
   onClearRedoStack();
 }
 
+interface CommandRunResult {
+  ok: boolean;
+  output: string;
+  error?: string;
+}
+
+function formatCommandRunError(command: string, err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return `${command}: ${message}`;
+}
+
+function runCommandCapture(
+  onRunCommand: (cmd: string) => { output: string; cwd: string },
+  command: string,
+): CommandRunResult {
+  try {
+    return { ok: true, output: onRunCommand(command).output };
+  } catch (err) {
+    return { ok: false, output: '', error: formatCommandRunError(command, err) };
+  }
+}
+
 function runOptionalCommand(
   onRunCommand: (cmd: string) => { output: string; cwd: string },
   command: string,
   fallback: string,
 ): string {
-  try {
-    return onRunCommand(command).output || fallback;
-  } catch (err) {
-    return `${fallback}: ${err instanceof Error ? err.message : String(err)}`;
-  }
+  const result = runCommandCapture(onRunCommand, command);
+  if (result.ok) return result.output || fallback;
+  return `${fallback}: ${result.error}`;
 }
 
 export function useCommandDispatch({
@@ -466,30 +486,43 @@ export function useCommandDispatch({
       const messageOptions = { label: 'commit' as const, beforeActiveAssistant: isGenerating };
 
       try {
-        const repoCheck = onRunCommand('git rev-parse --is-inside-work-tree').output.trim();
-        if (repoCheck !== 'true') {
+        const repoCheck = runCommandCapture(onRunCommand, 'git rev-parse --is-inside-work-tree');
+        if (!repoCheck.ok) {
+          appendCommandMessage(setMessages, `无法确认当前目录是否为 Git 工作区: ${repoCheck.error}`, { ...messageOptions, isError: true });
+          return;
+        }
+        if (repoCheck.output.trim() !== 'true') {
           appendCommandMessage(setMessages, '当前目录不是 Git 工作区，无法创建 commit。', { ...messageOptions, isError: true });
           return;
         }
 
-        const porcelain = onRunCommand('git status --porcelain').output;
-        if (isGitPorcelainEmpty(porcelain)) {
+        const porcelain = runCommandCapture(onRunCommand, 'git status --porcelain');
+        if (porcelain.ok && isGitPorcelainEmpty(porcelain.output)) {
           appendCommandMessage(setMessages, '当前没有可提交的变更。', messageOptions);
           return;
         }
 
-        const statusShort = runOptionalCommand(
+        let statusShort = runOptionalCommand(
           onRunCommand,
           'git status --short --branch',
-          porcelain,
+          porcelain.ok ? porcelain.output : '(git status unavailable)',
         );
         const recentCommits = runOptionalCommand(
           onRunCommand,
           'git log --oneline -10',
           '(no recent commits or git log unavailable)',
         );
+        if (!porcelain.ok) {
+          statusShort = `${statusShort}\n\n预检查 git status --porcelain 失败：${porcelain.error}\n请在后续步骤中重新运行 git status / git diff，并根据实际结果决定是否提交。`;
+        }
         const prompt = buildGitCommitPrompt({ statusShort, recentCommits, ...commitArgs });
-        appendCommandMessage(setMessages, '已准备 git commit 上下文，交给模型检查 diff 并创建提交。', messageOptions);
+        appendCommandMessage(
+          setMessages,
+          porcelain.ok
+            ? '已准备 git commit 上下文，交给模型检查 diff 并创建提交。'
+            : 'git status 预检查失败，已继续交给模型重新检查 diff 并创建提交。',
+          messageOptions,
+        );
         onSubmit(prompt);
       } catch (err) {
         appendCommandMessage(setMessages, `准备 commit 失败: ${err instanceof Error ? err.message : String(err)}`, { ...messageOptions, isError: true });
