@@ -4,7 +4,7 @@
 
 [English](./README.en.md) | **简体中文**
 
-一个面向多平台的智能代理Agent。支持 Console、Web、Discord、Telegram、微信、企业微信、飞书、QQ 等平台，支持工具调用、会话存储、图片输入、OCR 回退、Computer Use、MCP 和记忆能力。Telegram、飞书、Discord、QQ、微信与企业微信平台以可选 extension 提供（源码仓库 `extensions/` 目录已含源码，发行包需通过 `iris ext install` 安装）。
+一个面向多平台的智能代理Agent系统。支持 Console、Web、Discord、Telegram、微信、企业微信、飞书、QQ 等平台，支持工具调用、会话存储、图片输入、OCR 回退、Computer Use、MCP 和记忆能力。Telegram、飞书、Discord、QQ、微信与企业微信平台以可选 extension 提供（源码仓库 `extensions/` 目录已含源码，发行包需通过 `iris ext install` 安装）。
 ## 目前Iris的WEBUI处于重构代码阶段，推荐使用功能完备的TUI端。
 
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6?style=flat-square)
@@ -17,7 +17,7 @@
 ## 特性
 
 - 多平台：Console / Web / Headless Core / Discord / Telegram / 微信 / 企业微信 / 飞书 / QQ（IM 平台均为可选 extension）
-- 多模型提供商：Gemini / OpenAI 兼容 / OpenAI Responses / Claude / DeepSeek
+- 多模型提供商：DeepSeek / Gemini / OpenAI 兼容 / OpenAI Responses / Claude
 - 模型池：通过 `llm.models.<modelName>` 管理多个模型，运行时可切换
 - 多 Agent：支持多个独立 Agent，每个 Agent 拥有独立的会话、记忆和可覆盖的配置
 - 配置分层：全局配置打底，Agent 可选覆盖（system / tools / mcp / modes 等）
