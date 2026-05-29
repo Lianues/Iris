@@ -1,8 +1,11 @@
 # Iris
 
+<img width="1714" height="847" alt="image" src="https://github.com/user-attachments/assets/d07fa65e-31b6-4e4d-87e7-cddccb84a267" />
+
 [English](./README.en.md) | **简体中文**
 
-一个面向多平台的智能代理程序。支持 Console、Web、Discord、Telegram、微信、企业微信、飞书、QQ 等平台，支持工具调用、会话存储、图片输入、OCR 回退、Computer Use、MCP 和记忆能力。Telegram、飞书、Discord、QQ、微信与企业微信平台以可选 extension 提供（源码仓库 `extensions/` 目录已含源码，发行包需通过 `iris ext install` 安装）。
+一个面向多平台的智能代理Agent。支持 Console、Web、Discord、Telegram、微信、企业微信、飞书、QQ 等平台，支持工具调用、会话存储、图片输入、OCR 回退、Computer Use、MCP 和记忆能力。Telegram、飞书、Discord、QQ、微信与企业微信平台以可选 extension 提供（源码仓库 `extensions/` 目录已含源码，发行包需通过 `iris ext install` 安装）。
+## 目前Iris的WEBUI处于重构代码阶段，推荐使用功能完备的TUI端。
 
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6?style=flat-square)
 ![npm](https://img.shields.io/npm/v/irises?style=flat-square&label=npm&color=CB3837)
