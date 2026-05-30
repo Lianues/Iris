@@ -16,39 +16,30 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/irises-extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/src/logger.ts
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
     debug: (...args) => {
-      if (_logLevel <= LogLevel.DEBUG)
+      if (_logLevel <= 0 /* DEBUG */)
         console.debug(`[${scope}]`, ...args);
     },
     info: (...args) => {
-      if (_logLevel <= LogLevel.INFO)
+      if (_logLevel <= 1 /* INFO */)
         console.log(`[${scope}]`, ...args);
     },
     warn: (...args) => {
-      if (_logLevel <= LogLevel.WARN)
+      if (_logLevel <= 2 /* WARN */)
         console.warn(`[${scope}]`, ...args);
     },
     error: (...args) => {
-      if (_logLevel <= LogLevel.ERROR)
+      if (_logLevel <= 3 /* ERROR */)
         console.error(`[${scope}]`, ...args);
     }
   };
 }
-var LogLevel, _logLevel;
-var init_logger = __esm(() => {
-  (function(LogLevel2) {
-    LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
-    LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
-    LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
-    LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
-    LogLevel2[LogLevel2["SILENT"] = 4] = "SILENT";
-  })(LogLevel || (LogLevel = {}));
-  _logLevel = LogLevel.INFO;
-});
+var _logLevel = 1 /* INFO */;
+var init_logger = () => {};
 
 // src/terminal-compat.ts
 import { execFileSync } from "child_process";
@@ -222,7 +213,7 @@ var init_terminal_compat = __esm(() => {
   HOURGLASS_SPINNER_INTERVAL_MS = terminalTier === "basic" ? 240 : 360;
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/framing.js
+// node_modules/irises-extension-sdk/src/ipc/framing.ts
 import { Transform } from "node:stream";
 function encodeFrame(data) {
   const payload = Buffer.from(JSON.stringify(data), "utf-8");
@@ -273,7 +264,7 @@ var init_framing = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/protocol.js
+// node_modules/irises-extension-sdk/src/ipc/protocol.ts
 function isRequest(msg) {
   return "id" in msg && "method" in msg;
 }
@@ -312,6 +303,7 @@ var init_protocol = __esm(() => {
     LIST_MODES: "backend.listModes",
     SWITCH_MODE: "backend.switchMode",
     SUMMARIZE: "backend.summarize",
+    RELOAD_AGENTS_MD: "backend.reloadAgentsMd",
     GET_TOOL_NAMES: "backend.getToolNames",
     GET_CURRENT_MODEL_INFO: "backend.getCurrentModelInfo",
     GET_DISABLED_TOOLS: "backend.getDisabledTools",
@@ -407,7 +399,7 @@ var init_protocol = __esm(() => {
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/remote-tool-handle.js
+// node_modules/irises-extension-sdk/src/ipc/remote-tool-handle.ts
 import { EventEmitter } from "node:events";
 var logger, RemoteToolHandle;
 var init_remote_tool_handle = __esm(() => {
@@ -511,7 +503,7 @@ var init_remote_tool_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/remote-backend-handle.js
+// node_modules/irises-extension-sdk/src/ipc/remote-backend-handle.ts
 import { EventEmitter as EventEmitter2 } from "node:events";
 var logger2, RemoteBackendHandle;
 var init_remote_backend_handle = __esm(() => {
@@ -606,6 +598,16 @@ var init_remote_backend_handle = __esm(() => {
     }
     async summarize(sessionId) {
       return this.callRemote(Methods.SUMMARIZE, [sessionId], { timeout: 0 });
+    }
+    async reloadAgentsMd(sessionId) {
+      const result = await this.callRemote(Methods.RELOAD_AGENTS_MD, [sessionId]);
+      return result ?? {
+        ok: false,
+        status: "error",
+        cwd: "",
+        path: "",
+        message: "reloadAgentsMd is not supported by this backend"
+      };
     }
     getToolNames() {
       return this._cachedToolNames;
@@ -789,7 +791,7 @@ var init_remote_backend_handle = __esm(() => {
   };
 });
 
-// node_modules/irises-extension-sdk/dist/ipc/remote-api-proxy.js
+// node_modules/irises-extension-sdk/src/ipc/remote-api-proxy.ts
 function callApi(client, targetAgentName, method, params) {
   if (!targetAgentName) {
     return client.call(method, params);
@@ -860,6 +862,15 @@ var init_remote_api_proxy = __esm(() => {
   logger3 = createExtensionLogger("RemoteApiProxy");
 });
 
+// node_modules/irises-extension-sdk/src/ipc/index.ts
+var init_ipc = __esm(() => {
+  init_framing();
+  init_protocol();
+  init_remote_backend_handle();
+  init_remote_tool_handle();
+  init_remote_api_proxy();
+});
+
 // node_modules/irises-extension-sdk/dist/ipc/index.js
 var exports_ipc = {};
 __export(exports_ipc, {
@@ -877,12 +888,8 @@ __export(exports_ipc, {
   ErrorCodes: () => ErrorCodes,
   BACKEND_EVENT_TO_IPC: () => BACKEND_EVENT_TO_IPC
 });
-var init_ipc = __esm(() => {
-  init_framing();
-  init_protocol();
-  init_remote_backend_handle();
-  init_remote_tool_handle();
-  init_remote_api_proxy();
+var init_ipc2 = __esm(() => {
+  init_ipc();
 });
 
 // src/remote-wizard.ts
@@ -1348,7 +1355,7 @@ import React17 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// node_modules/irises-extension-sdk/dist/platform.js
+// node_modules/irises-extension-sdk/src/platform.ts
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1453,6 +1460,9 @@ class BackendHandle {
   resetConfigToDefaults() {
     return this._backend.resetConfigToDefaults?.();
   }
+  reloadAgentsMd(sessionId) {
+    return this._backend.reloadAgentsMd?.(sessionId) ?? Promise.resolve({ ok: false, status: "error", cwd: "", path: "", message: "reloadAgentsMd is not supported by this backend" });
+  }
   getToolNames() {
     return this._backend.getToolNames?.() ?? [];
   }
@@ -1498,10 +1508,57 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
+// node_modules/irises-extension-sdk/src/utils/paths.ts
+function normalizeText(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+function normalizeRelativeFilePath(input, label = "文件路径") {
+  const normalized = input.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!normalized) {
+    throw new Error(`${label}不能为空`);
+  }
+  const parts = normalized.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error(`${label}无效: ${input}`);
+  }
+  return parts.join("/");
+}
+function normalizeRequestedExtensionPath(requested, label) {
+  const trimmed = requested.trim();
+  if (!trimmed) {
+    throw new Error(`${label}不能为空`);
+  }
+  let normalized = trimmed.replace(/\\/g, "/").trim();
+  normalized = normalized.replace(/^\.\//, "").replace(/^\/+/, "");
+  if (normalized === "extensions" || normalized === "extensions/") {
+    throw new Error(`${label}不能为空`);
+  }
+  if (normalized.startsWith("extensions/")) {
+    normalized = normalized.slice("extensions/".length);
+  }
+  return normalizeRelativeFilePath(normalized, label);
+}
+function encodeRepoPathForUrl(repoPath) {
+  return repoPath.split("/").map((part) => encodeURIComponent(part)).join("/");
+}
 
-// node_modules/irises-extension-sdk/dist/index.js
-init_logger();
-// node_modules/irises-extension-sdk/dist/utils/dependencies.js
+// node_modules/irises-extension-sdk/src/utils/manifest.ts
+var MANIFEST_FILE = "manifest.json";
+function parseExtensionManifest(raw, sourceLabel) {
+  if (!raw || typeof raw !== "object") {
+    throw new Error(`extension manifest 格式无效，应为对象: ${sourceLabel}`);
+  }
+  const manifest = raw;
+  if (!normalizeText(manifest.name)) {
+    throw new Error(`extension manifest 缺少 name: ${sourceLabel}`);
+  }
+  if (!normalizeText(manifest.version)) {
+    throw new Error(`extension manifest 缺少 version: ${sourceLabel}`);
+  }
+  return manifest;
+}
+
+// node_modules/irises-extension-sdk/src/utils/dependencies.ts
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
@@ -1638,117 +1695,7 @@ async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
     installArgs: args
   };
 }
-// node_modules/irises-extension-sdk/dist/utils/paths.js
-function normalizeText(value) {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-function normalizeRelativeFilePath(input, label = "文件路径") {
-  const normalized = input.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
-  if (!normalized) {
-    throw new Error(`${label}不能为空`);
-  }
-  const parts = normalized.split("/");
-  if (parts.some((part) => !part || part === "." || part === "..")) {
-    throw new Error(`${label}无效: ${input}`);
-  }
-  return parts.join("/");
-}
-function normalizeRequestedExtensionPath(requested, label) {
-  const trimmed = requested.trim();
-  if (!trimmed) {
-    throw new Error(`${label}不能为空`);
-  }
-  let normalized = trimmed.replace(/\\/g, "/").trim();
-  normalized = normalized.replace(/^\.\//, "").replace(/^\/+/, "");
-  if (normalized === "extensions" || normalized === "extensions/") {
-    throw new Error(`${label}不能为空`);
-  }
-  if (normalized.startsWith("extensions/")) {
-    normalized = normalized.slice("extensions/".length);
-  }
-  return normalizeRelativeFilePath(normalized, label);
-}
-function encodeRepoPathForUrl(repoPath) {
-  return repoPath.split("/").map((part) => encodeURIComponent(part)).join("/");
-}
-
-// node_modules/irises-extension-sdk/dist/utils/manifest.js
-var MANIFEST_FILE = "manifest.json";
-function parseExtensionManifest(raw, sourceLabel) {
-  if (!raw || typeof raw !== "object") {
-    throw new Error(`extension manifest 格式无效，应为对象: ${sourceLabel}`);
-  }
-  const manifest = raw;
-  if (!normalizeText(manifest.name)) {
-    throw new Error(`extension manifest 缺少 name: ${sourceLabel}`);
-  }
-  if (!normalizeText(manifest.version)) {
-    throw new Error(`extension manifest 缺少 version: ${sourceLabel}`);
-  }
-  return manifest;
-}
-
-// node_modules/irises-extension-sdk/dist/utils/remote.js
-var DEFAULT_REMOTE_EXTENSION_INDEX_URL = "https://raw.githubusercontent.com/Lianues/Iris/main/extensions/index.json";
-var DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL = "https://raw.githubusercontent.com/Lianues/Iris/main";
-var DEFAULT_REMOTE_EXTENSIONS_SUBDIR = "extensions";
-var DEFAULT_REMOTE_EXTENSION_REQUEST_TIMEOUT_MS = 15000;
-function getRemoteExtensionRequestTimeoutMs() {
-  const raw = Number(process.env.IRIS_EXTENSION_REMOTE_TIMEOUT_MS?.trim());
-  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_REMOTE_EXTENSION_REQUEST_TIMEOUT_MS;
-}
-function getRemoteExtensionIndexUrl(options) {
-  const configured = options?.remoteIndexUrl?.trim() || process.env.IRIS_EXTENSION_REMOTE_INDEX_URL?.trim();
-  return configured || DEFAULT_REMOTE_EXTENSION_INDEX_URL;
-}
-function getRemoteRawBaseUrl(options) {
-  const configured = options?.remoteRawBaseUrl?.trim() || process.env.IRIS_EXTENSION_REMOTE_RAW_BASE_URL?.trim();
-  return configured || DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL;
-}
-function getRemoteExtensionsSubdir(options) {
-  const configured = options?.remoteExtensionsSubdir?.trim() || process.env.IRIS_EXTENSION_REMOTE_SUBDIR?.trim();
-  return normalizeRelativeFilePath(configured || DEFAULT_REMOTE_EXTENSIONS_SUBDIR, "远程 extension 根目录");
-}
-async function fetchWithTimeout(url, label) {
-  const timeoutMs = getRemoteExtensionRequestTimeoutMs();
-  const controller = new AbortController;
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } catch (error) {
-    const message = error instanceof Error && error.name === "AbortError" ? `${label} 请求超时（${timeoutMs}ms）: ${url}` : `${label} 请求失败: ${error instanceof Error ? error.message : String(error)}: ${url}`;
-    throw new Error(message);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-async function fetchJson(url, label) {
-  const response = await fetchWithTimeout(url, label);
-  if (!response.ok) {
-    throw new Error(`${label} 读取失败 (${response.status} ${response.statusText}): ${url}`);
-  }
-  return await response.json();
-}
-async function fetchRemoteIndex(options) {
-  const raw = await fetchJson(getRemoteExtensionIndexUrl(options), "远程 extension 索引");
-  if (!Array.isArray(raw.extensions)) {
-    throw new Error("远程 extension 索引返回格式无效");
-  }
-  return raw.extensions.map((entry) => normalizeRequestedExtensionPath(String(entry), "远程 extension 路径"));
-}
-function buildRemoteExtensionPath(requested, options) {
-  return `${getRemoteExtensionsSubdir(options)}/${requested}`;
-}
-function buildRemoteExtensionFileUrl(requestedPath, relativePath, options) {
-  const repoPath = `${buildRemoteExtensionPath(requestedPath, options)}/${relativePath}`;
-  return `${getRemoteRawBaseUrl(options)}/${encodeRepoPathForUrl(repoPath)}`;
-}
-async function fetchRemoteManifest(requestedPath, options) {
-  const manifestUrl = buildRemoteExtensionFileUrl(requestedPath, MANIFEST_FILE, options);
-  const raw = await fetchJson(manifestUrl, "extension manifest");
-  return parseExtensionManifest(raw, `${buildRemoteExtensionPath(requestedPath, options)}/${MANIFEST_FILE}`);
-}
-// node_modules/irises-extension-sdk/dist/utils/git.js
+// node_modules/irises-extension-sdk/src/utils/git.ts
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 var GIT_INSTALL_METADATA_FILE = ".iris-extension-install.json";
@@ -1811,6 +1758,67 @@ function readGitInstallMetadata(rootDir) {
   } catch {
     return;
   }
+}
+
+// node_modules/irises-extension-sdk/src/utils/remote.ts
+var DEFAULT_REMOTE_EXTENSION_INDEX_URL = "https://raw.githubusercontent.com/Lianues/Iris/main/extensions/index.json";
+var DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL = "https://raw.githubusercontent.com/Lianues/Iris/main";
+var DEFAULT_REMOTE_EXTENSIONS_SUBDIR = "extensions";
+var DEFAULT_REMOTE_EXTENSION_REQUEST_TIMEOUT_MS = 15000;
+function getRemoteExtensionRequestTimeoutMs() {
+  const raw = Number(process.env.IRIS_EXTENSION_REMOTE_TIMEOUT_MS?.trim());
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_REMOTE_EXTENSION_REQUEST_TIMEOUT_MS;
+}
+function getRemoteExtensionIndexUrl(options) {
+  const configured = options?.remoteIndexUrl?.trim() || process.env.IRIS_EXTENSION_REMOTE_INDEX_URL?.trim();
+  return configured || DEFAULT_REMOTE_EXTENSION_INDEX_URL;
+}
+function getRemoteRawBaseUrl(options) {
+  const configured = options?.remoteRawBaseUrl?.trim() || process.env.IRIS_EXTENSION_REMOTE_RAW_BASE_URL?.trim();
+  return configured || DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL;
+}
+function getRemoteExtensionsSubdir(options) {
+  const configured = options?.remoteExtensionsSubdir?.trim() || process.env.IRIS_EXTENSION_REMOTE_SUBDIR?.trim();
+  return normalizeRelativeFilePath(configured || DEFAULT_REMOTE_EXTENSIONS_SUBDIR, "远程 extension 根目录");
+}
+async function fetchWithTimeout(url, label) {
+  const timeoutMs = getRemoteExtensionRequestTimeoutMs();
+  const controller = new AbortController;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    const message = error instanceof Error && error.name === "AbortError" ? `${label} 请求超时（${timeoutMs}ms）: ${url}` : `${label} 请求失败: ${error instanceof Error ? error.message : String(error)}: ${url}`;
+    throw new Error(message);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function fetchJson(url, label) {
+  const response = await fetchWithTimeout(url, label);
+  if (!response.ok) {
+    throw new Error(`${label} 读取失败 (${response.status} ${response.statusText}): ${url}`);
+  }
+  return await response.json();
+}
+async function fetchRemoteIndex(options) {
+  const raw = await fetchJson(getRemoteExtensionIndexUrl(options), "远程 extension 索引");
+  if (!Array.isArray(raw.extensions)) {
+    throw new Error("远程 extension 索引返回格式无效");
+  }
+  return raw.extensions.map((entry) => normalizeRequestedExtensionPath(String(entry), "远程 extension 路径"));
+}
+function buildRemoteExtensionPath(requested, options) {
+  return `${getRemoteExtensionsSubdir(options)}/${requested}`;
+}
+function buildRemoteExtensionFileUrl(requestedPath, relativePath, options) {
+  const repoPath = `${buildRemoteExtensionPath(requestedPath, options)}/${relativePath}`;
+  return `${getRemoteRawBaseUrl(options)}/${encodeRepoPathForUrl(repoPath)}`;
+}
+async function fetchRemoteManifest(requestedPath, options) {
+  const manifestUrl = buildRemoteExtensionFileUrl(requestedPath, MANIFEST_FILE, options);
+  const raw = await fetchJson(manifestUrl, "extension manifest");
+  return parseExtensionManifest(raw, `${buildRemoteExtensionPath(requestedPath, options)}/${MANIFEST_FILE}`);
 }
 // node_modules/tokenx/dist/index.mjs
 var PATTERNS = {
@@ -3611,6 +3619,14 @@ var COMMANDS = [
     getArgSuggestions: () => [
       { value: "cn", description: "使用中文 commit message" },
       { value: "en", description: "使用英文 commit message" }
+    ]
+  },
+  {
+    name: "/reload",
+    description: "重载运行时上下文（如 AGENTS.md 项目指令）",
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: "AGENTS.md", description: "重新读取当前目录 AGENTS.md 并更新系统提示词" }
     ]
   },
   {
@@ -13206,12 +13222,22 @@ function resetRedo(undoRedoRef, onClearRedoStack) {
   clearRedo(undoRedoRef.current);
   onClearRedoStack();
 }
-function runOptionalCommand(onRunCommand, command, fallback) {
+function formatCommandRunError(command, err) {
+  const message = err instanceof Error ? err.message : String(err);
+  return `${command}: ${message}`;
+}
+function runCommandCapture(onRunCommand, command) {
   try {
-    return onRunCommand(command).output || fallback;
+    return { ok: true, output: onRunCommand(command).output };
   } catch (err) {
-    return `${fallback}: ${err instanceof Error ? err.message : String(err)}`;
+    return { ok: false, output: "", error: formatCommandRunError(command, err) };
   }
+}
+function runOptionalCommand(onRunCommand, command, fallback) {
+  const result = runCommandCapture(onRunCommand, command);
+  if (result.ok)
+    return result.output || fallback;
+  return `${fallback}: ${result.error}`;
 }
 function useCommandDispatch({
   onSubmit,
@@ -13235,6 +13261,7 @@ function useCommandDispatch({
   onListAgents,
   onPlanCommand,
   onAutoEditCommand,
+  onReloadCommand,
   onCallmeCommand,
   onNoteCommand,
   setAgentList,
@@ -13531,25 +13558,59 @@ function useCommandDispatch({
       });
       return;
     }
+    if (text === "/reload" || text.startsWith("/reload ")) {
+      const arg = text.slice("/reload".length).trim();
+      const messageOptions = { label: "reload", beforeActiveAssistant: isGenerating };
+      if (!arg) {
+        appendCommandMessage(setMessages, `可重载项：AGENTS.md
+用法：/reload AGENTS.md`, messageOptions);
+        return;
+      }
+      if (arg.toLowerCase() !== "agents.md") {
+        appendCommandMessage(setMessages, `未知 reload 项：${arg}
+可重载项：AGENTS.md`, { ...messageOptions, isError: true });
+        return;
+      }
+      if (!onReloadCommand) {
+        appendCommandMessage(setMessages, "/reload 服务不可用。", { ...messageOptions, isError: true });
+        return;
+      }
+      onReloadCommand("AGENTS.md").then((result) => {
+        appendCommandMessage(setMessages, result.message, result.ok ? messageOptions : { ...messageOptions, isError: true });
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `/reload 操作失败: ${err instanceof Error ? err.message : String(err)}`, { ...messageOptions, isError: true });
+      });
+      return;
+    }
     if (text === "/commit" || text.startsWith("/commit ")) {
       resetRedo(undoRedoRef, onClearRedoStack);
       const commitArgs = parseGitCommitCommandArg(text.slice("/commit".length));
       const messageOptions = { label: "commit", beforeActiveAssistant: isGenerating };
       try {
-        const repoCheck = onRunCommand("git rev-parse --is-inside-work-tree").output.trim();
-        if (repoCheck !== "true") {
+        const repoCheck = runCommandCapture(onRunCommand, "git rev-parse --is-inside-work-tree");
+        if (!repoCheck.ok) {
+          appendCommandMessage(setMessages, `无法确认当前目录是否为 Git 工作区: ${repoCheck.error}`, { ...messageOptions, isError: true });
+          return;
+        }
+        if (repoCheck.output.trim() !== "true") {
           appendCommandMessage(setMessages, "当前目录不是 Git 工作区，无法创建 commit。", { ...messageOptions, isError: true });
           return;
         }
-        const porcelain = onRunCommand("git status --porcelain").output;
-        if (isGitPorcelainEmpty(porcelain)) {
+        const porcelain = runCommandCapture(onRunCommand, "git status --porcelain");
+        if (porcelain.ok && isGitPorcelainEmpty(porcelain.output)) {
           appendCommandMessage(setMessages, "当前没有可提交的变更。", messageOptions);
           return;
         }
-        const statusShort = runOptionalCommand(onRunCommand, "git status --short --branch", porcelain);
+        let statusShort = runOptionalCommand(onRunCommand, "git status --short --branch", porcelain.ok ? porcelain.output : "(git status unavailable)");
         const recentCommits = runOptionalCommand(onRunCommand, "git log --oneline -10", "(no recent commits or git log unavailable)");
+        if (!porcelain.ok) {
+          statusShort = `${statusShort}
+
+预检查 git status --porcelain 失败：${porcelain.error}
+请在后续步骤中重新运行 git status / git diff，并根据实际结果决定是否提交。`;
+        }
         const prompt = buildGitCommitPrompt({ statusShort, recentCommits, ...commitArgs });
-        appendCommandMessage(setMessages, "已准备 git commit 上下文，交给模型检查 diff 并创建提交。", messageOptions);
+        appendCommandMessage(setMessages, porcelain.ok ? "已准备 git commit 上下文，交给模型检查 diff 并创建提交。" : "git status 预检查失败，已继续交给模型重新检查 diff 并创建提交。", messageOptions);
         onSubmit(prompt);
       } catch (err) {
         appendCommandMessage(setMessages, `准备 commit 失败: ${err instanceof Error ? err.message : String(err)}`, { ...messageOptions, isError: true });
@@ -13687,6 +13748,7 @@ function useCommandDispatch({
     onSummarize,
     onPlanCommand,
     onAutoEditCommand,
+    onReloadCommand,
     onCallmeCommand,
     onNoteCommand,
     onUndo,
@@ -13982,6 +14044,7 @@ function App({
   onSummarize,
   onPlanCommand,
   onAutoEditCommand,
+  onReloadCommand,
   onCallmeCommand,
   onNoteCommand,
   onSaveNote,
@@ -14255,6 +14318,7 @@ function App({
     onSummarize,
     onPlanCommand,
     onAutoEditCommand,
+    onReloadCommand,
     onCallmeCommand,
     onNoteCommand,
     undoRedoRef,
@@ -15074,7 +15138,7 @@ function comparePriorityThenId(direction = "asc") {
 }
 
 // src/tool-display-service.ts
-var CONSOLE_TOOL_DISPLAY_SERVICE_ID2 = "console:tool-display";
+var CONSOLE_TOOL_DISPLAY_SERVICE_ID = "console:tool-display";
 function createConsoleToolDisplayService() {
   const providers = createKeyedRegistry();
   return {
@@ -15100,7 +15164,7 @@ function createConsoleToolDisplayService() {
 }
 
 // src/slash-command-service.ts
-var CONSOLE_SLASH_COMMAND_SERVICE_ID2 = "console:slash-command";
+var CONSOLE_SLASH_COMMAND_SERVICE_ID = "console:slash-command";
 function createConsoleSlashCommandService() {
   const commands = createKeyedRegistry();
   const changes = createListenerSignal();
@@ -15161,7 +15225,7 @@ function createConsoleSlashCommandService() {
 }
 
 // src/path-display-service.ts
-var CONSOLE_PATH_DISPLAY_SERVICE_ID2 = "console:path-display";
+var CONSOLE_PATH_DISPLAY_SERVICE_ID = "console:path-display";
 function createConsolePathDisplayService() {
   const providers = createKeyedRegistry();
   const changes = createListenerSignal();
@@ -15213,10 +15277,10 @@ function createConsolePathDisplayService() {
 }
 
 // src/settings-tab-service.ts
-var CONSOLE_SETTINGS_TAB_SERVICE_ID2 = "console:settings-tab";
+var CONSOLE_SETTINGS_TAB_SERVICE_ID = "console:settings-tab";
 
 // src/status-segment-service.ts
-var CONSOLE_STATUS_SEGMENT_SERVICE_ID2 = "console:status-segment";
+var CONSOLE_STATUS_SEGMENT_SERVICE_ID = "console:status-segment";
 function createConsoleStatusSegmentService() {
   const providers = createKeyedRegistry();
   const changes = createListenerSignal();
@@ -15269,7 +15333,7 @@ function createConsoleStatusSegmentService() {
 }
 
 // src/progress-service.ts
-var CONSOLE_PROGRESS_SERVICE_ID2 = "console:progress";
+var CONSOLE_PROGRESS_SERVICE_ID = "console:progress";
 function createConsoleProgressService() {
   const providers = createKeyedRegistry();
   const providerSubscriptions = new Map;
@@ -15374,7 +15438,7 @@ function createConsoleInputService() {
 }
 
 // src/ipc-bridge.ts
-init_ipc();
+init_ipc2();
 var CONSOLE_GET_SETTINGS_TABS_METHOD = "console.getSettingsTabs";
 var CONSOLE_LIST_SLASH_COMMANDS_METHOD = "console.listSlashCommands";
 var CONSOLE_DISPATCH_SLASH_COMMAND_METHOD = "console.dispatchSlashCommand";
@@ -16297,7 +16361,7 @@ class ConsolePlatform extends PlatformAdapter {
   }
   getLocalConsoleSettingsTabService() {
     const currentApi = this.api;
-    return currentApi?.services?.get?.(CONSOLE_SETTINGS_TAB_SERVICE_ID2);
+    return currentApi?.services?.get?.(CONSOLE_SETTINGS_TAB_SERVICE_ID);
   }
   hasRemotePluginSettingsTabSource() {
     return hasConsoleRemoteBridge(this.api) || this._isRemote;
@@ -16341,45 +16405,45 @@ class ConsolePlatform extends PlatformAdapter {
       input: createConsoleInputService(),
       registrations: []
     };
-    if (!services.has(CONSOLE_TOOL_DISPLAY_SERVICE_ID2)) {
-      bundle.registrations.push(services.register(CONSOLE_TOOL_DISPLAY_SERVICE_ID2, bundle.toolDisplay, {
+    if (!services.has(CONSOLE_TOOL_DISPLAY_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_TOOL_DISPLAY_SERVICE_ID, bundle.toolDisplay, {
         description: "Console TUI 工具显示扩展服务",
         version: "1.0.0"
       }));
     } else {
-      bundle.toolDisplay = services.get(CONSOLE_TOOL_DISPLAY_SERVICE_ID2);
+      bundle.toolDisplay = services.get(CONSOLE_TOOL_DISPLAY_SERVICE_ID);
     }
-    if (!services.has(CONSOLE_SLASH_COMMAND_SERVICE_ID2)) {
-      bundle.registrations.push(services.register(CONSOLE_SLASH_COMMAND_SERVICE_ID2, bundle.slashCommand, {
+    if (!services.has(CONSOLE_SLASH_COMMAND_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_SLASH_COMMAND_SERVICE_ID, bundle.slashCommand, {
         description: "Console TUI 斜杠指令扩展服务",
         version: "1.0.0"
       }));
     } else {
-      bundle.slashCommand = services.get(CONSOLE_SLASH_COMMAND_SERVICE_ID2);
+      bundle.slashCommand = services.get(CONSOLE_SLASH_COMMAND_SERVICE_ID);
     }
-    if (!services.has(CONSOLE_PATH_DISPLAY_SERVICE_ID2)) {
-      bundle.registrations.push(services.register(CONSOLE_PATH_DISPLAY_SERVICE_ID2, bundle.pathDisplay, {
+    if (!services.has(CONSOLE_PATH_DISPLAY_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_PATH_DISPLAY_SERVICE_ID, bundle.pathDisplay, {
         description: "Console TUI 左下角路径显示扩展服务",
         version: "1.0.0"
       }));
     } else {
-      bundle.pathDisplay = services.get(CONSOLE_PATH_DISPLAY_SERVICE_ID2);
+      bundle.pathDisplay = services.get(CONSOLE_PATH_DISPLAY_SERVICE_ID);
     }
-    if (!services.has(CONSOLE_STATUS_SEGMENT_SERVICE_ID2)) {
-      bundle.registrations.push(services.register(CONSOLE_STATUS_SEGMENT_SERVICE_ID2, bundle.statusSegment, {
+    if (!services.has(CONSOLE_STATUS_SEGMENT_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_STATUS_SEGMENT_SERVICE_ID, bundle.statusSegment, {
         description: "Console TUI 状态栏扩展片段服务",
         version: "1.0.0"
       }));
     } else {
-      bundle.statusSegment = services.get(CONSOLE_STATUS_SEGMENT_SERVICE_ID2);
+      bundle.statusSegment = services.get(CONSOLE_STATUS_SEGMENT_SERVICE_ID);
     }
-    if (!services.has(CONSOLE_PROGRESS_SERVICE_ID2)) {
-      bundle.registrations.push(services.register(CONSOLE_PROGRESS_SERVICE_ID2, bundle.progress, {
+    if (!services.has(CONSOLE_PROGRESS_SERVICE_ID)) {
+      bundle.registrations.push(services.register(CONSOLE_PROGRESS_SERVICE_ID, bundle.progress, {
         description: "Console TUI 通用进度面板服务",
         version: "1.0.0"
       }));
     } else {
-      bundle.progress = services.get(CONSOLE_PROGRESS_SERVICE_ID2);
+      bundle.progress = services.get(CONSOLE_PROGRESS_SERVICE_ID);
     }
     if (!services.has(CONSOLE_INPUT_SERVICE_ID)) {
       bundle.registrations.push(services.register(CONSOLE_INPUT_SERVICE_ID, bundle.input, {
@@ -16569,7 +16633,7 @@ class ConsolePlatform extends PlatformAdapter {
     return next;
   }
   async start() {
-    this.api?.setLogLevel?.(LogLevel.SILENT);
+    this.api?.setLogLevel?.(4 /* SILENT */);
     this.getConsoleServicesBundle();
     this.bindPluginSettingsTabService();
     this.bindProgressService();
@@ -16938,6 +17002,7 @@ ${summaryText}`;
         onSummarize: () => this.handleSummarize(),
         onPlanCommand: (arg) => this.handlePlanCommand(arg),
         onAutoEditCommand: (arg) => this.handleAutoEditCommand(arg),
+        onReloadCommand: (arg) => this.handleReloadCommand(arg),
         onCallmeCommand: (arg) => this.handleCallmeCommand(arg),
         onNoteCommand: (arg) => this.handleNoteCommand(arg),
         onSaveNote: (content) => this.handleSaveNote(content),
@@ -17086,7 +17151,7 @@ ${summaryText}`;
       if (!WsIPCClient) {
         throw new Error("remote-connect 扩展服务不可用，请确认 remote-connect 扩展已安装并启用");
       }
-      const { RemoteBackendHandle: RemoteBackendHandle2, createRemoteApiProxy: createRemoteApiProxy2 } = await Promise.resolve().then(() => (init_ipc(), exports_ipc));
+      const { RemoteBackendHandle: RemoteBackendHandle2, createRemoteApiProxy: createRemoteApiProxy2 } = await Promise.resolve().then(() => (init_ipc2(), exports_ipc));
       const wsClient = new WsIPCClient;
       const handshake = await wsClient.connect(url, token);
       let remoteBackend;
@@ -18209,6 +18274,26 @@ ${trailer}`;
 提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。` : ""}`
     };
   }
+  async handleReloadCommand(arg) {
+    const normalized = arg.trim();
+    if (!normalized) {
+      return { ok: true, message: `可重载项：AGENTS.md
+用法：/reload AGENTS.md` };
+    }
+    if (normalized.toLowerCase() !== "agents.md") {
+      return { ok: false, message: `未知 reload 项：${normalized}
+可重载项：AGENTS.md` };
+    }
+    const backend = this.backend;
+    if (!backend.reloadAgentsMd) {
+      return { ok: false, message: "当前 Backend 不支持重载 AGENTS.md。" };
+    }
+    const result = await backend.reloadAgentsMd(this.sessionId);
+    return {
+      ok: result.ok !== false,
+      message: result.message || (result.ok !== false ? "AGENTS.md 已重载。" : "AGENTS.md 重载失败。")
+    };
+  }
   async handleSaveNote(content) {
     const service = this.getNoteService();
     if (!service)
@@ -18510,8 +18595,8 @@ ${summaryText}`;
         try {
           const fullPath = path6.join(dirPath, name);
           const stat = fs6.statSync(fullPath);
-          const isDirectory2 = stat.isDirectory();
-          if (isDirectory2) {
+          const isDirectory = stat.isDirectory();
+          if (isDirectory) {
             entries.push({ name, isDirectory: true });
           } else {
             const ext = path6.extname(name).toLowerCase();

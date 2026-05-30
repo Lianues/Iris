@@ -30,6 +30,7 @@ export type {
   DocumentInput,
   ImageInput,
   AgentContextLike,
+  AgentsMdReloadResultLike,
   MultiAgentCapable,
   IrisBackendLike,
   ForegroundPlatform,

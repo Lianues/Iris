@@ -1449,6 +1449,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onSummarize: () => this.handleSummarize(),
         onPlanCommand: (arg: string) => this.handlePlanCommand(arg),
         onAutoEditCommand: (arg: string) => this.handleAutoEditCommand(arg),
+        onReloadCommand: (arg: string) => this.handleReloadCommand(arg),
         onCallmeCommand: (arg: string) => this.handleCallmeCommand(arg),
         onNoteCommand: (arg: string) => this.handleNoteCommand(arg),
         onSaveNote: (content: string) => this.handleSaveNote(content),
@@ -3017,6 +3018,28 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     return {
       ok: true,
       message: `${formatStatus(isActiveState(state))}${isActiveState(state) && planActive ? '\n提示：当前处于 Plan Mode，自动编辑会在退出 Plan Mode 后生效。' : ''}`,
+    };
+  }
+
+  private async handleReloadCommand(arg: string): Promise<{ ok: boolean; message: string }> {
+    const normalized = arg.trim();
+    if (!normalized) {
+      return { ok: true, message: '可重载项：AGENTS.md\n用法：/reload AGENTS.md' };
+    }
+
+    if (normalized.toLowerCase() !== 'agents.md') {
+      return { ok: false, message: `未知 reload 项：${normalized}\n可重载项：AGENTS.md` };
+    }
+
+    const backend = this.backend as IrisBackendLike & { reloadAgentsMd?: (sessionId: string) => Promise<{ ok?: boolean; message?: string }> };
+    if (!backend.reloadAgentsMd) {
+      return { ok: false, message: '当前 Backend 不支持重载 AGENTS.md。' };
+    }
+
+    const result = await backend.reloadAgentsMd(this.sessionId);
+    return {
+      ok: result.ok !== false,
+      message: result.message || (result.ok !== false ? 'AGENTS.md 已重载。' : 'AGENTS.md 重载失败。'),
     };
   }
 

@@ -1,3 +1,3 @@
-# Iris v1.0.36 Release Notes
+# Iris v1.0.37 Release Notes
 
-* 更新Readme
+* 添加项目级AGENTS.md功能

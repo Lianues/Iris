@@ -18,7 +18,7 @@
 import { EventEmitter } from 'node:events';
 import type { IPCClientLike } from './client-like.js';
 import { RemoteToolHandle } from './remote-tool-handle.js';
-import type { AutoEditSessionStateLike, RewindCheckpointLike, RewindOperationResultLike, RewindTargetMode } from '../platform.js';
+import type { AgentsMdReloadResultLike, AutoEditSessionStateLike, RewindCheckpointLike, RewindOperationResultLike, RewindTargetMode } from '../platform.js';
 import { createExtensionLogger } from '../logger.js';
 import type { ToolDiffPreviewResponseLike } from '../plugin/tool-preview.js';
 import {
@@ -173,6 +173,17 @@ export class RemoteBackendHandle extends EventEmitter {
   async summarize(sessionId: string): Promise<unknown> {
     // summarize 需要遍历全部历史并调用 LLM，可能较慢
     return this.callRemote(Methods.SUMMARIZE, [sessionId], { timeout: 0 });
+  }
+
+  async reloadAgentsMd(sessionId: string): Promise<AgentsMdReloadResultLike> {
+    const result = await this.callRemote(Methods.RELOAD_AGENTS_MD, [sessionId]);
+    return (result as AgentsMdReloadResultLike | undefined) ?? {
+      ok: false,
+      status: 'error',
+      cwd: '',
+      path: '',
+      message: 'reloadAgentsMd is not supported by this backend',
+    };
   }
 
   getToolNames(): string[] {

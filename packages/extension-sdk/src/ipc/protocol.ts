@@ -85,6 +85,7 @@ export const Methods = {
   LIST_MODES: 'backend.listModes',
   SWITCH_MODE: 'backend.switchMode',
   SUMMARIZE: 'backend.summarize',
+  RELOAD_AGENTS_MD: 'backend.reloadAgentsMd',
   GET_TOOL_NAMES: 'backend.getToolNames',
   GET_CURRENT_MODEL_INFO: 'backend.getCurrentModelInfo',
   GET_DISABLED_TOOLS: 'backend.getDisabledTools',

@@ -108,6 +108,7 @@ interface IPCBackendLike {
   listModes?(): unknown[];
   switchMode?(modeName: string): boolean;
   summarize?(sessionId: string): Promise<unknown>;
+  reloadAgentsMd?(sessionId: string): Promise<unknown>;
   getToolNames?(): string[];
   getCurrentModelInfo?(): unknown;
   getDisabledTools?(): string[];
@@ -363,6 +364,9 @@ export class IPCServer extends EventEmitter {
           break;
         case Methods.SUMMARIZE:
           result = await this.backend.summarize?.(params[0] as string);
+          break;
+        case Methods.RELOAD_AGENTS_MD:
+          result = await this.backend.reloadAgentsMd?.(params[0] as string);
           break;
         case Methods.GET_TOOL_NAMES:
           result = this.backend.getToolNames?.() ?? [];
@@ -676,6 +680,8 @@ export class IPCServer extends EventEmitter {
         return backend.switchMode?.(params[0] as string) ?? false;
       case Methods.SUMMARIZE:
         return await backend.summarize?.(params[0] as string);
+      case Methods.RELOAD_AGENTS_MD:
+        return await backend.reloadAgentsMd?.(params[0] as string);
       case Methods.GET_TOOL_NAMES:
         return backend.getToolNames?.() ?? [];
       case Methods.GET_CURRENT_MODEL_INFO:

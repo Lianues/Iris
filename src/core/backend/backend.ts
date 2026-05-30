@@ -68,6 +68,7 @@ import { AutoEditManager } from '../../auto-edit';
 
 import { sessionContext, getSessionCwd, setSessionCwd, getRememberedCwd, getActiveSessionId, clearSessionCwd } from './session-context';
 import type { SessionExecutionContext } from './session-context';
+import { AgentsMdManager, type AgentsMdReloadResult } from '../agents-md';
 
 const logger = createLogger('Backend');
 const RUN_COMMAND_TIMEOUT_MS = 30000;
@@ -150,6 +151,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
 
   /** 每个 session 最近一次 LLM 调用的 totalTokenCount（用于自动总结阈值判断） */
   private lastSessionTokens = new Map<string, number>();
+
+  /** 每个 session 的 AGENTS.md 项目指令缓存。 */
+  private agentsMd = new AgentsMdManager();
 
   /** 插件钩子列表 */
   private pluginHooks: PluginHook[] = [];
@@ -466,6 +470,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     await this.fileHistory.clearSession(sessionId);
     this.undoRedo.clearRedo(sessionId);
     this.lastSessionTokens.delete(sessionId);
+    this.agentsMd.clear(sessionId);
     // 清空该会话在队列中的残留消息（如未处理的异步子代理通知）
     this.messageQueue.clearSession(sessionId);
     // 中止该会话发起的后台任务（异步 sub_agent / delegate）。
@@ -598,6 +603,10 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.lastSessionTokens.set(sessionId, estimatedTokens);
 
     this.undoRedo.clearRedo(sessionId);
+    const agentsReload = await this.agentsMd.reload(sessionId, getSessionCwd());
+    if (!agentsReload.ok) {
+      logger.warn(`compact 后重载 AGENTS.md 失败: ${agentsReload.error ?? agentsReload.message}`);
+    }
     return summaryText;
   }
 
@@ -732,6 +741,10 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
 
   getCwd(): string {
     return getSessionCwd();
+  }
+
+  async reloadAgentsMd(sessionId: string): Promise<AgentsMdReloadResult> {
+    return this.agentsMd.reload(sessionId, getRememberedCwd(sessionId));
   }
 
   runCommand(cmd: string): { output: string; cwd: string } {
@@ -1445,6 +1458,10 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const mode = this.resolveMode();
     if (mode?.systemPrompt) {
       extraParts.unshift({ text: mode.systemPrompt });
+    }
+    const agentsMdState = await this.agentsMd.ensureLoaded(sessionId, getSessionCwd());
+    if (agentsMdState.part) {
+      extraParts.push(agentsMdState.part);
     }
     const planModeActive = this.isPlanModeActive?.(sessionId) === true;
     const autoEditActive = this.autoEdit.isActive(sessionId);

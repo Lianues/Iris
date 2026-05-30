@@ -83,6 +83,8 @@ export interface AppProps {
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
   /** 自动编辑命令处理（/auto-edit）。 */
   onAutoEditCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
+  /** /reload：重载运行时上下文项（当前支持 AGENTS.md）。 */
+  onReloadCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   /** /callme：显式开启/关闭 git commit co-author 署名。 */
   onCallmeCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   /** /note：编辑当前 Agent 的长期 Note。 */

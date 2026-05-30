@@ -47,6 +47,14 @@ export const COMMANDS: Command[] = [
     ],
   },
   {
+    name: '/reload',
+    description: '重载运行时上下文（如 AGENTS.md 项目指令）',
+    acceptsArgs: true,
+    getArgSuggestions: () => [
+      { value: 'AGENTS.md', description: '重新读取当前目录 AGENTS.md 并更新系统提示词' },
+    ],
+  },
+  {
     name: '/auto-edit',
     description: '切换当前会话自动编辑（安全编辑自动应用）',
     acceptsArgs: true,

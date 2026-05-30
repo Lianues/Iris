@@ -59,6 +59,7 @@ interface UseCommandDispatchOptions {
   onListAgents?: () => AgentDefinitionLike[];
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
   onAutoEditCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
+  onReloadCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   onCallmeCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
   onNoteCommand?: (arg: string) => Promise<{ ok: boolean; message?: string }>;
   setAgentList: SetAgentList;
@@ -158,6 +159,7 @@ export function useCommandDispatch({
   onListAgents,
   onPlanCommand,
   onAutoEditCommand,
+  onReloadCommand,
   onCallmeCommand,
   onNoteCommand,
   setAgentList,
@@ -480,6 +482,53 @@ export function useCommandDispatch({
       return;
     }
 
+    if (text === '/reload' || text.startsWith('/reload ')) {
+      const arg = text.slice('/reload'.length).trim();
+      const messageOptions = { label: 'reload' as const, beforeActiveAssistant: isGenerating };
+
+      if (!arg) {
+        appendCommandMessage(
+          setMessages,
+          '可重载项：AGENTS.md\n用法：/reload AGENTS.md',
+          messageOptions,
+        );
+        return;
+      }
+
+      if (arg.toLowerCase() !== 'agents.md') {
+        appendCommandMessage(
+          setMessages,
+          `未知 reload 项：${arg}\n可重载项：AGENTS.md`,
+          { ...messageOptions, isError: true },
+        );
+        return;
+      }
+
+      if (!onReloadCommand) {
+        appendCommandMessage(
+          setMessages,
+          '/reload 服务不可用。',
+          { ...messageOptions, isError: true },
+        );
+        return;
+      }
+
+      void onReloadCommand('AGENTS.md').then((result) => {
+        appendCommandMessage(
+          setMessages,
+          result.message,
+          result.ok ? messageOptions : { ...messageOptions, isError: true },
+        );
+      }).catch((err) => {
+        appendCommandMessage(
+          setMessages,
+          `/reload 操作失败: ${err instanceof Error ? err.message : String(err)}`,
+          { ...messageOptions, isError: true },
+        );
+      });
+      return;
+    }
+
     if (text === '/commit' || text.startsWith('/commit ')) {
       resetRedo(undoRedoRef, onClearRedoStack);
       const commitArgs = parseGitCommitCommandArg(text.slice('/commit'.length));
@@ -694,6 +743,7 @@ export function useCommandDispatch({
     onSummarize,
     onPlanCommand,
     onAutoEditCommand,
+    onReloadCommand,
     onCallmeCommand,
     onNoteCommand,
     onUndo,

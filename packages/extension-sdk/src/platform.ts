@@ -80,6 +80,17 @@ export interface AgentTaskInfoLike {
   endTime?: number;
 }
 
+export interface AgentsMdReloadResultLike {
+  ok: boolean;
+  status: string;
+  cwd: string;
+  path: string;
+  loadedAt?: number;
+  bytes?: number;
+  error?: string;
+  message: string;
+}
+
 /** Backend 事件签名（供 SDK 消费者使用，核心类型用 unknown 代替以保持解耦） */
 export interface BackendEventMap {
   'response':           (sessionId: string, text: string) => void;
@@ -178,6 +189,7 @@ export interface IrisBackendLike {
   getHistory?(sessionId: string): Promise<Content[]>;
   runCommand?(cmd: string): unknown;
   summarize?(sessionId: string): Promise<unknown>;
+  reloadAgentsMd?(sessionId: string): Promise<AgentsMdReloadResultLike>;
   resetConfigToDefaults?(): unknown;
   getToolNames?(): string[];
   /** 获取指定工具的双向通道 Handle */
@@ -341,6 +353,10 @@ export class BackendHandle implements IrisBackendLike {
   }
 
   resetConfigToDefaults(): unknown { return this._backend.resetConfigToDefaults?.(); }
+
+  reloadAgentsMd(sessionId: string): Promise<AgentsMdReloadResultLike> {
+    return this._backend.reloadAgentsMd?.(sessionId) ?? Promise.resolve({ ok: false, status: 'error', cwd: '', path: '', message: 'reloadAgentsMd is not supported by this backend' });
+  }
   getToolNames(): string[] { return this._backend.getToolNames?.() ?? []; }
 
   getAgentTasks(sessionId: string): AgentTaskInfoLike[] {
