@@ -1458,6 +1458,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onDream: () => this.handleDream(),
         onListMemories: () => this.handleListMemories(),
         onDeleteMemory: (id: number) => this.handleDeleteMemory(id),
+        onListSkills: (options?: { refresh?: boolean }) => this.handleListSkills(options),
         onListExtensions: () => this.handleListExtensions(),
         onToggleExtension: (name: string, enabled?: boolean) => this.handleToggleExtension(name, enabled),
         onInstallGitExtension: (target: string, scope?: 'global' | 'agent') => this.handleInstallGitExtension(target, scope),
@@ -2571,6 +2572,31 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       this.startRemoteExtensionItemsRefresh();
     }
     return this.getCachedRemoteExtensionItems(localNames);
+  }
+
+  private async handleListSkills(options: { refresh?: boolean } = {}): Promise<any> {
+    try {
+      if (options.refresh) {
+        const refresh = (this.backend as any)?.refreshSkillsFromFilesystem;
+        if (typeof refresh === 'function') await Promise.resolve(refresh.call(this.backend));
+      }
+      const getReport = (this.backend as any)?.getSkillsLoadReport;
+      if (typeof getReport === 'function') {
+        const report = await Promise.resolve(getReport.call(this.backend));
+        return report ?? { loaded: [], skipped: [] };
+      }
+      const listSkills = (this.backend as any)?.listSkills;
+      if (typeof listSkills === 'function') {
+        const skills = await Promise.resolve(listSkills.call(this.backend));
+        return {
+          loaded: Array.isArray(skills) ? skills.map((skill: any) => ({ skill, diagnostics: [] })) : [],
+          skipped: [],
+        };
+      }
+    } catch (err) {
+      console.error('[ConsolePlatform] handleListSkills failed:', err);
+    }
+    return { loaded: [], skipped: [] };
   }
 
   private async handleListExtensions(options: { skipRemoteRefresh?: boolean } = {}): Promise<any[]> {

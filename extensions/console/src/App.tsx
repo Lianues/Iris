@@ -24,6 +24,7 @@ import { ToolListView } from './components/ToolListView';
 import { SessionListView } from './components/SessionListView';
 import { RewindSelectorView } from './components/RewindSelectorView';
 import { MemoryListView, type MemoryItem, type MemoryFilter } from './components/MemoryListView';
+import { SkillListView, type SkillLoadReport } from './components/SkillListView';
 import { ExtensionListView, type ExtensionItem } from './components/ExtensionListView';
 import { SettingsView } from './components/SettingsView';
 import { PROGRESS_PANEL_MAX_ITEMS } from './components/ProgressListView';
@@ -171,6 +172,7 @@ export function App({
   onDream,
   onListMemories,
   onDeleteMemory,
+  onListSkills,
   onListExtensions,
   onToggleExtension,
   onInstallGitExtension,
@@ -230,6 +232,10 @@ export function App({
   const [memoryFilter, setMemoryFilter] = useState<MemoryFilter>('all');
   const [memoryExpandedId, setMemoryExpandedId] = useState<number | null>(null);
   const [memoryPendingDeleteId, setMemoryPendingDeleteId] = useState<number | null>(null);
+
+  // Skill 列表状态
+  const [skillReport, setSkillReport] = useState<SkillLoadReport>({ loaded: [], skipped: [] });
+  const [skillDetailsExpanded, setSkillDetailsExpanded] = useState(true);
 
   // 扩展列表状态
   const [extensionList, setExtensionList] = useState<ExtensionItem[]>([]);
@@ -476,6 +482,9 @@ export function App({
     onDream,
     onListMemories,
     setMemoryList,
+    onListSkills,
+    setSkillReport,
+    setSkillDetailsExpanded,
     setMemoryFilter,
     setMemoryExpandedId,
     setMemoryPendingDeleteId,
@@ -728,6 +737,11 @@ export function App({
     memoryList,
     memoryFilter,
     setMemoryFilter,
+    skillReport,
+    skillDetailsExpanded,
+    setSkillDetailsExpanded,
+    onListSkills,
+    setSkillReport,
     memoryExpandedId,
     setMemoryExpandedId,
     memoryPendingDeleteId,
@@ -835,6 +849,10 @@ export function App({
         pendingDeleteId={memoryPendingDeleteId}
       />
     );
+  }
+
+  if (viewMode === 'skill-list') {
+    return <SkillListView report={skillReport} selectedIndex={selectedIndex} detailsExpanded={skillDetailsExpanded} />;
   }
 
   if (viewMode === 'extension-list') {

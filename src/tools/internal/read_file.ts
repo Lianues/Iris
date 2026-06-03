@@ -13,6 +13,7 @@ import { isBinaryFile } from 'isbinaryfile';
 import { ToolDefinition } from '../../types';
 import { normalizeObjectArrayArg, resolveProjectPath } from '../utils';
 import { getToolLimits } from '../tool-limits';
+import { getSkillAccessPreflightRejection } from './skill-access-guard';
 
 interface EncodingMatch {
   encoding: string;
@@ -291,6 +292,10 @@ export const readFile: ToolDefinition = {
     for (const fileReq of cappedList) {
       try {
         const resolved = resolveProjectPath(fileReq.path);
+        const skillAccessRejection = getSkillAccessPreflightRejection(fileReq.path, resolved);
+        if (skillAccessRejection) {
+          throw new Error(skillAccessRejection);
+        }
 
         // 文件大小检查
         const stat = await fs.stat(resolved);

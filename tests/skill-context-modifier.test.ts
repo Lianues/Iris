@@ -139,6 +139,16 @@ describe('createInvokeSkillTool: inline mode', () => {
     expect(tool.declaration.description).toContain('visible');
     expect(tool.declaration.description).not.toContain('"hidden"');
   });
+
+  it('disableModelInvocation 的 skill 即使被点名也拒绝 invoke', async () => {
+    const skills: SkillDefinition[] = [
+      { name: 'hidden', description: 'NO', content: 'x', path: 'inline:hidden', disableModelInvocation: true },
+    ];
+
+    const tool = createInvokeSkillTool(createMockDeps(skills));
+    const result = await tool.handler({ skill: 'hidden' }) as any;
+    expect(result.error).toContain('not available for model invocation');
+  });
 });
 
 // ---- ToolLoop contextModifier 集成测试 ----

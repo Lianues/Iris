@@ -9,6 +9,7 @@
 import * as fs from 'fs/promises';
 import { ToolDefinition } from '@/types';
 import { resolveProjectPath } from '../../utils';
+import { getSkillAccessPreflightRejection } from '../skill-access-guard';
 import {
   parseUnifiedDiff,
   applyUnifiedDiffBestEffort,
@@ -108,6 +109,10 @@ export const applyDiff: ToolDefinition = {
     const patch = args.patch as string;
 
     const resolved = resolveProjectPath(filePath);
+    const skillAccessRejection = getSkillAccessPreflightRejection(filePath, resolved);
+    if (skillAccessRejection) {
+      throw new Error(skillAccessRejection);
+    }
     const content = await fs.readFile(resolved, 'utf-8');
 
     let newContent: string;

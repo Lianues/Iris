@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import { ToolDefinition } from '../../types';
 import { resolveProjectPath } from '../utils';
 import { applyInsertCodeTransform } from '../edit-transforms';
+import { getSkillAccessPreflightRejection } from './skill-access-guard';
 
 export { normalizeInsertArgs } from 'irises-extension-sdk/tool-utils';
 export type { InsertEntry } from 'irises-extension-sdk/tool-utils';
@@ -37,6 +38,10 @@ export const insertCode: ToolDefinition = {
     }
 
     const resolved = resolveProjectPath(filePath);
+    const skillAccessRejection = getSkillAccessPreflightRejection(filePath, resolved);
+    if (skillAccessRejection) {
+      throw new Error(skillAccessRejection);
+    }
     const content = fs.readFileSync(resolved, 'utf-8');
     const transformed = applyInsertCodeTransform(content, line, contentToInsert);
 

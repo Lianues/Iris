@@ -24,8 +24,8 @@ import { agentContext } from '../../logger';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawnSync, type SpawnSyncReturns } from 'child_process';
-import { loadSkillsFromFilesystem } from '../../config/skill-loader';
-import type { LLMConfig, ToolsConfig, ToolPolicyConfig, SkillDefinition } from '../../config/types';
+import { loadSkillsFromFilesystemWithDiagnostics } from '../../config/skill-loader';
+import type { LLMConfig, ToolsConfig, ToolPolicyConfig, SkillDefinition, SkillDiagnostic } from '../../config/types';
 import type { SummaryConfig } from '../../config/types';
 import { updatePlatformLastModel } from '../../config/platform';
 import { LLMRouter } from '../../llm/router';
@@ -94,6 +94,27 @@ export function formatRunCommandFailureMessage(
   return `命令执行失败 (exit code: ${result.status ?? 'unknown'})`;
 }
 
+function skillSignature(skill: SkillDefinition): string {
+  return JSON.stringify({
+    name: skill.name,
+    path: skill.path,
+    description: skill.description,
+    mode: skill.mode,
+    whenToUse: skill.whenToUse,
+    argumentHint: skill.argumentHint,
+    disableModelInvocation: skill.disableModelInvocation,
+    allowedTools: skill.allowedTools,
+    model: skill.model,
+    content: skill.content,
+    resources: skill.resources?.map(item => ({
+      relativePath: item.relativePath,
+      sha256: item.sha256,
+      textReadable: item.textReadable,
+      maybeExecutable: item.maybeExecutable,
+    })),
+  });
+}
+
 /**
  * 解析合并后的 <task-notification> XML 文本为结构化数据。
  *
@@ -159,6 +180,10 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private pluginHooks: PluginHook[] = [];
   /** Skill 定义列表 */
   private skills: SkillDefinition[] = [];
+  /** Skill 加载/解析诊断 */
+  private skillDiagnostics: SkillDiagnostic[] = [];
+  /** 最近一次 Skill 文件系统重载上下文，用于 TUI 手动 refresh。 */
+  private skillReloadContext?: { dataDir: string; inlineSkills?: SkillDefinition[] };
   /**
    * Skill 目录变化时的回调。
    * 由外部（bootstrap）设置，用于在 Skill 热重载后重建 read_skill 工具声明。
@@ -238,6 +263,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     if (config?.skills) {
       this.skills = config.skills;
     }
+    this.skillDiagnostics = config?.skillDiagnostics ?? [];
 
     this.toolLoopConfig = {
       maxRounds: config?.maxToolRounds ?? 200,
@@ -864,7 +890,16 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this._onSkillsChanged = callback;
   }
 
-  listSkills(): { name: string; path: string; description?: string; mode?: string; whenToUse?: string; argumentHint?: string; disableModelInvocation?: boolean }[] {
+  setSkillReloadContext(dataDir: string, inlineSkills?: SkillDefinition[]): void {
+    this.skillReloadContext = { dataDir, inlineSkills };
+  }
+
+  refreshSkillsFromFilesystem(): void {
+    if (!this.skillReloadContext) return;
+    this.reloadSkillsFromFilesystem(this.skillReloadContext.dataDir, this.skillReloadContext.inlineSkills);
+  }
+
+  listSkills(): { name: string; path: string; description?: string; mode?: string; whenToUse?: string; argumentHint?: string; disableModelInvocation?: boolean; skillUri?: string; resources?: SkillDefinition['resources']; source?: SkillDefinition['source'] }[] {
     return this.skills.map(s => ({
       name: s.name,
       path: s.path,
@@ -873,7 +908,36 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       whenToUse: s.whenToUse,
       argumentHint: s.argumentHint,
       disableModelInvocation: s.disableModelInvocation,
+      skillUri: s.skillUri,
+      resources: s.resources,
+      source: s.source,
     }));
+  }
+
+  getSkillDiagnostics(): SkillDiagnostic[] {
+    return [...this.skillDiagnostics];
+  }
+
+  getSkillProtectedRoots(): string[] {
+    return Array.from(new Set(this.skills.map(s => s.canonicalBasePath).filter((value): value is string => typeof value === 'string' && value.length > 0)));
+  }
+
+  getSkillsLoadReport(): { loaded: Array<{ skill: SkillDefinition; diagnostics: SkillDiagnostic[] }>; skipped: SkillDiagnostic[] } {
+    const byName = new Map<string, SkillDiagnostic[]>();
+    const skipped: SkillDiagnostic[] = [];
+    for (const diagnostic of this.skillDiagnostics) {
+      if (diagnostic.skillName && this.skills.some(s => s.name === diagnostic.skillName)) {
+        const current = byName.get(diagnostic.skillName) ?? [];
+        current.push(diagnostic);
+        byName.set(diagnostic.skillName, current);
+      } else {
+        skipped.push(diagnostic);
+      }
+    }
+    return {
+      loaded: this.skills.map(skill => ({ skill, diagnostics: byName.get(skill.name) ?? [] })),
+      skipped,
+    };
   }
 
   getSkillByPath(skillPath: string): SkillDefinition | undefined {
@@ -885,7 +949,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   }
 
   reloadSkillsFromFilesystem(dataDir: string, inlineSkills?: SkillDefinition[]): void {
-    const fsSkills: SkillDefinition[] = loadSkillsFromFilesystem(dataDir);
+    const loaded = loadSkillsFromFilesystemWithDiagnostics(dataDir);
+    const fsSkills: SkillDefinition[] = loaded.skills;
+    const diagnostics = loaded.diagnostics;
 
     const merged = new Map<string, SkillDefinition>();
     for (const s of fsSkills) merged.set(s.name, s);
@@ -894,16 +960,16 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     }
 
     const newSkills = Array.from(merged.values());
-
-    const oldPaths = this.skills.map(s => s.path).sort().join('\0');
-    const newPaths = newSkills.map(s => s.path).sort().join('\0');
-    if (oldPaths === newPaths) {
-      this.skills = newSkills;
-      return;
-    }
+    const oldSignature = this.skills.map(skillSignature).sort().join('\0');
+    const newSignature = newSkills.map(skillSignature).sort().join('\0');
+    const oldDiagnostics = JSON.stringify(this.skillDiagnostics);
+    const newDiagnostics = JSON.stringify(diagnostics);
 
     this.skills = newSkills;
-    this._onSkillsChanged?.();
+    this.skillDiagnostics = diagnostics;
+    if (oldSignature !== newSignature || oldDiagnostics !== newDiagnostics) {
+      this._onSkillsChanged?.();
+    }
   }
 
   // ============ Mode 管理 ============

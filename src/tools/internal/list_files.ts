@@ -9,6 +9,7 @@ import * as path from 'path';
 import { ToolDefinition } from '../../types';
 import { resolveProjectPath } from '../utils';
 import { getToolLimits } from '../tool-limits';
+import { getSkillAccessPreflightRejection, isSkillAccessPreflightBlockedPath } from './skill-access-guard';
 
 const DEFAULT_IGNORED = new Set(['.git', 'node_modules']);
 
@@ -32,9 +33,11 @@ function listRecursive(dirPath: string, basePath: string, entries: Entry[], maxE
     if (DEFAULT_IGNORED.has(item.name)) continue;
     if (entries.length >= maxEntries) return true;
     const relativePath = basePath ? path.join(basePath, item.name) : item.name;
+    const absolutePath = path.join(dirPath, item.name);
+    if (isSkillAccessPreflightBlockedPath(absolutePath) || isSkillAccessPreflightBlockedPath(relativePath)) continue;
     if (item.isDirectory()) {
       entries.push({ name: relativePath + '/', type: 'directory' });
-      if (listRecursive(path.join(dirPath, item.name), relativePath, entries, maxEntries)) return true;
+      if (listRecursive(absolutePath, relativePath, entries, maxEntries)) return true;
     } else if (item.isFile()) {
       entries.push({ name: relativePath, type: 'file' });
     }
@@ -85,6 +88,10 @@ export const listFiles: ToolDefinition = {
     for (const dirPath of pathList) {
       try {
         const resolved = resolveProjectPath(dirPath);
+        const skillAccessRejection = getSkillAccessPreflightRejection(dirPath, resolved);
+        if (skillAccessRejection) {
+          throw new Error(skillAccessRejection);
+        }
         const entries: Entry[] = [];
         let dirTruncated = false;
 
@@ -94,6 +101,8 @@ export const listFiles: ToolDefinition = {
           const items = fs.readdirSync(resolved, { withFileTypes: true });
           for (const item of items) {
             if (DEFAULT_IGNORED.has(item.name)) continue;
+            const absolutePath = path.join(resolved, item.name);
+            if (isSkillAccessPreflightBlockedPath(absolutePath) || isSkillAccessPreflightBlockedPath(item.name)) continue;
             if (item.isDirectory()) {
               entries.push({ name: item.name + '/', type: 'directory' });
             } else if (item.isFile()) {
@@ -104,7 +113,7 @@ export const listFiles: ToolDefinition = {
 
         // 排序：目录在前，文件在后
         entries.sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+          if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
           return a.name.localeCompare(b.name);
         });
 

@@ -19,6 +19,7 @@ import { WriteFileRenderer } from './write-file';
 import { DeleteCodeRenderer } from './delete-code';
 import { InsertCodeRenderer } from './insert-code';
 import { AskQuestionFirstRenderer } from './ask-question-first';
+import { SkillRenderer } from './skill';
 
 const renderers: Record<string, FC<ToolRendererProps>> = {
   shell: ShellRenderer,
@@ -31,6 +32,10 @@ const renderers: Record<string, FC<ToolRendererProps>> = {
   write_file: WriteFileRenderer,
   delete_code: DeleteCodeRenderer,
   insert_code: InsertCodeRenderer,
+  read_skill: SkillRenderer,
+  read_skill_resource: SkillRenderer,
+  execute_skill_script: SkillRenderer,
+  invoke_skill: SkillRenderer,
   AskQuestionFirst: AskQuestionFirstRenderer,
 };
 

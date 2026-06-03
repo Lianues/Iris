@@ -23,6 +23,7 @@ import {
   resolveProjectPath as resolveProjectPathRaw,
 } from 'irises-extension-sdk/tool-utils';
 import { collectSearchFiles, normalizeSearchGlobArgs } from './internal/search_in_files';
+import { getSkillAccessPreflightRejection } from './internal/skill-access-guard';
 import type {
   DeleteCodeEntry,
   InsertEntry,
@@ -256,6 +257,11 @@ function resolveProjectPath(inputPath: string, cwd: string): string {
   return resolveProjectPathRaw(inputPath, cwd);
 }
 
+function assertNoSkillPreviewAccess(displayPath: string, resolvedPath: string): void {
+  const rejection = getSkillAccessPreflightRejection(displayPath, resolvedPath);
+  if (rejection) throw new Error(rejection);
+}
+
 function createMsg(id: string, filePath: string, label: string, message: string): ToolDiffPreviewItemLike {
   return { id, filePath, label, filetype: inferFiletype(filePath), added: 0, removed: 0, message };
 }
@@ -373,6 +379,7 @@ function buildApplyDiffPreview(inv: ToolInvocation, options: BuildPreviewOptions
   if (filePath && diff) {
     try {
       const resolved = resolveProjectPath(filePath, options.cwd);
+      assertNoSkillPreviewAccess(filePath, resolved);
       beforeText = fs.readFileSync(resolved, 'utf-8');
       afterText = applyPatchForFullPreview(beforeText, rawPatch);
     } catch {
@@ -409,6 +416,7 @@ function buildWriteFilePreview(inv: ToolInvocation, options: BuildPreviewOptions
   fileList.forEach((entry: WriteEntry, i: number) => {
     try {
       const resolved = resolveProjectPath(entry.path, options.cwd);
+      assertNoSkillPreviewAccess(entry.path, resolved);
       let existed = false;
       let before = '';
       if (fs.existsSync(resolved)) {
@@ -449,6 +457,7 @@ function buildInsertCodePreview(inv: ToolInvocation, options: BuildPreviewOption
   fileList.forEach((entry: InsertEntry, i: number) => {
     try {
       const resolved = resolveProjectPath(entry.path, options.cwd);
+      assertNoSkillPreviewAccess(entry.path, resolved);
       const before = fs.readFileSync(resolved, 'utf-8');
       const transformed = applyInsertCodeTransform(before, entry.line, entry.content);
       const diff = buildUnifiedLineDiff(entry.path, before, transformed.newContent, true);
@@ -483,6 +492,7 @@ function buildDeleteCodePreview(inv: ToolInvocation, options: BuildPreviewOption
   fileList.forEach((entry: DeleteCodeEntry, i: number) => {
     try {
       const resolved = resolveProjectPath(entry.path, options.cwd);
+      assertNoSkillPreviewAccess(entry.path, resolved);
       const before = fs.readFileSync(resolved, 'utf-8');
       const transformed = applyDeleteCodeTransform(before, entry.start_line, entry.end_line);
       const diff = buildUnifiedLineDiff(entry.path, before, transformed.newContent, true);

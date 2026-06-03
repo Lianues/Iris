@@ -14,6 +14,7 @@ import * as path from 'path';
 import { ToolDefinition } from '../../types';
 import { resolveProjectPath } from '../utils';
 import { getToolLimits } from '../tool-limits';
+import { getSkillAccessPreflightRejection, isSkillAccessPreflightBlockedPath } from './skill-access-guard';
 
 /** 默认排除模式 */
 const DEFAULT_EXCLUDE = '**/node_modules/**';
@@ -113,6 +114,8 @@ function walkFiles(
     if (shouldStop()) return;
 
     const relPosix = relPosixDir ? `${relPosixDir}/${ent.name}` : ent.name;
+    const entryAbs = path.join(rootAbs, relPosix);
+    if (isSkillAccessPreflightBlockedPath(entryAbs) || isSkillAccessPreflightBlockedPath(relPosix)) continue;
 
     if (ent.isDirectory()) {
       if (DEFAULT_IGNORED_DIRS.has(ent.name)) continue;
@@ -175,6 +178,10 @@ export const findFiles: ToolDefinition = {
     }
 
     const exclude = (args.exclude as string | undefined) ?? DEFAULT_EXCLUDE;
+    const skillAccessRejection = getSkillAccessPreflightRejection(...patternList);
+    if (skillAccessRejection) {
+      throw new Error(skillAccessRejection);
+    }
     const configMax = getToolLimits().find_files.maxResults;
     const maxResults = Math.min(clampPositiveInteger(args.maxResults, configMax), configMax);
 

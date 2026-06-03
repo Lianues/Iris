@@ -6,9 +6,9 @@
  * 这样可以避免把 Skill 全文持续拼接到每一轮用户消息，减少重复 token 消耗。
  */
 
-import * as path from 'path';
 import type { ToolDefinition, FunctionDeclaration } from '../../types';
 import type { Backend } from '../../core/backend';
+import { createSkillUri } from '../../config/skill-resource-manifest';
 
 export interface ReadSkillDeps {
   getBackend: () => Backend;
@@ -16,8 +16,12 @@ export interface ReadSkillDeps {
 
 interface ListedSkill {
   name: string;
-  path: string;
+  path?: string;
   description?: string;
+  skillUri?: string;
+  resources?: unknown[];
+  source?: string;
+  disableModelInvocation?: boolean;
 }
 
 /**
@@ -42,11 +46,16 @@ function buildYamlSkillList(skills: ListedSkill[]): string {
   return skills.map((skill) => {
     const lines = [
       `- name: ${toYamlQuoted(skill.name)}`,
-      `  path: ${toYamlQuoted(skill.path)}`,
     ];
 
     if (skill.description) {
       lines.push(`  description: ${toYamlQuoted(skill.description)}`);
+    }
+    if (skill.source) {
+      lines.push(`  source: ${toYamlQuoted(skill.source)}`);
+    }
+    if (Array.isArray(skill.resources) && skill.resources.length > 0) {
+      lines.push(`  resources: ${skill.resources.length}`);
     }
 
     return lines.join('\n');
@@ -56,47 +65,37 @@ function buildYamlSkillList(skills: ListedSkill[]): string {
 /**
  * 根据当前 Skill 列表构建 read_skill 工具声明。
  *
- * 这里把 path 设计为唯一标识：
- * - 文件系统 Skill 使用真实的 SKILL.md 绝对路径
- * - 内联 Skill 使用 inline:<name> 形式的稳定标识
- *
- * 这样模型既能唯一定位 Skill，也能在文件系统 Skill 中知道配套脚本所在目录。
+ * 新声明优先使用 name 定位 Skill，不再把文件系统绝对路径暴露给模型。
+ * path 仍作为兼容旧对话的 deprecated 参数被 handler 接受，但不再出现在工具描述中。
  */
 function buildDeclaration(skills: ListedSkill[]): FunctionDeclaration {
-  const yamlList = buildYamlSkillList(skills);
+  const yamlList = buildYamlSkillList(skills.filter(skill => !skill.disableModelInvocation));
 
   return {
     name: 'read_skill',
     description:
-      'Read the full content of a skill by its path identifier. ' +
-      'For filesystem skills, use the SKILL.md absolute path shown below. ' +
-      'For inline skills, use the inline:* identifier exactly as listed.\n\n' +
+      'Read the full content of a skill by its name. ' +
       'Skills are user-defined knowledge modules that provide specialized instructions. ' +
       'Only load a skill when it is relevant to the current task.\n\n' +
       'Available skills (YAML):\n' +
-      `${yamlList}`,
+      `${yamlList}\n\n` +
+      'Security model: local Skill filesystem roots are intentionally not listed. ' +
+      'Use read_skill_resource with manifest relativePath values for bundled text resources.',
     parameters: {
       type: 'object',
       properties: {
-        path: {
+        name: {
           type: 'string',
-          description: 'Skill path identifier. Use the exact path value shown in the available skill list.',
+          description: 'Skill name from the available skill list.',
+        },
+           path: {
+          type: 'string',
+          description: 'Deprecated compatibility identifier. Prefer name; this parameter is only accepted for old conversations.',
         },
       },
-      required: ['path'],
+      required: [],
     },
   };
-}
-
-/**
- * 计算 Skill 的资源根目录。
- *
- * - 文件系统 Skill：返回 SKILL.md 所在目录，供模型继续访问 scripts/、references/ 等资源
- * - 内联 Skill：返回 undefined，明确告知没有配套目录资源
- */
-function getSkillBasePath(skillPath: string): string | undefined {
-  if (skillPath.startsWith('inline:')) return undefined;
-  return path.dirname(skillPath);
 }
 
 /** 创建 read_skill 工具。 */
@@ -107,29 +106,44 @@ export function createReadSkillTool(deps: ReadSkillDeps): ToolDefinition {
   return {
     declaration: buildDeclaration(skills),
     handler: async (args) => {
-      const skillPath = typeof args.path === 'string' ? args.path.trim() : '';
-      if (!skillPath) {
+      const skillName = typeof args.name === 'string' ? args.name.trim() : '';
+      const legacyPath = typeof args.path === 'string' ? args.path.trim() : '';
+      if (!skillName && !legacyPath) {
         return {
           success: false,
-          error: 'Missing required parameter: path',
+          error: 'Missing required parameter: name',
         };
       }
 
-      const skill = deps.getBackend().getSkillByPath(skillPath);
+      const skill = skillName
+        ? deps.getBackend().getSkillByName(skillName)
+        : deps.getBackend().getSkillByPath(legacyPath);
       if (!skill) {
         return {
           success: false,
-          error: `Skill not found: ${skillPath}`,
+          error: `Skill not found: ${skillName || legacyPath}`,
+        };
+      }
+      if (skill.disableModelInvocation) {
+        return {
+          success: false,
+          error: `Skill "${skill.name}" is not available for model invocation.`,
         };
       }
 
       return {
         success: true,
+        schemaVersion: 2,
         name: skill.name,
-        path: skill.path,
-        basePath: getSkillBasePath(skill.path),
+        skillName: skill.name,
+        skillUri: skill.skillUri || createSkillUri(skill.name),
         description: skill.description,
         content: skill.content,
+        resources: skill.resources || [],
+        resourceAccess: {
+          readTextTool: 'read_skill_resource',
+          note: 'Use manifest relativePath values only. Local Skill filesystem roots are intentionally not exposed.',
+        },
       };
     },
     // Skill 读取会向当前会话注入新的长文本上下文，不适合与相邻工具并行执行。

@@ -21,10 +21,28 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYAML } from 'yaml';
 import { getSessionCwd } from '../core/backend/session-context';
-import type { SkillDefinition, SkillContextModifier } from './types';
+import type { SkillDefinition, SkillContextModifier, SkillDiagnostic, SkillSource } from './types';
+import { buildSkillResourceManifest, canonicalizeSkillRoot, createSkillUri } from './skill-resource-manifest';
 
 /** Skill 名称校验：仅允许 ASCII 字母、数字、下划线、连字符，1-64 字符 */
 const SKILL_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
+export interface LoadedSkillsFromFilesystem {
+  skills: SkillDefinition[];
+  diagnostics: SkillDiagnostic[];
+}
+
+let lastFilesystemSkillDiagnostics: SkillDiagnostic[] = [];
+let activeDiagnostics: SkillDiagnostic[] | undefined;
+
+function recordSkillDiagnostic(diagnostic: SkillDiagnostic): void {
+  const target = activeDiagnostics ?? lastFilesystemSkillDiagnostics;
+  target.push(diagnostic);
+}
+
+export function getLastFilesystemSkillDiagnostics(): SkillDiagnostic[] {
+  return [...lastFilesystemSkillDiagnostics];
+}
 
 /**
  * 将 frontmatter 中的字段值解析为字符串数组。
@@ -78,6 +96,7 @@ export function buildSkillDefinition(
   fields: Record<string, unknown>,
   content: string,
   filePath: string,
+  options: { source?: SkillSource } = {},
 ): SkillDefinition {
   const allowedTools = parseStringArray(getField(fields, 'allowed-tools', 'allowedTools'));
   const model = typeof fields.model === 'string' ? fields.model : undefined;
@@ -94,12 +113,38 @@ export function buildSkillDefinition(
   const whenToUseRaw = getField(fields, 'when-to-use', 'whenToUse');
   const userInvocableRaw = getField(fields, 'user-invocable', 'userInvocable');
   const disableModelInvocationRaw = getField(fields, 'disable-model-invocation', 'disableModelInvocation');
+  const isInline = filePath.startsWith('inline:');
+  const source = options.source ?? (isInline ? 'inline' : 'unknown');
+  const basePath = isInline ? undefined : path.dirname(filePath);
+  let canonicalBasePath: string | undefined;
+  let resources = undefined as SkillDefinition['resources'];
+  if (basePath) {
+    try {
+      canonicalBasePath = canonicalizeSkillRoot(basePath);
+      resources = buildSkillResourceManifest(name, canonicalBasePath, content);
+    } catch (error) {
+      recordSkillDiagnostic({
+        severity: 'warning',
+        code: 'skill-resource-manifest-failed',
+        message: error instanceof Error ? error.message : String(error),
+        skillName: name,
+        filePath,
+        source,
+      });
+      resources = [];
+    }
+  }
 
   return {
     name,
     description: typeof fields.description === 'string' ? fields.description : undefined,
     content,
     path: filePath,
+    source,
+    basePath,
+    canonicalBasePath,
+   skillUri: createSkillUri(name),
+    resources,
     enabled: fields.enabled === true,
     allowedTools,
     model,
@@ -130,7 +175,7 @@ export function buildSkillDefinition(
  * 如果 frontmatter 中没有 name，则使用目录名。
  * 如果解析失败，返回 undefined。
  */
-function parseSkillMd(filePath: string, dirName: string): SkillDefinition | undefined {
+function parseSkillMd(filePath: string, dirName: string, source: SkillSource = 'unknown'): SkillDefinition | undefined {
   try {
     const raw = fs.readFileSync(filePath, 'utf-8');
 
@@ -142,10 +187,20 @@ function parseSkillMd(filePath: string, dirName: string): SkillDefinition | unde
       if (!content) return undefined;
       const name = dirName;
       if (!SKILL_NAME_RE.test(name)) {
-        console.warn(`[Iris] Skill 目录名 "${name}" 不合法（需匹配 ${SKILL_NAME_RE}），已跳过: ${filePath}`);
+        const message = `Skill 目录名 "${name}" 不合法（需匹配 ${SKILL_NAME_RE}），已跳过: ${filePath}`;
+        console.warn(`[Iris] ${message}`);
+        recordSkillDiagnostic({ severity: 'fatal', code: 'skill-invalid-directory-name', message, skillName: name, filePath, source });
         return undefined;
       }
-      return { name, content, path: filePath };
+      recordSkillDiagnostic({
+        severity: 'warning',
+        code: 'skill-missing-frontmatter',
+        message: 'SKILL.md 缺少 YAML frontmatter，已兼容使用目录名作为 Skill name；建议补充 name/description。',
+        skillName: name,
+        filePath,
+        source,
+      });
+      return buildSkillDefinition(name, {}, content, filePath, { source });
     }
 
     const frontmatterText = fmMatch[1];
@@ -160,17 +215,50 @@ function parseSkillMd(filePath: string, dirName: string): SkillDefinition | unde
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         fields = parsed as Record<string, unknown>;
       }
-    } catch {
-      // YAML 解析失败，回退到空对象（仅使用目录名和 content）
+    } catch (error) {
+      // YAML 解析失败，回退到空对象（仅使用目录名和 content），同时记录结构化诊断供 TUI 展示。
+      recordSkillDiagnostic({
+        severity: 'warning',
+        code: 'skill-frontmatter-parse-failed',
+        message: error instanceof Error ? error.message : String(error),
+        skillName: dirName,
+        filePath,
+        source,
+      });
     }
 
     const name = typeof fields.name === 'string' ? fields.name : dirName;
     if (!SKILL_NAME_RE.test(name)) {
-      console.warn(`[Iris] Skill "${name}" 名称不合法（需匹配 ${SKILL_NAME_RE}），已跳过: ${filePath}`);
+      const message = `Skill "${name}" 名称不合法（需匹配 ${SKILL_NAME_RE}），已跳过: ${filePath}`;
+      console.warn(`[Iris] ${message}`);
+      recordSkillDiagnostic({ severity: 'fatal', code: 'skill-invalid-name', message, skillName: name, filePath, field: 'name', source });
       return undefined;
     }
 
-    return buildSkillDefinition(name, fields, content, filePath);
+    if (name !== dirName) {
+      recordSkillDiagnostic({
+        severity: 'warning',
+        code: 'skill-name-directory-mismatch',
+        message: `Frontmatter name "${name}" 与目录名 "${dirName}" 不一致；Iris 当前仍按 name 加载，但建议保持一致。`,
+        skillName: name,
+        filePath,
+        field: 'name',
+        source,
+      });
+    }
+    if (typeof fields.description !== 'string' || !fields.description.trim()) {
+      recordSkillDiagnostic({
+        severity: 'warning',
+        code: 'skill-missing-description',
+        message: 'Skill 缺少 description；模型选择 Skill 时可能无法判断适用场景。',
+        skillName: name,
+        filePath,
+        field: 'description',
+        source,
+      });
+    }
+
+    return buildSkillDefinition(name, fields, content, filePath, { source });
   } catch {
     // 读取或解析失败，静默跳过
     return undefined;
@@ -187,7 +275,7 @@ function parseSkillMd(filePath: string, dirName: string): SkillDefinition | unde
  *     another-skill/
  *       SKILL.md
  */
-function scanSkillsDir(skillsDir: string): SkillDefinition[] {
+function scanSkillsDir(skillsDir: string, source: SkillSource): SkillDefinition[] {
   if (!fs.existsSync(skillsDir)) return [];
 
   const results: SkillDefinition[] = [];
@@ -198,7 +286,7 @@ function scanSkillsDir(skillsDir: string): SkillDefinition[] {
       const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
       if (!fs.existsSync(skillMdPath)) continue;
 
-      const skill = parseSkillMd(skillMdPath, entry.name);
+      const skill = parseSkillMd(skillMdPath, entry.name, source);
       if (skill) results.push(skill);
     }
   } catch {
@@ -217,20 +305,45 @@ function scanSkillsDir(skillsDir: string): SkillDefinition[] {
  * @param dataDir  数据目录（默认 ~/.iris/）
  * @returns 扫描到的 SkillDefinition 数组（项目级优先于全局）
  */
+export function loadSkillsFromFilesystemWithDiagnostics(dataDir: string): LoadedSkillsFromFilesystem {
+  const diagnostics: SkillDiagnostic[] = [];
+  const previousActiveDiagnostics = activeDiagnostics;
+  activeDiagnostics = diagnostics;
+  try {
+    const globalDir = path.join(dataDir, 'skills');
+    const projectDir = path.join(getSessionCwd(), '.agents', 'skills');
+
+    // 全局 Skill 先加载，项目级后加载（同名时项目级覆盖全局）
+    const globalSkills = scanSkillsDir(globalDir, 'global');
+    const projectSkills = scanSkillsDir(projectDir, 'project');
+
+    // 合并：项目级覆盖全局同名
+    const merged = new Map<string, SkillDefinition>();
+    for (const s of globalSkills) merged.set(s.name, s);
+    for (const s of projectSkills) {
+      if (merged.has(s.name)) {
+        recordSkillDiagnostic({
+          severity: 'warning',
+          code: 'skill-duplicate-shadowed',
+          message: `Project Skill "${s.name}" shadows a global Skill with the same name.`,
+          skillName: s.name,
+          filePath: s.path,
+          source: 'project',
+        });
+      }
+      merged.set(s.name, s);
+    }
+
+    const result = { skills: Array.from(merged.values()), diagnostics };
+    lastFilesystemSkillDiagnostics = [...diagnostics];
+    return result;
+  } finally {
+    activeDiagnostics = previousActiveDiagnostics;
+  }
+}
+
 export function loadSkillsFromFilesystem(dataDir: string): SkillDefinition[] {
-  const globalDir = path.join(dataDir, 'skills');
-  const projectDir = path.join(getSessionCwd(), '.agents', 'skills');
-
-  // 全局 Skill 先加载，项目级后加载（同名时项目级覆盖全局）
-  const globalSkills = scanSkillsDir(globalDir);
-  const projectSkills = scanSkillsDir(projectDir);
-
-  // 合并：项目级覆盖全局同名
-  const merged = new Map<string, SkillDefinition>();
-  for (const s of globalSkills) merged.set(s.name, s);
-  for (const s of projectSkills) merged.set(s.name, s);
-
-  return Array.from(merged.values());
+  return loadSkillsFromFilesystemWithDiagnostics(dataDir).skills;
 }
 
 /**
@@ -276,12 +389,11 @@ export function createSkillWatcher(
 
   for (const dir of dirs) {
     try {
-      // recursive: true 可监听子目录中的 SKILL.md 变化
-      const watcher = fs.watch(dir, { recursive: true }, (_eventType, filename) => {
-        const normalized = filename == null ? '' : String(filename);
-        if (normalized.endsWith('SKILL.md') || normalized.endsWith('SKILL.md/')) {
-          debouncedOnChange();
-        }
+      // recursive: true 可监听子目录中的 SKILL.md 以及 references/scripts/assets 资源变化。
+      // 资源 manifest 带 sha256，任何资源变更都需要刷新 manifest，避免 read_skill_resource /
+      // execute_skill_script 因旧 hash 拒绝读取/执行直到重启。
+      const watcher = fs.watch(dir, { recursive: true }, () => {
+        debouncedOnChange();
       });
       watchers.push(watcher);
     } catch {

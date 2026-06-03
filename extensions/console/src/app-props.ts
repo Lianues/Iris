@@ -1,5 +1,6 @@
 import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolDiffPreviewResponseLike, Disposable } from 'irises-extension-sdk';
 import type { MemoryItem } from './components/MemoryListView';
+import type { SkillLoadReport } from './components/SkillListView';
 import type { ExtensionItem } from './components/ExtensionListView';
 import type { AgentDefinitionLike } from 'irises-extension-sdk';
 import type { ConsoleSettingsTabDefinition } from './settings-tab-service';
@@ -98,6 +99,7 @@ export interface AppProps {
   onDream?: () => Promise<{ ok: boolean; message: string }>;
   onListMemories?: () => Promise<MemoryItem[]>;
   onDeleteMemory?: (id: number) => Promise<boolean>;
+  onListSkills?: (options?: { refresh?: boolean }) => Promise<SkillLoadReport>;
   onListExtensions?: () => Promise<ExtensionItem[]>;
   onToggleExtension?: (name: string, enabled?: boolean) => Promise<{ ok: boolean; message: string }>;
   onInstallGitExtension?: (target: string) => Promise<{ ok: boolean; message: string }>;

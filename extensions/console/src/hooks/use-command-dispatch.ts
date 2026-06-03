@@ -15,6 +15,7 @@ import { appendCommandMessage } from '../message-utils';
 import { clearRedo, performRedo, performUndo, type UndoRedoStack } from '../undo-redo';
 import type { UseModelStateReturn } from './use-model-state';
 import type { MemoryItem, MemoryFilter } from '../components/MemoryListView';
+import type { SkillLoadReport } from '../components/SkillListView';
 import type { ConsoleSlashCommandService } from '../slash-command-service';
 import { buildGitCommitPrompt, isGitPorcelainEmpty, parseGitCommitCommandArg } from '../commit-command';
 import { isSlashCommandInput, normalizeSlashCommandInput } from '../input-commands';
@@ -66,6 +67,9 @@ interface UseCommandDispatchOptions {
   onDream?: () => Promise<{ ok: boolean; message: string }>;
   onListMemories?: () => Promise<MemoryItem[]>;
   setMemoryList: SetMemoryList;
+  onListSkills?: (options?: { refresh?: boolean }) => Promise<SkillLoadReport>;
+  setSkillReport: Dispatch<SetStateAction<SkillLoadReport>>;
+  setSkillDetailsExpanded: Dispatch<SetStateAction<boolean>>;
   setMemoryFilter: Dispatch<SetStateAction<MemoryFilter>>;
   setMemoryExpandedId: Dispatch<SetStateAction<number | null>>;
   setMemoryPendingDeleteId: Dispatch<SetStateAction<number | null>>;
@@ -167,6 +171,9 @@ export function useCommandDispatch({
   onDream,
   onListMemories,
   setMemoryList,
+  onListSkills,
+  setSkillReport,
+  setSkillDetailsExpanded,
   setMemoryFilter,
   setMemoryExpandedId,
   setMemoryPendingDeleteId,
@@ -389,6 +396,23 @@ export function useCommandDispatch({
         setViewMode('memory-list');
       }).catch((err) => {
         appendCommandMessage(setMessages, `Failed to load memories: ${err}`, { isError: true });
+      });
+      return;
+    }
+
+    // ── /skills 命令 — 显示 Skill 列表与诊断 ──
+    if (text === '/skills' || text === '/skill') {
+      if (!onListSkills) {
+        appendCommandMessage(setMessages, 'Skill list service not available.');
+        return;
+      }
+      void onListSkills().then((report) => {
+        setSkillReport(report);
+        setSelectedIndex(0);
+        setSkillDetailsExpanded(true);
+        setViewMode('skill-list');
+      }).catch((err) => {
+        appendCommandMessage(setMessages, `Failed to load skills: ${err}`, { isError: true });
       });
       return;
     }
@@ -738,6 +762,9 @@ export function useCommandDispatch({
     onSubmit,
     onListAgents,
     setAgentList,
+    onListSkills,
+    setSkillReport,
+    setSkillDetailsExpanded,
     onDream,
     onSwitchModel,
     onSummarize,

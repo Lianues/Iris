@@ -85,4 +85,16 @@ describe('read_file content-based text detection', () => {
     expect(result.results[0].success).toBe(false);
     expect(result.results[0].error).toContain('二进制文件');
   });
+
+  it('拒绝直接读取 Skill 目录资源，要求使用 read_skill_resource', async () => {
+    const file = path.join(tmpDir, '.agents', 'skills', 'demo', 'SKILL.md');
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, 'secret skill', 'utf8');
+
+    const result = await readOne(file);
+
+    expect(result.failCount).toBe(1);
+    expect(result.results[0].success).toBe(false);
+    expect(result.results[0].error).toContain('read_skill_resource');
+  });
 });

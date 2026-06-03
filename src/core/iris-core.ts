@@ -43,8 +43,11 @@ import { CrossAgentTaskBoard } from './cross-agent-task-board';
 import { ToolLoop } from './tool-loop';
 import { createHistorySearchTool } from '../tools/internal/history_search';
 import { createReadSkillTool } from '../tools/internal/read_skill';
+import { createReadSkillResourceTool } from '../tools/internal/read_skill_resource';
+import { createExecuteSkillScriptTool } from '../tools/internal/execute_skill_script';
 import { createInvokeSkillTool } from '../tools/internal/invoke_skill';
 import { createAskQuestionFirstTool } from '../tools/internal/ask_question_first';
+import { clearProtectedSkillRootsForOwner, setProtectedSkillRootsForOwner } from '../tools/internal/skill-access-guard';
 import { DEFAULT_SYSTEM_PROMPT } from '../prompt/templates/default';
 import { Backend } from './backend';
 import type { StorageProvider } from '../storage/base';
@@ -146,10 +149,13 @@ interface PendingRouteRecord {
 
 // ── IrisCore ──
 
+let irisCoreInstanceCounter = 0;
+
 export class IrisCore {
   // ---- 生命周期状态 ----
   private _state: CoreState = 'init';
   private shutdownPromise: Promise<void> | null = null;
+  private readonly skillAccessOwnerId: string;
 
   get state(): CoreState { return this._state; }
 
@@ -193,6 +199,8 @@ export class IrisCore {
   constructor(options?: IrisCoreOptions) {
     this.options = options ?? {};
     this.agentName = options?.agentName;
+    irisCoreInstanceCounter += 1;
+    this.skillAccessOwnerId = `iris-core:${this.agentName ?? 'default'}:${irisCoreInstanceCounter}`;
   }
 
   // ============ start() ============
@@ -355,6 +363,7 @@ export class IrisCore {
       summaryModelName: config.llm.summaryModelName,
       summaryConfig: config.summary,
       skills: config.system.skills,
+      skillDiagnostics: config.system.skillDiagnostics,
       configDir,
       globalConfigDir: globalDir,
       dataDir: agentPaths?.dataDir ?? globalDataDir,
@@ -414,10 +423,20 @@ export class IrisCore {
     // 注册 Skill 工具（read_skill + invoke_skill）。
     // 即使启动时没有 Skill，也保留回调，便于运行时热重载新增 Skill 后自动出现工具。
     const rebuildSkillsTool = () => {
+      setProtectedSkillRootsForOwner(this.skillAccessOwnerId, backend.getSkillProtectedRoots());
       const skillsList = backend.listSkills();
       tools.unregister('read_skill');
-      if (skillsList.length > 0) {
+      tools.unregister('read_skill_resource');
+      tools.unregister('execute_skill_script');
+      const hasModelReadableSkills = skillsList.some(s => !s.disableModelInvocation);
+      if (skillsList.length > 0 && hasModelReadableSkills) {
         tools.register(createReadSkillTool({
+          getBackend: () => backend,
+        }));
+        tools.register(createReadSkillResourceTool({
+          getBackend: () => backend,
+        }));
+        tools.register(createExecuteSkillScriptTool({
           getBackend: () => backend,
         }));
       }
@@ -454,8 +473,9 @@ export class IrisCore {
     // 启动 Skill 目录文件系统监听
     const effectiveDataDir = agentPaths?.dataDir || globalDataDir;
     const inlineSkills = config.system.skills?.filter(s => s.path.startsWith('inline:'));
+    backend.setSkillReloadContext(effectiveDataDir, inlineSkills);
     const stopSkillWatcher = createSkillWatcher(effectiveDataDir, () => {
-      backend.reloadSkillsFromFilesystem(effectiveDataDir, inlineSkills);
+      backend.refreshSkillsFromFilesystem();
     });
 
     // 将插件钩子注入 Backend
@@ -802,6 +822,8 @@ export class IrisCore {
       if (this.skillWatcherDispose) {
         try { this.skillWatcherDispose(); } catch { /* 忽略 */ }
       }
+
+      clearProtectedSkillRootsForOwner(this.skillAccessOwnerId);
 
       // 停止配置文件监听
       if (this.configWatcherDispose) {

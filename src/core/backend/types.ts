@@ -150,6 +150,8 @@ export interface BackendConfig {
   summaryConfig?: SummaryConfig;
   /** Skill 定义列表 */
   skills?: SkillDefinition[];
+  /** Skill 加载/解析诊断 */
+  skillDiagnostics?: import('../../config/types').SkillDiagnostic[];
   /** 配置目录路径（用于 rememberPlatformModel 写回 platform.yaml） */
   configDir?: string;
   /** 全局配置目录路径（用于写回全局 platform.yaml，避免 Agent 层与全局层隔离） */

@@ -10,7 +10,7 @@
  *   5. 安装命令成功后 → fire-and-forget 学习新工具（复用 shell 的学习模块）
  */
 
-import { exec, spawn } from 'child_process';
+import { exec } from 'child_process';
 import { ToolDefinition } from '@/types';
 import { resolveProjectPath, getProjectRoot } from '../../utils';
 import { getToolLimits } from '../../tool-limits';
@@ -26,6 +26,8 @@ import {
 } from '../non-interactive-command';
 import { createLogger } from '@/logger';
 import { maybeAddCallmeTrailerToGitCommit } from '@/git/callme';
+import { getSkillAccessPreflightRejection } from '../skill-access-guard';
+import { killProcessTree } from '../process-tree';
 
 const logger = createLogger('BashTool');
 
@@ -50,55 +52,6 @@ interface BashResult {
  */
 function getShell(): string {
   return process.env.SHELL || '/bin/bash';
-}
-
-/**
- * 终止进程树。
- *
- * Unix 上通常由 SIGPIPE 处理管道中断，但通过 WSL / Git Bash 等
- * 在 Windows 上运行时仍可能产生孤儿进程，因此也加上两阶段清理。
- */
-function killProcessTree(pid: number | undefined): void {
-  if (!pid) return;
-  try {
-    if (process.platform === 'win32') {
-      // 阶段 1: 直接终止进程树（进程仍存活时有效）
-      spawn('taskkill', ['/T', '/F', '/PID', String(pid)], {
-        stdio: 'ignore',
-        windowsHide: true,
-      }).on('error', () => {});
-
-      // 阶段 2: 查找并终止孤儿子进程（父进程已退出后仍有效）
-      const wmic = spawn('wmic', [
-        'process', 'where', `ParentProcessId=${pid}`, 'get', 'ProcessId', '/value',
-      ], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
-
-      let output = '';
-      wmic.stdout.on('data', (d: Buffer) => { output += d.toString(); });
-      wmic.on('close', () => {
-        const matches = output.match(/ProcessId=(\d+)/g);
-        if (!matches) return;
-        for (const m of matches) {
-          const childPid = m.split('=')[1];
-          spawn('taskkill', ['/T', '/F', '/PID', childPid], {
-            stdio: 'ignore', windowsHide: true,
-          }).on('error', () => {});
-        }
-      });
-      wmic.on('error', () => {});
-    } else {
-      // Unix: exec 时使用 detached=true，使 shell 成为进程组 leader。
-      // 终止负 PID 可同时终止 shell 及其子进程；失败时退回单进程 kill。
-      try { process.kill(-pid, 'SIGTERM'); }
-      catch { try { process.kill(pid, 'SIGTERM'); } catch { /* ignore */ } }
-
-      const timer = setTimeout(() => {
-        try { process.kill(-pid, 'SIGKILL'); }
-        catch { try { process.kill(pid, 'SIGKILL'); } catch { /* ignore */ } }
-      }, 500);
-      timer.unref?.();
-    }
-  } catch { /* 进程可能已退出 */ }
 }
 
 /**
@@ -326,6 +279,10 @@ force 参数规则：
 
       const projectRoot = getProjectRoot();
       const workDir = cwd ? resolveProjectPath(cwd) : projectRoot;
+      const skillAccessRejection = getSkillAccessPreflightRejection(command, cwd, workDir);
+      if (skillAccessRejection) {
+        return { command, exitCode: 1, killed: false, stdout: '', stderr: skillAccessRejection };
+      }
 
       // ---- 安全检查 ----
       const staticResult = classifyCommand(command);

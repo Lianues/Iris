@@ -17,6 +17,8 @@ import { describe, expect, it } from 'vitest';
 import { loadSkillsFromFilesystem } from '../src/config/skill-loader';
 import { parseSystemConfig } from '../src/config/system';
 import { createReadSkillTool } from '../src/tools/internal/read_skill';
+import { createReadSkillResourceTool } from '../src/tools/internal/read_skill_resource';
+import { createExecuteSkillScriptTool } from '../src/tools/internal/execute_skill_script';
 
 describe('parseSystemConfig: inline skills', () => {
   it('为内联 Skill 生成稳定的 inline:path 标识', () => {
@@ -154,6 +156,32 @@ describe('loadSkillsFromFilesystem', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it('为 references/scripts/assets 构建资源 manifest，并过滤敏感 dotfile', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-test-'));
+    const skillDir = path.join(tmpDir, 'skills', 'with-resources');
+    fs.mkdirSync(path.join(skillDir, 'references'), { recursive: true });
+    fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      '---\nname: with-resources\ndescription: 资源技能\n---\n请阅读 [guide](references/guide.md)。',
+    );
+    fs.writeFileSync(path.join(skillDir, 'references', 'guide.md'), '# Guide');
+    fs.writeFileSync(path.join(skillDir, 'scripts', 'check.py'), 'print("ok")');
+    fs.writeFileSync(path.join(skillDir, 'references', '.env'), 'SECRET=1');
+
+    const skills = loadSkillsFromFilesystem(tmpDir);
+    expect(skills).toHaveLength(1);
+    expect(skills[0].skillUri).toBe('skill://with-resources/');
+    expect(skills[0].resources?.map(item => item.relativePath)).toEqual([
+      'references/guide.md',
+      'scripts/check.py',
+    ]);
+    expect(skills[0].resources?.find(item => item.relativePath === 'references/guide.md')?.textReadable).toBe(true);
+    expect(skills[0].resources?.find(item => item.relativePath === 'scripts/check.py')?.maybeExecutable).toBe(true);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it('无扩展字段时保持默认值', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-test-'));
     const skillDir = path.join(tmpDir, 'skills', 'simple');
@@ -230,16 +258,22 @@ describe('createReadSkillTool', () => {
 
     expect(tool.declaration.name).toBe('read_skill');
     expect(tool.declaration.description).toContain('- name: "reviewer"');
-    expect(tool.declaration.description).toContain(`path: ${JSON.stringify(skillPath)}`);
+    expect(tool.declaration.description).not.toContain(`path: ${JSON.stringify(skillPath)}`);
 
     const result = await tool.handler({ path: skillPath }) as any;
     expect(result).toEqual({
       success: true,
+      schemaVersion: 2,
       name: 'reviewer',
-      path: skillPath,
-      basePath: path.dirname(skillPath),
+      skillName: 'reviewer',
+      skillUri: 'skill://reviewer/',
       description: '审查代码',
       content: '# reviewer\n请审查代码。',
+      resources: [],
+      resourceAccess: {
+        readTextTool: 'read_skill_resource',
+        note: 'Use manifest relativePath values only. Local Skill filesystem roots are intentionally not exposed.',
+      },
     });
   });
 
@@ -254,6 +288,7 @@ describe('createReadSkillTool', () => {
     const tool = createReadSkillTool({
       getBackend: () => ({
         listSkills: () => [inlineSkill],
+        getSkillByName: (name: string) => (name === inlineSkill.name ? inlineSkill : undefined),
         getSkillByPath: (inputPath: string) => (inputPath === inlineSkill.path ? inlineSkill : undefined),
       }) as any,
     });
@@ -267,6 +302,135 @@ describe('createReadSkillTool', () => {
       success: false,
       error: 'Skill not found: inline:missing',
     });
+  });
+});
+
+describe('createReadSkillResourceTool', () => {
+  it('按 manifest relativePath 读取 Skill 文本资源', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-test-'));
+    const skillDir = path.join(tmpDir, 'skills', 'docs');
+    fs.mkdirSync(path.join(skillDir, 'references'), { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: docs\ndescription: 文档\n---\n见 references/guide.md');
+    fs.writeFileSync(path.join(skillDir, 'references', 'guide.md'), '# Guide');
+    const skill = loadSkillsFromFilesystem(tmpDir)[0];
+    const tool = createReadSkillResourceTool({
+      getBackend: () => ({
+        getSkillByName: (name: string) => (name === skill.name ? skill : undefined),
+      }),
+    });
+
+    const result = await tool.handler({ name: 'docs', relativePath: 'references/guide.md' }) as any;
+    expect(result.success).toBe(true);
+    expect(result.skillName).toBe('docs');
+    expect(result.relativePath).toBe('references/guide.md');
+    expect(result.content).toBe('# Guide');
+
+    const escape = await tool.handler({ name: 'docs', relativePath: '../SKILL.md' }) as any;
+    expect(escape.success).toBe(false);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('disableModelInvocation 的 Skill 拒绝读取资源', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-test-'));
+    const skillDir = path.join(tmpDir, 'skills', 'hidden-resource');
+    fs.mkdirSync(path.join(skillDir, 'references'), { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: hidden-resource\ndescription: 隐藏\ndisable-model-invocation: true\n---\n见 references/guide.md');
+    fs.writeFileSync(path.join(skillDir, 'references', 'guide.md'), '# Guide');
+    const skill = loadSkillsFromFilesystem(tmpDir)[0];
+    const tool = createReadSkillResourceTool({
+      getBackend: () => ({ getSkillByName: (name: string) => (name === skill.name ? skill : undefined) }),
+    });
+
+    const result = await tool.handler({ name: 'hidden-resource', relativePath: 'references/guide.md' }) as any;
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('not available for model invocation');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe('createExecuteSkillScriptTool', () => {
+  it('执行 manifest 中的脚本并传入 argv', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-test-'));
+    const skillDir = path.join(tmpDir, 'skills', 'scripted');
+    fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: scripted\ndescription: 脚本\n---\nRun scripts/check.js');
+    fs.writeFileSync(
+      path.join(skillDir, 'scripts', 'check.js'),
+      'console.log(`${process.env.IRIS_SKILL_NAME}:${process.argv[2]}`);',
+    );
+    const skill = loadSkillsFromFilesystem(tmpDir)[0];
+    const tool = createExecuteSkillScriptTool({
+      getBackend: () => ({ getSkillByName: (name: string) => (name === skill.name ? skill : undefined) }),
+    });
+
+    const result = await tool.handler(
+      { name: 'scripted', relativePath: 'scripts/check.js', args: ['ok'] },
+      { requestApproval: async () => true },
+    ) as any;
+    expect(result.success).toBe(true);
+    expect(result.skillName).toBe('scripted');
+    expect(result.relativePath).toBe('scripts/check.js');
+    expect(result.output).toContain('scripted:ok');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('没有交互式确认能力时拒绝执行脚本', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-test-'));
+    const skillDir = path.join(tmpDir, 'skills', 'scripted-no-approval');
+    fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: scripted-no-approval\ndescription: 脚本\n---\nRun scripts/check.js');
+    fs.writeFileSync(path.join(skillDir, 'scripts', 'check.js'), 'console.log("should-not-run");');
+    const skill = loadSkillsFromFilesystem(tmpDir)[0];
+    const tool = createExecuteSkillScriptTool({
+      getBackend: () => ({ getSkillByName: (name: string) => (name === skill.name ? skill : undefined) }),
+    });
+
+    const result = await tool.handler({ name: 'scripted-no-approval', relativePath: 'scripts/check.js' }) as any;
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('requires explicit interactive user confirmation');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('脚本 manifest 生成后被修改时拒绝执行', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-test-'));
+    const skillDir = path.join(tmpDir, 'skills', 'changed');
+    fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: changed\ndescription: 脚本\n---\nRun scripts/check.js');
+    const scriptPath = path.join(skillDir, 'scripts', 'check.js');
+    fs.writeFileSync(scriptPath, 'console.log("old");');
+    const skill = loadSkillsFromFilesystem(tmpDir)[0];
+    fs.writeFileSync(scriptPath, 'console.log("new");');
+    const tool = createExecuteSkillScriptTool({
+      getBackend: () => ({ getSkillByName: (name: string) => (name === skill.name ? skill : undefined) }),
+    });
+
+    const result = await tool.handler({ name: 'changed', relativePath: 'scripts/check.js' }) as any;
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('changed after manifest creation');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('disableModelInvocation 的 Skill 拒绝执行脚本', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-test-'));
+    const skillDir = path.join(tmpDir, 'skills', 'hidden-script');
+    fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: hidden-script\ndescription: 隐藏\ndisable-model-invocation: true\n---\nRun scripts/check.js');
+    fs.writeFileSync(path.join(skillDir, 'scripts', 'check.js'), 'console.log("hidden");');
+    const skill = loadSkillsFromFilesystem(tmpDir)[0];
+    const tool = createExecuteSkillScriptTool({
+      getBackend: () => ({ getSkillByName: (name: string) => (name === skill.name ? skill : undefined) }),
+    });
+
+    const result = await tool.handler({ name: 'hidden-script', relativePath: 'scripts/check.js' }) as any;
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('not available for model invocation');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });
 

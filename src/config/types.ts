@@ -209,6 +209,33 @@ export interface SkillContextModifier {
   systemPromptInjection?: string;
 }
 
+export type SkillSource = 'inline' | 'global' | 'project' | 'builtin' | 'unknown';
+export type SkillResourceKind = 'script' | 'reference' | 'asset' | 'other';
+export type SkillDiagnosticSeverity = 'fatal' | 'warning' | 'info';
+
+export interface SkillDiagnostic {
+  severity: SkillDiagnosticSeverity;
+  code: string;
+  message: string;
+  field?: string;
+  skillName?: string;
+  filePath?: string;
+  source?: SkillSource;
+}
+
+export interface SkillResourceManifestItem {
+  /** 不泄露本地绝对路径的模型可见 URI */
+  skillUri: string;
+  /** Skill 根目录内的规范化相对路径 */
+  relativePath: string;
+  kind: SkillResourceKind;
+  size: number;
+  sha256: string;
+  maybeExecutable: boolean;
+  textReadable: boolean;
+  truncatedReason?: string;
+}
+
 /** Skill 定义（按需加载的提示词模块） */
 export interface SkillDefinition {
   /**
@@ -225,8 +252,19 @@ export interface SkillDefinition {
    * Skill 的路径标识。
    * 对文件系统 Skill，这是 SKILL.md 的绝对路径；
    * 对 system.yaml 内联 Skill，这是形如 inline:<name> 的稳定标识。
+   * 注意：该字段仅供后端内部兼容和定位，不应再写入工具声明给模型。
    */
   path: string;
+  /** Skill 来源，用于诊断/TUI 展示和同名覆盖排障 */
+  source?: SkillSource;
+  /** 文件系统 Skill 的根目录，仅后端内部解析资源使用 */
+  basePath?: string;
+  /** 文件系统 Skill 根目录 realpath 规范化结果，仅后端内部使用 */
+  canonicalBasePath?: string;
+  /** 模型可见 Skill URI，不泄露本地绝对路径 */
+  skillUri?: string;
+  /** 附属资源 manifest，模型后续通过 read_skill_resource 等工具按需访问 */
+  resources?: SkillResourceManifestItem[];
   /** @deprecated 不再使用，保留仅为兼容旧配置 */
   enabled?: boolean;
 
@@ -272,6 +310,8 @@ export interface SystemConfig {
   logRequests?: boolean;
   /** Skill 定义列表（可选） */
   skills?: SkillDefinition[];
+  /** Skill 加载/解析诊断（主要来自文件系统 Skill） */
+  skillDiagnostics?: SkillDiagnostic[];
   /**
    * @deprecated 旧版 Skill 拼接注入引导词模板。
    *

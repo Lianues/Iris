@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import { ToolDefinition } from '../../types';
 import { normalizeStringArrayArg, resolveProjectPath } from '../utils';
+import { getSkillAccessPreflightRejection } from './skill-access-guard';
 
 interface CreateResult {
   path: string;
@@ -50,6 +51,10 @@ export const createDirectory: ToolDefinition = {
     for (const dirPath of pathList) {
       try {
         const resolved = resolveProjectPath(dirPath);
+        const skillAccessRejection = getSkillAccessPreflightRejection(dirPath, resolved);
+        if (skillAccessRejection) {
+          throw new Error(skillAccessRejection);
+        }
         fs.mkdirSync(resolved, { recursive: true });
         results.push({ path: dirPath, success: true });
         successCount++;

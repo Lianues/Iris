@@ -81,6 +81,21 @@ function getArgsSummary(toolName: string, args: Record<string, unknown>): string
       const first = patterns[0] ?? '';
       return first ? `"${first}"` : '';
     }
+    case 'read_skill': {
+      return String(args.name || args.path || '');
+    }
+    case 'read_skill_resource':
+    case 'execute_skill_script': {
+      const name = String(args.name || '');
+      const relativePath = String(args.relativePath || '');
+      return [name, relativePath].filter(Boolean).join(' · ');
+    }
+    case 'invoke_skill': {
+      const skill = String(args.skill || '');
+      const skillArgs = String(args.args || '');
+      const preview = skillArgs.length > 40 ? `${skillArgs.slice(0, 40)}${ICONS.ellipsis}` : skillArgs;
+      return preview ? `${skill} ${preview}` : skill;
+    }
     case 'sub_agent': {
       const type = String(args.type || 'general-purpose');
       const prompt = String(args.prompt || '');

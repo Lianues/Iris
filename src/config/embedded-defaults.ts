@@ -147,6 +147,12 @@ list_files:
   autoApprove: true
 read_skill:
   autoApprove: true
+read_skill_resource:
+  autoApprove: true
+execute_skill_script:
+  autoApprove: false
+invoke_skill:
+  autoApprove: false
 write_file:
   autoApprove: false
   showApprovalView: true

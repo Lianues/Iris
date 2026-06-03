@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ToolDefinition } from '../../types';
 import { resolveProjectPath } from '../utils';
+import { getSkillAccessPreflightRejection } from './skill-access-guard';
 
 export { normalizeWriteArgs } from 'irises-extension-sdk/tool-utils';
 export type { WriteEntry } from 'irises-extension-sdk/tool-utils';
@@ -38,6 +39,10 @@ export const writeFile: ToolDefinition = {
     }
 
     const resolved = resolveProjectPath(filePath);
+    const skillAccessRejection = getSkillAccessPreflightRejection(filePath, resolved);
+    if (skillAccessRejection) {
+      throw new Error(skillAccessRejection);
+    }
     const dir = path.dirname(resolved);
 
     // 检查是否已存在

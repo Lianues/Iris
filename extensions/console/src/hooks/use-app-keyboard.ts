@@ -11,6 +11,7 @@ import type { UseModelStateReturn } from './use-model-state';
 import { appendCommandMessage } from '../message-utils';
 import type { QueuedMessage } from './use-message-queue';
 import { filterMemories, nextFilter, type MemoryItem, type MemoryFilter } from '../components/MemoryListView';
+import type { SkillLoadReport } from '../components/SkillListView';
 import { normalizePastedSingleLine, readClipboardText } from '../terminal-compat';
 import type { ProgressSnapshotLike } from '../progress-types';
 import type { PromptInputController } from '../components/InputBar';
@@ -149,6 +150,12 @@ interface UseAppKeyboardOptions {
   setMemoryPendingDeleteId: SetState<number | null>;
   setMemoryList: SetState<MemoryItem[]>;
   onDeleteMemory?: (id: number) => Promise<boolean>;
+  /** skill-list 视图用 */
+  skillReport: SkillLoadReport;
+  onListSkills?: (options?: { refresh?: boolean }) => Promise<SkillLoadReport>;
+  setSkillReport: SetState<SkillLoadReport>;
+  skillDetailsExpanded: boolean;
+  setSkillDetailsExpanded: SetState<boolean>;
   /** extension-list 视图用 */
   extensionList: any[];
   setExtensionList: SetState<any[]>;
@@ -341,6 +348,11 @@ export function useAppKeyboard({
   setMemoryPendingDeleteId,
   setMemoryList,
   onDeleteMemory,
+  skillReport,
+  onListSkills,
+  setSkillReport,
+  skillDetailsExpanded,
+  setSkillDetailsExpanded,
   extensionList,
   setExtensionList,
   onToggleExtension,
@@ -728,6 +740,39 @@ export function useAppKeyboard({
           });
         } else {
           setMemoryPendingDeleteId(item.id);
+        }
+      }
+      return;
+    }
+
+    // ── skill-list 视图 ──
+    if (viewMode === 'skill-list') {
+      const maxIndex = Math.max(0, (skillReport.loaded?.length ?? 0) - 1);
+      const pageStep = 8;
+      if (key.name === 'escape') {
+        setViewMode('chat');
+      } else if (key.name === 'up') {
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+      } else if (key.name === 'down') {
+        setSelectedIndex((prev) => Math.min(maxIndex, prev + 1));
+      } else if (key.name === 'pageup') {
+        setSelectedIndex((prev) => Math.max(0, prev - pageStep));
+      } else if (key.name === 'pagedown') {
+        setSelectedIndex((prev) => Math.min(maxIndex, prev + pageStep));
+      } else if (key.name === 'home') {
+        setSelectedIndex(0);
+      } else if (key.name === 'end') {
+        setSelectedIndex(maxIndex);
+      } else if (key.name === 'return' || key.name === 'enter') {
+        setSkillDetailsExpanded((prev) => !prev);
+      } else if (key.name === 'r') {
+        if (onListSkills) {
+          void onListSkills({ refresh: true }).then((report) => {
+            setSkillReport(report);
+            setSelectedIndex((prev) => Math.min(Math.max(0, prev), Math.max(0, (report.loaded?.length ?? 0) - 1)));
+          }).catch((err) => {
+            appendCommandMessage(setMessages, `Failed to refresh skills: ${err instanceof Error ? err.message : String(err)}`, { isError: true, label: 'skills' });
+          });
         }
       }
       return;

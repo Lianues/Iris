@@ -18,6 +18,7 @@ import fg from 'fast-glob';
 import { ToolDefinition } from '../../types';
 import { resolveProjectPath } from '../utils';
 import { getToolLimits } from '../tool-limits';
+import { getSkillAccessPreflightRejection, isSkillAccessPreflightBlockedPath } from './skill-access-guard';
 import {
   isLikelyBinary, decodeText, buildSearchRegex,
   type TextEncoding,
@@ -230,6 +231,10 @@ export function normalizeSearchGlobArgs(args: Record<string, unknown>): SearchGl
   const include = normalizeGlobList(args.include, 'include', DEFAULT_INCLUDE, true);
   const exclude = normalizeGlobList(args.exclude, 'exclude', [], false);
   const effectiveExclude = Array.from(new Set([...DEFAULT_EXCLUDE, ...exclude]));
+  const skillAccessRejection = getSkillAccessPreflightRejection(...include);
+  if (skillAccessRejection) {
+    throw new Error(skillAccessRejection);
+  }
 
   return { include, exclude, effectiveExclude };
 }
@@ -260,7 +265,8 @@ export function collectSearchFiles(rootAbs: string, include: string[], effective
       const fileAbs = path.resolve(projectRoot, relPosix);
       assertInsideRoot(projectRoot, fileAbs, relPosix);
       return { fileAbs, relPosix };
-    });
+    })
+    .filter(file => !isSkillAccessPreflightBlockedPath(file.fileAbs) && !isSkillAccessPreflightBlockedPath(file.relPosix));
 }
 
 export const searchInFiles: ToolDefinition = {

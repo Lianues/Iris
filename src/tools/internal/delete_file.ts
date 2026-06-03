@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import { ToolDefinition } from '../../types';
 import { normalizeStringArrayArg, resolveProjectPath } from '../utils';
+import { getSkillAccessPreflightRejection, isProtectedSkillPathOrAncestor } from './skill-access-guard';
 
 interface DeleteResult {
   path: string;
@@ -51,6 +52,10 @@ export const deleteFile: ToolDefinition = {
     for (const filePath of pathList) {
       try {
         const resolved = resolveProjectPath(filePath);
+        const skillAccessRejection = getSkillAccessPreflightRejection(filePath, resolved);
+        if (skillAccessRejection || isProtectedSkillPathOrAncestor(resolved)) {
+          throw new Error(skillAccessRejection || 'Direct access to Skill directories is blocked. Use read_skill_resource or execute_skill_script instead.');
+        }
         fs.rmSync(resolved, { recursive: true, force: true });
         results.push({ path: filePath, success: true });
         successCount++;

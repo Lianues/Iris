@@ -10,8 +10,8 @@
  * 由 ToolLoop 在写入历史前提取 modifier 并剥离。
  */
 
-import * as path from 'path';
 import type { ToolDefinition, FunctionDeclaration } from '../../types';
+import { createSkillUri } from '../../config/skill-resource-manifest';
 import type { SkillDefinition, SkillContextModifier, ToolsConfig } from '../../config/types';
 import { parseSkillArguments, substituteSkillParams } from './skill-params';
 import { ToolRegistry } from '../registry';
@@ -124,14 +124,6 @@ function buildDeclaration(skills: SkillListItem[]): FunctionDeclaration {
 }
 
 /**
- * 计算 Skill 的资源根目录。
- */
-function getSkillBasePath(skillPath: string): string | undefined {
-  if (skillPath.startsWith('inline:')) return undefined;
-  return path.dirname(skillPath);
-}
-
-/**
  * 为 fork 模式创建 LLM 调用函数。
  */
 function createForkLLMCaller(router: LLMRouter, modelName?: string) {
@@ -159,13 +151,14 @@ export function createInvokeSkillTool(deps: InvokeSkillDeps): ToolDefinition {
       if (!skill) {
         return { error: `Skill not found: ${skillName}` };
       }
+      if (skill.disableModelInvocation) {
+        return { error: `Skill "${skill.name}" is not available for model invocation.` };
+      }
 
       // 参数解析与替换
       const rawArgs = typeof args.args === 'string' ? args.args : '';
       const parsedArgs = parseSkillArguments(rawArgs, skill.arguments);
       const processedContent = substituteSkillParams(skill.content, parsedArgs, skill.arguments);
-
-      const basePath = getSkillBasePath(skill.path);
 
       // Fork 模式：在独立子代理中执行
       if (skill.mode === 'fork') {
@@ -186,10 +179,16 @@ export function createInvokeSkillTool(deps: InvokeSkillDeps): ToolDefinition {
         __contextModifier: contextModifier,
         __response: {
           success: true,
+          schemaVersion: 2,
           name: skill.name,
-          path: skill.path,
-          basePath,
+          skillName: skill.name,
+          skillUri: skill.skillUri || createSkillUri(skill.name),
           content: processedContent,
+          resources: skill.resources || [],
+          resourceAccess: {
+            readTextTool: 'read_skill_resource',
+            note: 'Use manifest relativePath values only. Local Skill filesystem roots are intentionally not exposed.',
+          },
         },
       };
     },

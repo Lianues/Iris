@@ -84,6 +84,36 @@ describe('console /extension keyboard regressions', () => {
     expect(dispatchSource).toContain('canOpenLoverSettings');
   });
 
+  it('/skills 应打开 Skill 列表与诊断面板', () => {
+    const commandsSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/input-commands.ts'),
+      'utf8',
+    );
+    const appSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/App.tsx'),
+      'utf8',
+    );
+    const dispatchSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/hooks/use-command-dispatch.ts'),
+      'utf8',
+    );
+    const keyboardSource = readFileSync(
+      path.resolve(__dirname, '../extensions/console/src/hooks/use-app-keyboard.ts'),
+      'utf8',
+    );
+
+    expect(commandsSource).toContain("name: '/skill'");
+    expect(commandsSource).toContain("name: '/skills'");
+    expect(dispatchSource).toContain("text === '/skills' || text === '/skill'");
+    expect(appSource).toContain("viewMode === 'skill-list'");
+    expect(appSource).toContain('SkillListView');
+    expect(appSource).toContain('detailsExpanded={skillDetailsExpanded}');
+    expect(keyboardSource).toContain("viewMode === 'skill-list'");
+    expect(keyboardSource).toContain('setSkillDetailsExpanded((prev) => !prev)');
+    expect(keyboardSource).toContain('onListSkills({ refresh: true })');
+    expect(keyboardSource).toContain('Failed to refresh skills');
+  });
+
   it('动态命令应基于已保存状态过滤，保存后刷新插件 settings tabs', () => {
     const appSource = readFileSync(
       path.resolve(__dirname, '../extensions/console/src/App.tsx'),

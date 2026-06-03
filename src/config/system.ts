@@ -8,8 +8,8 @@
  * 合并优先级：YAML 内联定义 > 项目级文件 > 全局文件
  */
 
-import { SystemConfig, SkillDefinition } from './types';
-import { loadSkillsFromFilesystem, buildSkillDefinition } from './skill-loader';
+import { SystemConfig, SkillDefinition, SkillDiagnostic } from './types';
+import { loadSkillsFromFilesystemWithDiagnostics, buildSkillDefinition } from './skill-loader';
 import { normalizeCallmeAttributionConfig } from '../git/callme';
 
 /** Skill 名称校验：仅允许 ASCII 字母、数字、下划线、连字符，1-64 字符 */
@@ -28,14 +28,17 @@ export function parseSystemConfig(raw: any = {}, dataDir?: string): SystemConfig
       .map(([name, v]) => {
         const fields = v as Record<string, unknown>;
         // 复用 buildSkillDefinition 提取所有扩展字段
-        return buildSkillDefinition(name, fields, fields.content as string, `inline:${name}`);
+        return buildSkillDefinition(name, fields, fields.content as string, `inline:${name}`, { source: 'inline' });
       });
   }
 
   // 从文件系统扫描 SKILL.md（仅在提供了 dataDir 时扫描）
   let fsSkills: SkillDefinition[] = [];
+  let skillDiagnostics: SkillDiagnostic[] = [];
   if (dataDir) {
-    fsSkills = loadSkillsFromFilesystem(dataDir);
+    const loaded = loadSkillsFromFilesystemWithDiagnostics(dataDir);
+    fsSkills = loaded.skills;
+    skillDiagnostics = loaded.diagnostics;
   }
 
   // 合并：文件系统 Skill 打底，YAML 内联定义覆盖同名条目
@@ -60,6 +63,7 @@ export function parseSystemConfig(raw: any = {}, dataDir?: string): SystemConfig
     logRequests: raw.logRequests ?? false,
     asyncSubAgents: raw.asyncSubAgents === true,
     skills,
+    skillDiagnostics,
     devSourceExtensions: Array.isArray(raw.devSourceExtensions)
       ? raw.devSourceExtensions.filter((s: unknown): s is string => typeof s === 'string' && s.trim().length > 0)
       : undefined,

@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import { ToolDefinition } from '../../types';
 import { resolveProjectPath } from '../utils';
 import { applyDeleteCodeTransform } from '../edit-transforms';
+import { getSkillAccessPreflightRejection } from './skill-access-guard';
 
 export { normalizeDeleteCodeArgs } from 'irises-extension-sdk/tool-utils';
 export type { DeleteCodeEntry } from 'irises-extension-sdk/tool-utils';
@@ -36,6 +37,10 @@ export const deleteCode: ToolDefinition = {
     }
 
     const resolved = resolveProjectPath(filePath);
+    const skillAccessRejection = getSkillAccessPreflightRejection(filePath, resolved);
+    if (skillAccessRejection) {
+      throw new Error(skillAccessRejection);
+    }
     const content = fs.readFileSync(resolved, 'utf-8');
     const transformed = applyDeleteCodeTransform(content, startLine, endLine);
 

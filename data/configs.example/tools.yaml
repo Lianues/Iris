@@ -80,6 +80,15 @@ list_files:
 read_skill:
   # Skill 读取工具是只读操作，建议默认直接执行
   autoApprove: true
+read_skill_resource:
+  # Skill 附属文本资源通过 manifest + sha256 校验读取，默认直接执行
+  autoApprove: true
+execute_skill_script:
+  # Skill 脚本会执行本地代码，必须保留人工确认
+  autoApprove: false
+invoke_skill:
+  # invoke_skill 可能触发上下文修改（工具自动批准、模型覆盖或 fork 执行），默认保留确认
+  autoApprove: false
 
 # 修改类工具：默认需要确认
 write_file:

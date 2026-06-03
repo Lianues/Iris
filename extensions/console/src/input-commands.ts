@@ -79,6 +79,8 @@ export const COMMANDS: Command[] = [
   { name: '/disconnect', description: '断开远程连接', remoteOnly: true, color: '#fdcb6e' },
   { name: '/agent',    description: '切换 Agent（多 Agent 模式）' },
   { name: '/memory',   description: '查看长期记忆' },
+  { name: '/skill',    description: '查看 Skill 列表、资源 manifest 与加载诊断' },
+  { name: '/skills',   description: '查看 Skill 列表、资源 manifest 与加载诊断' },
   { name: '/extension', description: '管理扩展插件（查看/启用/禁用/Git拉取/升级/删除）' },
   { name: '/dream',    description: '整理长期记忆（合并冗余、清理过时）' },
   { name: '/queue',    description: '查看/管理排队消息' },
