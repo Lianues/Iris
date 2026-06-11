@@ -16194,10 +16194,10 @@ function printHeadlessTransitionMessage() {
   } catch {}
 }
 var GEMINI_LEVEL_MAP = {
-  minimal: "THINKING_LEVEL_MINIMAL",
-  low: "THINKING_LEVEL_LOW",
-  medium: "THINKING_LEVEL_MEDIUM",
-  high: "THINKING_LEVEL_HIGH"
+  minimal: "minimal",
+  low: "low",
+  medium: "medium",
+  high: "high"
 };
 function buildThinkingPatch(provider, level) {
   switch (provider) {
@@ -16217,7 +16217,7 @@ function buildThinkingPatch(provider, level) {
         generationConfig: {
           thinkingConfig: {
             includeThoughts: true,
-            thinkingLevel: GEMINI_LEVEL_MAP[level] ?? "THINKING_LEVEL_MEDIUM"
+            thinkingLevel: GEMINI_LEVEL_MAP[level] ?? "medium"
           }
         }
       };

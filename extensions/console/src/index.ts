@@ -512,12 +512,12 @@ function printHeadlessTransitionMessage(): void {
 
 // ── 思考强度 — Provider 适配 ──────────────────────────────
 
-/** Gemini thinkingLevel 枚举值映射 */
+/** Gemini thinkingLevel 值映射：上游接受小写级别字符串 */
 const GEMINI_LEVEL_MAP: Record<string, string> = {
-  minimal: 'THINKING_LEVEL_MINIMAL',
-  low:     'THINKING_LEVEL_LOW',
-  medium:  'THINKING_LEVEL_MEDIUM',
-  high:    'THINKING_LEVEL_HIGH',
+  minimal: 'minimal',
+  low:     'low',
+  medium:  'medium',
+  high:    'high',
 };
 
 /**
@@ -543,7 +543,7 @@ function buildThinkingPatch(provider: string, level: string): Record<string, unk
         generationConfig: {
           thinkingConfig: {
             includeThoughts: true,
-            thinkingLevel: GEMINI_LEVEL_MAP[level] ?? 'THINKING_LEVEL_MEDIUM',
+            thinkingLevel: GEMINI_LEVEL_MAP[level] ?? 'medium',
           },
         },
       };
