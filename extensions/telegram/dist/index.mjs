@@ -9326,9 +9326,22 @@ class PlatformAdapter {
 function isThoughtTextPart(part) {
   return "text" in part && part.thought === true;
 }
+function isFunctionCallPart(part) {
+  return "functionCall" in part;
+}
 // ../../packages/extension-sdk/src/delivery.ts
 var DELIVERY_REGISTRY_SERVICE_ID = "delivery.registry";
 // ../../packages/extension-sdk/src/platform-utils.ts
+var TOOL_STATUS_LABELS = {
+  queued: "等待中",
+  executing: "执行中",
+  success: "成功",
+  error: "失败",
+  streaming: "输出中",
+  awaiting_approval: "等待审批",
+  awaiting_apply: "等待应用",
+  warning: "警告"
+};
 function autoApproveHandle(handle) {
   if (handle.status === "awaiting_approval") {
     try {
@@ -9342,6 +9355,485 @@ function autoApproveHandle(handle) {
       } catch {}
     }
   });
+}
+// ../../packages/extension-sdk/src/tool-summary.ts
+var DEFAULT_TEXT_LIMIT = 120;
+var COMMAND_TEXT_LIMIT = 80;
+var PATH_TEXT_LIMIT = 80;
+function segment(text, tone) {
+  return tone ? { text, tone } : { text };
+}
+function buildSummary(segments) {
+  return {
+    text: segments.map((item) => item.text).join(""),
+    segments
+  };
+}
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function basename(value) {
+  return value.replace(/\\/g, "/").split("/").pop() || value;
+}
+function truncateText(text, maxChars) {
+  if (text.length <= maxChars)
+    return text;
+  return `${text.slice(0, Math.max(0, maxChars - 3))}...`;
+}
+function compactWhitespace(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+function quoteText(text) {
+  return `"${text}"`;
+}
+function stringValue(value) {
+  return typeof value === "string" ? value : "";
+}
+function numberValue(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+function booleanValue(value) {
+  return typeof value === "boolean" ? value : undefined;
+}
+function countLines(content) {
+  if (typeof content !== "string" || content.length === 0)
+    return 0;
+  return content.endsWith(`
+`) ? content.split(`
+`).length - 1 : content.split(`
+`).length;
+}
+function nonEmptyLineCount(content) {
+  if (typeof content !== "string" || content.length === 0)
+    return 0;
+  return content.split(`
+`).filter(Boolean).length;
+}
+function firstLine(content, maxChars = DEFAULT_TEXT_LIMIT) {
+  if (typeof content !== "string")
+    return "";
+  return truncateText(compactWhitespace(content.split(`
+`)[0] ?? ""), maxChars);
+}
+function formatScalar(value) {
+  if (typeof value === "string")
+    return truncateText(compactWhitespace(value), 48);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  if (value == null)
+    return "empty";
+  if (Array.isArray(value))
+    return `[${value.length} items]`;
+  if (typeof value === "object")
+    return `{${Object.keys(value).length} fields}`;
+  return String(value);
+}
+function genericSummary(value) {
+  if (value == null)
+    return;
+  if (typeof value === "string") {
+    const text = truncateText(compactWhitespace(value), DEFAULT_TEXT_LIMIT);
+    return text ? buildSummary([segment(text)]) : undefined;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return buildSummary([segment(String(value))]);
+  }
+  if (Array.isArray(value)) {
+    return buildSummary([segment(`${value.length} items`)]);
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0)
+      return;
+    const samples = entries.slice(0, 3).map(([key, item]) => `${key}=${formatScalar(item)}`);
+    const suffix = entries.length > 3 ? `, +${entries.length - 3}` : "";
+    return buildSummary([
+      segment(`${entries.length} fields`),
+      segment(` | ${samples.join(", ")}${suffix}`, "muted")
+    ]);
+  }
+  return buildSummary([segment(String(value))]);
+}
+function pathEntryFromValue(value) {
+  if (typeof value === "string" && value.trim())
+    return { path: value.trim() };
+  const record = asRecord(value);
+  const path3 = stringValue(record.path || record.file_path).trim();
+  if (!path3)
+    return;
+  const startLine = numberValue(record.startLine ?? record.start_line);
+  const endLine = numberValue(record.endLine ?? record.end_line);
+  return { path: path3, startLine, endLine };
+}
+function getPathEntries(args, arrayKey, fallbackKeys) {
+  const arrayValue = args[arrayKey];
+  if (Array.isArray(arrayValue)) {
+    return arrayValue.map(pathEntryFromValue).filter((item) => !!item);
+  }
+  for (const key of fallbackKeys) {
+    const entry = pathEntryFromValue(args[key]);
+    if (entry)
+      return [entry];
+  }
+  return [];
+}
+function formatPathEntry(entry, options = {}) {
+  const range = options.includeRange && entry.startLine != null && entry.endLine != null ? `:${entry.startLine}-${entry.endLine}` : "";
+  return `${entry.path}${range}`;
+}
+function summarizePathEntries(entries, options = {}) {
+  if (entries.length === 0)
+    return "";
+  if (entries.length === 1)
+    return formatPathEntry(entries[0], options);
+  const first = options.useBasenameForMany ? basename(entries[0].path) : entries[0].path;
+  return `${truncateText(first, PATH_TEXT_LIMIT)} +${entries.length - 1}`;
+}
+function summarizePatternList(value) {
+  const values = Array.isArray(value) ? value.map(String).filter(Boolean) : typeof value === "string" && value ? [value] : [];
+  if (values.length === 0)
+    return "";
+  if (values.length === 1)
+    return values[0];
+  return `${truncateText(values[0], PATH_TEXT_LIMIT)} +${values.length - 1}`;
+}
+function summarizeToolCallByName(toolName, args) {
+  switch (toolName) {
+    case "shell":
+    case "bash": {
+      const command = compactWhitespace(stringValue(args.command));
+      return command ? buildSummary([segment(truncateText(command, COMMAND_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "read_file": {
+      const entries = getPathEntries(args, "files", ["file", "path", "file_path"]);
+      const text = summarizePathEntries(entries, { includeRange: true });
+      return text ? buildSummary([segment(truncateText(text, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "write_file":
+    case "apply_diff":
+    case "insert_code":
+    case "delete_code": {
+      const entries = getPathEntries(args, "files", ["path", "file_path"]);
+      const text = summarizePathEntries(entries);
+      return text ? buildSummary([segment(truncateText(text, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "search_in_files": {
+      const query = truncateText(compactWhitespace(stringValue(args.query)), 40);
+      if (!query)
+        return;
+      const include = Array.isArray(args.include) ? args.include.map(String).filter(Boolean).join(", ") : "";
+      const scope = include ? ` in ${truncateText(include, 40)}` : "";
+      const mode = stringValue(args.mode);
+      if (mode === "replace") {
+        const replace = truncateText(compactWhitespace(stringValue(args.replace)), 24);
+        return buildSummary([segment(`${quoteText(query)} -> ${quoteText(replace)}${scope}`, "muted")]);
+      }
+      return buildSummary([segment(`${quoteText(query)}${scope}`, "muted")]);
+    }
+    case "find_files": {
+      const pattern = summarizePatternList(args.patterns ?? args.pattern);
+      return pattern ? buildSummary([segment(truncateText(pattern, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "list_files": {
+      const path3 = summarizePatternList(args.paths ?? args.path);
+      return path3 ? buildSummary([segment(truncateText(path3, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "read_skill": {
+      const name = stringValue(args.name || args.path).trim();
+      return name ? buildSummary([segment(truncateText(name, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "read_skill_resource":
+    case "execute_skill_script": {
+      const name = stringValue(args.name).trim();
+      const relativePath = stringValue(args.relativePath).trim();
+      const text = [name, relativePath].filter(Boolean).join(" | ");
+      return text ? buildSummary([segment(truncateText(text, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "invoke_skill": {
+      const skill = stringValue(args.skill).trim();
+      const skillArgs = compactWhitespace(stringValue(args.args));
+      const preview = skillArgs ? ` ${truncateText(skillArgs, 40)}` : "";
+      const text = `${skill}${preview}`.trim();
+      return text ? buildSummary([segment(truncateText(text, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "sub_agent": {
+      const type = stringValue(args.type).trim();
+      const prompt = stringValue(args.prompt).trim();
+      const text = type && type !== "general-purpose" ? type : prompt;
+      return text ? buildSummary([segment(truncateText(compactWhitespace(text), 60), "muted")]) : undefined;
+    }
+    default:
+      return;
+  }
+}
+function summarizeToolCall(toolName, args) {
+  const normalizedArgs = args ?? {};
+  return summarizeToolCallByName(toolName, normalizedArgs) ?? genericSummary(normalizedArgs);
+}
+function summarizeReadFileResult(result) {
+  if (!Array.isArray(result.results))
+    return;
+  const items = result.results;
+  if (items.length === 0)
+    return buildSummary([segment("0 lines", "muted")]);
+  if (items.length === 1) {
+    const item = items[0];
+    const path3 = item.path ?? "?";
+    if (item.success === false) {
+      const error = item.error ? ` | ${truncateText(compactWhitespace(item.error), 80)}` : "";
+      return buildSummary([segment("failed", "error"), segment(` | ${path3}${error}`, "muted")]);
+    }
+    const lines = item.lineCount ?? 0;
+    const range = item.startLine != null && item.endLine != null ? `:${item.startLine}-${item.endLine}` : "";
+    return buildSummary([segment(`${lines} lines`, "accent"), segment(` | ${path3}${range}`, "muted")]);
+  }
+  const totalLines = items.reduce((sum, item) => sum + (item.success === false ? 0 : item.lineCount ?? 0), 0);
+  const failed = items.filter((item) => item.success === false).length;
+  const names = items.map((item) => basename(item.path ?? "?")).join(", ");
+  const failedText = failed > 0 ? ` | ${failed} failed` : "";
+  return buildSummary([
+    segment(`${totalLines} lines`, "accent"),
+    segment(` | ${truncateText(names, PATH_TEXT_LIMIT)}${failedText}`, failed > 0 ? "warning" : "muted")
+  ]);
+}
+function summarizeShellResult(result) {
+  const exitCode = numberValue(result.exitCode) ?? 0;
+  const killed = booleanValue(result.killed) === true;
+  const abortedByUser = booleanValue(result.abortedByUser) === true;
+  if (abortedByUser)
+    return buildSummary([segment("aborted by user", "error")]);
+  if (killed)
+    return buildSummary([segment("killed (timeout)", "warning")]);
+  if (exitCode !== 0) {
+    const reason = firstLine(result.stderr, 100) || `exit ${exitCode}`;
+    return buildSummary([segment(`failed: ${reason}`, "error")]);
+  }
+  const lines = nonEmptyLineCount(result.stdout);
+  const text = lines > 0 ? `${lines} lines output` : "done (no output)";
+  return buildSummary([segment(text, "success")]);
+}
+function summarizeWriteFileResult(result, args) {
+  const path3 = stringValue(result.path || args.path || args.file_path).trim();
+  if (!path3)
+    return;
+  const action = stringValue(result.action || (result.success === false ? "failed" : "written")) || "written";
+  if (result.success === false) {
+    const error = stringValue(result.error);
+    return buildSummary([
+      segment(action, "error"),
+      segment(` | ${path3}${error ? ` | ${truncateText(compactWhitespace(error), 80)}` : ""}`, "muted")
+    ]);
+  }
+  if (action === "unchanged")
+    return buildSummary([segment("unchanged"), segment(` | ${path3}`, "muted")]);
+  const lines = countLines(args.content);
+  const lineText = lines > 0 ? `${action === "created" ? "+" : "~"}${lines} lines | ` : "";
+  return buildSummary([
+    ...lineText ? [segment(lineText, action === "created" ? "success" : "accent")] : [],
+    segment(action),
+    segment(` | ${path3}`, "muted")
+  ]);
+}
+function countPatchChanges(patch) {
+  if (typeof patch !== "string")
+    return { added: 0, deleted: 0 };
+  let added = 0;
+  let deleted = 0;
+  for (const line of patch.split(`
+`)) {
+    if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@"))
+      continue;
+    if (line.startsWith("+"))
+      added++;
+    else if (line.startsWith("-"))
+      deleted++;
+  }
+  return { added, deleted };
+}
+function summarizeApplyDiffResult(result, args) {
+  const applied = numberValue(result.applied);
+  const totalHunks = numberValue(result.totalHunks);
+  if (applied == null || totalHunks == null)
+    return;
+  const failed = numberValue(result.failed) ?? 0;
+  const path3 = stringValue(result.path || args.path).trim();
+  const { added, deleted } = countPatchChanges(args.patch);
+  const changes = [
+    added > 0 ? `+${added}` : "",
+    deleted > 0 ? `-${deleted}` : ""
+  ].filter(Boolean).join(" ");
+  const parts = [];
+  if (changes)
+    parts.push(segment(`${changes} | `, failed > 0 ? "warning" : "accent"));
+  parts.push(segment(`${applied}/${totalHunks} hunks`));
+  if (failed > 0)
+    parts.push(segment(` | ${failed} failed`, "warning"));
+  if (path3)
+    parts.push(segment(` | ${path3}`, "muted"));
+  return buildSummary(parts);
+}
+function summarizeSearchInFilesResult(result, args) {
+  const mode = stringValue(result.mode || args.mode || "search");
+  const truncated = result.truncated === true;
+  const suffix = truncated ? " | truncated" : "";
+  if (mode === "replace") {
+    const total = numberValue(result.totalReplacements) ?? 0;
+    const processedFiles = numberValue(result.processedFiles) ?? 0;
+    const results = Array.isArray(result.results) ? result.results : [];
+    const changedFiles = results.length > 0 ? results.filter((item) => item.changed === true).length : processedFiles;
+    const query = stringValue(args.query);
+    const replace = stringValue(args.replace);
+    const detail = query ? ` | ${quoteText(truncateText(query, 24))} -> ${quoteText(truncateText(replace, 24))}` : "";
+    return buildSummary([
+      segment(`${total} replacements`, "accent"),
+      segment(` | ${changedFiles}/${processedFiles} files${detail}${suffix}`, truncated ? "warning" : "muted")
+    ]);
+  }
+  const count = numberValue(result.count);
+  if (count == null)
+    return;
+  return buildSummary([
+    segment(`${count} matches found`),
+    ...suffix ? [segment(suffix, "warning")] : []
+  ]);
+}
+function summarizeFindFilesResult(result) {
+  const count = numberValue(result.count);
+  if (count == null)
+    return;
+  const suffix = result.truncated === true ? " | truncated" : "";
+  return buildSummary([
+    segment(`${count} files found`),
+    ...suffix ? [segment(suffix, "warning")] : []
+  ]);
+}
+function summarizeListFilesResult(result) {
+  const totalFiles = numberValue(result.totalFiles);
+  const totalDirs = numberValue(result.totalDirs);
+  if (totalFiles == null && totalDirs == null)
+    return;
+  const results = Array.isArray(result.results) ? result.results : [];
+  const failed = results.filter((item) => item.success === false).length;
+  const truncated = result.truncated === true ? " | truncated" : "";
+  return buildSummary([
+    segment(`${totalFiles ?? 0} files, ${totalDirs ?? 0} dirs`),
+    ...failed > 0 ? [segment(` | ${failed} failed`, "warning")] : [],
+    ...truncated ? [segment(truncated, "warning")] : []
+  ]);
+}
+function summarizeInsertCodeResult(result) {
+  const path3 = stringValue(result.path).trim();
+  if (!path3)
+    return;
+  if (result.success === false) {
+    const error = stringValue(result.error);
+    return buildSummary([segment(`failed${error ? `: ${truncateText(compactWhitespace(error), 80)}` : ""}`, "error")]);
+  }
+  const inserted = numberValue(result.insertedLines) ?? 0;
+  const line = numberValue(result.line);
+  return buildSummary([
+    segment(`+${inserted} lines`, "success"),
+    segment(`${line != null ? ` | L${line}` : ""} | ${path3}`, "muted")
+  ]);
+}
+function summarizeDeleteCodeResult(result) {
+  const path3 = stringValue(result.path).trim();
+  if (!path3)
+    return;
+  if (result.success === false) {
+    const error = stringValue(result.error);
+    return buildSummary([segment(`failed${error ? `: ${truncateText(compactWhitespace(error), 80)}` : ""}`, "error")]);
+  }
+  const deleted = numberValue(result.deletedLines) ?? 0;
+  const startLine = numberValue(result.start_line);
+  const endLine = numberValue(result.end_line);
+  const range = startLine != null && endLine != null ? ` | L${startLine}-${endLine}` : "";
+  return buildSummary([
+    segment(`-${deleted} lines`, "error"),
+    segment(`${range} | ${path3}`, "muted")
+  ]);
+}
+function unwrapSkillPayload(result) {
+  const root = asRecord(result);
+  const rich = asRecord(root.__response);
+  if (Object.keys(rich).length > 0)
+    return rich;
+  const nested = asRecord(root.result);
+  if (Object.keys(nested).length > 0)
+    return nested;
+  return root;
+}
+function summarizeSkillResult(toolName, result) {
+  const payload = unwrapSkillPayload(result);
+  if (Object.keys(payload).length === 0)
+    return;
+  const name = stringValue(payload.skillName || payload.name).trim() || "skill";
+  const relativePath = stringValue(payload.relativePath).trim();
+  const label = (toolName === "read_skill_resource" || toolName === "execute_skill_script") && relativePath ? `${name}/${relativePath}` : name;
+  const details = [
+    typeof payload.content === "string" ? `${payload.content.length} chars` : "",
+    typeof payload.output === "string" ? `${payload.output.length} output chars` : "",
+    Array.isArray(payload.resources) && payload.resources.length > 0 ? `${payload.resources.length} resources` : "",
+    typeof payload.exitCode === "number" ? `exit ${payload.exitCode}` : "",
+    payload.killed === true ? "killed" : "",
+    payload.truncated === true ? "truncated" : ""
+  ].filter(Boolean);
+  return buildSummary([
+    segment(label),
+    ...details.length > 0 ? [segment(` | ${details.join(" | ")}`, "muted")] : []
+  ]);
+}
+function summarizeResultByName(toolName, args, result) {
+  const record = asRecord(result);
+  switch (toolName) {
+    case "shell":
+    case "bash":
+      return summarizeShellResult(record);
+    case "read_file":
+      return summarizeReadFileResult(record);
+    case "write_file":
+      return summarizeWriteFileResult(record, args);
+    case "apply_diff":
+      return summarizeApplyDiffResult(record, args);
+    case "search_in_files":
+      return summarizeSearchInFilesResult(record, args);
+    case "find_files":
+      return summarizeFindFilesResult(record);
+    case "list_files":
+      return summarizeListFilesResult(record);
+    case "insert_code":
+      return summarizeInsertCodeResult(record);
+    case "delete_code":
+      return summarizeDeleteCodeResult(record);
+    case "read_skill":
+    case "read_skill_resource":
+    case "execute_skill_script":
+    case "invoke_skill":
+      return summarizeSkillResult(toolName, result);
+    default:
+      return;
+  }
+}
+function summarizeToolResult(toolName, args, result) {
+  if (result == null)
+    return;
+  const normalizedArgs = args ?? {};
+  return summarizeResultByName(toolName, normalizedArgs, result) ?? genericSummary(result);
+}
+function summarizeToolProgress(_toolName, _args, progress) {
+  if (!progress || Object.keys(progress).length === 0)
+    return;
+  const childStatus = stringValue(progress.childStatus).trim();
+  const streamingText = stringValue(progress.streamingText).trim();
+  const tokens = numberValue(progress.tokens);
+  const primary = childStatus || streamingText;
+  const parts = [
+    primary ? truncateText(compactWhitespace(primary), DEFAULT_TEXT_LIMIT) : "",
+    tokens != null && tokens > 0 ? `${tokens.toLocaleString()} tokens` : ""
+  ].filter(Boolean);
+  if (parts.length > 0)
+    return buildSummary([segment(parts.join(" | "), "muted")]);
+  return genericSummary(progress);
 }
 // src/client.ts
 var import_grammy = __toESM(require_mod(), 1);
@@ -9971,6 +10463,260 @@ function assertRichMessageWithinLimit(markdown) {
   }
 }
 
+// src/turn-trace.ts
+var TRACE_SECTION_CHAR_LIMIT = 9000;
+var THOUGHT_BLOCK_CHAR_LIMIT = 1600;
+var VALUE_SUMMARY_CHAR_LIMIT = 500;
+var OUTPUT_SUMMARY_CHAR_LIMIT = 240;
+var MAX_OUTPUT_ENTRIES = 3;
+
+class TelegramTurnTraceCollector {
+  blocks = [];
+  toolBlocksByHandleId = new Map;
+  appendParts(parts, options = {}) {
+    const includeTools = options.includeTools !== false;
+    let changed = false;
+    for (const part of parts) {
+      if (isThoughtTextPart(part) && part.text) {
+        this.appendThought(part.text, part.thoughtDurationMs);
+        changed = true;
+        continue;
+      }
+      if (includeTools && isFunctionCallPart(part)) {
+        this.appendToolCall(part);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+  bindToolHandle(handle) {
+    const block = this.resolveToolBlock(handle);
+    this.updateToolBlockFromHandle(block, handle);
+  }
+  updateToolHandle(handle) {
+    this.bindToolHandle(handle);
+  }
+  toTraceSections() {
+    if (this.blocks.length === 0)
+      return [];
+    const hasTool = this.blocks.some((block) => block.kind === "tool");
+    const content = hasTool ? this.renderTimeline() : this.renderThoughtsOnly();
+    if (!content.trim())
+      return [];
+    return [{
+      title: hasTool ? "执行过程" : "思考过程",
+      content,
+      format: "text"
+    }];
+  }
+  appendThought(text, durationMs) {
+    const last = this.blocks[this.blocks.length - 1];
+    if (last?.kind === "thought") {
+      last.text += text;
+      if (durationMs != null)
+        last.durationMs = durationMs;
+      return;
+    }
+    this.blocks.push({ kind: "thought", text, durationMs });
+  }
+  appendToolCall(part) {
+    const now = Date.now();
+    this.blocks.push({
+      kind: "tool",
+      toolName: part.functionCall.name,
+      args: part.functionCall.args ?? {},
+      status: "queued",
+      outputs: [],
+      children: [],
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+  resolveToolBlock(handle) {
+    const bound = this.toolBlocksByHandleId.get(handle.id);
+    if (bound)
+      return bound;
+    const snapshot = handle.getSnapshot();
+    const parentId = handle.parentId;
+    if (parentId) {
+      const parent = this.toolBlocksByHandleId.get(parentId);
+      const child = this.createToolBlockFromSnapshot(snapshot, handle);
+      if (parent) {
+        parent.children.push(child);
+      } else {
+        this.blocks.push(child);
+      }
+      this.toolBlocksByHandleId.set(handle.id, child);
+      return child;
+    }
+    const existing = this.findUnboundRootToolBlock(snapshot);
+    if (existing) {
+      this.toolBlocksByHandleId.set(handle.id, existing);
+      return existing;
+    }
+    const created = this.createToolBlockFromSnapshot(snapshot, handle);
+    this.blocks.push(created);
+    this.toolBlocksByHandleId.set(handle.id, created);
+    return created;
+  }
+  findUnboundRootToolBlock(snapshot) {
+    const toolBlocks = this.blocks.filter((block) => block.kind === "tool");
+    return toolBlocks.find((block) => !block.handleId && block.toolName === snapshot.toolName && stableStringify(block.args) === stableStringify(snapshot.args ?? {})) ?? toolBlocks.find((block) => !block.handleId && block.toolName === snapshot.toolName);
+  }
+  createToolBlockFromSnapshot(snapshot, handle) {
+    const now = Date.now();
+    return {
+      kind: "tool",
+      handleId: handle.id,
+      toolName: handle.toolName,
+      args: snapshot.args ?? {},
+      status: handle.status,
+      result: snapshot.result,
+      error: snapshot.error,
+      progress: snapshot.progress,
+      outputs: handle.getOutputHistory(),
+      children: [],
+      createdAt: snapshot.createdAt ?? now,
+      updatedAt: snapshot.updatedAt ?? now
+    };
+  }
+  updateToolBlockFromHandle(block, handle) {
+    const snapshot = handle.getSnapshot();
+    block.handleId = handle.id;
+    block.toolName = handle.toolName;
+    block.args = snapshot.args ?? {};
+    block.status = handle.status;
+    block.result = snapshot.result;
+    block.error = snapshot.error;
+    block.progress = snapshot.progress;
+    block.outputs = handle.getOutputHistory();
+    block.createdAt = snapshot.createdAt ?? block.createdAt;
+    block.updatedAt = snapshot.updatedAt ?? Date.now();
+  }
+  renderThoughtsOnly() {
+    const content = this.blocks.filter((block) => block.kind === "thought").map((block) => block.text.trim()).filter(Boolean).join(`
+
+`);
+    return limitTraceSection(content);
+  }
+  renderTimeline() {
+    const rendered = this.blocks.map((block) => block.kind === "thought" ? renderThoughtBlock(block, 0) : renderToolBlock(block, 0)).filter(Boolean).join(`
+
+`);
+    return limitTraceSection(rendered);
+  }
+}
+function renderThoughtBlock(block, indent) {
+  const text = block.text.trim();
+  if (!text)
+    return "";
+  const pad = indentText(indent);
+  const duration = block.durationMs != null ? ` ${formatDuration(block.durationMs)}` : "";
+  return [
+    `${pad}thinking${duration}`,
+    indentMultiline(truncateText2(text, THOUGHT_BLOCK_CHAR_LIMIT), indent + 1)
+  ].join(`
+`);
+}
+function renderToolBlock(block, indent) {
+  const pad = indentText(indent);
+  const label = TOOL_STATUS_LABELS[block.status] ?? block.status;
+  const duration = isTerminalStatus(block.status) ? formatToolDuration(block) : "";
+  const lines = [`${pad}tool ${block.toolName} ${label}${duration ? ` ${duration}` : ""}`];
+  const call = summarizeToolCall(block.toolName, block.args);
+  if (call)
+    lines.push(`${pad}  call: ${call.text}`);
+  const progress = summarizeToolProgress(block.toolName, block.args, block.progress);
+  if (progress && !isTerminalStatus(block.status))
+    lines.push(`${pad}  progress: ${progress.text}`);
+  appendOutputLines(lines, block, pad);
+  for (const child of block.children) {
+    const rendered = renderToolBlock(child, indent + 1);
+    if (rendered)
+      lines.push(rendered);
+  }
+  const error = summarizeToolError(block.error);
+  if (error) {
+    lines.push(`${pad}  error: ${error}`);
+  } else if (isTerminalStatus(block.status)) {
+    const result = summarizeToolResult(block.toolName, block.args, block.result);
+    if (result)
+      lines.push(`${pad}  result: ${result.text}`);
+  }
+  return lines.join(`
+`);
+}
+function appendOutputLines(lines, block, pad) {
+  if (block.outputs.length === 0)
+    return;
+  const visible = block.outputs.length > MAX_OUTPUT_ENTRIES ? block.outputs.slice(-MAX_OUTPUT_ENTRIES) : block.outputs;
+  const skipped = block.outputs.length - visible.length;
+  if (skipped > 0)
+    lines.push(`${pad}  output: ... ${skipped} earlier entries`);
+  for (const entry of visible) {
+    const content = truncateText2(compactWhitespace2(entry.content), OUTPUT_SUMMARY_CHAR_LIMIT);
+    if (content)
+      lines.push(`${pad}  ${entry.type}: ${content}`);
+  }
+}
+function summarizeToolError(error) {
+  if (!error)
+    return;
+  return truncateText2(compactWhitespace2(error), VALUE_SUMMARY_CHAR_LIMIT);
+}
+function isTerminalStatus(status) {
+  return status === "success" || status === "warning" || status === "error";
+}
+function formatToolDuration(block) {
+  const elapsed = block.updatedAt - block.createdAt;
+  return elapsed > 0 ? formatDuration(elapsed) : "";
+}
+function formatDuration(ms) {
+  if (ms < 1000)
+    return `${ms}ms`;
+  const seconds = ms / 1000;
+  return `${seconds < 10 ? seconds.toFixed(1) : seconds.toFixed(0)}s`;
+}
+function limitTraceSection(text) {
+  return truncateText2(text, TRACE_SECTION_CHAR_LIMIT, `
+... trace truncated ...`);
+}
+function truncateText2(text, maxChars, suffix = "...") {
+  const chars = Array.from(text);
+  if (chars.length <= maxChars)
+    return text;
+  const suffixChars = Array.from(suffix);
+  return `${chars.slice(0, Math.max(0, maxChars - suffixChars.length)).join("")}${suffix}`;
+}
+function compactWhitespace2(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+function indentText(level) {
+  return "  ".repeat(level);
+}
+function indentMultiline(text, level) {
+  const pad = indentText(level);
+  return text.split(`
+`).map((line) => `${pad}${line}`).join(`
+`);
+}
+function stableStringify(value) {
+  return JSON.stringify(sortJsonValue(value)) ?? String(value);
+}
+function sortJsonValue(value) {
+  if (Array.isArray(value))
+    return value.map(sortJsonValue);
+  if (value && typeof value === "object") {
+    const record = value;
+    const sorted = {};
+    for (const key of Object.keys(record).sort()) {
+      sorted[key] = sortJsonValue(record[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
 // src/index.ts
 var logger5 = createExtensionLogger("TelegramExtension", "Telegram");
 var STREAM_THROTTLE_MS = 1500;
@@ -10200,10 +10946,13 @@ ${preview}`;
     this.backendListenersReady = true;
     this.backend.on("tool:execute", (sid, handle) => {
       autoApproveHandle(handle);
-      if (!this.showToolStatus)
-        return;
       const cs = this.findChatStateBySid(sid);
-      if (!cs?.stream || cs.stopped)
+      if (!cs || cs.stopped)
+        return;
+      if (this.showToolStatus) {
+        this.bindTraceToolHandle(cs, handle);
+      }
+      if (!this.showToolStatus || !cs.stream || cs.stream.kind !== "edit")
         return;
       handle.on("done", () => {
         if (!cs.stream)
@@ -10258,7 +11007,7 @@ ${preview}`;
       const cs = this.findChatStateBySid(sid);
       if (!cs || cs.stopped)
         return;
-      if (this.appendTraceParts(cs, parts) && cs.stream) {
+      if (this.appendTraceParts(cs, parts) && cs.stream?.kind === "draft") {
         this.scheduleStreamUpdate(cs);
       }
     });
@@ -10344,14 +11093,30 @@ ${preview}`;
   appendTraceParts(cs, parts) {
     if (!cs.turnTrace)
       return false;
-    let changed = false;
-    for (const part of parts) {
-      if (!isThoughtTextPart(part) || !part.text)
-        continue;
-      cs.turnTrace.thoughtText += part.text;
-      changed = true;
-    }
-    return changed;
+    return cs.turnTrace.appendParts(parts, { includeTools: this.showToolStatus });
+  }
+  bindTraceToolHandle(cs, handle) {
+    const trace = cs.turnTrace;
+    if (!trace)
+      return;
+    trace.bindToolHandle(handle);
+    const refreshTrace = () => {
+      if (cs.turnTrace !== trace)
+        return;
+      trace.updateToolHandle(handle);
+      if (cs.stream?.kind === "draft")
+        this.scheduleStreamUpdate(cs);
+    };
+    handle.on("state", () => refreshTrace());
+    handle.on("progress", () => refreshTrace());
+    handle.on("output", () => refreshTrace());
+    handle.on("done", () => refreshTrace());
+    handle.on("child", (childHandle) => {
+      if (cs.turnTrace !== trace)
+        return;
+      this.bindTraceToolHandle(cs, childHandle);
+      refreshTrace();
+    });
   }
   scheduleStreamUpdate(cs) {
     if (!cs.stream || cs.stream.finalized)
@@ -10529,14 +11294,7 @@ ${preview}`;
 ${content}`;
   }
   buildTraceSections(cs) {
-    const thoughtText = cs.turnTrace?.thoughtText.trim();
-    if (!thoughtText)
-      return [];
-    return [{
-      title: "思考过程",
-      content: thoughtText,
-      format: "text"
-    }];
+    return cs.turnTrace?.toTraceSections() ?? [];
   }
   trackBotMessageGroup(cs, messageIds) {
     if (messageIds.length === 0)
@@ -10992,7 +11750,7 @@ ${list}`);
     cs.stopped = false;
     cs.sessionId = this.getSessionId(cs.target.chatKey);
     cs.target = message.session;
-    cs.turnTrace = { thoughtText: "" };
+    cs.turnTrace = new TelegramTurnTraceCollector;
     try {
       if (this.backend.isStreamEnabled()) {
         await this.initStream(cs, message);

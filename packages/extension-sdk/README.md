@@ -31,7 +31,7 @@ npm install irises-extension-sdk
 
 | 导入路径 | 用途 |
 |---------|------|
-| `irises-extension-sdk` | 主入口：平台适配器、消息类型、工具类型、日志、平台通用工具 |
+| `irises-extension-sdk` | 主入口：平台适配器、消息类型、工具类型、日志、平台通用工具、工具摘要 formatter |
 | `irises-extension-sdk/plugin` | 插件 API：`definePlugin`, `IrisPlugin`, `PluginContext` |
 | `irises-extension-sdk/pairing` | 配对模块：`PairingGuard`, `PairingStore` |
 | `irises-extension-sdk/utils` | 内部工具：路径处理、manifest 解析、远程操作 |
@@ -47,13 +47,16 @@ import {
   createExtensionLogger,
   definePlatformFactory,
   splitText,
-  autoApproveTools,
+  autoApproveHandle,
   formatToolStatusLine,
+  summarizeToolCall,
+  summarizeToolResult,
   detectImageMime,
   type IrisBackendLike,
   type IrisPlatformFactoryContextLike,
   type ImageInput,
   type ToolAttachment,
+  type ToolExecutionHandleLike,
 } from 'irises-extension-sdk';
 ```
 
@@ -84,10 +87,23 @@ class MyPlatform extends PlatformAdapter {
     this.backend.on('stream:start', (sid) => { /* 创建占位消息 */ });
     this.backend.on('stream:chunk', (sid, chunk) => { /* 更新消息 */ });
 
-    // 工具状态（可选）
-    this.backend.on('tool:update', (sid, invocations) => {
-      autoApproveTools(this.backend, invocations);
-      // 可选：用 formatToolStatusLine(inv) 展示工具状态
+    // 工具执行（可选）
+    this.backend.on('tool:execute', (sid, handle: ToolExecutionHandleLike) => {
+      autoApproveHandle(handle);
+
+      const snapshot = handle.getSnapshot();
+      const call = summarizeToolCall(handle.toolName, snapshot.args)?.text;
+      // 可选：用 formatToolStatusLine(handle) + call 展示工具开始状态
+
+      handle.on('state', (status) => {
+        // 可选：用 formatToolStatusLine({ toolName: handle.toolName, status }) 更新状态
+      });
+      handle.on('done', (result, error) => {
+        const summary = error
+          ? error
+          : summarizeToolResult(handle.toolName, snapshot.args, result)?.text;
+        // 可选：展示 summary
+      });
     });
 
     // 附件（可选）
@@ -123,7 +139,7 @@ export default createMyPlatform;
 | `done` | `(sessionId)` | 回合完成，释放并发锁、处理缓冲消息 |
 | `stream:start` | `(sessionId)` | 流式输出开始 |
 | `stream:chunk` | `(sessionId, chunk)` | 流式文本片段 |
-| `tool:update` | `(sessionId, invocations)` | 工具调用状态更新 |
+| `tool:execute` | `(sessionId, handle)` | 单个工具执行开始；后续状态、输出、子工具和结果通过 `ToolExecutionHandleLike` 事件获取 |
 | `attachments` | `(sessionId, attachments)` | 工具产生的附件（图片等） |
 | `assistant:content` | `(sessionId, content)` | 完整的 assistant 消息内容 |
 
@@ -150,8 +166,11 @@ const result = await this.backend.undo(sessionId);  // 可能 TypeError
 | 函数 | 说明 |
 |------|------|
 | `splitText(text, maxLen)` | 将文本按最大长度分段，优先在换行处切分 |
-| `autoApproveTools(backend, invocations)` | 自动批准所有 awaiting_approval 状态的工具调用 |
+| `autoApproveHandle(handle)` | 自动批准单个 awaiting_approval 状态的工具执行 |
 | `formatToolStatusLine(inv, options?)` | 格式化工具状态行（如 "🔧 read_file 执行中"） |
+| `summarizeToolCall(toolName, args?)` | 生成平台无关的工具调用参数摘要 |
+| `summarizeToolResult(toolName, args, result)` | 生成平台无关的工具结果摘要 |
+| `summarizeToolProgress(toolName, args, progress)` | 生成平台无关的工具进度摘要 |
 | `detectImageMime(buffer)` | 根据文件头魔术字节检测图片 MIME 类型 |
 | `getPlatformConfig(context, name)` | 从上下文中提取指定平台的配置 |
 

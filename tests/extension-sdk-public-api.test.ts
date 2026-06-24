@@ -7,6 +7,7 @@ import {
   ENVIRONMENT_CONTEXT_SERVICE_ID,
   SCHEDULER_SERVICE_ID,
   WEATHER_SERVICE_ID,
+  summarizeToolCall,
   type IrisBackendLike,
 } from '../packages/extension-sdk/src';
 import {
@@ -94,5 +95,9 @@ describe('extension sdk public api', () => {
   it('应导出 console integration service ids', () => {
     expect(CONSOLE_SETTINGS_TAB_SERVICE_ID).toBe('console:settings-tab');
     expect(CONSOLE_TOOL_DISPLAY_SERVICE_ID).toBe('console:tool-display');
+  });
+
+  it('应导出平台无关的工具摘要 formatter', () => {
+    expect(summarizeToolCall('shell', { command: 'npm test' })?.text).toBe('npm test');
   });
 });

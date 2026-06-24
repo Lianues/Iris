@@ -21,11 +21,11 @@ import {
   type ImageInput,
   type IrisAPI,
   type IrisBackendLike,
-  isThoughtTextPart,
   type Content,
   type Part,
   type PlatformDeliveryProvider,
   type ToolAttachment,
+  type ToolExecutionHandleLike,
 } from 'irises-extension-sdk';
 import { TelegramClient } from './client';
 import { TelegramCommandRouter } from './commands';
@@ -33,6 +33,7 @@ import { TelegramMediaService } from './media';
 import { TelegramMessageBuilder, formatTelegramToolLine } from './message-builder';
 import { TelegramMessageHandler } from './message-handler';
 import { renderTelegramDraftTurn, renderTelegramRichTurn, type TelegramTraceSection } from './rich-message';
+import { TelegramTurnTraceCollector } from './turn-trace';
 import {
   ParsedTelegramMessage,
   TelegramConfig,
@@ -87,10 +88,6 @@ interface TelegramStreamState {
   finalized: boolean;
 }
 
-interface TelegramTurnTraceState {
-  thoughtText: string;
-}
-
 interface TelegramBotMessageGroup {
   messageIds: number[];
 }
@@ -112,7 +109,7 @@ interface TelegramChatState {
    */
   botMessageGroups: TelegramBotMessageGroup[];
   /** 当前 turn 的 Telegram 展示 trace，只用于渲染，不写入 Backend 历史。 */
-  turnTrace: TelegramTurnTraceState | null;
+  turnTrace: TelegramTurnTraceCollector | null;
   /** 流式输出状态，非流式模式时为 null */
   stream: TelegramStreamState | null;
 }
@@ -379,12 +376,17 @@ export class TelegramPlatform extends PlatformAdapter {
     if (this.backendListenersReady) return;
     this.backendListenersReady = true;
     // ---- 工具状态 ----
-    this.backend.on('tool:execute' as any, (sid: string, handle: any) => {
+    this.backend.on('tool:execute' as any, (sid: string, handle: ToolExecutionHandleLike) => {
       autoApproveHandle(handle);
 
-      if (!this.showToolStatus) return;
       const cs = this.findChatStateBySid(sid);
-      if (!cs?.stream || cs.stopped) return;
+      if (!cs || cs.stopped) return;
+
+      if (this.showToolStatus) {
+        this.bindTraceToolHandle(cs, handle);
+      }
+
+      if (!this.showToolStatus || !cs.stream || cs.stream.kind !== 'edit') return;
 
       // 完成时固化状态行
       handle.on('done', () => {
@@ -448,7 +450,7 @@ export class TelegramPlatform extends PlatformAdapter {
     this.backend.on('stream:parts', (sid: string, parts: Part[]) => {
       const cs = this.findChatStateBySid(sid);
       if (!cs || cs.stopped) return;
-      if (this.appendTraceParts(cs, parts) && cs.stream) {
+      if (this.appendTraceParts(cs, parts) && cs.stream?.kind === 'draft') {
         this.scheduleStreamUpdate(cs);
       }
     });
@@ -552,16 +554,32 @@ export class TelegramPlatform extends PlatformAdapter {
     return draftId === 0 ? 1 : draftId;
   }
 
-  /** 收集 thought part 仅用于 Telegram 展示层，不写入 Backend 对话历史或 undo 栈。 */
+  /** 收集 trace part 仅用于 Telegram 展示层，不写入 Backend 对话历史或 undo 栈。 */
   private appendTraceParts(cs: TelegramChatState, parts: Part[]): boolean {
     if (!cs.turnTrace) return false;
-    let changed = false;
-    for (const part of parts) {
-      if (!isThoughtTextPart(part) || !part.text) continue;
-      cs.turnTrace.thoughtText += part.text;
-      changed = true;
-    }
-    return changed;
+    return cs.turnTrace.appendParts(parts, { includeTools: this.showToolStatus });
+  }
+
+  private bindTraceToolHandle(cs: TelegramChatState, handle: ToolExecutionHandleLike): void {
+    const trace = cs.turnTrace;
+    if (!trace) return;
+
+    trace.bindToolHandle(handle);
+    const refreshTrace = () => {
+      if (cs.turnTrace !== trace) return;
+      trace.updateToolHandle(handle);
+      if (cs.stream?.kind === 'draft') this.scheduleStreamUpdate(cs);
+    };
+
+    handle.on('state', () => refreshTrace());
+    handle.on('progress', () => refreshTrace());
+    handle.on('output', () => refreshTrace());
+    handle.on('done', () => refreshTrace());
+    handle.on('child', (childHandle) => {
+      if (cs.turnTrace !== trace) return;
+      this.bindTraceToolHandle(cs, childHandle);
+      refreshTrace();
+    });
   }
 
   private scheduleStreamUpdate(cs: TelegramChatState): void {
@@ -764,13 +782,7 @@ export class TelegramPlatform extends PlatformAdapter {
   }
 
   private buildTraceSections(cs: TelegramChatState): TelegramTraceSection[] {
-    const thoughtText = cs.turnTrace?.thoughtText.trim();
-    if (!thoughtText) return [];
-    return [{
-      title: '思考过程',
-      content: thoughtText,
-      format: 'text',
-    }];
+    return cs.turnTrace?.toTraceSections() ?? [];
   }
 
   /** 将一个 Backend turn 对应的一组 Telegram 消息压入 undo 栈。 */
@@ -1328,7 +1340,7 @@ export class TelegramPlatform extends PlatformAdapter {
     cs.stopped = false;
     cs.sessionId = this.getSessionId(cs.target.chatKey);
     cs.target = message.session;
-    cs.turnTrace = { thoughtText: '' };
+    cs.turnTrace = new TelegramTurnTraceCollector();
 
     try {
       // 流式模式先建立 Telegram 展示状态。

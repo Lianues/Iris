@@ -23,7 +23,7 @@
             "key": "outputFormat",
             "type": "text",
             "label": "输出格式",
-            "description": "可选：rich 或 plain。rich 使用 Telegram Rich Messages。",
+            "description": "可选：rich 或 plain。rich 使用 Telegram Rich Messages，并支持折叠 trace。",
             "defaultValue": "rich"
           },
           {

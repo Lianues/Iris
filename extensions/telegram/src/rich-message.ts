@@ -13,7 +13,7 @@ const TELEGRAM_RICH_MESSAGE_MAX_CHARS = 32768;
 export interface TelegramTraceSection {
   /** 展示在 <summary> 中的折叠区标题。 */
   title: string;
-  /** trace 原文；当前阶段只承载思考文本，后续可扩展工具调用等展示信息。 */
+  /** trace 原文；由平台层聚合思考、工具调用、工具输出等展示信息。 */
   content: string;
   /** Telegram <details> 是否默认展开。默认折叠，避免 trace 压住正文。 */
   defaultOpen?: boolean;

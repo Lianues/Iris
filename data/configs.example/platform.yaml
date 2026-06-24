@@ -35,7 +35,7 @@ telegram:
   # 该平台由可选 extension extensions/telegram/ 提供；发行包默认不内嵌，使用前先执行 iris ext install telegram
   token: your-telegram-bot-token
   # 最终回复格式：
-  #   rich  = 使用 Telegram Rich Message，支持表格、折叠 trace 等（默认）
+  #   rich  = 使用 Telegram Rich Message，支持表格、折叠 trace（思考/工具过程）等（默认）
   #   plain = 使用普通纯文本消息
   # outputFormat: rich
   # 流式展示策略：
@@ -44,7 +44,7 @@ telegram:
   #   edit  = 使用 sendMessage + editMessageText 预览
   #   off   = 不发送流式预览，只在完成后发送最终回复
   # streamMode: auto
-  # 是否在流式回复中展示工具执行状态（默认 true）
+  # 是否在 rich trace / 流式预览中展示工具执行状态（默认 true）
   # showToolStatus: false
   # 群聊中是否要求 @机器人 后才响应（默认 true）
   # groupMentionRequired: true

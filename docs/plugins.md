@@ -756,7 +756,7 @@ ctx.onReady((api) => {
 | `stream:parts` | `(sessionId, parts)` | 流式结构化 part 增量 |
 | `stream:chunk` | `(sessionId, chunk)` | 流式文本块 |
 | `stream:end` | `(sessionId, usage?)` | 流式输出结束 |
-| `tool:update` | `(sessionId, invocations)` | 工具状态变化 |
+| `tool:execute` | `(sessionId, handle)` | 单个工具执行开始；后续状态、输出、子工具和结果通过 handle 事件获取 |
 | `error` | `(sessionId, error)` | 当前回合出错 |
 | `usage` | `(sessionId, usage)` | LLM token 用量 |
 | `retry` | `(sessionId, attempt, maxRetries, error)` | LLM 调用重试 |
@@ -768,7 +768,7 @@ ctx.onReady((api) => {
 
 其中最常用的是：
 
-- `tool:update`：观察工具执行进度
+- `tool:execute`：观察工具执行进度，并通过 `ToolExecutionHandle` 获取单个工具的状态、输出和结果
 - `assistant:content`：拿到最终结构化内容
 - `usage` / `user:token`：做统计或计费
 - `done` / `error`：做回合级审计

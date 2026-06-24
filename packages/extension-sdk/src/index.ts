@@ -312,3 +312,15 @@ export {
 export type {
   ToolInvocationInfo,
 } from './platform-utils.js';
+
+export {
+  summarizeToolCall,
+  summarizeToolProgress,
+  summarizeToolResult,
+} from './tool-summary.js';
+
+export type {
+  ToolSummary,
+  ToolSummarySegment,
+  ToolSummaryTone,
+} from './tool-summary.js';
