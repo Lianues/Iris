@@ -767,7 +767,7 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     types: [] as string[],
     web: { port: '', host: '', authToken: '', managementToken: '' },
     discord: { token: '' },
-    telegram: { token: '', showToolStatus: false, groupMentionRequired: false },
+    telegram: { token: '', outputFormat: 'rich', streamMode: 'auto', showToolStatus: false, groupMentionRequired: false },
     wxwork: { botId: '', secret: '', showToolStatus: false },
     lark: { appId: '', appSecret: '', verificationToken: '', encryptKey: '', showToolStatus: false },
     qq: { wsUrl: '', accessToken: '', selfId: '', groupMode: 'at' as string, showToolStatus: false },
@@ -789,6 +789,8 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     p.discord = discord
     // Telegram
     const telegram: Record<string, any> = {
+      outputFormat: platformConfig.telegram.outputFormat || null,
+      streamMode: platformConfig.telegram.streamMode || null,
       showToolStatus: platformConfig.telegram.showToolStatus,
       groupMentionRequired: platformConfig.telegram.groupMentionRequired,
     }
@@ -1141,7 +1143,7 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
     platformConfig.types = []
     platformConfig.web = { port: '', host: '', authToken: '', managementToken: '' }
     platformConfig.discord = { token: '' }
-    platformConfig.telegram = { token: '', showToolStatus: false, groupMentionRequired: false }
+    platformConfig.telegram = { token: '', outputFormat: 'rich', streamMode: 'auto', showToolStatus: false, groupMentionRequired: false }
     platformConfig.wxwork = { botId: '', secret: '', showToolStatus: false }
     platformConfig.lark = { appId: '', appSecret: '', verificationToken: '', encryptKey: '', showToolStatus: false }
     platformConfig.qq = { wsUrl: '', accessToken: '', selfId: '', groupMode: 'at', showToolStatus: false }
@@ -1276,6 +1278,8 @@ export function useSettingsPanel(options: UseSettingsPanelOptions) {
           if (pl.discord) platformConfig.discord.token = pl.discord.token || ''
           if (pl.telegram) {
             platformConfig.telegram.token = pl.telegram.token || ''
+            platformConfig.telegram.outputFormat = pl.telegram.outputFormat || 'rich'
+            platformConfig.telegram.streamMode = pl.telegram.streamMode || 'auto'
             platformConfig.telegram.showToolStatus = !!pl.telegram.showToolStatus
             platformConfig.telegram.groupMentionRequired = !!pl.telegram.groupMentionRequired
           }

@@ -184,7 +184,7 @@ describe('Telegram Phase 5: Undo/Redo', () => {
 
     await (platform as any).handleMessage(makeCtx('Test'));
     const cs = (platform as any).getChatState({ chatKey: 'dm:3001' } as any);
-    cs.botMessageIdStack = [888];
+    cs.botMessageGroups = [{ messageIds: [888] }];
     cs.busy = false;
 
     await (platform as any).handleMessage(makeCtx('/undo'));
@@ -195,7 +195,7 @@ describe('Telegram Phase 5: Undo/Redo', () => {
     expect(edited).toHaveLength(1);
     expect(edited[0].id).toBe(888);
     expect(edited[0].text).toContain('已撤销');
-    expect(cs.botMessageIdStack).toHaveLength(0);
+    expect(cs.botMessageGroups).toHaveLength(0);
   });
 
   it('执行 /redo 时恢复上一轮的用户输入', async () => {
@@ -219,6 +219,7 @@ describe('Telegram Phase 5: Undo/Redo', () => {
 
     (platform as any).client = {
       sendMessageReturningId: vi.fn(async () => 999),
+      sendRichMessageReturningId: vi.fn(async () => 999),
     };
 
     let seq = 200;
@@ -235,7 +236,10 @@ describe('Telegram Phase 5: Undo/Redo', () => {
     await (platform as any).handleMessage(makeCtx('/redo'));
 
     expect(backend.redoCalls).toHaveLength(1);
-    expect((platform as any).client.sendMessageReturningId).toHaveBeenCalledTimes(1);
-    expect((platform as any).client.sendMessageReturningId).toHaveBeenLastCalledWith(expect.anything(), 'Redo answer');
+    expect((platform as any).client.sendRichMessageReturningId).toHaveBeenCalledTimes(1);
+    expect((platform as any).client.sendRichMessageReturningId).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ markdown: 'Redo answer' }),
+    );
   });
 });

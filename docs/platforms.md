@@ -284,9 +284,10 @@ Telegram 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensi
 
 | 项目 | 说明 |
 |------|------|
-| 构造参数 | `(backend, { token, showToolStatus?, groupMentionRequired? })` |
+| 构造参数 | `(backend, { token, outputFormat?, streamMode?, showToolStatus?, groupMentionRequired? })` |
 | sessionId | 私聊：`telegram-dm-{chatId}`；群聊：`telegram-group-{chatId}`；话题：`telegram-group-{chatId}-thread-{threadId}` |
-| 流式支持 | 支持，通过 `sendMessage` + `editMessageText` 实现实时流式编辑，1500ms 节流 |
+| 输出格式 | `outputFormat: rich` 使用 Telegram Rich Message（默认），`plain` 使用普通纯文本 |
+| 流式支持 | `streamMode: auto` 默认私聊使用官方 private draft、群聊使用 legacy edit；也可设为 `draft` / `edit` / `off` |
 | 工具状态 | 通过 `tool:update` 事件实时展示工具执行进度 |
 | 并发控制 | 每个 chatKey 同一时间只处理一条消息（busy 锁） |
 | 消息缓冲 | AI 输出期间用户新消息暂存到缓冲区，完成后自动合并发送 |

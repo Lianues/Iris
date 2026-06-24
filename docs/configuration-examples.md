@@ -143,6 +143,10 @@ discord:
 # telegram 为可选 extension，使用前先执行 iris ext install telegram
 telegram:
   token: your-telegram-bot-token
+  # outputFormat: rich   # rich | plain
+  # streamMode: auto     # auto | draft | edit | off
+  # showToolStatus: false
+  # groupMentionRequired: true
 
 # lark 为可选 extension，使用前先执行 iris ext install lark
 lark:
