@@ -134,6 +134,17 @@ export class TelegramClient {
   }
 
   /**
+   * 发送短生命周期的 typing 状态。
+   *
+   * Bot API 会在最多 5 秒后自动清除此状态，且 bot 发出实际消息时也会清除；
+   * 因此这里只封装单次 API 调用，长耗时回合的刷新节奏由平台状态机统一管理。
+   */
+  async sendTyping(target: TelegramSessionTarget): Promise<void> {
+    const extra = this.buildThreadExtra(target);
+    await this.bot.api.sendChatAction(target.chatId, 'typing', extra);
+  }
+
+  /**
    * 发送带 inline keyboard 的消息，返回 message_id。
    * 用于 /model、/session、/mode 命令的列表展示。
    */

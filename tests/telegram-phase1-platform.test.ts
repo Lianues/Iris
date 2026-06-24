@@ -41,6 +41,7 @@ describe('Telegram Phase 1.3: platform concurrency', () => {
         sentMessages.push(text);
         return [999];
       }),
+      sendTyping: vi.fn(async () => undefined),
     };
 
     // 第一条消息

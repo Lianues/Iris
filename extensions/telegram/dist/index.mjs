@@ -9985,6 +9985,10 @@ class TelegramClient {
     const extra = this.buildThreadExtra(target);
     await this.bot.api.sendRichMessageDraft(target.chatId, draftId, richMessage, extra);
   }
+  async sendTyping(target) {
+    const extra = this.buildThreadExtra(target);
+    await this.bot.api.sendChatAction(target.chatId, "typing", extra);
+  }
   async sendMessageWithKeyboard(target, text, keyboard) {
     const extra = {
       reply_markup: { inline_keyboard: keyboard }
@@ -10720,6 +10724,7 @@ function sortJsonValue(value) {
 // src/index.ts
 var logger5 = createExtensionLogger("TelegramExtension", "Telegram");
 var STREAM_THROTTLE_MS = 1500;
+var TYPING_REFRESH_MS = 4000;
 var UNSUPPORTED_MEDIA_NOTICE = "当前阶段暂不支持直接处理图片、文件或语音消息，请附带文字说明后再次发送。";
 var BUFFERED_NOTICE = `\uD83D\uDCE5 消息已暂存，等 AI 回复结束后自动发送。
 发送 /flush 可立即处理，/stop 可中止当前回复。`;
@@ -10828,6 +10833,7 @@ ${preview}`;
     for (const cs of this.chatStates.values()) {
       if (cs.stream?.throttleTimer)
         clearTimeout(cs.stream.throttleTimer);
+      this.stopTypingIndicator(cs);
     }
     this.chatStates.clear();
     this.messageDedup.clear();
@@ -10917,7 +10923,8 @@ ${preview}`;
         stopped: false,
         botMessageGroups: [],
         turnTrace: null,
-        stream: null
+        stream: null,
+        typingTimer: null
       };
       this.chatStates.set(target.chatKey, cs);
     }
@@ -11028,6 +11035,7 @@ ${preview}`;
       const cs = this.findChatStateBySid(sid);
       if (!cs || cs.stopped)
         return;
+      this.stopTypingIndicator(cs);
       if (cs.stream) {
         this.finalizeStream(cs, text).catch((err) => logger5.error("流式关闭失败:", err));
       } else {
@@ -11038,6 +11046,7 @@ ${preview}`;
       const cs = this.findChatStateBySid(sid);
       if (!cs)
         return;
+      this.stopTypingIndicator(cs);
       const errorText = this.messageBuilder.buildErrorText(errorMsg);
       if (cs.stream) {
         this.finalizeStream(cs, errorText).catch((err) => logger5.error("流式错误消息发送失败:", err));
@@ -11048,6 +11057,24 @@ ${preview}`;
     this.backend.on("done", (sid) => {
       this.handleDone(sid);
     });
+  }
+  startTypingIndicator(cs) {
+    if (cs.typingTimer)
+      return;
+    const sendTyping = () => {
+      this.client.sendTyping(cs.target).catch((err) => {
+        this.stopTypingIndicator(cs);
+        logger5.debug("Telegram typing 状态发送失败，已停止本回合 typing heartbeat:", err);
+      });
+    };
+    cs.typingTimer = setInterval(sendTyping, TYPING_REFRESH_MS);
+    sendTyping();
+  }
+  stopTypingIndicator(cs) {
+    if (!cs.typingTimer)
+      return;
+    clearInterval(cs.typingTimer);
+    cs.typingTimer = null;
   }
   async initStream(cs, message) {
     const kind = this.resolveStreamKind(cs);
@@ -11175,6 +11202,7 @@ ${preview}`;
     const stream = cs.stream;
     if (!stream || stream.finalized)
       return;
+    this.stopTypingIndicator(cs);
     stream.finalized = true;
     if (stream.throttleTimer) {
       clearTimeout(stream.throttleTimer);
@@ -11208,6 +11236,7 @@ ${preview}`;
     } catch (err) {
       logger5.error("Telegram 回合收尾失败:", err);
     } finally {
+      this.stopTypingIndicator(cs);
       if (cs.stream)
         this.cleanupStream(cs);
       cs.turnTrace = null;
@@ -11558,6 +11587,7 @@ ${content}`;
           return true;
         }
         cs.stopped = true;
+        this.stopTypingIndicator(cs);
         this.backend.abortChat(cs.sessionId);
         if (cs.stream) {
           const stopText = this.messageBuilder.buildAbortedText(cs.stream.buffer);
@@ -11573,6 +11603,7 @@ ${content}`;
         }
         if (cs.busy) {
           cs.stopped = true;
+          this.stopTypingIndicator(cs);
           this.backend.abortChat(cs.sessionId);
           if (cs.stream) {
             const stopText = this.messageBuilder.buildAbortedText(cs.stream.buffer);
@@ -11755,6 +11786,8 @@ ${list}`);
       if (this.backend.isStreamEnabled()) {
         await this.initStream(cs, message);
       }
+      if (this.backendListenersReady)
+        this.startTypingIndicator(cs);
       let images;
       let documents;
       if (this.mediaService.supportsInboundMedia()) {
@@ -11777,6 +11810,7 @@ ${list}`);
       await this.backend.chat(cs.sessionId, message.text, images, documents, "telegram");
     } catch (err) {
       logger5.error(`Telegram 回合分发失败 (session=${cs.sessionId}):`, err);
+      this.stopTypingIndicator(cs);
       this.cleanupStream(cs);
       cs.turnTrace = null;
       cs.busy = false;

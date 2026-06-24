@@ -288,6 +288,7 @@ Telegram 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensi
 | sessionId | 私聊：`telegram-dm-{chatId}`；群聊：`telegram-group-{chatId}`；话题：`telegram-group-{chatId}-thread-{threadId}` |
 | 输出格式 | `outputFormat: rich` 使用 Telegram Rich Message（默认），`plain` 使用普通纯文本 |
 | 流式支持 | `streamMode: auto` 默认私聊使用官方 private draft、群聊使用 legacy edit；也可设为 `draft` / `edit` / `off` |
+| 输入状态 | 回合执行期间通过 `sendChatAction('typing')` 周期刷新，最终回复、错误或 `done` 时停止 |
 | 工具状态 | 通过 `tool:execute` + `ToolExecutionHandle` 跟踪执行树；rich 模式会把思考、工具调用、输出和结果摘要聚合到折叠 trace |
 | 并发控制 | 每个 chatKey 同一时间只处理一条消息（busy 锁） |
 | 消息缓冲 | AI 输出期间用户新消息暂存到缓冲区，完成后自动合并发送 |

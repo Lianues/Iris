@@ -215,6 +215,22 @@ describe('Telegram rich client primitives', () => {
     )).rejects.toThrow('draft_id');
   });
 
+  it('发送 typing 状态时携带话题参数', async () => {
+    const client = new TelegramClient({ token: 'fake-token' });
+    const sendChatAction = vi.fn(async () => true);
+    (client as any).bot = { api: { sendChatAction } };
+
+    await client.sendTyping({
+      chatId: -1001,
+      chatKey: 'group:-1001:thread:42',
+      sessionId: 'telegram-group--1001-thread-42',
+      scope: 'group',
+      threadId: 42,
+    });
+
+    expect(sendChatAction).toHaveBeenCalledWith(-1001, 'typing', { message_thread_id: 42 });
+  });
+
   it('替换长纯文本时编辑首条并发送后续分片', async () => {
     const client = new TelegramClient({ token: 'fake-token' });
     const editMessageText = vi.fn(async () => true);
@@ -252,6 +268,77 @@ describe('Telegram rich client primitives', () => {
 });
 
 describe('Telegram platform rich output', () => {
+  it('回合执行期间刷新 typing 状态并在 done 后停止', async () => {
+    vi.useFakeTimers();
+    try {
+      const backend = new FakeBackend(false);
+      const platform = new TelegramPlatform(backend as any, {
+        token: 'bot-token',
+        groupMentionRequired: false,
+      });
+      (platform as any).setupBackendListeners();
+
+      const sendTyping = vi.fn(async () => undefined);
+      (platform as any).client = { sendTyping };
+
+      await (platform as any).handleMessage({
+        chat: { id: 9001, type: 'private' },
+        me: { username: 'iris_bot' },
+        message: { message_id: 90, text: '需要较长时间' },
+      });
+
+      const sid = backend.chats[0].sessionId;
+      expect(sendTyping).toHaveBeenCalledTimes(1);
+      expect(sendTyping).toHaveBeenLastCalledWith(expect.objectContaining({ chatId: 9001, scope: 'dm' }));
+
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(sendTyping).toHaveBeenCalledTimes(2);
+
+      backend.emit('done', sid);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(sendTyping).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('发送最终 response 前停止 typing heartbeat', async () => {
+    vi.useFakeTimers();
+    try {
+      const backend = new FakeBackend(false);
+      const platform = new TelegramPlatform(backend as any, {
+        token: 'bot-token',
+        groupMentionRequired: false,
+        outputFormat: 'plain',
+      });
+      (platform as any).setupBackendListeners();
+
+      const sendTyping = vi.fn(async () => undefined);
+      const sendTextReturningIds = vi.fn(async () => [91]);
+      (platform as any).client = { sendTyping, sendTextReturningIds };
+
+      await (platform as any).handleMessage({
+        chat: { id: 9002, type: 'private' },
+        me: { username: 'iris_bot' },
+        message: { message_id: 91, text: '最终回复前停止 typing' },
+      });
+
+      const sid = backend.chats[0].sessionId;
+      backend.emit('response', sid, '完成');
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      expect(sendTyping).toHaveBeenCalledTimes(1);
+      expect(sendTextReturningIds).toHaveBeenCalledOnce();
+
+      backend.emit('done', sid);
+      await Promise.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('非流式回复发送 rich message，trace 在正文前', async () => {
     const backend = new FakeBackend(false);
     const platform = new TelegramPlatform(backend as any, {
@@ -264,6 +351,7 @@ describe('Telegram platform rich output', () => {
     (platform as any).client = {
       sendRichMessageReturningId,
       sendMessageReturningId: vi.fn(async () => 999),
+      sendTyping: vi.fn(async () => undefined),
     };
 
     await (platform as any).handleMessage({
@@ -298,6 +386,7 @@ describe('Telegram platform rich output', () => {
     (platform as any).client = {
       sendRichMessageReturningId,
       sendMessageReturningId: vi.fn(async () => 999),
+      sendTyping: vi.fn(async () => undefined),
     };
 
     await (platform as any).handleMessage({
@@ -364,6 +453,7 @@ describe('Telegram platform rich output', () => {
           throw { error_code: 400, description: 'Bad Request: RICH_MESSAGE_PHOTO_NO_MEDIA_FOUND' };
         }),
         sendTextReturningIds,
+        sendTyping: vi.fn(async () => undefined),
       };
 
       await (platform as any).handleMessage({
@@ -410,6 +500,7 @@ describe('Telegram platform rich output', () => {
     (platform as any).client = {
       sendRichMessageDraft,
       sendRichMessageReturningId,
+      sendTyping: vi.fn(async () => undefined),
     };
 
     await (platform as any).handleMessage({
@@ -457,6 +548,7 @@ describe('Telegram platform rich output', () => {
     (platform as any).client = {
       sendRichMessageDraft,
       sendRichMessageReturningId,
+      sendTyping: vi.fn(async () => undefined),
     };
 
     await (platform as any).handleMessage({
@@ -533,6 +625,7 @@ describe('Telegram platform rich output', () => {
         throw { error_code: 400, description: 'Bad Request: RICH_MESSAGE_PHOTO_NO_MEDIA_FOUND' };
       }),
       sendTextReturningIds,
+      sendTyping: vi.fn(async () => undefined),
     };
 
     await (platform as any).handleMessage({
@@ -573,6 +666,7 @@ describe('Telegram platform rich output', () => {
       sendMessageReturningId,
       editText,
       editRichMessage,
+      sendTyping: vi.fn(async () => undefined),
     };
 
     await (platform as any).handleMessage({
@@ -618,6 +712,7 @@ describe('Telegram platform rich output', () => {
         throw { error_code: 400, description: 'Bad Request: RICH_MESSAGE_PHOTO_NO_MEDIA_FOUND' };
       }),
       replaceMessageTextReturningIds,
+      sendTyping: vi.fn(async () => undefined),
     };
 
     await (platform as any).handleMessage({

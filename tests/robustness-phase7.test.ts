@@ -155,6 +155,7 @@ describe('Telegram Phase 7: 消息去重', () => {
 
     (platform as any).client = {
       sendMessageReturningId: vi.fn(async () => 999),
+      sendTyping: vi.fn(async () => undefined),
     };
 
     const now = Math.floor(Date.now() / 1000);

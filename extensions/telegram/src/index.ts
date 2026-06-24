@@ -49,6 +49,8 @@ const logger = createExtensionLogger('TelegramExtension', 'Telegram');
 
 /** 流式编辑节流间隔（ms）。Telegram 对 editMessageText 有频率限制，1500ms 较安全。 */
 const STREAM_THROTTLE_MS = 1500;
+/** Telegram typing 状态最多维持 5 秒，4 秒刷新一次可避免长回合中断。 */
+const TYPING_REFRESH_MS = 4_000;
 
 const UNSUPPORTED_MEDIA_NOTICE = '当前阶段暂不支持直接处理图片、文件或语音消息，请附带文字说明后再次发送。';
 const BUFFERED_NOTICE = '📥 消息已暂存，等 AI 回复结束后自动发送。\n发送 /flush 可立即处理，/stop 可中止当前回复。';
@@ -112,6 +114,8 @@ interface TelegramChatState {
   turnTrace: TelegramTurnTraceCollector | null;
   /** 流式输出状态，非流式模式时为 null */
   stream: TelegramStreamState | null;
+  /** 当前 turn 的 sendChatAction('typing') 刷新定时器。 */
+  typingTimer: ReturnType<typeof setInterval> | null;
 }
 
 export class TelegramPlatform extends PlatformAdapter {
@@ -234,6 +238,7 @@ export class TelegramPlatform extends PlatformAdapter {
     // 清理所有节流定时器
     for (const cs of this.chatStates.values()) {
       if (cs.stream?.throttleTimer) clearTimeout(cs.stream.throttleTimer);
+      this.stopTypingIndicator(cs);
     }
     this.chatStates.clear();
     this.messageDedup.clear();
@@ -335,6 +340,7 @@ export class TelegramPlatform extends PlatformAdapter {
         botMessageGroups: [],
         turnTrace: null,
         stream: null,
+        typingTimer: null,
       };
       this.chatStates.set(target.chatKey, cs);
     }
@@ -474,6 +480,8 @@ export class TelegramPlatform extends PlatformAdapter {
       const cs = this.findChatStateBySid(sid);
       if (!cs || cs.stopped) return;
 
+      // Telegram 客户端会在收到 bot 消息后清掉 typing；这里先停 heartbeat，避免后续 interval 又重新点亮。
+      this.stopTypingIndicator(cs);
       if (cs.stream) {
         void this.finalizeStream(cs, text).catch((err) => logger.error('流式关闭失败:', err));
       } else {
@@ -486,6 +494,8 @@ export class TelegramPlatform extends PlatformAdapter {
     this.backend.on('error', (sid: string, errorMsg: string) => {
       const cs = this.findChatStateBySid(sid);
       if (!cs) return;
+      // 错误消息也是本回合的最终可见输出，发送前同样结束临时 typing 状态。
+      this.stopTypingIndicator(cs);
       const errorText = this.messageBuilder.buildErrorText(errorMsg);
       if (cs.stream) {
         void this.finalizeStream(cs, errorText).catch((err) => logger.error('流式错误消息发送失败:', err));
@@ -501,6 +511,34 @@ export class TelegramPlatform extends PlatformAdapter {
   }
 
   // ---- 流式辅助方法 ----
+
+  /**
+   * 启动 Telegram typing heartbeat。
+   *
+   * typing 是平台侧临时 UI 状态，不进入 Backend 历史，也不替代 Rich draft / legacy edit；
+   * 它只覆盖首 token、长工具调用、streamMode=off 等没有可见内容更新的空窗。
+   */
+  private startTypingIndicator(cs: TelegramChatState): void {
+    if (cs.typingTimer) return;
+
+    const sendTyping = () => {
+      void this.client.sendTyping(cs.target).catch((err) => {
+        // typing 失败通常是协议/权限/目标类型问题；停止辅助 heartbeat，但不影响主回复投递。
+        this.stopTypingIndicator(cs);
+        logger.debug('Telegram typing 状态发送失败，已停止本回合 typing heartbeat:', err);
+      });
+    };
+
+    cs.typingTimer = setInterval(sendTyping, TYPING_REFRESH_MS);
+    sendTyping();
+  }
+
+  /** 停止当前聊天的 typing heartbeat；所有回合收尾路径都调用它以保证幂等清理。 */
+  private stopTypingIndicator(cs: TelegramChatState): void {
+    if (!cs.typingTimer) return;
+    clearInterval(cs.typingTimer);
+    cs.typingTimer = null;
+  }
 
   /** 初始化流式状态。私聊 rich 使用官方 draft；其他场景使用 legacy edit 或静默收集。 */
   private async initStream(cs: TelegramChatState, message?: ParsedTelegramMessage): Promise<void> {
@@ -638,6 +676,8 @@ export class TelegramPlatform extends PlatformAdapter {
   private async finalizeStream(cs: TelegramChatState, text: string): Promise<void> {
     const stream = cs.stream;
     if (!stream || stream.finalized) return;
+    // 流式最终投递会产生真实消息或编辑占位消息，typing 状态必须先停止。
+    this.stopTypingIndicator(cs);
     stream.finalized = true;
     if (stream.throttleTimer) {
       clearTimeout(stream.throttleTimer);
@@ -676,6 +716,8 @@ export class TelegramPlatform extends PlatformAdapter {
     } catch (err) {
       logger.error('Telegram 回合收尾失败:', err);
     } finally {
+      // done 是最终兜底清理点，覆盖 abort、无 response、finalizeStream 失败等边界情况。
+      this.stopTypingIndicator(cs);
       if (cs.stream) this.cleanupStream(cs);
       cs.turnTrace = null;
       cs.busy = false;
@@ -1124,6 +1166,7 @@ export class TelegramPlatform extends PlatformAdapter {
           return true;
         }
         cs.stopped = true;
+        this.stopTypingIndicator(cs);
         this.backend.abortChat(cs.sessionId);
         if (cs.stream) {
           const stopText = this.messageBuilder.buildAbortedText(cs.stream.buffer);
@@ -1140,6 +1183,7 @@ export class TelegramPlatform extends PlatformAdapter {
         }
         if (cs.busy) {
           cs.stopped = true;
+          this.stopTypingIndicator(cs);
           this.backend.abortChat(cs.sessionId);
           if (cs.stream) {
             const stopText = this.messageBuilder.buildAbortedText(cs.stream.buffer);
@@ -1347,6 +1391,8 @@ export class TelegramPlatform extends PlatformAdapter {
       if (this.backend.isStreamEnabled()) {
         await this.initStream(cs, message);
       }
+      // 生产路径 start() 会先注册 Backend 监听；测试中直接调用 handleMessage 时避免启动无法自然停止的 timer。
+      if (this.backendListenersReady) this.startTypingIndicator(cs);
 
       // Phase 3：下载入站消息中的多媒体资源
       let images: ImageInput[] | undefined;
@@ -1370,6 +1416,7 @@ export class TelegramPlatform extends PlatformAdapter {
       await this.backend.chat(cs.sessionId, message.text, images, documents, 'telegram');
     } catch (err) {
       logger.error(`Telegram 回合分发失败 (session=${cs.sessionId}):`, err);
+      this.stopTypingIndicator(cs);
       this.cleanupStream(cs);
       cs.turnTrace = null;
       cs.busy = false;
