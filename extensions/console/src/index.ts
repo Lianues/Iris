@@ -1435,6 +1435,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
         onLoadSettings: () => this.handleLoadSettings(),
         onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => this.handleSaveSettings(snapshot),
         onResetConfig: () => this.handleResetConfig(),
+        onFetchAvailableModels: this.api?.fetchAvailableModels,
         onExit: () => {
           void this.stop({ restoreOnProcessExit: true }).then(() => {
             this.exitResolve?.('exit');

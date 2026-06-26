@@ -33,6 +33,7 @@ import {
   createEmptyModel,
 } from '../settings';
 import { getConsoleDiffApprovalViewDescription, supportsConsoleDiffApprovalViewSetting } from '../diff-approval';
+import type { ModelCatalogResultLike } from 'irises-extension-sdk';
 
 // 放宽为 string：插件可注册自定义 tab，section id 不再限于内置三个
 type SettingsSection = string;
@@ -98,6 +99,8 @@ interface SettingsViewProps {
   onSave: (snapshot: ConsoleSettingsSnapshot) => Promise<ConsoleSettingsSaveResult>;
   /** 插件注册的 Settings Tab 列表 */
   pluginTabs?: ConsoleSettingsTabDefinition[];
+  /** 拉取可用模型列表（传入 provider/apiKey/baseUrl，返回模型 ID 列表） */
+  onFetchAvailableModels?: (input: { provider: string; apiKey: string; baseUrl?: string }) => Promise<ModelCatalogResultLike>;
 }
 
 function getStatusColor(kind: StatusKind): string {
@@ -331,7 +334,7 @@ const BUILTIN_SECTIONS = [
 
 
 
-export function SettingsView({ initialSection = 'general', onBack, onLoad, onSave, pluginTabs }: SettingsViewProps) {
+export function SettingsView({ initialSection = 'general', onBack, onLoad, onSave, pluginTabs, onFetchAvailableModels }: SettingsViewProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -344,6 +347,12 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
   const [statusText, setStatusText] = useState('');
   const [statusKind, setStatusKind] = useState<StatusKind>('info');
   const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState(false);
+  const [modelPicker, setModelPicker] = useState<{
+    modelIndex: number;
+    models: { id: string; label: string }[];
+    filter: string;
+    highlightIndex: number;
+  } | null>(null);
 
   // ── 插件 tab 数据 ──────────────────────────────────────
   // 插件 tab 的配置值独立于内置 ConsoleSettingsSnapshot，各插件自带 onLoad/onSave。
@@ -836,6 +845,60 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
     setStatus(`已删除 MCP 草稿：${server.name || `server_${index + 1}`}（未保存）`, 'warning');
   }, [draft, selectedRow, setStatus, updateDraft]);
 
+  // ── 模型列表拉取 ──────────────────────────────────────
+
+  const handleFetchModels = useCallback(async (modelIndex: number) => {
+    if (!draft || !onFetchAvailableModels) {
+      setStatus('模型列表拉取功能不可用', 'error');
+      return;
+    }
+    const model = draft.models[modelIndex];
+    if (!model) return;
+    if (!model.apiKey) {
+      setStatus('请先填写该模型的 API Key 再拉取模型列表', 'warning');
+      return;
+    }
+    setStatus(`正在拉取 ${model.provider} 可用模型列表...`, 'info');
+    setModelPicker({ modelIndex, models: [], filter: '', highlightIndex: 0 });
+    try {
+      const result = await onFetchAvailableModels({
+        provider: model.provider,
+        apiKey: model.apiKey,
+        baseUrl: model.baseUrl || undefined,
+      });
+      const entries = (result.models ?? []).map((m) => ({
+        id: m.id,
+        label: (m as any).label || (m as any).displayName ? `${m.id} · ${(m as any).label || (m as any).displayName}` : m.id,
+      }));
+      if (entries.length === 0) {
+        setStatus('拉取到的模型列表为空', 'warning');
+        setModelPicker(null);
+        return;
+      }
+      setModelPicker({ modelIndex, models: entries, filter: '', highlightIndex: 0 });
+      setStatus(`已拉取 ${entries.length} 个模型，输入关键词过滤，↑↓ 选择，Enter 确认`, 'success');
+    } catch (err: unknown) {
+      setModelPicker(null);
+      setStatus(`拉取模型列表失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+    }
+  }, [draft, onFetchAvailableModels, setStatus]);
+
+  const submitModelPicker = useCallback(() => {
+    if (!modelPicker) return;
+    const filtered = modelPicker.models.filter((m) =>
+      m.id.toLowerCase().includes(modelPicker.filter.toLowerCase())
+      || m.label.toLowerCase().includes(modelPicker.filter.toLowerCase()),
+    );
+    const selected = filtered[modelPicker.highlightIndex] ?? filtered[0];
+    if (selected) {
+      updateDraft((snapshot: ConsoleSettingsSnapshot) => {
+        snapshot.models[modelPicker.modelIndex].modelId = selected.id;
+      });
+      setStatus(`已选择模型 ID: ${selected.id}，按 S 保存并热重载`, 'success');
+    }
+    setModelPicker(null);
+  }, [modelPicker, updateDraft, setStatus]);
+
   const switchSection = useCallback((direction: 1 | -1) => {
     if (sections.length === 0) return;
     const currentSectionIndex = Math.max(0, sections.findIndex((section) => section.id === currentSection));
@@ -852,6 +915,55 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
   }, [currentSection, sections, selectableRows]);
 
   useKeyboard((key) => {
+    // 模型选择器活动时：独立处理键盘事件
+    if (modelPicker) {
+      if (key.name === 'escape') {
+        setModelPicker(null);
+        setStatus('已取消模型选择', 'warning');
+        return;
+      }
+      if (key.name === 'enter' || key.name === 'return') {
+        submitModelPicker();
+        return;
+      }
+      if (key.name === 'up') {
+        setModelPicker((prev) => prev ? {
+          ...prev,
+          highlightIndex: Math.max(0, prev.highlightIndex - 1),
+        } : prev);
+        return;
+      }
+      if (key.name === 'down') {
+        setModelPicker((prev) => {
+          if (!prev) return prev;
+          const filtered = prev.models.filter((m) =>
+            m.id.toLowerCase().includes(prev.filter.toLowerCase())
+            || m.label.toLowerCase().includes(prev.filter.toLowerCase()),
+          );
+          return { ...prev, highlightIndex: Math.min(filtered.length - 1, prev.highlightIndex + 1) };
+        });
+        return;
+      }
+      if (key.name === 'backspace') {
+        setModelPicker((prev) => prev ? {
+          ...prev,
+          filter: prev.filter.slice(0, -1),
+          highlightIndex: 0,
+        } : prev);
+        return;
+      }
+      // 可打印字符：追加到 filter
+      if (key.name && key.name.length === 1 && /[a-zA-Z0-9 _\-.]/.test(key.name)) {
+        setModelPicker((prev) => prev ? {
+          ...prev,
+          filter: prev.filter + key.name,
+          highlightIndex: 0,
+        } : prev);
+        return;
+      }
+      return;
+    }
+
     // 编辑器活动时：仅处理 Esc 取消和 Enter 提交
     if (editor) {
       if (key.name === 'escape') {
@@ -943,6 +1055,16 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       return;
     }
     if (key.name === 'r') { void reloadSnapshot(); return; }
+    if (key.name === 'f') {
+      if (selectedRow?.target?.kind === 'modelField' && selectedRow.target.field === 'modelId') {
+        const modelIndex = selectedRow.target.modelIndex;
+        const model = draft?.models[modelIndex];
+        if (model && model.provider !== 'deepseek') {
+          void handleFetchModels(modelIndex);
+        }
+      }
+      return;
+    }
     if (key.name === 'a') {
       if (selectedRow?.section === 'mcp') handleAddMcpServer();
       else handleAddModel();
@@ -1031,7 +1153,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
   // 滚动窗口计算。
   // 顶部 LOGO 区域占 5 行（3 行文字 + paddingTop=1 + marginTop=1），
   // 加上底部信息栏，需要从终端高度中减去这些固定占用。
-  const listHeight = Math.max(10, termHeight - (editor ? 26 : 22));
+  const listHeight = Math.max(10, termHeight - (editor ? 26 : modelPicker ? 34 : 22));
   const selectedRowSectionIndex = Math.max(0, sectionRows.findIndex((row: SettingsRow) => row.id === selectedRowId));
   let windowStart = Math.max(0, selectedRowSectionIndex - Math.floor(listHeight / 2));
   let windowEnd = Math.min(sectionRows.length, windowStart + listHeight);
@@ -1148,9 +1270,42 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       <box flexDirection="column" marginTop={1} paddingX={2}>
         <text fg={C.dim}>{'─'.repeat(Math.max(3, termWidth - 4))}</text>
         <box flexDirection="column" minHeight={4}>
-          {selectedRow?.description && !editor && <text fg="#888">{selectedRow.description}</text>}
+          {selectedRow?.description && !editor && !modelPicker && <text fg="#888">{selectedRow.description}</text>}
           {statusText && <text fg={getStatusColor(statusKind)}>{statusText}</text>}
-          {editor ? (
+          {modelPicker ? (
+            <box flexDirection="column">
+              <text fg={C.accent}><strong>选择模型 ID</strong></text>
+              <box>
+                <text fg={C.accent}>{'\u276F '}</text>
+                <text fg="#888">{`搜索: ${modelPicker.filter || '(输入关键词过滤)'}`}</text>
+              </box>
+              <scrollbox maxHeight={8} flexGrow={1}>
+                {(() => {
+                  const filtered = modelPicker.models.filter((m) =>
+                    m.id.toLowerCase().includes(modelPicker.filter.toLowerCase())
+                    || m.label.toLowerCase().includes(modelPicker.filter.toLowerCase()),
+                  );
+                  if (filtered.length === 0) {
+                    return <text fg="#888">  没有匹配的模型</text>;
+                  }
+                  const maxVisible = 8;
+                  const start = Math.max(0, modelPicker.highlightIndex - Math.floor(maxVisible / 2));
+                  const end = Math.min(filtered.length, start + maxVisible);
+                  const adjustedStart = Math.max(0, end - maxVisible);
+                  return filtered.slice(adjustedStart, end).map((m, i) => {
+                    const realIndex = adjustedStart + i;
+                    const isHighlighted = realIndex === modelPicker.highlightIndex;
+                    return (
+                      <text key={m.id} fg={isHighlighted ? '#00ffff' : '#aaa'}>
+                        {isHighlighted ? '\u276F ' : '  '}{m.label}
+                      </text>
+                    );
+                  });
+                })()}
+              </scrollbox>
+              <text fg="#888">{`Enter 确认 ${ICONS.separator} Esc 取消 ${ICONS.separator} ↑↓ 导航 ${ICONS.separator} 输入文字过滤`}</text>
+            </box>
+          ) : editor ? (
             <box flexDirection="column">
               <text fg={C.accent}><strong>编辑：{editor.label}</strong></text>
               {editor.hint && <text fg="#888">{editor.hint}</text>}
@@ -1161,7 +1316,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
               <text fg="#888">{`Enter 保存 ${ICONS.separator} Esc 取消`}</text>
             </box>
           ) : (
-            <text fg="#888">{`${ICONS.arrowUp}${ICONS.arrowDown} 选择  ${ICONS.arrowLeft}${ICONS.arrowRight} 切换  1~${sections.length} 分栏  Space 开关  Enter 编辑/执行  A 新增  D 删除  S 保存  R 重载  Esc 返回`}</text>
+            <text fg="#888">{`${ICONS.arrowUp}${ICONS.arrowDown} 选择  ${ICONS.arrowLeft}${ICONS.arrowRight} 切换  1~${sections.length} 分栏  Space 开关  Enter 编辑/执行  A 新增  D 删除  S 保存  R 重载  Esc 返回${onFetchAvailableModels ? '  F 拉取模型' : ''}`}</text>
           )}
         </box>
       </box>

@@ -1,4 +1,4 @@
-import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolDiffPreviewResponseLike, Disposable } from 'irises-extension-sdk';
+import type { IrisModelInfoLike as LLMModelInfo, IrisSessionMetaLike as SessionMeta, ToolDiffPreviewResponseLike, Disposable, ModelCatalogResultLike } from 'irises-extension-sdk';
 import type { MemoryItem } from './components/MemoryListView';
 import type { SkillLoadReport } from './components/SkillListView';
 import type { ExtensionItem } from './components/ExtensionListView';
@@ -74,6 +74,8 @@ export interface AppProps {
   onLoadSettings: () => Promise<ConsoleSettingsSnapshot>;
   onSaveSettings: (snapshot: ConsoleSettingsSnapshot) => Promise<ConsoleSettingsSaveResult>;
   onResetConfig: () => Promise<{ success: boolean; message: string }>;
+  /** 拉取可用模型列表（传入 provider/apiKey/baseUrl，返回模型 ID 列表） */
+  onFetchAvailableModels?: (input: { provider: string; apiKey: string; baseUrl?: string }) => Promise<ModelCatalogResultLike>;
   onExit: () => void;
   /** 关闭当前 TUI，但请求宿主保留 Core / IPC 后台运行。 */
   onEnterHeadless?: () => void;

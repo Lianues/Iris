@@ -149,6 +149,7 @@ export function App({
   onLoadSettings,
   onSaveSettings,
   onResetConfig,
+  onFetchAvailableModels,
   onExit,
   onEnterHeadless,
   supportsHeadlessTransition,
@@ -806,6 +807,7 @@ export function App({
         onLoad={onLoadSettings}
         onSave={onSaveSettings}
         pluginTabs={activePluginSettingsTabs}
+        onFetchAvailableModels={onFetchAvailableModels}
       />
     );
   }
