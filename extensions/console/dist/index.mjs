@@ -4707,6 +4707,7 @@ function ThinkingIndicator({ level, providerLevels, showHint, isRemote, thinking
 }
 
 // src/components/BottomPanel.tsx
+init_terminal_compat();
 import { jsxDEV as jsxDEV14 } from "@opentui/react/jsx-dev-runtime";
 function BottomPanel({
   hasMessages,
@@ -4757,7 +4758,8 @@ function BottomPanel({
   supportsHeadlessTransition,
   inputControllerRef,
   restoreInputText,
-  onRestoreInputConsumed
+  onRestoreInputConsumed,
+  chatScrolledUp
 }) {
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
   const [inputOverlayActive, setInputOverlayActive] = React6.useState(false);
@@ -4801,6 +4803,28 @@ function BottomPanel({
             onDraftChange: onNoteEditorDraftChange
           }, undefined, false, undefined, this) : showNotePreview ? /* @__PURE__ */ jsxDEV14(NotePanel, {
             content: noteContent ?? ""
+          }, undefined, false, undefined, this) : null,
+          chatScrolledUp ? /* @__PURE__ */ jsxDEV14("box", {
+            flexDirection: "row",
+            justifyContent: "center",
+            width: "100%",
+            height: 1,
+            children: /* @__PURE__ */ jsxDEV14("text", {
+              children: [
+                /* @__PURE__ */ jsxDEV14("span", {
+                  fg: C.primaryLight,
+                  children: ICONS.downArrow
+                }, undefined, false, undefined, this),
+                /* @__PURE__ */ jsxDEV14("span", {
+                  fg: C.dim,
+                  children: " ctrl+↓ 回到最新 "
+                }, undefined, false, undefined, this),
+                /* @__PURE__ */ jsxDEV14("span", {
+                  fg: C.primaryLight,
+                  children: ICONS.downArrow
+                }, undefined, false, undefined, this)
+              ]
+            }, undefined, true, undefined, this)
           }, undefined, false, undefined, this) : null,
           /* @__PURE__ */ jsxDEV14("box", {
             flexDirection: "column",
@@ -12547,6 +12571,14 @@ function useAppKeyboard({
       onOpenToolDetail("");
       return;
     }
+    if (key.ctrl && key.name === "down" && viewMode === "chat" && !pendingConfirm && !askQuestionActive && pendingApprovals.length === 0 && pendingApplies.length === 0) {
+      const sb = chatScrollBoxRef?.current;
+      if (sb) {
+        sb.scrollTop = sb.scrollHeight;
+      }
+      key.preventDefault?.();
+      return;
+    }
     if (viewMode === "settings")
       return;
     if (viewMode === "tool-detail")
@@ -14688,6 +14720,19 @@ function App({
     return () => disposable.dispose();
   }, [inputService]);
   const chatScrollBoxRef = useRef11(null);
+  const [chatScrolledUp, setChatScrolledUp] = useState19(false);
+  useEffect16(() => {
+    const timer = setInterval(() => {
+      const sb = chatScrollBoxRef.current;
+      if (!sb) {
+        setChatScrolledUp(false);
+        return;
+      }
+      const maxScrollTop = Math.max(0, sb.scrollHeight - sb.viewport.height);
+      setChatScrolledUp(maxScrollTop > 0 && sb.scrollTop < maxScrollTop - 1);
+    }, 200);
+    return () => clearInterval(timer);
+  }, []);
   const messageQueue = useMessageQueue();
   const drainCallbackRef = useRef11(null);
   drainCallbackRef.current = () => {
@@ -15298,7 +15343,8 @@ function App({
         supportsHeadlessTransition,
         inputControllerRef: promptInputControllerRef,
         restoreInputText: pendingInputRestore,
-        onRestoreInputConsumed: () => setPendingInputRestore(null)
+        onRestoreInputConsumed: () => setPendingInputRestore(null),
+        chatScrolledUp
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);

@@ -346,6 +346,21 @@ export function App({
   // ── 聊天滚动区域 ref（供 F6 复制模式键盘滚动使用）──
   const chatScrollBoxRef = useRef<any>(null);
 
+  // ── 查看栏滚动位置检测 ──────────────────────────────────
+  // 定期检测聊天查看栏是否不在底部，用于显示 "ctrl+↓ 回到最新" 提示。
+  // scrollbox 没有公开的 onScroll 事件，用轻量轮询（200ms）检测 scrollTop 变化。
+  const [chatScrolledUp, setChatScrolledUp] = useState(false);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const sb = chatScrollBoxRef.current;
+      if (!sb) { setChatScrolledUp(false); return; }
+      const maxScrollTop = Math.max(0, sb.scrollHeight - sb.viewport.height);
+      // maxScrollTop === 0 表示内容不足以滚动，不算"不在底部"
+      setChatScrolledUp(maxScrollTop > 0 && sb.scrollTop < maxScrollTop - 1);
+    }, 200);
+    return () => clearInterval(timer);
+  }, []);
+
   // ── 消息队列 ────────────────────────────────────────────
   const messageQueue = useMessageQueue();
 
@@ -1031,6 +1046,7 @@ export function App({
         inputControllerRef={promptInputControllerRef}
         restoreInputText={pendingInputRestore}
         onRestoreInputConsumed={() => setPendingInputRestore(null)}
+        chatScrolledUp={chatScrolledUp}
       />
     </box>
   );

@@ -551,6 +551,18 @@ export function useAppKeyboard({
       return;
     }
 
+    // Ctrl+↓：查看栏滚动回最底部（仅在聊天主视图且无面板接管键盘时）
+    if (key.ctrl && key.name === 'down' && viewMode === 'chat'
+      && !pendingConfirm && !askQuestionActive
+      && pendingApprovals.length === 0 && pendingApplies.length === 0) {
+      const sb = chatScrollBoxRef?.current;
+      if (sb) {
+        sb.scrollTop = sb.scrollHeight;
+      }
+      key.preventDefault?.();
+      return;
+    }
+
     if (viewMode === 'settings') return;
 
     // tool-detail 视图由 ToolDetailView 组件自身处理键盘（useKeyboard），此处不拦截

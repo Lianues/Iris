@@ -18,6 +18,7 @@ import type { Command } from '../input-commands';
 import { StatusBar } from './StatusBar';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { C } from '../theme';
+import { ICONS } from '../terminal-compat';
 import type { ConsoleStatusSegmentSnapshot } from '../status-segment-service';
 import type { ConsolePathDisplaySnapshot } from '../path-display-service';
 
@@ -92,6 +93,8 @@ interface BottomPanelProps {
   inputControllerRef?: MutableRefObject<PromptInputController | null>;
   restoreInputText?: string | null;
   onRestoreInputConsumed?: () => void;
+  /** 聊天查看栏是否不在底部（用于显示 "ctrl+↓ 回到最新" 提示） */
+  chatScrolledUp?: boolean;
 }
 
 export function BottomPanel({
@@ -144,6 +147,7 @@ export function BottomPanel({
   inputControllerRef,
   restoreInputText,
   onRestoreInputConsumed,
+  chatScrolledUp,
 }: BottomPanelProps) {
   // 输入框仅在审批/确认对话框期间完全禁用
   const inputDisabled = !!(pendingConfirm || askQuestionInvocation || pendingApprovals.length > 0);
@@ -188,6 +192,15 @@ export function BottomPanel({
             />
           ) : showNotePreview ? (
             <NotePanel content={noteContent ?? ''} />
+          ) : null}
+          {chatScrolledUp ? (
+            <box flexDirection="row" justifyContent="center" width="100%" height={1}>
+              <text>
+                <span fg={C.primaryLight}>{ICONS.downArrow}</span>
+                <span fg={C.dim}> ctrl+↓ 回到最新 </span>
+                <span fg={C.primaryLight}>{ICONS.downArrow}</span>
+              </text>
+            </box>
           ) : null}
           <box
             flexDirection="column"
