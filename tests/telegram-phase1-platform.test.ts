@@ -28,6 +28,7 @@ describe('Telegram Phase 1.3: platform concurrency', () => {
     const platform = new TelegramPlatform(backend as any, {
       token: 'bot-token',
       groupMentionRequired: false,
+      outputFormat: 'plain',
     });
 
     const sentMessages: string[] = [];
@@ -36,6 +37,11 @@ describe('Telegram Phase 1.3: platform concurrency', () => {
         sentMessages.push(text);
         return 999;
       }),
+      sendTextReturningIds: vi.fn(async (_target: unknown, text: string) => {
+        sentMessages.push(text);
+        return [999];
+      }),
+      sendTyping: vi.fn(async () => undefined),
     };
 
     // 第一条消息

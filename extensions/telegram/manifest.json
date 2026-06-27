@@ -18,6 +18,20 @@
             "description": "从 @BotFather 获取。",
             "example": "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ",
             "required": true
+          },
+          {
+            "key": "outputFormat",
+            "type": "text",
+            "label": "输出格式",
+            "description": "可选：rich 或 plain。rich 使用 Telegram Rich Messages，并支持折叠 trace。",
+            "defaultValue": "rich"
+          },
+          {
+            "key": "streamMode",
+            "type": "text",
+            "label": "流式模式",
+            "description": "可选：auto、draft、edit、off。auto 会在私聊使用官方 draft，在群聊使用 legacy edit。",
+            "defaultValue": "auto"
           }
         ]
       }

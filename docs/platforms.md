@@ -98,7 +98,7 @@ documents: Array<{ fileName: string; mimeType: string; data: string }>
 | 构造参数 | `(backend, { modeName?, contextWindow?, configDir, getMCPManager, setMCPManager })` |
 | sessionId | 启动时生成时间戳 ID，如 `20250715_143052_a7x2` |
 | 流式支持 | 支持 |
-| 工具状态 | 通过 `tool:update` 事件实时显示 |
+| 工具状态 | 通过 `tool:execute` + `ToolExecutionHandle` 实时显示 |
 | 指令 | `/new`、`/load`、`/sh <命令>`、`/undo`、`/redo`、`/agent`、`/exit` 等 |
 | 图片输入 | 当前未实现终端内图片上传 |
 | 撤销/重做 | 调用 Backend `undo('last-visible-message')` 与 `redo()` |
@@ -130,7 +130,7 @@ Weixin 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extension
 | sessionId | `weixin-{userId}` |
 | 通信方式 | HTTP Long-polling（`getUpdates`），非 WebSocket |
 | 流式支持 | 协议支持，但微信不支持消息编辑，因此累积后一次性发送 |
-| 工具状态 | 通过 `tool:update` 事件累积，随最终回复一起发送 |
+| 工具状态 | 通过 `tool:execute` + `ToolExecutionHandle` 累积，随最终回复一起发送 |
 | 并发控制 | 每个用户同一时间只处理一条消息（busy 锁） |
 | 消息缓冲 | AI 输出期间用户新消息暂存到缓冲区，完成后自动合并发送 |
 | Markdown | 不支持，自动转换为纯文本 |
@@ -186,7 +186,7 @@ WXWork 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extension
 | 构造参数 | `(backend, { botId, secret, showToolStatus? })` |
 | sessionId | 私聊：`wxwork-dm-{userId}`；群聊：`wxwork-group-{chatId}` |
 | 流式支持 | 支持，通过 `replyStream` 推送，300ms 节流 |
-| 工具状态 | 通过 `tool:update` 事件实时展示工具执行进度 |
+| 工具状态 | 通过 `tool:execute` + `ToolExecutionHandle` 实时展示工具执行进度 |
 | 并发控制 | 每个 chatKey 同一时间只处理一条消息（busy 锁） |
 | 消息缓冲 | AI 输出期间用户新消息暂存到缓冲区，完成后自动合并发送 |
 | 工具审批 | 自动批准所有工具调用（企微无交互审批 UI） |
@@ -284,10 +284,12 @@ Telegram 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensi
 
 | 项目 | 说明 |
 |------|------|
-| 构造参数 | `(backend, { token, showToolStatus?, groupMentionRequired? })` |
+| 构造参数 | `(backend, { token, outputFormat?, streamMode?, showToolStatus?, groupMentionRequired? })` |
 | sessionId | 私聊：`telegram-dm-{chatId}`；群聊：`telegram-group-{chatId}`；话题：`telegram-group-{chatId}-thread-{threadId}` |
-| 流式支持 | 支持，通过 `sendMessage` + `editMessageText` 实现实时流式编辑，1500ms 节流 |
-| 工具状态 | 通过 `tool:update` 事件实时展示工具执行进度 |
+| 输出格式 | `outputFormat: rich` 使用 Telegram Rich Message（默认），`plain` 使用普通纯文本 |
+| 流式支持 | `streamMode: auto` 默认私聊使用官方 private draft、群聊使用 legacy edit；也可设为 `draft` / `edit` / `off` |
+| 输入状态 | 回合执行期间通过 `sendChatAction('typing')` 周期刷新，最终回复、错误或 `done` 时停止 |
+| 工具状态 | 通过 `tool:execute` + `ToolExecutionHandle` 跟踪执行树；rich 模式会把思考、工具调用、输出和结果摘要聚合到折叠 trace |
 | 并发控制 | 每个 chatKey 同一时间只处理一条消息（busy 锁） |
 | 消息缓冲 | AI 输出期间用户新消息暂存到缓冲区，完成后自动合并发送 |
 | 工具审批 | 自动批准所有工具调用 |
@@ -326,7 +328,7 @@ Lark 不再从 `src/platforms/registry.ts` 内置注册，而是由 `extensions/
 | 构造参数 | `(backend, { appId, appSecret, showToolStatus?, verificationToken?, encryptKey? })` |
 | sessionId | 私聊：`lark-dm-{userOpenId}`；群聊：`lark-group-{chatId}`；话题：`lark-group-{chatId}-thread-{threadId}` |
 | 流式支持 | 支持，通过 sendCard + patchCard 实现卡片实时更新，1000ms 节流 |
-| 工具状态 | 通过 `tool:update` 事件实时展示工具执行进度 |
+| 工具状态 | 通过 `tool:execute` + `ToolExecutionHandle` 实时展示工具执行进度 |
 | 并发控制 | 每个 chatKey 同一时间只处理一条消息（busy 锁） |
 | 消息缓冲 | AI 输出期到缓冲区，完成后自动合并发送 |
 | 工具审批 | 自动批准所有工具调用（飞书支持卡片按钮回调，Phase 4 可升级为交互审批） |
@@ -542,7 +544,7 @@ iris -p "重构代码" --stream --print-tools
 |------|------|
 | 会话隔离 | 每次调用独立 sessionId，天然支持多进程并行 |
 | 自动审批 | 强制 `autoApproveAll: true`，headless 模式不卡审批 |
-| 事件驱动 | 监听 Backend 的 `response` / `stream:chunk` / `tool:update` / `done` / `error` 事件 |
+| 事件驱动 | 监听 Backend 的 `response` / `stream:chunk` / `tool:execute` / `done` / `error` 事件 |
 | 退出码 | 成功返回 0，有错误返回 1 |
 | 工具输出分离 | `--print-tools` 的输出走 stderr，不污染 stdout 的正文输出 |
 
@@ -571,7 +573,7 @@ iris -p "重构代码" --stream --print-tools
 1. 创建 `src/platforms/新平台名/index.ts`
 2. 继承 `PlatformAdapter`
 3. 构造函数接收 `backend: Backend`
-4. 在 `start()` 中监听需要的 Backend 事件（`response` / `stream:*` / `tool:update` / `error`）
+4. 在 `start()` 中监听需要的 Backend 事件（`response` / `stream:*` / `tool:execute` / `error`）
 5. 监听用户输入并调用 `backend.chat(sessionId, text)`
 6. 若平台要支持图片和文档输入，则改为 `backend.chat(sessionId, text, images, documents)`
 7. 在 `src/index.ts` 中添加 import 和 switch case

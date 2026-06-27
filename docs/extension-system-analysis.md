@@ -91,6 +91,7 @@ packages/extension-sdk/src/
 ├── message.ts          Content / Part 消息类型
 ├── llm.ts              LLMRequest / LLMResponse 类型
 ├── tool.ts             ToolDefinition / ToolHandler 类型
+├── tool-summary.ts     平台无关的工具调用/进度/结果摘要 formatter
 ├── mode.ts             ModeDefinition 类型
 ├── logger.ts           扩展日志器
 ├── pairing/            对码系统（平台用户认证）

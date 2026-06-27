@@ -16,7 +16,7 @@
 
 参考 Vercel AI SDK 5.0 的 Preliminary Tool Results 模式，改为 **AsyncIterable/generator** 方案。
 
-核心思想：工具的 `handler` 函数可以返回 `AsyncIterable`（通过 async generator），`yield` 中间值作为进度更新，最后一个 yield 的值作为最终结果。scheduler 自动检测并迭代消费，中间值通过已有的 `tool:update` 事件通道推送到前端。
+核心思想：工具的 `handler` 函数可以返回 `AsyncIterable`（通过 async generator），`yield` 中间值作为进度更新，最后一个 yield 的值作为最终结果。scheduler 自动检测并迭代消费，中间值写入 ToolStateManager，并通过 `ToolExecutionHandle` 的 progress/state 事件推送到平台。
 
 ```
 普通工具（现有行为，完全不变）：
@@ -80,7 +80,7 @@ generator 工具（新能力）：
 
 | | 同步子代理 | 异步子代理 |
 |---|---|---|
-| 进度通道 | handler 返回 AsyncIterable → scheduler 迭代 → ToolStateManager.progress → tool:update → ToolCall 框内 | AgentTaskRegistry 事件 → agent:notification → StatusBar |
+| 进度通道 | handler 返回 AsyncIterable → scheduler 迭代 → ToolStateManager.progress → ToolExecutionHandle.progress → ToolCall 框内 | AgentTaskRegistry 事件 → agent:notification → StatusBar |
 | 视觉位置 | ToolCall 卡片（tools block）内部 | 底部 StatusBar |
 | 注册位置 | 不注册到 AgentTaskRegistry | 注册到 AgentTaskRegistry |
 | 完成后 | 工具结果直接返回给主 LLM | enqueueNotification 触发新 turn |

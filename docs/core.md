@@ -255,7 +255,7 @@ Backend 继承自 `EventEmitter`，平台层通过监听事件接收结果。
 | `stream:parts` | `(sessionId, parts: Part[])` | 流式结构化 part 增量（按顺序，含 thought / text / functionCall 等） |
 | `stream:chunk` | `(sessionId, chunk)` | 流式文本块到达 |
 | `stream:end` | `(sessionId, usage?: UsageMetadata)` | 流式段结束 |
-| `tool:update` | `(sessionId, invocations[])` | 工具状态变更（创建、执行中、完成等） |
+| `tool:execute` | `(sessionId, handle)` | 单个工具执行开始；状态、输出、子工具和结果通过 `ToolExecutionHandle` 事件继续推送 |
 | `error` | `(sessionId, errorMessage)` | 消息处理过程中出错 |
 | `usage` | `(sessionId, usage: UsageMetadata)` | 每轮 LLM 调用后的 Token 用量 |
 | `retry` | `(sessionId, attempt, maxRetries, error)` | LLM 调用重试 |
@@ -273,9 +273,8 @@ Backend 继承自 `EventEmitter`，平台层通过监听事件接收结果。
 **非流式模式：**
 ```
 chat() 调用
-  → tool:update (工具创建)
-  → tool:update (工具执行中)
-  → tool:update (工具完成)
+  → tool:execute (工具创建，平台绑定 handle)
+  → handle.state / handle.output / handle.done
   → response (最终文本)
 ```
 
@@ -285,8 +284,8 @@ chat() 调用
   → stream:start
   → stream:chunk × N
   → stream:end
-  → tool:update (工具创建)
-  → tool:update (工具完成)
+  → tool:execute (工具创建，平台绑定 handle)
+  → handle.state / handle.output / handle.done
   → stream:start    ← 第二轮 LLM 调用
   → stream:chunk × N
   → stream:end
@@ -336,7 +335,7 @@ router.chatStream(request) → AsyncGenerator<LLMStreamChunk>
 
 ### 工具事件转发
 
-`ToolStateManager` 的 `created` 和 `stateChange` 事件被转发为 Backend 的 `tool:update` 事件，附带当前 `activeSessionId`。
+`ToolStateManager` 创建工具时会发出 `tool:execute`，平台拿到 per-tool 的 `ToolExecutionHandle` 后，通过 handle 的 `state` / `progress` / `output` / `child` / `done` 事件继续接收执行细节。这样平台无需读取内部 `ToolStateManager`，也能展示嵌套工具和实时输出。
 
 ### 会话元数据
 

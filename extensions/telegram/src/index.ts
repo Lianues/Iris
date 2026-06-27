@@ -1,11 +1,10 @@
 /**
  * Telegram 平台适配器
  *
- * Phase 2 升级：
- *   - 真流式输出：通过 sendMessage + editMessageText 实现实时更新；
- *   - 工具状态展示：监听 tool:update 事件，自动批准并格式化状态行；
- *   - 完整 Slash 命令：/new /clear /model /session /stop /flush /help；
- *   - 并发控制：ChatState + busy 锁 + pendingMessages 缓冲。
+ * 输出策略：
+ *   - 私聊 rich 模式使用 Telegram 官方 sendRichMessageDraft 预览，完成后 sendRichMessage 持久化；
+ *   - 群聊 auto 模式保留 legacy editMessageText 预览，最终可编辑为 Rich Message；
+ *   - Backend 历史保持平台无关，Telegram rich / trace 只存在于平台渲染层。
  */
 
 import { PairingGuard, PairingStore } from 'irises-extension-sdk/pairing';
@@ -22,20 +21,36 @@ import {
   type ImageInput,
   type IrisAPI,
   type IrisBackendLike,
+  type Content,
+  type Part,
   type PlatformDeliveryProvider,
   type ToolAttachment,
+  type ToolExecutionHandleLike,
 } from 'irises-extension-sdk';
 import { TelegramClient } from './client';
 import { TelegramCommandRouter } from './commands';
 import { TelegramMediaService } from './media';
 import { TelegramMessageBuilder, formatTelegramToolLine } from './message-builder';
 import { TelegramMessageHandler } from './message-handler';
-import { ParsedTelegramMessage, TelegramConfig, TelegramPendingMessage, TelegramSessionTarget, buildTelegramSessionTarget, parseTelegramSessionTarget } from './types';
+import { renderTelegramDraftTurn, renderTelegramRichTurn, type TelegramTraceSection } from './rich-message';
+import { TelegramTurnTraceCollector } from './turn-trace';
+import {
+  ParsedTelegramMessage,
+  TelegramConfig,
+  TelegramOutputFormat,
+  TelegramPendingMessage,
+  TelegramSessionTarget,
+  TelegramStreamMode,
+  buildTelegramSessionTarget,
+  parseTelegramSessionTarget,
+} from './types';
 
 const logger = createExtensionLogger('TelegramExtension', 'Telegram');
 
 /** 流式编辑节流间隔（ms）。Telegram 对 editMessageText 有频率限制，1500ms 较安全。 */
 const STREAM_THROTTLE_MS = 1500;
+/** Telegram typing 状态最多维持 5 秒，4 秒刷新一次可避免长回合中断。 */
+const TYPING_REFRESH_MS = 4_000;
 
 const UNSUPPORTED_MEDIA_NOTICE = '当前阶段暂不支持直接处理图片、文件或语音消息，请附带文字说明后再次发送。';
 const BUFFERED_NOTICE = '📥 消息已暂存，等 AI 回复结束后自动发送。\n发送 /flush 可立即处理，/stop 可中止当前回复。';
@@ -51,17 +66,36 @@ const DEDUP_CLEANUP_INTERVAL_MS = 60_000;
 
 // ---- 流式状态（内嵌在 ChatState 中） ----
 
+type TelegramStreamKind = 'draft' | 'edit' | 'silent';
+
 interface TelegramStreamState {
-  /** 占位消息的 message_id，用于后续 editMessageText */
-  placeholderMessageId: number;
+  /** draft=官方 Rich Message draft，edit=legacy editMessageText，silent=只收集最终文本 */
+  kind: TelegramStreamKind;
+  /** legacy edit 模式的占位消息 message_id */
+  placeholderMessageId?: number;
+  /** official draft 模式的 draft_id */
+  draftId?: number;
   /** 累积的 AI 文本 buffer */
   buffer: string;
   /** 已固化到 buffer 中的工具调用 ID */
   committedToolIds: Set<string>;
+  /** legacy edit 模式的工具状态展示行，不写入最终正文 */
+  committedToolLines: string[];
+  activeToolLine?: string;
   /** buffer 是否有未发送的更新 */
   dirty: boolean;
   /** 节流定时器 */
   throttleTimer: ReturnType<typeof setTimeout> | null;
+  /** 防止 response/done 双路径重复发送最终消息 */
+  finalized: boolean;
+}
+
+interface TelegramBotMessageGroup {
+  messageIds: number[];
+}
+
+interface TelegramFinalDeliveryOptions {
+  editMessageId?: number;
 }
 
 interface TelegramChatState {
@@ -72,13 +106,16 @@ interface TelegramChatState {
   stopped: boolean;
   lastInboundMessageId?: number;
   /**
-   * bot 消息 ID 栈（LIFO）。
-   * 每次 bot 发消息时 push，每次 undo 时 pop。
-   * 支持连续 undo 逐条编辑/删除对应的 bot 消息。
+   * bot 回复消息组栈（LIFO）。
+   * 一个 Backend turn 未来可能对应多条 Telegram 消息，undo 时必须按组处理。
    */
-  botMessageIdStack: number[];
+  botMessageGroups: TelegramBotMessageGroup[];
+  /** 当前 turn 的 Telegram 展示 trace，只用于渲染，不写入 Backend 历史。 */
+  turnTrace: TelegramTurnTraceCollector | null;
   /** 流式输出状态，非流式模式时为 null */
   stream: TelegramStreamState | null;
+  /** 当前 turn 的 sendChatAction('typing') 刷新定时器。 */
+  typingTimer: ReturnType<typeof setInterval> | null;
 }
 
 export class TelegramPlatform extends PlatformAdapter {
@@ -87,6 +124,8 @@ export class TelegramPlatform extends PlatformAdapter {
   private readonly messageBuilder: TelegramMessageBuilder;
   private readonly commandRouter: TelegramCommandRouter;
   private readonly mediaService: TelegramMediaService;
+  private readonly outputFormat: TelegramOutputFormat;
+  private readonly streamMode: TelegramStreamMode;
   private readonly showToolStatus: boolean;
   private readonly pairingStore: PairingStore | null;
   private readonly pairingGuard: PairingGuard | null;
@@ -111,6 +150,11 @@ export class TelegramPlatform extends PlatformAdapter {
     this.messageBuilder = new TelegramMessageBuilder();
     this.commandRouter = new TelegramCommandRouter();
     this.mediaService = new TelegramMediaService();
+    this.outputFormat = parseTelegramOutputFormat(config.outputFormat);
+    this.streamMode = parseTelegramStreamMode(config.streamMode);
+    if (this.outputFormat === 'plain' && this.streamMode === 'draft') {
+      throw new Error('telegram.streamMode=draft 需要 telegram.outputFormat=rich');
+    }
     this.showToolStatus = config.showToolStatus !== false;
 
     // 对码门禁初始化（仅在配置了 pairing 且 dmPolicy !== 'open' 时创建）
@@ -194,6 +238,7 @@ export class TelegramPlatform extends PlatformAdapter {
     // 清理所有节流定时器
     for (const cs of this.chatStates.values()) {
       if (cs.stream?.throttleTimer) clearTimeout(cs.stream.throttleTimer);
+      this.stopTypingIndicator(cs);
     }
     this.chatStates.clear();
     this.messageDedup.clear();
@@ -292,8 +337,10 @@ export class TelegramPlatform extends PlatformAdapter {
         target,
         pendingMessages: [],
         stopped: false,
-        botMessageIdStack: [],
+        botMessageGroups: [],
+        turnTrace: null,
         stream: null,
+        typingTimer: null,
       };
       this.chatStates.set(target.chatKey, cs);
     }
@@ -335,26 +382,27 @@ export class TelegramPlatform extends PlatformAdapter {
     if (this.backendListenersReady) return;
     this.backendListenersReady = true;
     // ---- 工具状态 ----
-    this.backend.on('tool:execute' as any, (sid: string, handle: any) => {
+    this.backend.on('tool:execute' as any, (sid: string, handle: ToolExecutionHandleLike) => {
       autoApproveHandle(handle);
 
-      if (!this.showToolStatus) return;
       const cs = this.findChatStateBySid(sid);
-      if (!cs?.stream || cs.stopped) return;
+      if (!cs || cs.stopped) return;
+
+      if (this.showToolStatus) {
+        this.bindTraceToolHandle(cs, handle);
+      }
+
+      if (!this.showToolStatus || !cs.stream || cs.stream.kind !== 'edit') return;
 
       // 完成时固化状态行
       handle.on('done', () => {
         if (!cs.stream) return;
         if (!cs.stream.committedToolIds.has(handle.id)) {
-          // [修复] 工具完成时不仅要追加到 buffer，还要触发 Telegram UI 更新
-          // 原因：之前只改了 buffer 没设 dirty/没调 editStreamMessage，导致用户看不到工具已完成
           cs.stream.committedToolIds.add(handle.id);
-          const line = formatTelegramToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
-          cs.stream.buffer = cs.stream.buffer
-            ? `${cs.stream.buffer}\n\n${line}\n\n`
-            : `${line}\n\n`;
-          cs.stream.dirty = true;
-          this.editStreamMessage(cs, cs.stream.buffer);
+          const line = formatTelegramToolLine({ toolName: handle.toolName, status: handle.status });
+          cs.stream.committedToolLines.push(line);
+          cs.stream.activeToolLine = undefined;
+          this.scheduleStreamUpdate(cs);
         }
       });
 
@@ -363,9 +411,9 @@ export class TelegramPlatform extends PlatformAdapter {
         if (!cs.stream || cs.stopped) return;
         // 只在非终态时显示临时状态
         if (handle.status !== 'success' && handle.status !== 'error' && handle.status !== 'warning') {
-          const line = formatTelegramToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
-          const displayText = cs.stream.buffer ? `${cs.stream.buffer}\n\n${line}` : line;
-          this.editStreamMessage(cs, displayText);
+          const line = formatTelegramToolLine({ toolName: handle.toolName, status: handle.status });
+          cs.stream.activeToolLine = line;
+          this.scheduleStreamUpdate(cs);
         }
       });
     });
@@ -401,7 +449,15 @@ export class TelegramPlatform extends PlatformAdapter {
       if (!cs || cs.stopped) return;
       // stream 已在 dispatchChat 中创建，此处仅处理边界情况
       if (!cs.stream && cs.target) {
-        this.initStream(cs);
+        void this.initStream(cs);
+      }
+    });
+
+    this.backend.on('stream:parts', (sid: string, parts: Part[]) => {
+      const cs = this.findChatStateBySid(sid);
+      if (!cs || cs.stopped) return;
+      if (this.appendTraceParts(cs, parts) && cs.stream?.kind === 'draft') {
+        this.scheduleStreamUpdate(cs);
       }
     });
 
@@ -410,18 +466,13 @@ export class TelegramPlatform extends PlatformAdapter {
       if (!cs?.stream || cs.stopped) return;
 
       cs.stream.buffer += chunk;
-      cs.stream.dirty = true;
+      this.scheduleStreamUpdate(cs);
+    });
 
-      // 节流发送
-      if (!cs.stream.throttleTimer) {
-        cs.stream.throttleTimer = setTimeout(() => {
-          if (!cs.stream) return;
-          cs.stream.throttleTimer = null;
-          if (!cs.stream.dirty) return;
-          cs.stream.dirty = false;
-          this.editStreamMessage(cs, cs.stream.buffer);
-        }, STREAM_THROTTLE_MS);
-      }
+    this.backend.on('assistant:content', (sid: string, content: Content) => {
+      const cs = this.findChatStateBySid(sid);
+      if (!cs || cs.stopped || cs.stream) return;
+      this.appendTraceParts(cs, content.parts);
     });
 
     // ---- 非流式回复 ----
@@ -429,10 +480,13 @@ export class TelegramPlatform extends PlatformAdapter {
       const cs = this.findChatStateBySid(sid);
       if (!cs || cs.stopped) return;
 
+      // Telegram 客户端会在收到 bot 消息后清掉 typing；这里先停 heartbeat，避免后续 interval 又重新点亮。
+      this.stopTypingIndicator(cs);
       if (cs.stream) {
-        this.finalizeStream(cs, text);
+        void this.finalizeStream(cs, text).catch((err) => logger.error('流式关闭失败:', err));
       } else {
-        void this.sendToChat(cs, this.messageBuilder.buildResponseText(text));
+        void this.sendAssistantFinal(cs, this.messageBuilder.buildResponseText(text))
+          .catch((err) => logger.error('发送 Telegram 回复失败:', err));
       }
     });
 
@@ -440,80 +494,206 @@ export class TelegramPlatform extends PlatformAdapter {
     this.backend.on('error', (sid: string, errorMsg: string) => {
       const cs = this.findChatStateBySid(sid);
       if (!cs) return;
+      // 错误消息也是本回合的最终可见输出，发送前同样结束临时 typing 状态。
+      this.stopTypingIndicator(cs);
       const errorText = this.messageBuilder.buildErrorText(errorMsg);
       if (cs.stream) {
-        this.finalizeStream(cs, errorText);
+        void this.finalizeStream(cs, errorText).catch((err) => logger.error('流式错误消息发送失败:', err));
       } else {
-        void this.sendToChat(cs, errorText);
+        void this.sendToChat(cs, errorText).catch((err) => logger.error('发送 Telegram 错误消息失败:', err));
       }
     });
 
     // ---- 回合完成 ----
     this.backend.on('done', (sid: string) => {
-      const cs = this.findChatStateBySid(sid);
-      if (!cs) return;
-
-      // 兜底关闭流
-      if (cs.stream) {
-        if (!cs.stopped) {
-          const finalText = cs.stream.buffer || '✅ 处理完成。';
-          this.finalizeStream(cs, finalText);
-        }
-        this.cleanupStream(cs);
-      }
-
-      cs.busy = false;
-      cs.stopped = false;
-
-      if (cs.pendingMessages.length > 0) {
-        this.flushPendingMessages(cs);
-      }
+      void this.handleDone(sid);
     });
   }
 
   // ---- 流式辅助方法 ----
 
-  /** 初始化流式状态并发送占位消息 */
-  private async initStream(cs: TelegramChatState): Promise<void> {
-    try {
+  /**
+   * 启动 Telegram typing heartbeat。
+   *
+   * typing 是平台侧临时 UI 状态，不进入 Backend 历史，也不替代 Rich draft / legacy edit；
+   * 它只覆盖首 token、长工具调用、streamMode=off 等没有可见内容更新的空窗。
+   */
+  private startTypingIndicator(cs: TelegramChatState): void {
+    if (cs.typingTimer) return;
+
+    const sendTyping = () => {
+      void this.client.sendTyping(cs.target).catch((err) => {
+        // typing 失败通常是协议/权限/目标类型问题；停止辅助 heartbeat，但不影响主回复投递。
+        this.stopTypingIndicator(cs);
+        logger.debug('Telegram typing 状态发送失败，已停止本回合 typing heartbeat:', err);
+      });
+    };
+
+    cs.typingTimer = setInterval(sendTyping, TYPING_REFRESH_MS);
+    sendTyping();
+  }
+
+  /** 停止当前聊天的 typing heartbeat；所有回合收尾路径都调用它以保证幂等清理。 */
+  private stopTypingIndicator(cs: TelegramChatState): void {
+    if (!cs.typingTimer) return;
+    clearInterval(cs.typingTimer);
+    cs.typingTimer = null;
+  }
+
+  /** 初始化流式状态。私聊 rich 使用官方 draft；其他场景使用 legacy edit 或静默收集。 */
+  private async initStream(cs: TelegramChatState, message?: ParsedTelegramMessage): Promise<void> {
+    const kind = this.resolveStreamKind(cs);
+    cs.stream = {
+      kind,
+      draftId: kind === 'draft' ? this.createDraftId(message) : undefined,
+      buffer: '',
+      committedToolIds: new Set(),
+      committedToolLines: [],
+      dirty: false,
+      throttleTimer: null,
+      finalized: false,
+    };
+
+    if (kind === 'draft') {
+      await this.updateDraftStream(cs);
+      return;
+    }
+
+    if (kind === 'edit') {
       const messageId = await this.client.sendMessageReturningId(
         cs.target,
         this.messageBuilder.buildThinkingText(),
       );
-      // 将 bot 消息 ID 压入栈，支持后续 undo 时的 UI 处理
-      cs.botMessageIdStack.push(messageId);
-      cs.stream = {
-        placeholderMessageId: messageId,
-        buffer: '',
-        committedToolIds: new Set(),
-        dirty: false,
-        throttleTimer: null,
-      };
-    } catch (err) {
-      // Phase 7：占位消息发送失败时降级，不初始化流式状态。
-      // 后续 stream:chunk / response 事件会走非流式路径。
-      logger.warn('发送占位消息失败，降级为非流式模式:', err);
+      cs.stream.placeholderMessageId = messageId;
+      this.trackBotMessageGroup(cs, [messageId]);
     }
   }
 
-  /** 编辑流式消息（吞掉错误避免中断流程） */
-  private editStreamMessage(cs: TelegramChatState, text: string): void {
-    if (!cs.stream) return;
-    this.client.editText(cs.target, cs.stream.placeholderMessageId, text).catch((err) => {
-      logger.error(`流式编辑失败:`, err);
+  private resolveStreamKind(cs: TelegramChatState): TelegramStreamKind {
+    // auto 是推荐默认值：私聊可用官方 draft，群聊仍保留可编辑占位消息。
+    if (this.streamMode === 'off') return 'silent';
+    if (this.streamMode === 'edit') return 'edit';
+    if (this.streamMode === 'draft') {
+      if (cs.target.scope !== 'dm') {
+        throw new Error('telegram.streamMode=draft 仅支持 Telegram 私聊');
+      }
+      return 'draft';
+    }
+    return this.outputFormat === 'rich' && cs.target.scope === 'dm' ? 'draft' : 'edit';
+  }
+
+  /**
+   * Telegram draft_id 只要求同一聊天内非零即可。
+   * 优先复用用户消息 ID，便于同一个 inbound turn 的 draft 多次更新覆盖同一预览。
+   */
+  private createDraftId(message?: ParsedTelegramMessage): number {
+    if (message?.messageId && Number.isInteger(message.messageId)) return message.messageId;
+    const draftId = Date.now() % 2147483647;
+    return draftId === 0 ? 1 : draftId;
+  }
+
+  /** 收集 trace part 仅用于 Telegram 展示层，不写入 Backend 对话历史或 undo 栈。 */
+  private appendTraceParts(cs: TelegramChatState, parts: Part[]): boolean {
+    if (!cs.turnTrace) return false;
+    return cs.turnTrace.appendParts(parts, { includeTools: this.showToolStatus });
+  }
+
+  private bindTraceToolHandle(cs: TelegramChatState, handle: ToolExecutionHandleLike): void {
+    const trace = cs.turnTrace;
+    if (!trace) return;
+
+    trace.bindToolHandle(handle);
+    const refreshTrace = () => {
+      if (cs.turnTrace !== trace) return;
+      trace.updateToolHandle(handle);
+      if (cs.stream?.kind === 'draft') this.scheduleStreamUpdate(cs);
+    };
+
+    handle.on('state', () => refreshTrace());
+    handle.on('progress', () => refreshTrace());
+    handle.on('output', () => refreshTrace());
+    handle.on('done', () => refreshTrace());
+    handle.on('child', (childHandle) => {
+      if (cs.turnTrace !== trace) return;
+      this.bindTraceToolHandle(cs, childHandle);
+      refreshTrace();
     });
   }
 
-  /** 最终更新流式消息并清理定时器 */
-  private finalizeStream(cs: TelegramChatState, text: string): void {
-    if (!cs.stream) return;
-    if (cs.stream.throttleTimer) {
-      clearTimeout(cs.stream.throttleTimer);
-      cs.stream.throttleTimer = null;
+  private scheduleStreamUpdate(cs: TelegramChatState): void {
+    if (!cs.stream || cs.stream.finalized) return;
+    cs.stream.dirty = true;
+    if (cs.stream.throttleTimer) return;
+    cs.stream.throttleTimer = setTimeout(() => {
+      void this.flushStreamUpdate(cs).catch((err) => logger.error('流式更新失败:', err));
+    }, STREAM_THROTTLE_MS);
+  }
+
+  private async flushStreamUpdate(cs: TelegramChatState): Promise<void> {
+    const stream = cs.stream;
+    if (!stream || stream.finalized) return;
+    stream.throttleTimer = null;
+    if (!stream.dirty) return;
+    stream.dirty = false;
+
+    if (stream.kind === 'draft') {
+      await this.updateDraftStream(cs);
+      return;
     }
-    this.client.editText(cs.target, cs.stream.placeholderMessageId, text).catch((err) => {
-      logger.error('流式关闭失败:', err);
+    if (stream.kind === 'edit') {
+      if (stream.placeholderMessageId == null) {
+        throw new Error('Telegram legacy stream 缺少 placeholderMessageId');
+      }
+      await this.client.editText(cs.target, stream.placeholderMessageId, this.buildLegacyStreamText(stream));
+    }
+  }
+
+  /** 将当前流式 buffer 渲染为官方 Rich Message draft。 */
+  private async updateDraftStream(cs: TelegramChatState): Promise<void> {
+    const stream = cs.stream;
+    if (!stream || stream.kind !== 'draft') return;
+    if (stream.draftId == null) {
+      throw new Error('Telegram rich draft stream 缺少 draftId');
+    }
+    const richMessage = renderTelegramDraftTurn({
+      answerMarkdown: stream.buffer,
+      traceSections: this.buildTraceSections(cs),
+      thinkingText: this.messageBuilder.buildThinkingText(),
     });
+    await this.client.sendRichMessageDraft(cs.target, stream.draftId, richMessage);
+  }
+
+  private buildLegacyStreamText(stream: TelegramStreamState): string {
+    const statusLines = [
+      ...stream.committedToolLines,
+      stream.activeToolLine,
+    ].filter((line): line is string => Boolean(line));
+    const sections = [...statusLines, stream.buffer].filter((section) => section.trim());
+    return sections.join('\n\n') || this.messageBuilder.buildThinkingText();
+  }
+
+  /** 最终更新流式消息并清理定时器；draft 会发送新消息，legacy edit 会替换占位消息。 */
+  private async finalizeStream(cs: TelegramChatState, text: string): Promise<void> {
+    const stream = cs.stream;
+    if (!stream || stream.finalized) return;
+    // 流式最终投递会产生真实消息或编辑占位消息，typing 状态必须先停止。
+    this.stopTypingIndicator(cs);
+    stream.finalized = true;
+    if (stream.throttleTimer) {
+      clearTimeout(stream.throttleTimer);
+      stream.throttleTimer = null;
+    }
+
+    const finalText = text.trim() ? text : stream.buffer || '✅ 处理完成。';
+    if (stream.kind === 'edit') {
+      if (stream.placeholderMessageId == null) {
+        throw new Error('Telegram legacy stream 缺少 placeholderMessageId');
+      }
+      await this.deliverAssistantFinal(cs, finalText, { editMessageId: stream.placeholderMessageId });
+      return;
+    }
+
+    await this.deliverAssistantFinal(cs, finalText);
   }
 
   /** 清理流式状态 */
@@ -524,37 +704,187 @@ export class TelegramPlatform extends PlatformAdapter {
     cs.stream = null;
   }
 
+  private async handleDone(sid: string): Promise<void> {
+    const cs = this.findChatStateBySid(sid);
+    if (!cs) return;
+
+    try {
+      if (cs.stream && !cs.stopped) {
+        const finalText = cs.stream.buffer || '✅ 处理完成。';
+        await this.finalizeStream(cs, finalText);
+      }
+    } catch (err) {
+      logger.error('Telegram 回合收尾失败:', err);
+    } finally {
+      // done 是最终兜底清理点，覆盖 abort、无 response、finalizeStream 失败等边界情况。
+      this.stopTypingIndicator(cs);
+      if (cs.stream) this.cleanupStream(cs);
+      cs.turnTrace = null;
+      cs.busy = false;
+      cs.stopped = false;
+
+      if (cs.pendingMessages.length > 0) {
+        this.flushPendingMessages(cs);
+      }
+    }
+  }
+
   // ---- 发送消息 ----
 
   /**
    * 向聊天室发送消息。
    * @param cs 聊天状态
    * @param text 消息内容
-   * @param options 发送选项。trackMessage 为 false 时，该消息不会进入 botMessageIdStack，不参与 undo 时的 UI 撤销逻辑。
+   * @param options 发送选项。trackMessage 为 false 时，该消息不会进入 bot 消息组栈，不参与 undo 时的 UI 撤销逻辑。
    */
   private async sendToChat(cs: TelegramChatState, text: string, options?: { trackMessage?: boolean }): Promise<void> {
     const msgId = await this.client.sendMessageReturningId(cs.target, text);
     // 默认追踪 bot 消息 ID，用于 undo 时逐条编辑/删除
     if (options?.trackMessage !== false) {
-      cs.botMessageIdStack.push(msgId);
+      this.trackBotMessageGroup(cs, [msgId]);
     }
+  }
+
+  private async sendAssistantFinal(cs: TelegramChatState, text: string): Promise<void> {
+    await this.deliverAssistantFinal(cs, text);
+  }
+
+  /**
+   * Assistant 最终投递的唯一入口。
+   *
+   * rich 投递失败时不在 renderer 层猜测原因，也不改写用户正文；这里统一回落为纯文本，
+   * 保证 Telegram 用户至少能看到错误原因和原始内容。
+   */
+  private async deliverAssistantFinal(cs: TelegramChatState, text: string, options: TelegramFinalDeliveryOptions = {}): Promise<void> {
+    const traceSections = this.buildTraceSections(cs);
+    if (this.outputFormat !== 'rich') {
+      if (options.editMessageId != null) {
+        await this.replacePlainAssistantFinal(cs, options.editMessageId, text);
+      } else {
+        await this.sendPlainAssistantFinal(cs, text);
+      }
+      return;
+    }
+
+    try {
+      const richMessage = this.renderFinalRichMessage(text, traceSections);
+      if (options.editMessageId != null) {
+        await this.client.editRichMessage(cs.target, options.editMessageId, richMessage);
+      } else {
+        const msgId = await this.client.sendRichMessageReturningId(cs.target, richMessage);
+        this.trackBotMessageGroup(cs, [msgId]);
+      }
+      return;
+    } catch (err) {
+      logger.warn(`Telegram Rich Message 投递失败，回落为纯文本: ${formatTelegramErrorSummary(err)}`);
+      const fallbackText = this.buildRichFallbackText(text, traceSections, err);
+      if (options.editMessageId != null) {
+        await this.replacePlainAssistantFinal(cs, options.editMessageId, fallbackText);
+      } else {
+        await this.sendPlainAssistantFinal(cs, fallbackText);
+      }
+    }
+  }
+
+  /** 发送纯文本最终回复，并将所有分片归入同一个 undo 消息组。 */
+  private async sendPlainAssistantFinal(cs: TelegramChatState, text: string): Promise<void> {
+    const appendMessageId = this.createBotMessageGroupAppender(cs);
+    const messageIds = await this.client.sendTextReturningIds(cs.target, text, {}, { onMessageId: appendMessageId });
+    for (const messageId of messageIds) appendMessageId(messageId);
+  }
+
+  /** 用纯文本 fallback 替换既有占位消息，后续分片仍归入同一个 undo 消息组。 */
+  private async replacePlainAssistantFinal(cs: TelegramChatState, messageId: number, text: string): Promise<void> {
+    const appendMessageId = this.createBotMessageGroupAppender(cs, messageId);
+    const messageIds = await this.client.replaceMessageTextReturningIds(cs.target, messageId, text, {}, { onMessageId: appendMessageId });
+    for (const nextMessageId of messageIds) appendMessageId(nextMessageId);
+  }
+
+  private renderFinalRichMessage(text: string, traceSections: TelegramTraceSection[]) {
+    return renderTelegramRichTurn({
+      answerMarkdown: text,
+      traceSections,
+    });
+  }
+
+  /** 构造用户可见的 Rich Message 失败说明，保留 trace 和原始正文供排查。 */
+  private buildRichFallbackText(text: string, traceSections: TelegramTraceSection[], error: unknown): string {
+    const sections = [
+      `⚠️ Telegram Rich Message 投递失败，已改用纯文本显示。\n原因：${formatTelegramErrorSummary(error)}`,
+      ...traceSections.map((section) => this.renderPlainTraceSection(section)).filter((section) => section.trim()),
+      text,
+    ].filter((section) => section.trim());
+    return sections.join('\n\n');
+  }
+
+  private renderPlainTraceSection(section: TelegramTraceSection): string {
+    const content = section.content.trim();
+    if (!content) return '';
+    return `${section.title}\n\n${content}`;
+  }
+
+  private buildTraceSections(cs: TelegramChatState): TelegramTraceSection[] {
+    return cs.turnTrace?.toTraceSections() ?? [];
+  }
+
+  /** 将一个 Backend turn 对应的一组 Telegram 消息压入 undo 栈。 */
+  private trackBotMessageGroup(cs: TelegramChatState, messageIds: number[]): TelegramBotMessageGroup | undefined {
+    if (messageIds.length === 0) return undefined;
+    const group = { messageIds: [...messageIds] };
+    cs.botMessageGroups.push(group);
+    return group;
+  }
+
+  /**
+   * 创建幂等的消息组追加器。
+   *
+   * client 可能在成功返回前通过 observer 先报告 message_id；成功返回后这里会再扫一遍结果，
+   * 因此追加器必须去重，才能同时覆盖成功路径和中途失败路径。
+   */
+  private createBotMessageGroupAppender(cs: TelegramChatState, primaryMessageId?: number): (messageId: number) => void {
+    let group = primaryMessageId == null ? undefined : this.findBotMessageGroup(cs, primaryMessageId);
+    return (messageId: number) => {
+      if (!group) {
+        group = this.trackBotMessageGroup(cs, [messageId]);
+        return;
+      }
+      if (!group.messageIds.includes(messageId)) {
+        group.messageIds.push(messageId);
+      }
+    };
+  }
+
+  private findBotMessageGroup(cs: TelegramChatState, primaryMessageId: number): TelegramBotMessageGroup | undefined {
+    for (let i = cs.botMessageGroups.length - 1; i >= 0; i -= 1) {
+      const group = cs.botMessageGroups[i];
+      if (group.messageIds[0] === primaryMessageId) return group;
+    }
+    return undefined;
   }
 
   /**
    * undo 时处理 bot 消息的 UI 标记（编辑为"已撤销"或删除）。
-   * 采用栈结构支持连续撤销：从栈顶弹出一个消息 ID 进行处理。
+   * 采用消息组栈支持连续撤销：从栈顶弹出一个 turn 的 Telegram 消息组进行处理。
    */
   private async markBotMessageAsUndone(cs: TelegramChatState): Promise<void> {
-    const messageId = cs.botMessageIdStack.pop();
-    if (messageId != null) {
+    const group = cs.botMessageGroups.pop();
+    const [primaryMessageId, ...extraMessageIds] = group?.messageIds ?? [];
+    if (primaryMessageId != null) {
       try {
-        await this.client.editText(cs.target, messageId, '~~已撤销~~');
+        await this.client.editText(cs.target, primaryMessageId, '已撤销');
       } catch (e) {
-        logger.warn(`Telegram 消息编辑为已撤销失败 (${messageId})，尝试删除:`, e);
+        logger.warn(`Telegram 消息编辑为已撤销失败 (${primaryMessageId})，尝试删除:`, e);
+        try {
+          await this.client.deleteMessage(cs.target, primaryMessageId);
+        } catch (err) {
+          logger.warn(`Telegram deleteMessage 也失败了:`, err);
+        }
+      }
+      for (const messageId of extraMessageIds) {
         try {
           await this.client.deleteMessage(cs.target, messageId);
         } catch (err) {
-          logger.warn(`Telegram deleteMessage 也失败了:`, err);
+          logger.warn(`Telegram deleteMessage 失败 (${messageId}):`, err);
         }
       }
     } else {
@@ -570,10 +900,10 @@ export class TelegramPlatform extends PlatformAdapter {
    */
   private async replayRedoResult(cs: TelegramChatState, assistantText: string): Promise<void> {
     if (assistantText.trim()) {
-      await this.sendToChat(cs, assistantText);
+      await this.sendAssistantFinal(cs, assistantText);
       return;
     }
-    await this.sendToChat(cs, '✅ 上一轮对话已恢复。');
+    await this.sendToChat(cs, '✅ 上一轮对话已恢复。', { trackMessage: false });
   }
 
 
@@ -664,7 +994,7 @@ export class TelegramPlatform extends PlatformAdapter {
           text: parsed.text,
           hasUnsupportedMedia: hasTelegramUnsupportedMedia(parsed) && !this.mediaService.supportsInboundMedia(),
         });
-        await this.sendToChat(cs, BUFFERED_NOTICE);
+        await this.sendToChat(cs, BUFFERED_NOTICE, { trackMessage: false });
         return;
       }
 
@@ -750,7 +1080,7 @@ export class TelegramPlatform extends PlatformAdapter {
     const cmd = this.commandRouter.parse(text);
     if (!cmd) return false;
 
-    const reply = (content: string) => this.sendToChat(cs, content);
+    const reply = (content: string) => this.sendToChat(cs, content, { trackMessage: false });
 
     switch (cmd.name) {
       case 'new': {
@@ -836,10 +1166,11 @@ export class TelegramPlatform extends PlatformAdapter {
           return true;
         }
         cs.stopped = true;
+        this.stopTypingIndicator(cs);
         this.backend.abortChat(cs.sessionId);
         if (cs.stream) {
           const stopText = this.messageBuilder.buildAbortedText(cs.stream.buffer);
-          this.finalizeStream(cs, stopText);
+          await this.finalizeStream(cs, stopText);
           this.cleanupStream(cs);
         }
         return true;
@@ -852,10 +1183,11 @@ export class TelegramPlatform extends PlatformAdapter {
         }
         if (cs.busy) {
           cs.stopped = true;
+          this.stopTypingIndicator(cs);
           this.backend.abortChat(cs.sessionId);
           if (cs.stream) {
             const stopText = this.messageBuilder.buildAbortedText(cs.stream.buffer);
-            this.finalizeStream(cs, stopText);
+            await this.finalizeStream(cs, stopText);
             this.cleanupStream(cs);
           }
           // 等 done 事件自然释放 busy 并触发 flushPendingMessages
@@ -1044,7 +1376,7 @@ export class TelegramPlatform extends PlatformAdapter {
     // Phase 3：如果 mediaService 支持入站多媒体，就不再判定为 unsupported。
     // 如果不支持，且只有媒体没有文本，则提示用户。
     if (!message.text && hasUnsupportedMedia) {
-      await this.sendToChat(cs, UNSUPPORTED_MEDIA_NOTICE);
+      await this.sendToChat(cs, UNSUPPORTED_MEDIA_NOTICE, { trackMessage: false });
       return;
     }
 
@@ -1052,35 +1384,43 @@ export class TelegramPlatform extends PlatformAdapter {
     cs.stopped = false;
     cs.sessionId = this.getSessionId(cs.target.chatKey);
     cs.target = message.session;
-
-    // 流式模式先发占位消息
-    if (this.backend.isStreamEnabled()) {
-      await this.initStream(cs);
-    }
-
-    // Phase 3：下载入站消息中的多媒体资源
-    let images: ImageInput[] | undefined;
-    let documents: DocumentInput[] | undefined;
-
-    if (this.mediaService.supportsInboundMedia()) {
-      if (message.photo) {
-        const img = await this.mediaService.downloadPhoto(this.client, message.photo);
-        if (img) images = [img];
-      }
-      if (message.document) {
-        const doc = await this.mediaService.downloadDocument(this.client, message.document);
-        if (doc) documents = [doc];
-      }
-      if (message.voice || message.audio) {
-        const voice = await this.mediaService.downloadVoice(this.client, (message.voice || message.audio)!);
-        if (voice) documents = [...(documents || []), voice];
-      }
-    }
+    cs.turnTrace = new TelegramTurnTraceCollector();
 
     try {
+      // 流式模式先建立 Telegram 展示状态。
+      if (this.backend.isStreamEnabled()) {
+        await this.initStream(cs, message);
+      }
+      // 生产路径 start() 会先注册 Backend 监听；测试中直接调用 handleMessage 时避免启动无法自然停止的 timer。
+      if (this.backendListenersReady) this.startTypingIndicator(cs);
+
+      // Phase 3：下载入站消息中的多媒体资源
+      let images: ImageInput[] | undefined;
+      let documents: DocumentInput[] | undefined;
+
+      if (this.mediaService.supportsInboundMedia()) {
+        if (message.photo) {
+          const img = await this.mediaService.downloadPhoto(this.client, message.photo);
+          if (img) images = [img];
+        }
+        if (message.document) {
+          const doc = await this.mediaService.downloadDocument(this.client, message.document);
+          if (doc) documents = [doc];
+        }
+        if (message.voice || message.audio) {
+          const voice = await this.mediaService.downloadVoice(this.client, (message.voice || message.audio)!);
+          if (voice) documents = [...(documents || []), voice];
+        }
+      }
+
       await this.backend.chat(cs.sessionId, message.text, images, documents, 'telegram');
     } catch (err) {
-      logger.error(`backend.chat 失败 (session=${cs.sessionId}):`, err);
+      logger.error(`Telegram 回合分发失败 (session=${cs.sessionId}):`, err);
+      this.stopTypingIndicator(cs);
+      this.cleanupStream(cs);
+      cs.turnTrace = null;
+      cs.busy = false;
+      cs.stopped = false;
     }
   }
 
@@ -1121,10 +1461,43 @@ function hasTelegramUnsupportedMedia(message: ParsedTelegramMessage): boolean {
   return Boolean(message.photo || message.document || message.voice || message.audio);
 }
 
+function parseTelegramOutputFormat(value: unknown): TelegramOutputFormat {
+  if (value == null) return 'rich';
+  if (value === 'plain' || value === 'rich') return value;
+  throw new Error(`telegram.outputFormat 无效: ${String(value)}`);
+}
+
+function parseTelegramStreamMode(value: unknown): TelegramStreamMode {
+  if (value == null) return 'auto';
+  if (value === 'auto' || value === 'draft' || value === 'edit' || value === 'off') return value;
+  throw new Error(`telegram.streamMode 无效: ${String(value)}`);
+}
+
+function formatTelegramErrorSummary(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    const description = nonEmptyString(record.description);
+    const message = nonEmptyString(record.message);
+    const errorCode = nonEmptyString(record.error_code);
+    const text = description ?? message;
+    if (errorCode && text) return `${errorCode}: ${text}`;
+    if (text) return text;
+  }
+  return String(error);
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const text = String(value).trim();
+  return text ? text : undefined;
+}
+
 export const createTelegramPlatform = definePlatformFactory<TelegramConfig, TelegramPlatform>({
   platformName: 'telegram',
   resolveConfig: (raw, context) => ({
     token: raw.token ?? '',
+    outputFormat: raw.outputFormat,
+    streamMode: raw.streamMode,
     showToolStatus: raw.showToolStatus,
     groupMentionRequired: raw.groupMentionRequired,
     pairing: raw.pairing,

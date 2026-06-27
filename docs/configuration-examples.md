@@ -143,6 +143,10 @@ discord:
 # telegram 为可选 extension，使用前先执行 iris ext install telegram
 telegram:
   token: your-telegram-bot-token
+  # outputFormat: rich   # rich | plain；rich 支持表格、折叠 trace（思考/工具过程）
+  # streamMode: auto     # auto | draft | edit | off
+  # showToolStatus: false # 是否在 rich trace / 流式预览中展示工具执行状态
+  # groupMentionRequired: true
 
 # lark 为可选 extension，使用前先执行 iris ext install lark
 lark:

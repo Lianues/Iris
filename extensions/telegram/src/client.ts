@@ -9,6 +9,7 @@
  */
 
 import { Bot, Context, InputFile } from 'grammy';
+import type { InputRichMessage } from 'grammy/types';
 import { createExtensionLogger, splitText } from 'irises-extension-sdk';
 import { TELEGRAM_BOT_COMMANDS } from './commands';
 import {
@@ -25,6 +26,18 @@ export interface TelegramSendTextOptions {
 
 export interface TelegramEditTextOptions {
   parseMode?: 'HTML';
+}
+
+type TelegramTextOptions = TelegramSendTextOptions | TelegramEditTextOptions;
+
+/**
+ * 批量发送纯文本时的轻量回调。
+ *
+ * TelegramClient 只负责把消息发出去；undo 栈属于平台状态机。observer 让平台层
+ * 在每个分片成功后立刻记录 message_id，避免后续分片失败时丢失已发送消息。
+ */
+export interface TelegramMessageIdObserver {
+  onMessageId?: (messageId: number) => void;
 }
 
 export interface TelegramDownloadedFile {
@@ -78,12 +91,57 @@ export class TelegramClient {
    * 流式模式需要先发送占位消息，拿到 message_id 后再通过 editText 更新。
    */
   async sendMessageReturningId(target: TelegramSessionTarget, text: string): Promise<number> {
-    const extra: Record<string, unknown> = {};
-    if (target.threadId != null) {
-      extra.message_thread_id = target.threadId;
+    return await this.sendMessageChunkReturningId(target, text);
+  }
+
+  /**
+   * 按 Telegram 4096 字符限制拆分发送纯文本，并返回所有成功发送的 message_id。
+   * 若中途失败，Promise 会按原错误失败；已成功发送的 ID 会先通过 observer 暴露给调用方。
+   */
+  async sendTextReturningIds(target: TelegramSessionTarget, text: string, options: TelegramSendTextOptions = {}, observer: TelegramMessageIdObserver = {}): Promise<number[]> {
+    const chunks = splitText(text, TELEGRAM_MESSAGE_MAX_LENGTH);
+    const messageIds: number[] = [];
+    for (const chunk of chunks) {
+      const messageId = await this.sendMessageChunkReturningId(target, chunk, options);
+      messageIds.push(messageId);
+      observer.onMessageId?.(messageId);
     }
-    const msg = await this.bot.api.sendMessage(target.chatId, text, extra);
+    return messageIds;
+  }
+
+  /** 发送 Telegram Rich Message，并返回持久化消息的 message_id。 */
+  async sendRichMessageReturningId(target: TelegramSessionTarget, richMessage: InputRichMessage): Promise<number> {
+    const extra = this.buildThreadExtra(target);
+    const msg = await this.bot.api.sendRichMessage(target.chatId, richMessage, extra);
     return msg.message_id;
+  }
+
+  /**
+   * 发送官方 private draft 预览。
+   *
+   * Bot API 要求 draft_id 为非零整数，且 draft 只用于私聊里的临时预览；
+   * 最终消息仍必须通过 sendRichMessage/editMessageText 持久化。
+   */
+  async sendRichMessageDraft(target: TelegramSessionTarget, draftId: number, richMessage: InputRichMessage): Promise<void> {
+    if (target.scope !== 'dm') {
+      throw new Error('Telegram rich message draft 仅支持私聊');
+    }
+    if (!Number.isInteger(draftId) || draftId === 0) {
+      throw new Error(`Telegram draft_id 必须是非零整数: ${draftId}`);
+    }
+    const extra = this.buildThreadExtra(target);
+    await this.bot.api.sendRichMessageDraft(target.chatId, draftId, richMessage, extra);
+  }
+
+  /**
+   * 发送短生命周期的 typing 状态。
+   *
+   * Bot API 会在最多 5 秒后自动清除此状态，且 bot 发出实际消息时也会清除；
+   * 因此这里只封装单次 API 调用，长耗时回合的刷新节奏由平台状态机统一管理。
+   */
+  async sendTyping(target: TelegramSessionTarget): Promise<void> {
+    const extra = this.buildThreadExtra(target);
+    await this.bot.api.sendChatAction(target.chatId, 'typing', extra);
   }
 
   /**
@@ -116,17 +174,7 @@ export class TelegramClient {
   }
 
   async sendText(target: TelegramSessionTarget, text: string, options: TelegramSendTextOptions = {}): Promise<void> {
-    const chunks = splitText(text, TELEGRAM_MESSAGE_MAX_LENGTH);
-    for (const chunk of chunks) {
-      const extra: Record<string, unknown> = {};
-      if (target.threadId != null) {
-        extra.message_thread_id = target.threadId;
-      }
-      if (options.parseMode) {
-        extra.parse_mode = options.parseMode;
-      }
-      await this.bot.api.sendMessage(target.chatId, chunk, extra);
-    }
+    await this.sendTextReturningIds(target, text, options);
   }
 
   async editText(target: TelegramSessionTarget, messageId: number, text: string, options: TelegramEditTextOptions = {}): Promise<void> {
@@ -144,6 +192,59 @@ export class TelegramClient {
       // 429 由 grammY 内置 auto-retry 处理，这里只重新抛出
       throw err;
     }
+  }
+
+  /** 用 Rich Message 替换既有文本消息，主要用于群聊 legacy stream 的最终 rich 化。 */
+  async editRichMessage(target: TelegramSessionTarget, messageId: number, richMessage: InputRichMessage): Promise<void> {
+    try {
+      await this.bot.api.editMessageText(target.chatId, messageId, richMessage);
+    } catch (err: any) {
+      const errMsg = String(err?.message ?? err?.description ?? '');
+      if (errMsg.includes('message is not modified')) return;
+      throw err;
+    }
+  }
+
+  /**
+   * 将一条既有 Telegram 文本消息替换为可能跨多条消息的纯文本结果。
+   * 第一片通过 editMessageText 覆盖原消息，剩余分片继续 sendMessage。
+   */
+  async replaceMessageTextReturningIds(target: TelegramSessionTarget, messageId: number, text: string, options: TelegramEditTextOptions = {}, observer: TelegramMessageIdObserver = {}): Promise<number[]> {
+    const chunks = splitText(text, TELEGRAM_MESSAGE_MAX_LENGTH);
+    const [firstChunk, ...restChunks] = chunks;
+    await this.editText(target, messageId, firstChunk, options);
+
+    const messageIds = [messageId];
+    observer.onMessageId?.(messageId);
+    for (const chunk of restChunks) {
+      const nextMessageId = await this.sendMessageChunkReturningId(target, chunk, options);
+      messageIds.push(nextMessageId);
+      observer.onMessageId?.(nextMessageId);
+    }
+    return messageIds;
+  }
+
+  private async sendMessageChunkReturningId(target: TelegramSessionTarget, text: string, options: TelegramTextOptions = {}): Promise<number> {
+    const extra = this.buildTextExtra(target, options);
+    const msg = await this.bot.api.sendMessage(target.chatId, text, extra);
+    return msg.message_id;
+  }
+
+  /** message_thread_id 是 sendMessage/sendRichMessage/sendRichMessageDraft 共享的 Telegram 话题参数。 */
+  private buildThreadExtra(target: TelegramSessionTarget): Record<string, unknown> {
+    const extra: Record<string, unknown> = {};
+    if (target.threadId != null) {
+      extra.message_thread_id = target.threadId;
+    }
+    return extra;
+  }
+
+  private buildTextExtra(target: TelegramSessionTarget, options: TelegramTextOptions = {}): Record<string, unknown> {
+    const extra = this.buildThreadExtra(target);
+    if (options.parseMode) {
+      extra.parse_mode = options.parseMode;
+    }
+    return extra;
   }
 
   async deleteMessage(target: TelegramSessionTarget, messageId: number): Promise<void> {

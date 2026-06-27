@@ -3,11 +3,9 @@
  *
  * ## 设计说明
  *
- * 所有输出均为纯文本（不使用 HTML parse_mode）。
- * 原因：AI 回复内容本身包含 Markdown 语法（代码块、标题等），
- * 如果用 HTML parse_mode，需要对所有 <、>、& 做转义，
- * 而且 Telegram 的 HTML 子集不支持完整 Markdown，
- * 两者混用极易导致格式解析失败。纯文本模式最稳健。
+ * 本模块只构建 Telegram 平台的纯文本提示、命令回复和 legacy edit 预览文本。
+ * Assistant 最终回复的 Rich Message 渲染在 rich-message.ts 中完成，避免把
+ * Telegram Rich Markdown/HTML 细节散落到平台主状态机里。
  *
  * ## 关于类 vs 纯函数
  *

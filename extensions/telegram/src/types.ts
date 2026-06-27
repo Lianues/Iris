@@ -9,10 +9,17 @@ import type { PairingConfig } from 'irises-extension-sdk/pairing';
 
 export const TELEGRAM_MESSAGE_MAX_LENGTH = 4096;
 
+export type TelegramOutputFormat = 'plain' | 'rich';
+export type TelegramStreamMode = 'auto' | 'draft' | 'edit' | 'off';
+
 export interface TelegramConfig {
   token: string;
   /** 索引签名：允许扩展字段（如 eventBus）通过 config 透传 */
   [key: string]: unknown;
+  /** Assistant 最终回复的 Telegram 输出格式，默认 rich。 */
+  outputFormat?: TelegramOutputFormat;
+  /** 流式展示策略，auto=私聊 rich draft、群聊 legacy edit，默认 auto。 */
+  streamMode?: TelegramStreamMode;
   /**
    * 是否在 Telegram 输出中展示工具状态。
    * 该字段先在 Phase 0 接入配置，后续 Phase 2/4/6 会逐步真正使用。

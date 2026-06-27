@@ -223,7 +223,8 @@ var require_filter = __commonJS((exports) => {
     pre: {},
     text_link: {},
     text_mention: {},
-    custom_emoji: {}
+    custom_emoji: {},
+    date_time: {}
   };
   var USER_KEYS = {
     me: {},
@@ -256,11 +257,14 @@ var require_filter = __commonJS((exports) => {
     forward_origin: FORWARD_ORIGIN_KEYS,
     is_topic_message: {},
     is_automatic_forward: {},
+    guest_query_id: {},
     business_connection_id: {},
     text: {},
+    rich_message: {},
     animation: {},
     audio: {},
     document: {},
+    live_photo: {},
     paid_media: {},
     photo: {},
     sticker: STICKER_KEYS,
@@ -312,7 +316,7 @@ var require_filter = __commonJS((exports) => {
     ...COMMON_MESSAGE_KEYS,
     direct_messages_topic: {},
     chat_owner_left: { new_owner: {} },
-    chat_owner_changd: {},
+    chat_owner_changed: {},
     new_chat_members: USER_KEYS,
     left_chat_member: USER_KEYS,
     group_chat_created: {},
@@ -324,6 +328,7 @@ var require_filter = __commonJS((exports) => {
     users_shared: {},
     chat_shared: {},
     connected_website: {},
+    managed_bot_created: {},
     write_access_allowed: {},
     passport_data: {},
     boost_added: {},
@@ -336,6 +341,8 @@ var require_filter = __commonJS((exports) => {
     checklist: { others_can_add_tasks: {}, others_can_mark_tasks_as_done: {} },
     checklist_tasks_done: {},
     checklist_tasks_added: {},
+    poll_option_added: {},
+    poll_option_deleted: {},
     suggested_post_info: {},
     suggested_post_approved: {},
     suggested_post_approval_failed: {},
@@ -372,6 +379,7 @@ var require_filter = __commonJS((exports) => {
     business_message: MESSAGE_KEYS,
     edited_business_message: MESSAGE_KEYS,
     deleted_business_messages: {},
+    guest_message: MESSAGE_KEYS,
     inline_query: {},
     chosen_inline_result: {},
     callback_query: CALLBACK_QUERY_KEYS,
@@ -381,6 +389,7 @@ var require_filter = __commonJS((exports) => {
     poll_answer: {},
     my_chat_member: CHAT_MEMBER_UPDATED_KEYS,
     chat_member: CHAT_MEMBER_UPDATED_KEYS,
+    managed_bot: {},
     chat_join_request: {},
     message_reaction: MESSAGE_REACTION_KEYS,
     message_reaction_count: MESSAGE_REACTION_COUNT_UPDATED_KEYS,
@@ -395,9 +404,10 @@ var require_filter = __commonJS((exports) => {
   };
   var L2_SHORTCUTS = {
     "": ["entities", "caption_entities"],
-    media: ["photo", "video"],
+    media: ["photo", "live_photo", "video"],
     file: [
       "photo",
+      "live_photo",
       "animation",
       "audio",
       "document",
@@ -511,7 +521,7 @@ var require_context = __commonJS((exports) => {
               isOld = true;
               break;
             }
-          } else {}
+          }
           if (isOld)
             continue;
           if (reaction2.type === "emoji") {
@@ -599,6 +609,9 @@ var require_context = __commonJS((exports) => {
     get deletedBusinessMessages() {
       return this.update.deleted_business_messages;
     }
+    get guestMessage() {
+      return this.update.guest_message;
+    }
     get messageReaction() {
       return this.update.message_reaction;
     }
@@ -632,6 +645,9 @@ var require_context = __commonJS((exports) => {
     get chatMember() {
       return this.update.chat_member;
     }
+    get managedBot() {
+      return this.update.managed_bot;
+    }
     get chatJoinRequest() {
       return this.update.chat_join_request;
     }
@@ -645,8 +661,8 @@ var require_context = __commonJS((exports) => {
       return this.update.purchased_paid_media;
     }
     get msg() {
-      var _a, _b, _c, _d, _e, _f, _g;
-      return (_f = (_e = (_d = (_c = (_b = (_a = this.message) !== null && _a !== undefined ? _a : this.editedMessage) !== null && _b !== undefined ? _b : this.channelPost) !== null && _c !== undefined ? _c : this.editedChannelPost) !== null && _d !== undefined ? _d : this.businessMessage) !== null && _e !== undefined ? _e : this.editedBusinessMessage) !== null && _f !== undefined ? _f : (_g = this.callbackQuery) === null || _g === undefined ? undefined : _g.message;
+      var _a, _b, _c, _d, _e, _f, _g, _h;
+      return (_g = (_f = (_e = (_d = (_c = (_b = (_a = this.message) !== null && _a !== undefined ? _a : this.editedMessage) !== null && _b !== undefined ? _b : this.channelPost) !== null && _c !== undefined ? _c : this.editedChannelPost) !== null && _d !== undefined ? _d : this.businessMessage) !== null && _e !== undefined ? _e : this.editedBusinessMessage) !== null && _f !== undefined ? _f : this.guestMessage) !== null && _g !== undefined ? _g : (_h = this.callbackQuery) === null || _h === undefined ? undefined : _h.message;
     }
     get chat() {
       var _a, _b, _c, _d, _e, _f, _g, _h, _j;
@@ -657,8 +673,8 @@ var require_context = __commonJS((exports) => {
       return (_a = this.msg) === null || _a === undefined ? undefined : _a.sender_chat;
     }
     get from() {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
-      return (_g = (_f = (_b = (_a = this.businessConnection) !== null && _a !== undefined ? _a : this.messageReaction) !== null && _b !== undefined ? _b : (_e = (_d = (_c = this.chatBoost) === null || _c === undefined ? undefined : _c.boost) !== null && _d !== undefined ? _d : this.removedChatBoost) === null || _e === undefined ? undefined : _e.source) === null || _f === undefined ? undefined : _f.user) !== null && _g !== undefined ? _g : (_s = (_r = (_q = (_p = (_o = (_m = (_l = (_k = (_j = (_h = this.callbackQuery) !== null && _h !== undefined ? _h : this.msg) !== null && _j !== undefined ? _j : this.inlineQuery) !== null && _k !== undefined ? _k : this.chosenInlineResult) !== null && _l !== undefined ? _l : this.shippingQuery) !== null && _m !== undefined ? _m : this.preCheckoutQuery) !== null && _o !== undefined ? _o : this.myChatMember) !== null && _p !== undefined ? _p : this.chatMember) !== null && _q !== undefined ? _q : this.chatJoinRequest) !== null && _r !== undefined ? _r : this.purchasedPaidMedia) === null || _s === undefined ? undefined : _s.from;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t;
+      return (_h = (_g = (_c = (_b = (_a = this.businessConnection) !== null && _a !== undefined ? _a : this.messageReaction) !== null && _b !== undefined ? _b : this.managedBot) !== null && _c !== undefined ? _c : (_f = (_e = (_d = this.chatBoost) === null || _d === undefined ? undefined : _d.boost) !== null && _e !== undefined ? _e : this.removedChatBoost) === null || _f === undefined ? undefined : _f.source) === null || _g === undefined ? undefined : _g.user) !== null && _h !== undefined ? _h : (_t = (_s = (_r = (_q = (_p = (_o = (_m = (_l = (_k = (_j = this.callbackQuery) !== null && _j !== undefined ? _j : this.msg) !== null && _k !== undefined ? _k : this.inlineQuery) !== null && _l !== undefined ? _l : this.chosenInlineResult) !== null && _m !== undefined ? _m : this.shippingQuery) !== null && _o !== undefined ? _o : this.preCheckoutQuery) !== null && _p !== undefined ? _p : this.myChatMember) !== null && _q !== undefined ? _q : this.chatMember) !== null && _r !== undefined ? _r : this.chatJoinRequest) !== null && _s !== undefined ? _s : this.purchasedPaidMedia) === null || _t === undefined ? undefined : _t.from;
     }
     get msgId() {
       var _a, _b, _c, _d, _e;
@@ -817,10 +833,13 @@ var require_context = __commonJS((exports) => {
         ...other
       }, signal);
     }
-    replyWithDraft(text, other, signal) {
+    replyWithRichMessage(rich_message, other, signal) {
+      var _a;
       const msg = this.msg;
-      return this.api.sendMessageDraft(orThrow(this.chatId, "sendMessageDraft"), this.update.update_id, text, {
-        ...(msg === null || msg === undefined ? undefined : msg.is_topic_message) ? { message_thread_id: msg === null || msg === undefined ? undefined : msg.message_thread_id } : {},
+      return this.api.sendRichMessage(orThrow(this.chatId, "sendRichMessage"), rich_message, {
+        business_connection_id: this.businessConnectionId,
+        ...(msg === null || msg === undefined ? undefined : msg.is_topic_message) ? { message_thread_id: msg.message_thread_id } : {},
+        direct_messages_topic_id: (_a = msg === null || msg === undefined ? undefined : msg.direct_messages_topic) === null || _a === undefined ? undefined : _a.topic_id,
         ...other
       }, signal);
     }
@@ -860,6 +879,16 @@ var require_context = __commonJS((exports) => {
       var _a;
       const msg = this.msg;
       return this.api.sendPhoto(orThrow(this.chatId, "sendPhoto"), photo, {
+        business_connection_id: this.businessConnectionId,
+        ...(msg === null || msg === undefined ? undefined : msg.is_topic_message) ? { message_thread_id: msg.message_thread_id } : {},
+        direct_messages_topic_id: (_a = msg === null || msg === undefined ? undefined : msg.direct_messages_topic) === null || _a === undefined ? undefined : _a.topic_id,
+        ...other
+      }, signal);
+    }
+    replyWithLivePhoto(live_photo, photo, other, signal) {
+      var _a;
+      const msg = this.msg;
+      return this.api.sendLivePhoto(orThrow(this.chatId, "sendLivePhoto"), live_photo, photo, {
         business_connection_id: this.businessConnectionId,
         ...(msg === null || msg === undefined ? undefined : msg.is_topic_message) ? { message_thread_id: msg.message_thread_id } : {},
         direct_messages_topic_id: (_a = msg === null || msg === undefined ? undefined : msg.direct_messages_topic) === null || _a === undefined ? undefined : _a.topic_id,
@@ -926,6 +955,19 @@ var require_context = __commonJS((exports) => {
         ...other
       }, signal);
     }
+    sendPaidMedia(...args) {
+      return this.replyWithPaidMedia(...args);
+    }
+    replyWithPaidMedia(star_count, media, other, signal) {
+      var _a, _b;
+      const msg = this.msg;
+      return this.api.sendPaidMedia(orThrow(this.chatId, "sendPaidMedia"), star_count, media, {
+        business_connection_id: this.businessConnectionId,
+        ...(msg === null || msg === undefined ? undefined : msg.is_topic_message) ? { message_thread_id: msg.message_thread_id } : {},
+        direct_messages_topic_id: (_b = (_a = this.msg) === null || _a === undefined ? undefined : _a.direct_messages_topic) === null || _b === undefined ? undefined : _b.topic_id,
+        ...other
+      }, signal);
+    }
     replyWithMediaGroup(media, other, signal) {
       var _a;
       const msg = this.msg;
@@ -953,16 +995,6 @@ var require_context = __commonJS((exports) => {
     stopMessageLiveLocation(other, signal) {
       const inlineId = this.inlineMessageId;
       return inlineId !== undefined ? this.api.stopMessageLiveLocationInline(inlineId, { business_connection_id: this.businessConnectionId, ...other }, signal) : this.api.stopMessageLiveLocation(orThrow(this.chatId, "stopMessageLiveLocation"), orThrow(this.msgId, "stopMessageLiveLocation"), { business_connection_id: this.businessConnectionId, ...other }, signal);
-    }
-    sendPaidMedia(star_count, media, other, signal) {
-      var _a, _b;
-      const msg = this.msg;
-      return this.api.sendPaidMedia(orThrow(this.chatId, "sendPaidMedia"), star_count, media, {
-        business_connection_id: this.businessConnectionId,
-        ...(msg === null || msg === undefined ? undefined : msg.is_topic_message) ? { message_thread_id: msg.message_thread_id } : {},
-        direct_messages_topic_id: (_b = (_a = this.msg) === null || _a === undefined ? undefined : _a.direct_messages_topic) === null || _b === undefined ? undefined : _b.topic_id,
-        ...other
-      }, signal);
     }
     replyWithVenue(latitude, longitude, title, address, other, signal) {
       var _a;
@@ -1022,6 +1054,20 @@ var require_context = __commonJS((exports) => {
     react(reaction, other, signal) {
       return this.api.setMessageReaction(orThrow(this.chatId, "setMessageReaction"), orThrow(this.msgId, "setMessageReaction"), typeof reaction === "string" ? [{ type: "emoji", emoji: reaction }] : (Array.isArray(reaction) ? reaction : [reaction]).map((emoji) => typeof emoji === "string" ? { type: "emoji", emoji } : emoji), other, signal);
     }
+    replyWithDraft(text, other, signal) {
+      const msg = this.msg;
+      return this.api.sendMessageDraft(orThrow(this.chatId, "sendMessageDraft"), this.update.update_id, text, {
+        ...(msg === null || msg === undefined ? undefined : msg.is_topic_message) ? { message_thread_id: msg.message_thread_id } : {},
+        ...other
+      }, signal);
+    }
+    replyWithRichMessageDraft(rich_message, other, signal) {
+      const msg = this.msg;
+      return this.api.sendRichMessageDraft(orThrow(this.chatId, "sendMessageDraft"), this.update.update_id, rich_message, {
+        ...(msg === null || msg === undefined ? undefined : msg.is_topic_message) ? { message_thread_id: msg.message_thread_id } : {},
+        ...other
+      }, signal);
+    }
     getUserProfilePhotos(other, signal) {
       return this.api.getUserProfilePhotos(orThrow(this.from, "getUserProfilePhotos").id, other, signal);
     }
@@ -1042,6 +1088,18 @@ var require_context = __commonJS((exports) => {
     }
     getBusinessConnection(signal) {
       return this.api.getBusinessConnection(orThrow(this.businessConnectionId, "getBusinessConnection"), signal);
+    }
+    getManagedBotToken(signal) {
+      return this.api.getManagedBotToken(orThrow(this.managedBot, "getManagedBotToken").bot.id, signal);
+    }
+    replaceManagedBotToken(signal) {
+      return this.api.replaceManagedBotToken(orThrow(this.managedBot, "getManagedBotToken").bot.id, signal);
+    }
+    getManagedBotAccessSettings(signal) {
+      return this.api.getManagedBotAccessSettings(orThrow(this.managedBot, "getManagedBotAccessSettings").bot.id, signal);
+    }
+    setManagedBotAccessSettings(is_access_restricted, other, signal) {
+      return this.api.setManagedBotAccessSettings(orThrow(this.managedBot, "setManagedBotAccessSettings").bot.id, is_access_restricted, other, signal);
     }
     getFile(signal) {
       var _a, _b, _c, _d, _e, _f;
@@ -1121,6 +1179,14 @@ var require_context = __commonJS((exports) => {
     declineChatJoinRequest(user_id, signal) {
       return this.api.declineChatJoinRequest(orThrow(this.chatId, "declineChatJoinRequest"), user_id, signal);
     }
+    answerChatJoinRequestQuery(result, signal) {
+      var _a;
+      return this.api.answerChatJoinRequestQuery(orThrow((_a = this.chatJoinRequest) === null || _a === undefined ? undefined : _a.query_id, "answerChatJoinRequestQuery"), result, signal);
+    }
+    replyWithChatJoinRequestWebApp(web_app_url, signal) {
+      var _a;
+      return this.api.sendChatJoinRequestWebApp(orThrow((_a = this.chatJoinRequest) === null || _a === undefined ? undefined : _a.query_id, "answerChatJoinRequestQuery"), web_app_url, signal);
+    }
     approveSuggestedPost(other, signal) {
       return this.api.approveSuggestedPost(orThrow(this.chatId, "approveSuggestedPost"), orThrow(this.msgId, "approveSuggestedPost"), other, signal);
     }
@@ -1154,8 +1220,8 @@ var require_context = __commonJS((exports) => {
     getChat(signal) {
       return this.api.getChat(orThrow(this.chatId, "getChat"), signal);
     }
-    getChatAdministrators(signal) {
-      return this.api.getChatAdministrators(orThrow(this.chatId, "getChatAdministrators"), signal);
+    getChatAdministrators(other, signal) {
+      return this.api.getChatAdministrators(orThrow(this.chatId, "getChatAdministrators"), other, signal);
     }
     getChatMembersCount(...args) {
       return this.getChatMemberCount(...args);
@@ -1168,6 +1234,9 @@ var require_context = __commonJS((exports) => {
     }
     getChatMember(user_id, signal) {
       return this.api.getChatMember(orThrow(this.chatId, "getChatMember"), user_id, signal);
+    }
+    getUserPersonalChatMessages(limit, signal) {
+      return this.api.getUserPersonalChatMessages(orThrow(this.from, "getUserPersonalChatMessages").id, limit, signal);
     }
     setChatStickerSet(sticker_set_name, signal) {
       return this.api.setChatStickerSet(orThrow(this.chatId, "setChatStickerSet"), sticker_set_name, signal);
@@ -1224,6 +1293,10 @@ var require_context = __commonJS((exports) => {
     answerCallbackQuery(other, signal) {
       return this.api.answerCallbackQuery(orThrow(this.callbackQuery, "answerCallbackQuery").id, typeof other === "string" ? { text: other } : other, signal);
     }
+    answerGuestQuery(result, signal) {
+      var _a;
+      return this.api.answerGuestQuery(orThrow((_a = this.guestMessage) === null || _a === undefined ? undefined : _a.guest_query_id, "answerGuestQuery"), result, signal);
+    }
     setChatMenuButton(other, signal) {
       return this.api.setChatMenuButton(other, signal);
     }
@@ -1266,6 +1339,38 @@ var require_context = __commonJS((exports) => {
     }
     deleteMessages(message_ids, signal) {
       return this.api.deleteMessages(orThrow(this.chatId, "deleteMessages"), message_ids, signal);
+    }
+    deleteMessageReaction(other, signal) {
+      const reaction = orThrow(this.messageReaction, "deleteMessageReaction");
+      if (reaction.user !== undefined) {
+        return this.deleteMessageReactionUser(reaction.user.id, other, signal);
+      } else if (reaction.actor_chat !== undefined) {
+        return this.deleteMessageReactionChat(reaction.actor_chat.id, other, signal);
+      } else {
+        throw new Error("Missing information from message_reaction update for API call to deleteMessageReaction");
+      }
+    }
+    deleteMessageReactionUser(user_id, other, signal) {
+      return this.api.deleteMessageReactionUser(orThrow(this.chatId, "deleteMessageReactionUser"), orThrow(this.msgId, "deleteMessageReactionUser"), user_id, other, signal);
+    }
+    deleteMessageReactionChat(actor_chat_id, other, signal) {
+      return this.api.deleteMessageReactionChat(orThrow(this.chatId, "deleteMessageReactionChat"), orThrow(this.msgId, "deleteMessageReactionChat"), actor_chat_id, other, signal);
+    }
+    deleteAllMessageReactions(other, signal) {
+      var _a, _b, _c, _d;
+      const chatId = orThrow(this.chatId, "deleteAllMessageReactions");
+      const actor = (_c = (_b = (_a = this.messageReaction) === null || _a === undefined ? undefined : _a.actor_chat) !== null && _b !== undefined ? _b : this.senderChat) !== null && _c !== undefined ? _c : (_d = this.pollAnswer) === null || _d === undefined ? undefined : _d.voter_chat;
+      if (actor !== undefined) {
+        return this.api.deleteAllMessageReactionsChat(chatId, actor.id, other, signal);
+      }
+      const userId = orThrow(this.from, "deleteAllMessageReactions").id;
+      return this.api.deleteAllMessageReactionsUser(chatId, userId, other, signal);
+    }
+    deleteAllMessageReactionsUser(user_id, other, signal) {
+      return this.api.deleteAllMessageReactionsUser(orThrow(this.chatId, "deleteAllMessageReactionsUser"), user_id, other, signal);
+    }
+    deleteAllMessageReactionsChat(actor_chat_id, other, signal) {
+      return this.api.deleteAllMessageReactionsChat(orThrow(this.chatId, "deleteAllMessageReactionsChat"), actor_chat_id, other, signal);
     }
     deleteBusinessMessages(message_ids, signal) {
       return this.api.deleteBusinessMessages(orThrow(this.businessConnectionId, "deleteBusinessMessages"), message_ids, signal);
@@ -1348,6 +1453,9 @@ var require_context = __commonJS((exports) => {
     }
     savePreparedInlineMessage(result, other, signal) {
       return this.api.savePreparedInlineMessage(orThrow(this.from, "savePreparedInlineMessage").id, result, other, signal);
+    }
+    savePreparedKeyboardButton(button, signal) {
+      return this.api.savePreparedKeyboardButton(orThrow(this.from, "savePreparedKeyboardButton").id, button, signal);
     }
     replyWithInvoice(title, description, payload, currency, prices, other, signal) {
       var _a;
@@ -6310,8 +6418,8 @@ var require_api = __commonJS((exports) => {
     sendMessage(chat_id, text, other, signal) {
       return this.raw.sendMessage({ chat_id, text, ...other }, signal);
     }
-    sendMessageDraft(chat_id, draft_id, text, other, signal) {
-      return this.raw.sendMessageDraft({ chat_id, draft_id, text, ...other }, signal);
+    sendRichMessage(chat_id, rich_message, other, signal) {
+      return this.raw.sendRichMessage({ chat_id, rich_message, ...other }, signal);
     }
     forwardMessage(chat_id, from_chat_id, message_id, other, signal) {
       return this.raw.forwardMessage({ chat_id, from_chat_id, message_id, ...other }, signal);
@@ -6338,6 +6446,9 @@ var require_api = __commonJS((exports) => {
     sendPhoto(chat_id, photo, other, signal) {
       return this.raw.sendPhoto({ chat_id, photo, ...other }, signal);
     }
+    sendLivePhoto(chat_id, live_photo, photo, other, signal) {
+      return this.raw.sendLivePhoto({ chat_id, live_photo, photo, ...other }, signal);
+    }
     sendAudio(chat_id, audio, other, signal) {
       return this.raw.sendAudio({ chat_id, audio, ...other }, signal);
     }
@@ -6356,6 +6467,9 @@ var require_api = __commonJS((exports) => {
     sendVideoNote(chat_id, video_note, other, signal) {
       return this.raw.sendVideoNote({ chat_id, video_note, ...other }, signal);
     }
+    sendPaidMedia(chat_id, star_count, media, other, signal) {
+      return this.raw.sendPaidMedia({ chat_id, star_count, media, ...other }, signal);
+    }
     sendMediaGroup(chat_id, media, other, signal) {
       return this.raw.sendMediaGroup({ chat_id, media, ...other }, signal);
     }
@@ -6373,9 +6487,6 @@ var require_api = __commonJS((exports) => {
     }
     stopMessageLiveLocationInline(inline_message_id, other, signal) {
       return this.raw.stopMessageLiveLocation({ inline_message_id, ...other }, signal);
-    }
-    sendPaidMedia(chat_id, star_count, media, other, signal) {
-      return this.raw.sendPaidMedia({ chat_id, star_count, media, ...other }, signal);
     }
     sendVenue(chat_id, latitude, longitude, title, address, other, signal) {
       return this.raw.sendVenue({ chat_id, latitude, longitude, title, address, ...other }, signal);
@@ -6415,6 +6526,12 @@ var require_api = __commonJS((exports) => {
         ...other
       }, signal);
     }
+    sendMessageDraft(chat_id, draft_id, text, other, signal) {
+      return this.raw.sendMessageDraft({ chat_id, draft_id, text, ...other }, signal);
+    }
+    sendRichMessageDraft(chat_id, draft_id, rich_message, other, signal) {
+      return this.raw.sendRichMessageDraft({ chat_id, draft_id, rich_message, ...other }, signal);
+    }
     sendChatAction(chat_id, action, other, signal) {
       return this.raw.sendChatAction({ chat_id, action, ...other }, signal);
     }
@@ -6438,6 +6555,22 @@ var require_api = __commonJS((exports) => {
     }
     getBusinessConnection(business_connection_id, signal) {
       return this.raw.getBusinessConnection({ business_connection_id }, signal);
+    }
+    getManagedBotToken(user_id, signal) {
+      return this.raw.getManagedBotToken({ user_id }, signal);
+    }
+    replaceManagedBotToken(user_id, signal) {
+      return this.raw.replaceManagedBotToken({ user_id }, signal);
+    }
+    getManagedBotAccessSettings(user_id, signal) {
+      return this.raw.getManagedBotAccessSettings({ user_id }, signal);
+    }
+    setManagedBotAccessSettings(user_id, is_access_restricted, other, signal) {
+      return this.raw.setManagedBotAccessSettings({
+        user_id,
+        is_access_restricted,
+        ...other
+      }, signal);
     }
     getFile(file_id, signal) {
       return this.raw.getFile({ file_id }, signal);
@@ -6496,6 +6629,12 @@ var require_api = __commonJS((exports) => {
     declineChatJoinRequest(chat_id, user_id, signal) {
       return this.raw.declineChatJoinRequest({ chat_id, user_id }, signal);
     }
+    answerChatJoinRequestQuery(chat_join_request_query_id, result, signal) {
+      return this.raw.answerChatJoinRequestQuery({ chat_join_request_query_id, result }, signal);
+    }
+    sendChatJoinRequestWebApp(chat_join_request_query_id, web_app_url, signal) {
+      return this.raw.sendChatJoinRequestWebApp({ chat_join_request_query_id, web_app_url }, signal);
+    }
     approveSuggestedPost(chat_id, message_id, other, signal) {
       return this.raw.approveSuggestedPost({ chat_id, message_id, ...other }, signal);
     }
@@ -6529,8 +6668,8 @@ var require_api = __commonJS((exports) => {
     getChat(chat_id, signal) {
       return this.raw.getChat({ chat_id }, signal);
     }
-    getChatAdministrators(chat_id, signal) {
-      return this.raw.getChatAdministrators({ chat_id }, signal);
+    getChatAdministrators(chat_id, other, signal) {
+      return this.raw.getChatAdministrators({ chat_id, ...other }, signal);
     }
     getChatMembersCount(...args) {
       return this.getChatMemberCount(...args);
@@ -6540,6 +6679,9 @@ var require_api = __commonJS((exports) => {
     }
     getChatMember(chat_id, user_id, signal) {
       return this.raw.getChatMember({ chat_id, user_id }, signal);
+    }
+    getUserPersonalChatMessages(user_id, limit, signal) {
+      return this.raw.getUserPersonalChatMessages({ user_id, limit }, signal);
     }
     setChatStickerSet(chat_id, sticker_set_name, signal) {
       return this.raw.setChatStickerSet({ chat_id, sticker_set_name }, signal);
@@ -6589,6 +6731,9 @@ var require_api = __commonJS((exports) => {
     answerCallbackQuery(callback_query_id, other, signal) {
       return this.raw.answerCallbackQuery({ callback_query_id, ...other }, signal);
     }
+    answerGuestQuery(guest_query_id, result, signal) {
+      return this.raw.answerGuestQuery({ guest_query_id, result }, signal);
+    }
     setMyName(name, other, signal) {
       return this.raw.setMyName({ name, ...other }, signal);
     }
@@ -6637,11 +6782,20 @@ var require_api = __commonJS((exports) => {
     getMyStarBalance(signal) {
       return this.raw.getMyStarBalance(signal);
     }
-    editMessageText(chat_id, message_id, text, other, signal) {
-      return this.raw.editMessageText({ chat_id, message_id, text, ...other }, signal);
+    editMessageText(chat_id, message_id, text_or_rich_message, other, signal) {
+      return this.raw.editMessageText(typeof text_or_rich_message === "string" ? { chat_id, message_id, text: text_or_rich_message, ...other } : {
+        chat_id,
+        message_id,
+        rich_message: text_or_rich_message,
+        ...other
+      }, signal);
     }
-    editMessageTextInline(inline_message_id, text, other, signal) {
-      return this.raw.editMessageText({ inline_message_id, text, ...other }, signal);
+    editMessageTextInline(inline_message_id, text_or_rich_message, other, signal) {
+      return this.raw.editMessageText(typeof text_or_rich_message === "string" ? { inline_message_id, text: text_or_rich_message, ...other } : {
+        inline_message_id,
+        rich_message: text_or_rich_message,
+        ...other
+      }, signal);
     }
     editMessageCaption(chat_id, message_id, other, signal) {
       return this.raw.editMessageCaption({ chat_id, message_id, ...other }, signal);
@@ -6669,6 +6823,36 @@ var require_api = __commonJS((exports) => {
     }
     deleteMessages(chat_id, message_ids, signal) {
       return this.raw.deleteMessages({ chat_id, message_ids }, signal);
+    }
+    deleteMessageReactionUser(chat_id, message_id, user_id, other, signal) {
+      return this.raw.deleteMessageReaction({
+        chat_id,
+        message_id,
+        user_id,
+        ...other
+      }, signal);
+    }
+    deleteMessageReactionChat(chat_id, message_id, actor_chat_id, other, signal) {
+      return this.raw.deleteMessageReaction({
+        chat_id,
+        message_id,
+        actor_chat_id,
+        ...other
+      }, signal);
+    }
+    deleteAllMessageReactionsUser(chat_id, user_id, other, signal) {
+      return this.raw.deleteAllMessageReactions({
+        chat_id,
+        user_id,
+        ...other
+      }, signal);
+    }
+    deleteAllMessageReactionsChat(chat_id, actor_chat_id, other, signal) {
+      return this.raw.deleteAllMessageReactions({
+        chat_id,
+        actor_chat_id,
+        ...other
+      }, signal);
     }
     deleteBusinessMessages(business_connection_id, message_ids, signal) {
       return this.raw.deleteBusinessMessages({ business_connection_id, message_ids }, signal);
@@ -6804,6 +6988,9 @@ var require_api = __commonJS((exports) => {
     savePreparedInlineMessage(user_id, result, other, signal) {
       return this.raw.savePreparedInlineMessage({ user_id, result, ...other }, signal);
     }
+    savePreparedKeyboardButton(user_id, button, signal) {
+      return this.raw.savePreparedKeyboardButton({ user_id, button }, signal);
+    }
     sendInvoice(chat_id, title, description, payload, currency, prices, other, signal) {
       return this.raw.sendInvoice({
         chat_id,
@@ -6903,6 +7090,7 @@ var require_bot = __commonJS((exports) => {
     "business_message",
     "edited_business_message",
     "deleted_business_messages",
+    "guest_message",
     "inline_query",
     "chosen_inline_result",
     "callback_query",
@@ -6912,6 +7100,7 @@ var require_bot = __commonJS((exports) => {
     "poll",
     "poll_answer",
     "my_chat_member",
+    "managed_bot",
     "chat_join_request",
     "chat_boost",
     "removed_chat_boost"
@@ -7228,6 +7417,7 @@ var require_constants = __commonJS((exports) => {
     can_send_polls: true,
     can_send_other_messages: true,
     can_add_web_page_previews: true,
+    can_react_to_messages: true,
     can_change_info: true,
     can_invite_users: true,
     can_edit_tag: true,
@@ -7257,6 +7447,13 @@ var require_inline_query = __commonJS((exports) => {
       text(message_text, options = {}) {
         const content = {
           message_text,
+          ...options
+        };
+        return { ...queryTemplate, input_message_content: content };
+      },
+      rich(rich_message, options = {}) {
+        const content = {
+          rich_message,
           ...options
         };
         return { ...queryTemplate, input_message_content: content };
@@ -7491,7 +7688,8 @@ var require_keyboard = __commonJS((exports) => {
       return this.add(Keyboard.requestUsers(text, requestId, options));
     }
     static requestUsers(text, requestId, options = {}) {
-      return typeof text === "string" ? { text, request_users: { request_id: requestId, ...options } } : { ...text, request_users: { request_id: requestId, ...options } };
+      const request_users = { request_id: requestId, ...options };
+      return typeof text === "string" ? { text, request_users } : { ...text, request_users };
     }
     requestChat(text, requestId, options = {
       chat_is_channel: false
@@ -7524,6 +7722,13 @@ var require_keyboard = __commonJS((exports) => {
     static requestPoll(text, type) {
       const request_poll = { type };
       return typeof text === "string" ? { text, request_poll } : { ...text, request_poll };
+    }
+    requestManagedBot(text, requestId, options = {}) {
+      return this.add(Keyboard.requestManagedBot(text, requestId, options));
+    }
+    static requestManagedBot(text, requestId, options = {}) {
+      const request_managed_bot = { request_id: requestId, ...options };
+      return typeof text === "string" ? { text, request_managed_bot } : { ...text, request_managed_bot };
     }
     webApp(text, url) {
       return this.add(Keyboard.webApp(text, url));
@@ -8129,28 +8334,32 @@ var require_frameworks = __commonJS((exports) => {
     status: 401,
     statusText: WRONG_TOKEN_ERROR
   });
-  var awsLambda = (event, _context, callback) => ({
-    get update() {
-      var _a;
-      return JSON.parse((_a = event.body) !== null && _a !== undefined ? _a : "{}");
-    },
-    header: event.headers[SECRET_HEADER],
-    end: () => callback(null, { statusCode: 200 }),
-    respond: (json) => callback(null, {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: json
-    }),
-    unauthorized: () => callback(null, { statusCode: 401 })
-  });
+  var awsLambda = (event, _context, callback) => {
+    var _a;
+    return {
+      get update() {
+        var _a2;
+        return JSON.parse((_a2 = event.body) !== null && _a2 !== undefined ? _a2 : "{}");
+      },
+      header: (_a = event.headers[SECRET_HEADER]) !== null && _a !== undefined ? _a : event.headers[SECRET_HEADER_LOWERCASE],
+      end: () => callback(null, { statusCode: 200 }),
+      respond: (json) => callback(null, {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: json
+      }),
+      unauthorized: () => callback(null, { statusCode: 401 })
+    };
+  };
   var awsLambdaAsync = (event, _context) => {
+    var _a;
     let resolveResponse;
     return {
       get update() {
-        var _a;
-        return JSON.parse((_a = event.body) !== null && _a !== undefined ? _a : "{}");
+        var _a2;
+        return JSON.parse((_a2 = event.body) !== null && _a2 !== undefined ? _a2 : "{}");
       },
-      header: event.headers[SECRET_HEADER],
+      header: (_a = event.headers[SECRET_HEADER]) !== null && _a !== undefined ? _a : event.headers[SECRET_HEADER_LOWERCASE],
       end: () => resolveResponse({ statusCode: 200 }),
       respond: (json) => resolveResponse({
         statusCode: 200,
@@ -8162,24 +8371,24 @@ var require_frameworks = __commonJS((exports) => {
     };
   };
   var azure = (context, request) => {
-    var _a, _b;
+    var _a;
     return {
       get update() {
         return request.body;
       },
-      header: (_b = (_a = context.res) === null || _a === undefined ? undefined : _a.headers) === null || _b === undefined ? undefined : _b[SECRET_HEADER],
+      header: (_a = request.headers) === null || _a === undefined ? undefined : _a[SECRET_HEADER_LOWERCASE],
       end: () => context.res = {
         status: 200,
         body: ""
       },
       respond: (json) => {
-        var _a2, _b2, _c, _d;
-        (_b2 = (_a2 = context.res) === null || _a2 === undefined ? undefined : _a2.set) === null || _b2 === undefined || _b2.call(_a2, "Content-Type", "application/json");
+        var _a2, _b, _c, _d;
+        (_b = (_a2 = context.res) === null || _a2 === undefined ? undefined : _a2.set) === null || _b === undefined || _b.call(_a2, "Content-Type", "application/json");
         (_d = (_c = context.res) === null || _c === undefined ? undefined : _c.send) === null || _d === undefined || _d.call(_c, json);
       },
       unauthorized: () => {
-        var _a2, _b2;
-        (_b2 = (_a2 = context.res) === null || _a2 === undefined ? undefined : _a2.send) === null || _b2 === undefined || _b2.call(_a2, 401, WRONG_TOKEN_ERROR);
+        var _a2, _b;
+        (_b = (_a2 = context.res) === null || _a2 === undefined ? undefined : _a2.send) === null || _b === undefined || _b.call(_a2, 401, WRONG_TOKEN_ERROR);
       }
     };
   };
@@ -8510,7 +8719,7 @@ var require_webhook = __commonJS((exports) => {
     }
     let hasDifference = 0;
     for (let i = 0;i < tokenBytes.length; i++) {
-      const headerByte = i < headerBytes.length ? headerBytes[i] : 0;
+      const headerByte = headerBytes[i];
       const tokenByte = tokenBytes[i];
       hasDifference |= headerByte ^ tokenByte;
     }
@@ -8997,6 +9206,12 @@ class BackendHandle {
   redo(sessionId) {
     return this._backend.redo?.(sessionId) ?? Promise.resolve(null);
   }
+  listRewindCheckpoints(sessionId) {
+    return this._backend.listRewindCheckpoints?.(sessionId) ?? Promise.resolve([]);
+  }
+  rewind(sessionId, checkpointId, mode = "conversation") {
+    return this._backend.rewind?.(sessionId, checkpointId, mode) ?? Promise.resolve(null);
+  }
   listSkills() {
     return this._backend.listSkills?.() ?? [];
   }
@@ -9020,6 +9235,9 @@ class BackendHandle {
   }
   resetConfigToDefaults() {
     return this._backend.resetConfigToDefaults?.();
+  }
+  reloadAgentsMd(sessionId) {
+    return this._backend.reloadAgentsMd?.(sessionId) ?? Promise.resolve({ ok: false, status: "error", cwd: "", path: "", message: "reloadAgentsMd is not supported by this backend" });
   }
   getToolNames() {
     return this._backend.getToolNames?.() ?? [];
@@ -9104,9 +9322,26 @@ class PlatformAdapter {
     return this.constructor.name;
   }
 }
+// ../../packages/extension-sdk/src/message.ts
+function isThoughtTextPart(part) {
+  return "text" in part && part.thought === true;
+}
+function isFunctionCallPart(part) {
+  return "functionCall" in part;
+}
 // ../../packages/extension-sdk/src/delivery.ts
 var DELIVERY_REGISTRY_SERVICE_ID = "delivery.registry";
 // ../../packages/extension-sdk/src/platform-utils.ts
+var TOOL_STATUS_LABELS = {
+  queued: "等待中",
+  executing: "执行中",
+  success: "成功",
+  error: "失败",
+  streaming: "输出中",
+  awaiting_approval: "等待审批",
+  awaiting_apply: "等待应用",
+  warning: "警告"
+};
 function autoApproveHandle(handle) {
   if (handle.status === "awaiting_approval") {
     try {
@@ -9120,6 +9355,485 @@ function autoApproveHandle(handle) {
       } catch {}
     }
   });
+}
+// ../../packages/extension-sdk/src/tool-summary.ts
+var DEFAULT_TEXT_LIMIT = 120;
+var COMMAND_TEXT_LIMIT = 80;
+var PATH_TEXT_LIMIT = 80;
+function segment(text, tone) {
+  return tone ? { text, tone } : { text };
+}
+function buildSummary(segments) {
+  return {
+    text: segments.map((item) => item.text).join(""),
+    segments
+  };
+}
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function basename(value) {
+  return value.replace(/\\/g, "/").split("/").pop() || value;
+}
+function truncateText(text, maxChars) {
+  if (text.length <= maxChars)
+    return text;
+  return `${text.slice(0, Math.max(0, maxChars - 3))}...`;
+}
+function compactWhitespace(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+function quoteText(text) {
+  return `"${text}"`;
+}
+function stringValue(value) {
+  return typeof value === "string" ? value : "";
+}
+function numberValue(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+function booleanValue(value) {
+  return typeof value === "boolean" ? value : undefined;
+}
+function countLines(content) {
+  if (typeof content !== "string" || content.length === 0)
+    return 0;
+  return content.endsWith(`
+`) ? content.split(`
+`).length - 1 : content.split(`
+`).length;
+}
+function nonEmptyLineCount(content) {
+  if (typeof content !== "string" || content.length === 0)
+    return 0;
+  return content.split(`
+`).filter(Boolean).length;
+}
+function firstLine(content, maxChars = DEFAULT_TEXT_LIMIT) {
+  if (typeof content !== "string")
+    return "";
+  return truncateText(compactWhitespace(content.split(`
+`)[0] ?? ""), maxChars);
+}
+function formatScalar(value) {
+  if (typeof value === "string")
+    return truncateText(compactWhitespace(value), 48);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  if (value == null)
+    return "empty";
+  if (Array.isArray(value))
+    return `[${value.length} items]`;
+  if (typeof value === "object")
+    return `{${Object.keys(value).length} fields}`;
+  return String(value);
+}
+function genericSummary(value) {
+  if (value == null)
+    return;
+  if (typeof value === "string") {
+    const text = truncateText(compactWhitespace(value), DEFAULT_TEXT_LIMIT);
+    return text ? buildSummary([segment(text)]) : undefined;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return buildSummary([segment(String(value))]);
+  }
+  if (Array.isArray(value)) {
+    return buildSummary([segment(`${value.length} items`)]);
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0)
+      return;
+    const samples = entries.slice(0, 3).map(([key, item]) => `${key}=${formatScalar(item)}`);
+    const suffix = entries.length > 3 ? `, +${entries.length - 3}` : "";
+    return buildSummary([
+      segment(`${entries.length} fields`),
+      segment(` | ${samples.join(", ")}${suffix}`, "muted")
+    ]);
+  }
+  return buildSummary([segment(String(value))]);
+}
+function pathEntryFromValue(value) {
+  if (typeof value === "string" && value.trim())
+    return { path: value.trim() };
+  const record = asRecord(value);
+  const path3 = stringValue(record.path || record.file_path).trim();
+  if (!path3)
+    return;
+  const startLine = numberValue(record.startLine ?? record.start_line);
+  const endLine = numberValue(record.endLine ?? record.end_line);
+  return { path: path3, startLine, endLine };
+}
+function getPathEntries(args, arrayKey, fallbackKeys) {
+  const arrayValue = args[arrayKey];
+  if (Array.isArray(arrayValue)) {
+    return arrayValue.map(pathEntryFromValue).filter((item) => !!item);
+  }
+  for (const key of fallbackKeys) {
+    const entry = pathEntryFromValue(args[key]);
+    if (entry)
+      return [entry];
+  }
+  return [];
+}
+function formatPathEntry(entry, options = {}) {
+  const range = options.includeRange && entry.startLine != null && entry.endLine != null ? `:${entry.startLine}-${entry.endLine}` : "";
+  return `${entry.path}${range}`;
+}
+function summarizePathEntries(entries, options = {}) {
+  if (entries.length === 0)
+    return "";
+  if (entries.length === 1)
+    return formatPathEntry(entries[0], options);
+  const first = options.useBasenameForMany ? basename(entries[0].path) : entries[0].path;
+  return `${truncateText(first, PATH_TEXT_LIMIT)} +${entries.length - 1}`;
+}
+function summarizePatternList(value) {
+  const values = Array.isArray(value) ? value.map(String).filter(Boolean) : typeof value === "string" && value ? [value] : [];
+  if (values.length === 0)
+    return "";
+  if (values.length === 1)
+    return values[0];
+  return `${truncateText(values[0], PATH_TEXT_LIMIT)} +${values.length - 1}`;
+}
+function summarizeToolCallByName(toolName, args) {
+  switch (toolName) {
+    case "shell":
+    case "bash": {
+      const command = compactWhitespace(stringValue(args.command));
+      return command ? buildSummary([segment(truncateText(command, COMMAND_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "read_file": {
+      const entries = getPathEntries(args, "files", ["file", "path", "file_path"]);
+      const text = summarizePathEntries(entries, { includeRange: true });
+      return text ? buildSummary([segment(truncateText(text, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "write_file":
+    case "apply_diff":
+    case "insert_code":
+    case "delete_code": {
+      const entries = getPathEntries(args, "files", ["path", "file_path"]);
+      const text = summarizePathEntries(entries);
+      return text ? buildSummary([segment(truncateText(text, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "search_in_files": {
+      const query = truncateText(compactWhitespace(stringValue(args.query)), 40);
+      if (!query)
+        return;
+      const include = Array.isArray(args.include) ? args.include.map(String).filter(Boolean).join(", ") : "";
+      const scope = include ? ` in ${truncateText(include, 40)}` : "";
+      const mode = stringValue(args.mode);
+      if (mode === "replace") {
+        const replace = truncateText(compactWhitespace(stringValue(args.replace)), 24);
+        return buildSummary([segment(`${quoteText(query)} -> ${quoteText(replace)}${scope}`, "muted")]);
+      }
+      return buildSummary([segment(`${quoteText(query)}${scope}`, "muted")]);
+    }
+    case "find_files": {
+      const pattern = summarizePatternList(args.patterns ?? args.pattern);
+      return pattern ? buildSummary([segment(truncateText(pattern, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "list_files": {
+      const path3 = summarizePatternList(args.paths ?? args.path);
+      return path3 ? buildSummary([segment(truncateText(path3, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "read_skill": {
+      const name = stringValue(args.name || args.path).trim();
+      return name ? buildSummary([segment(truncateText(name, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "read_skill_resource":
+    case "execute_skill_script": {
+      const name = stringValue(args.name).trim();
+      const relativePath = stringValue(args.relativePath).trim();
+      const text = [name, relativePath].filter(Boolean).join(" | ");
+      return text ? buildSummary([segment(truncateText(text, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "invoke_skill": {
+      const skill = stringValue(args.skill).trim();
+      const skillArgs = compactWhitespace(stringValue(args.args));
+      const preview = skillArgs ? ` ${truncateText(skillArgs, 40)}` : "";
+      const text = `${skill}${preview}`.trim();
+      return text ? buildSummary([segment(truncateText(text, PATH_TEXT_LIMIT), "muted")]) : undefined;
+    }
+    case "sub_agent": {
+      const type = stringValue(args.type).trim();
+      const prompt = stringValue(args.prompt).trim();
+      const text = type && type !== "general-purpose" ? type : prompt;
+      return text ? buildSummary([segment(truncateText(compactWhitespace(text), 60), "muted")]) : undefined;
+    }
+    default:
+      return;
+  }
+}
+function summarizeToolCall(toolName, args) {
+  const normalizedArgs = args ?? {};
+  return summarizeToolCallByName(toolName, normalizedArgs) ?? genericSummary(normalizedArgs);
+}
+function summarizeReadFileResult(result) {
+  if (!Array.isArray(result.results))
+    return;
+  const items = result.results;
+  if (items.length === 0)
+    return buildSummary([segment("0 lines", "muted")]);
+  if (items.length === 1) {
+    const item = items[0];
+    const path3 = item.path ?? "?";
+    if (item.success === false) {
+      const error = item.error ? ` | ${truncateText(compactWhitespace(item.error), 80)}` : "";
+      return buildSummary([segment("failed", "error"), segment(` | ${path3}${error}`, "muted")]);
+    }
+    const lines = item.lineCount ?? 0;
+    const range = item.startLine != null && item.endLine != null ? `:${item.startLine}-${item.endLine}` : "";
+    return buildSummary([segment(`${lines} lines`, "accent"), segment(` | ${path3}${range}`, "muted")]);
+  }
+  const totalLines = items.reduce((sum, item) => sum + (item.success === false ? 0 : item.lineCount ?? 0), 0);
+  const failed = items.filter((item) => item.success === false).length;
+  const names = items.map((item) => basename(item.path ?? "?")).join(", ");
+  const failedText = failed > 0 ? ` | ${failed} failed` : "";
+  return buildSummary([
+    segment(`${totalLines} lines`, "accent"),
+    segment(` | ${truncateText(names, PATH_TEXT_LIMIT)}${failedText}`, failed > 0 ? "warning" : "muted")
+  ]);
+}
+function summarizeShellResult(result) {
+  const exitCode = numberValue(result.exitCode) ?? 0;
+  const killed = booleanValue(result.killed) === true;
+  const abortedByUser = booleanValue(result.abortedByUser) === true;
+  if (abortedByUser)
+    return buildSummary([segment("aborted by user", "error")]);
+  if (killed)
+    return buildSummary([segment("killed (timeout)", "warning")]);
+  if (exitCode !== 0) {
+    const reason = firstLine(result.stderr, 100) || `exit ${exitCode}`;
+    return buildSummary([segment(`failed: ${reason}`, "error")]);
+  }
+  const lines = nonEmptyLineCount(result.stdout);
+  const text = lines > 0 ? `${lines} lines output` : "done (no output)";
+  return buildSummary([segment(text, "success")]);
+}
+function summarizeWriteFileResult(result, args) {
+  const path3 = stringValue(result.path || args.path || args.file_path).trim();
+  if (!path3)
+    return;
+  const action = stringValue(result.action || (result.success === false ? "failed" : "written")) || "written";
+  if (result.success === false) {
+    const error = stringValue(result.error);
+    return buildSummary([
+      segment(action, "error"),
+      segment(` | ${path3}${error ? ` | ${truncateText(compactWhitespace(error), 80)}` : ""}`, "muted")
+    ]);
+  }
+  if (action === "unchanged")
+    return buildSummary([segment("unchanged"), segment(` | ${path3}`, "muted")]);
+  const lines = countLines(args.content);
+  const lineText = lines > 0 ? `${action === "created" ? "+" : "~"}${lines} lines | ` : "";
+  return buildSummary([
+    ...lineText ? [segment(lineText, action === "created" ? "success" : "accent")] : [],
+    segment(action),
+    segment(` | ${path3}`, "muted")
+  ]);
+}
+function countPatchChanges(patch) {
+  if (typeof patch !== "string")
+    return { added: 0, deleted: 0 };
+  let added = 0;
+  let deleted = 0;
+  for (const line of patch.split(`
+`)) {
+    if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@"))
+      continue;
+    if (line.startsWith("+"))
+      added++;
+    else if (line.startsWith("-"))
+      deleted++;
+  }
+  return { added, deleted };
+}
+function summarizeApplyDiffResult(result, args) {
+  const applied = numberValue(result.applied);
+  const totalHunks = numberValue(result.totalHunks);
+  if (applied == null || totalHunks == null)
+    return;
+  const failed = numberValue(result.failed) ?? 0;
+  const path3 = stringValue(result.path || args.path).trim();
+  const { added, deleted } = countPatchChanges(args.patch);
+  const changes = [
+    added > 0 ? `+${added}` : "",
+    deleted > 0 ? `-${deleted}` : ""
+  ].filter(Boolean).join(" ");
+  const parts = [];
+  if (changes)
+    parts.push(segment(`${changes} | `, failed > 0 ? "warning" : "accent"));
+  parts.push(segment(`${applied}/${totalHunks} hunks`));
+  if (failed > 0)
+    parts.push(segment(` | ${failed} failed`, "warning"));
+  if (path3)
+    parts.push(segment(` | ${path3}`, "muted"));
+  return buildSummary(parts);
+}
+function summarizeSearchInFilesResult(result, args) {
+  const mode = stringValue(result.mode || args.mode || "search");
+  const truncated = result.truncated === true;
+  const suffix = truncated ? " | truncated" : "";
+  if (mode === "replace") {
+    const total = numberValue(result.totalReplacements) ?? 0;
+    const processedFiles = numberValue(result.processedFiles) ?? 0;
+    const results = Array.isArray(result.results) ? result.results : [];
+    const changedFiles = results.length > 0 ? results.filter((item) => item.changed === true).length : processedFiles;
+    const query = stringValue(args.query);
+    const replace = stringValue(args.replace);
+    const detail = query ? ` | ${quoteText(truncateText(query, 24))} -> ${quoteText(truncateText(replace, 24))}` : "";
+    return buildSummary([
+      segment(`${total} replacements`, "accent"),
+      segment(` | ${changedFiles}/${processedFiles} files${detail}${suffix}`, truncated ? "warning" : "muted")
+    ]);
+  }
+  const count = numberValue(result.count);
+  if (count == null)
+    return;
+  return buildSummary([
+    segment(`${count} matches found`),
+    ...suffix ? [segment(suffix, "warning")] : []
+  ]);
+}
+function summarizeFindFilesResult(result) {
+  const count = numberValue(result.count);
+  if (count == null)
+    return;
+  const suffix = result.truncated === true ? " | truncated" : "";
+  return buildSummary([
+    segment(`${count} files found`),
+    ...suffix ? [segment(suffix, "warning")] : []
+  ]);
+}
+function summarizeListFilesResult(result) {
+  const totalFiles = numberValue(result.totalFiles);
+  const totalDirs = numberValue(result.totalDirs);
+  if (totalFiles == null && totalDirs == null)
+    return;
+  const results = Array.isArray(result.results) ? result.results : [];
+  const failed = results.filter((item) => item.success === false).length;
+  const truncated = result.truncated === true ? " | truncated" : "";
+  return buildSummary([
+    segment(`${totalFiles ?? 0} files, ${totalDirs ?? 0} dirs`),
+    ...failed > 0 ? [segment(` | ${failed} failed`, "warning")] : [],
+    ...truncated ? [segment(truncated, "warning")] : []
+  ]);
+}
+function summarizeInsertCodeResult(result) {
+  const path3 = stringValue(result.path).trim();
+  if (!path3)
+    return;
+  if (result.success === false) {
+    const error = stringValue(result.error);
+    return buildSummary([segment(`failed${error ? `: ${truncateText(compactWhitespace(error), 80)}` : ""}`, "error")]);
+  }
+  const inserted = numberValue(result.insertedLines) ?? 0;
+  const line = numberValue(result.line);
+  return buildSummary([
+    segment(`+${inserted} lines`, "success"),
+    segment(`${line != null ? ` | L${line}` : ""} | ${path3}`, "muted")
+  ]);
+}
+function summarizeDeleteCodeResult(result) {
+  const path3 = stringValue(result.path).trim();
+  if (!path3)
+    return;
+  if (result.success === false) {
+    const error = stringValue(result.error);
+    return buildSummary([segment(`failed${error ? `: ${truncateText(compactWhitespace(error), 80)}` : ""}`, "error")]);
+  }
+  const deleted = numberValue(result.deletedLines) ?? 0;
+  const startLine = numberValue(result.start_line);
+  const endLine = numberValue(result.end_line);
+  const range = startLine != null && endLine != null ? ` | L${startLine}-${endLine}` : "";
+  return buildSummary([
+    segment(`-${deleted} lines`, "error"),
+    segment(`${range} | ${path3}`, "muted")
+  ]);
+}
+function unwrapSkillPayload(result) {
+  const root = asRecord(result);
+  const rich = asRecord(root.__response);
+  if (Object.keys(rich).length > 0)
+    return rich;
+  const nested = asRecord(root.result);
+  if (Object.keys(nested).length > 0)
+    return nested;
+  return root;
+}
+function summarizeSkillResult(toolName, result) {
+  const payload = unwrapSkillPayload(result);
+  if (Object.keys(payload).length === 0)
+    return;
+  const name = stringValue(payload.skillName || payload.name).trim() || "skill";
+  const relativePath = stringValue(payload.relativePath).trim();
+  const label = (toolName === "read_skill_resource" || toolName === "execute_skill_script") && relativePath ? `${name}/${relativePath}` : name;
+  const details = [
+    typeof payload.content === "string" ? `${payload.content.length} chars` : "",
+    typeof payload.output === "string" ? `${payload.output.length} output chars` : "",
+    Array.isArray(payload.resources) && payload.resources.length > 0 ? `${payload.resources.length} resources` : "",
+    typeof payload.exitCode === "number" ? `exit ${payload.exitCode}` : "",
+    payload.killed === true ? "killed" : "",
+    payload.truncated === true ? "truncated" : ""
+  ].filter(Boolean);
+  return buildSummary([
+    segment(label),
+    ...details.length > 0 ? [segment(` | ${details.join(" | ")}`, "muted")] : []
+  ]);
+}
+function summarizeResultByName(toolName, args, result) {
+  const record = asRecord(result);
+  switch (toolName) {
+    case "shell":
+    case "bash":
+      return summarizeShellResult(record);
+    case "read_file":
+      return summarizeReadFileResult(record);
+    case "write_file":
+      return summarizeWriteFileResult(record, args);
+    case "apply_diff":
+      return summarizeApplyDiffResult(record, args);
+    case "search_in_files":
+      return summarizeSearchInFilesResult(record, args);
+    case "find_files":
+      return summarizeFindFilesResult(record);
+    case "list_files":
+      return summarizeListFilesResult(record);
+    case "insert_code":
+      return summarizeInsertCodeResult(record);
+    case "delete_code":
+      return summarizeDeleteCodeResult(record);
+    case "read_skill":
+    case "read_skill_resource":
+    case "execute_skill_script":
+    case "invoke_skill":
+      return summarizeSkillResult(toolName, result);
+    default:
+      return;
+  }
+}
+function summarizeToolResult(toolName, args, result) {
+  if (result == null)
+    return;
+  const normalizedArgs = args ?? {};
+  return summarizeResultByName(toolName, normalizedArgs, result) ?? genericSummary(result);
+}
+function summarizeToolProgress(_toolName, _args, progress) {
+  if (!progress || Object.keys(progress).length === 0)
+    return;
+  const childStatus = stringValue(progress.childStatus).trim();
+  const streamingText = stringValue(progress.streamingText).trim();
+  const tokens = numberValue(progress.tokens);
+  const primary = childStatus || streamingText;
+  const parts = [
+    primary ? truncateText(compactWhitespace(primary), DEFAULT_TEXT_LIMIT) : "",
+    tokens != null && tokens > 0 ? `${tokens.toLocaleString()} tokens` : ""
+  ].filter(Boolean);
+  if (parts.length > 0)
+    return buildSummary([segment(parts.join(" | "), "muted")]);
+  return genericSummary(progress);
 }
 // src/client.ts
 var import_grammy = __toESM(require_mod(), 1);
@@ -9244,12 +9958,36 @@ class TelegramClient {
     this.bot.stop();
   }
   async sendMessageReturningId(target, text) {
-    const extra = {};
-    if (target.threadId != null) {
-      extra.message_thread_id = target.threadId;
+    return await this.sendMessageChunkReturningId(target, text);
+  }
+  async sendTextReturningIds(target, text, options = {}, observer = {}) {
+    const chunks = splitText(text, TELEGRAM_MESSAGE_MAX_LENGTH);
+    const messageIds = [];
+    for (const chunk of chunks) {
+      const messageId = await this.sendMessageChunkReturningId(target, chunk, options);
+      messageIds.push(messageId);
+      observer.onMessageId?.(messageId);
     }
-    const msg = await this.bot.api.sendMessage(target.chatId, text, extra);
+    return messageIds;
+  }
+  async sendRichMessageReturningId(target, richMessage) {
+    const extra = this.buildThreadExtra(target);
+    const msg = await this.bot.api.sendRichMessage(target.chatId, richMessage, extra);
     return msg.message_id;
+  }
+  async sendRichMessageDraft(target, draftId, richMessage) {
+    if (target.scope !== "dm") {
+      throw new Error("Telegram rich message draft 仅支持私聊");
+    }
+    if (!Number.isInteger(draftId) || draftId === 0) {
+      throw new Error(`Telegram draft_id 必须是非零整数: ${draftId}`);
+    }
+    const extra = this.buildThreadExtra(target);
+    await this.bot.api.sendRichMessageDraft(target.chatId, draftId, richMessage, extra);
+  }
+  async sendTyping(target) {
+    const extra = this.buildThreadExtra(target);
+    await this.bot.api.sendChatAction(target.chatId, "typing", extra);
   }
   async sendMessageWithKeyboard(target, text, keyboard) {
     const extra = {
@@ -9268,17 +10006,7 @@ class TelegramClient {
     await this.bot.api.answerCallbackQuery(callbackQueryId, text ? { text } : {});
   }
   async sendText(target, text, options = {}) {
-    const chunks = splitText(text, TELEGRAM_MESSAGE_MAX_LENGTH);
-    for (const chunk of chunks) {
-      const extra = {};
-      if (target.threadId != null) {
-        extra.message_thread_id = target.threadId;
-      }
-      if (options.parseMode) {
-        extra.parse_mode = options.parseMode;
-      }
-      await this.bot.api.sendMessage(target.chatId, chunk, extra);
-    }
+    await this.sendTextReturningIds(target, text, options);
   }
   async editText(target, messageId, text, options = {}) {
     const extra = {};
@@ -9293,6 +10021,48 @@ class TelegramClient {
         return;
       throw err;
     }
+  }
+  async editRichMessage(target, messageId, richMessage) {
+    try {
+      await this.bot.api.editMessageText(target.chatId, messageId, richMessage);
+    } catch (err) {
+      const errMsg = String(err?.message ?? err?.description ?? "");
+      if (errMsg.includes("message is not modified"))
+        return;
+      throw err;
+    }
+  }
+  async replaceMessageTextReturningIds(target, messageId, text, options = {}, observer = {}) {
+    const chunks = splitText(text, TELEGRAM_MESSAGE_MAX_LENGTH);
+    const [firstChunk, ...restChunks] = chunks;
+    await this.editText(target, messageId, firstChunk, options);
+    const messageIds = [messageId];
+    observer.onMessageId?.(messageId);
+    for (const chunk of restChunks) {
+      const nextMessageId = await this.sendMessageChunkReturningId(target, chunk, options);
+      messageIds.push(nextMessageId);
+      observer.onMessageId?.(nextMessageId);
+    }
+    return messageIds;
+  }
+  async sendMessageChunkReturningId(target, text, options = {}) {
+    const extra = this.buildTextExtra(target, options);
+    const msg = await this.bot.api.sendMessage(target.chatId, text, extra);
+    return msg.message_id;
+  }
+  buildThreadExtra(target) {
+    const extra = {};
+    if (target.threadId != null) {
+      extra.message_thread_id = target.threadId;
+    }
+    return extra;
+  }
+  buildTextExtra(target, options = {}) {
+    const extra = this.buildThreadExtra(target);
+    if (options.parseMode) {
+      extra.parse_mode = options.parseMode;
+    }
+    return extra;
   }
   async deleteMessage(target, messageId) {
     await this.bot.api.deleteMessage(target.chatId, messageId);
@@ -9640,9 +10410,321 @@ function stripBotMention(text, username) {
   return normalized;
 }
 
+// src/rich-message.ts
+var TELEGRAM_RICH_MESSAGE_MAX_CHARS = 32768;
+function renderTelegramRichTurn(turn) {
+  const markdown = buildTurnMarkdown(turn);
+  assertRichMessageWithinLimit(markdown);
+  return { markdown };
+}
+function renderTelegramDraftTurn(turn) {
+  const markdown = buildTurnMarkdown(turn);
+  const draftMarkdown = markdown.trim() || `<tg-thinking>${escapeHtml(turn.thinkingText ?? "思考中...")}</tg-thinking>`;
+  assertRichMessageWithinLimit(draftMarkdown);
+  return { markdown: draftMarkdown };
+}
+function buildTurnMarkdown(turn) {
+  const sections = [];
+  for (const section of turn.traceSections ?? []) {
+    const rendered = renderTraceSection(section);
+    if (rendered)
+      sections.push(rendered);
+  }
+  const answer = turn.answerMarkdown.trim();
+  if (answer)
+    sections.push(answer);
+  return sections.join(`
+
+`).trim();
+}
+function renderTraceSection(section) {
+  const content = section.content.trim();
+  if (!content)
+    return "";
+  const openAttr = section.defaultOpen ? " open" : "";
+  const title = escapeHtml(section.title);
+  const body = section.format === "markdown" ? content : wrapTextFence(content);
+  return `<details${openAttr}><summary>${title}</summary>
+
+${body}
+
+</details>`;
+}
+function wrapTextFence(text) {
+  const longestFence = Math.max(3, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length + 1));
+  const fence = "`".repeat(longestFence);
+  return `${fence}text
+${text}
+${fence}`;
+}
+function escapeHtml(text) {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function assertRichMessageWithinLimit(markdown) {
+  const length = Array.from(markdown).length;
+  if (length > TELEGRAM_RICH_MESSAGE_MAX_CHARS) {
+    throw new Error(`Telegram rich message 超过 ${TELEGRAM_RICH_MESSAGE_MAX_CHARS} 字符限制: ${length}`);
+  }
+}
+
+// src/turn-trace.ts
+var TRACE_SECTION_CHAR_LIMIT = 9000;
+var THOUGHT_BLOCK_CHAR_LIMIT = 1600;
+var VALUE_SUMMARY_CHAR_LIMIT = 500;
+var OUTPUT_SUMMARY_CHAR_LIMIT = 240;
+var MAX_OUTPUT_ENTRIES = 3;
+
+class TelegramTurnTraceCollector {
+  blocks = [];
+  toolBlocksByHandleId = new Map;
+  appendParts(parts, options = {}) {
+    const includeTools = options.includeTools !== false;
+    let changed = false;
+    for (const part of parts) {
+      if (isThoughtTextPart(part) && part.text) {
+        this.appendThought(part.text, part.thoughtDurationMs);
+        changed = true;
+        continue;
+      }
+      if (includeTools && isFunctionCallPart(part)) {
+        this.appendToolCall(part);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+  bindToolHandle(handle) {
+    const block = this.resolveToolBlock(handle);
+    this.updateToolBlockFromHandle(block, handle);
+  }
+  updateToolHandle(handle) {
+    this.bindToolHandle(handle);
+  }
+  toTraceSections() {
+    if (this.blocks.length === 0)
+      return [];
+    const hasTool = this.blocks.some((block) => block.kind === "tool");
+    const content = hasTool ? this.renderTimeline() : this.renderThoughtsOnly();
+    if (!content.trim())
+      return [];
+    return [{
+      title: hasTool ? "执行过程" : "思考过程",
+      content,
+      format: "text"
+    }];
+  }
+  appendThought(text, durationMs) {
+    const last = this.blocks[this.blocks.length - 1];
+    if (last?.kind === "thought") {
+      last.text += text;
+      if (durationMs != null)
+        last.durationMs = durationMs;
+      return;
+    }
+    this.blocks.push({ kind: "thought", text, durationMs });
+  }
+  appendToolCall(part) {
+    const now = Date.now();
+    this.blocks.push({
+      kind: "tool",
+      toolName: part.functionCall.name,
+      args: part.functionCall.args ?? {},
+      status: "queued",
+      outputs: [],
+      children: [],
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+  resolveToolBlock(handle) {
+    const bound = this.toolBlocksByHandleId.get(handle.id);
+    if (bound)
+      return bound;
+    const snapshot = handle.getSnapshot();
+    const parentId = handle.parentId;
+    if (parentId) {
+      const parent = this.toolBlocksByHandleId.get(parentId);
+      const child = this.createToolBlockFromSnapshot(snapshot, handle);
+      if (parent) {
+        parent.children.push(child);
+      } else {
+        this.blocks.push(child);
+      }
+      this.toolBlocksByHandleId.set(handle.id, child);
+      return child;
+    }
+    const existing = this.findUnboundRootToolBlock(snapshot);
+    if (existing) {
+      this.toolBlocksByHandleId.set(handle.id, existing);
+      return existing;
+    }
+    const created = this.createToolBlockFromSnapshot(snapshot, handle);
+    this.blocks.push(created);
+    this.toolBlocksByHandleId.set(handle.id, created);
+    return created;
+  }
+  findUnboundRootToolBlock(snapshot) {
+    const toolBlocks = this.blocks.filter((block) => block.kind === "tool");
+    return toolBlocks.find((block) => !block.handleId && block.toolName === snapshot.toolName && stableStringify(block.args) === stableStringify(snapshot.args ?? {})) ?? toolBlocks.find((block) => !block.handleId && block.toolName === snapshot.toolName);
+  }
+  createToolBlockFromSnapshot(snapshot, handle) {
+    const now = Date.now();
+    return {
+      kind: "tool",
+      handleId: handle.id,
+      toolName: handle.toolName,
+      args: snapshot.args ?? {},
+      status: handle.status,
+      result: snapshot.result,
+      error: snapshot.error,
+      progress: snapshot.progress,
+      outputs: handle.getOutputHistory(),
+      children: [],
+      createdAt: snapshot.createdAt ?? now,
+      updatedAt: snapshot.updatedAt ?? now
+    };
+  }
+  updateToolBlockFromHandle(block, handle) {
+    const snapshot = handle.getSnapshot();
+    block.handleId = handle.id;
+    block.toolName = handle.toolName;
+    block.args = snapshot.args ?? {};
+    block.status = handle.status;
+    block.result = snapshot.result;
+    block.error = snapshot.error;
+    block.progress = snapshot.progress;
+    block.outputs = handle.getOutputHistory();
+    block.createdAt = snapshot.createdAt ?? block.createdAt;
+    block.updatedAt = snapshot.updatedAt ?? Date.now();
+  }
+  renderThoughtsOnly() {
+    const content = this.blocks.filter((block) => block.kind === "thought").map((block) => block.text.trim()).filter(Boolean).join(`
+
+`);
+    return limitTraceSection(content);
+  }
+  renderTimeline() {
+    const rendered = this.blocks.map((block) => block.kind === "thought" ? renderThoughtBlock(block, 0) : renderToolBlock(block, 0)).filter(Boolean).join(`
+
+`);
+    return limitTraceSection(rendered);
+  }
+}
+function renderThoughtBlock(block, indent) {
+  const text = block.text.trim();
+  if (!text)
+    return "";
+  const pad = indentText(indent);
+  const duration = block.durationMs != null ? ` ${formatDuration(block.durationMs)}` : "";
+  return [
+    `${pad}thinking${duration}`,
+    indentMultiline(truncateText2(text, THOUGHT_BLOCK_CHAR_LIMIT), indent + 1)
+  ].join(`
+`);
+}
+function renderToolBlock(block, indent) {
+  const pad = indentText(indent);
+  const label = TOOL_STATUS_LABELS[block.status] ?? block.status;
+  const duration = isTerminalStatus(block.status) ? formatToolDuration(block) : "";
+  const lines = [`${pad}tool ${block.toolName} ${label}${duration ? ` ${duration}` : ""}`];
+  const call = summarizeToolCall(block.toolName, block.args);
+  if (call)
+    lines.push(`${pad}  call: ${call.text}`);
+  const progress = summarizeToolProgress(block.toolName, block.args, block.progress);
+  if (progress && !isTerminalStatus(block.status))
+    lines.push(`${pad}  progress: ${progress.text}`);
+  appendOutputLines(lines, block, pad);
+  for (const child of block.children) {
+    const rendered = renderToolBlock(child, indent + 1);
+    if (rendered)
+      lines.push(rendered);
+  }
+  const error = summarizeToolError(block.error);
+  if (error) {
+    lines.push(`${pad}  error: ${error}`);
+  } else if (isTerminalStatus(block.status)) {
+    const result = summarizeToolResult(block.toolName, block.args, block.result);
+    if (result)
+      lines.push(`${pad}  result: ${result.text}`);
+  }
+  return lines.join(`
+`);
+}
+function appendOutputLines(lines, block, pad) {
+  if (block.outputs.length === 0)
+    return;
+  const visible = block.outputs.length > MAX_OUTPUT_ENTRIES ? block.outputs.slice(-MAX_OUTPUT_ENTRIES) : block.outputs;
+  const skipped = block.outputs.length - visible.length;
+  if (skipped > 0)
+    lines.push(`${pad}  output: ... ${skipped} earlier entries`);
+  for (const entry of visible) {
+    const content = truncateText2(compactWhitespace2(entry.content), OUTPUT_SUMMARY_CHAR_LIMIT);
+    if (content)
+      lines.push(`${pad}  ${entry.type}: ${content}`);
+  }
+}
+function summarizeToolError(error) {
+  if (!error)
+    return;
+  return truncateText2(compactWhitespace2(error), VALUE_SUMMARY_CHAR_LIMIT);
+}
+function isTerminalStatus(status) {
+  return status === "success" || status === "warning" || status === "error";
+}
+function formatToolDuration(block) {
+  const elapsed = block.updatedAt - block.createdAt;
+  return elapsed > 0 ? formatDuration(elapsed) : "";
+}
+function formatDuration(ms) {
+  if (ms < 1000)
+    return `${ms}ms`;
+  const seconds = ms / 1000;
+  return `${seconds < 10 ? seconds.toFixed(1) : seconds.toFixed(0)}s`;
+}
+function limitTraceSection(text) {
+  return truncateText2(text, TRACE_SECTION_CHAR_LIMIT, `
+... trace truncated ...`);
+}
+function truncateText2(text, maxChars, suffix = "...") {
+  const chars = Array.from(text);
+  if (chars.length <= maxChars)
+    return text;
+  const suffixChars = Array.from(suffix);
+  return `${chars.slice(0, Math.max(0, maxChars - suffixChars.length)).join("")}${suffix}`;
+}
+function compactWhitespace2(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+function indentText(level) {
+  return "  ".repeat(level);
+}
+function indentMultiline(text, level) {
+  const pad = indentText(level);
+  return text.split(`
+`).map((line) => `${pad}${line}`).join(`
+`);
+}
+function stableStringify(value) {
+  return JSON.stringify(sortJsonValue(value)) ?? String(value);
+}
+function sortJsonValue(value) {
+  if (Array.isArray(value))
+    return value.map(sortJsonValue);
+  if (value && typeof value === "object") {
+    const record = value;
+    const sorted = {};
+    for (const key of Object.keys(record).sort()) {
+      sorted[key] = sortJsonValue(record[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
 // src/index.ts
 var logger5 = createExtensionLogger("TelegramExtension", "Telegram");
 var STREAM_THROTTLE_MS = 1500;
+var TYPING_REFRESH_MS = 4000;
 var UNSUPPORTED_MEDIA_NOTICE = "当前阶段暂不支持直接处理图片、文件或语音消息，请附带文字说明后再次发送。";
 var BUFFERED_NOTICE = `\uD83D\uDCE5 消息已暂存，等 AI 回复结束后自动发送。
 发送 /flush 可立即处理，/stop 可中止当前回复。`;
@@ -9659,6 +10741,8 @@ class TelegramPlatform extends PlatformAdapter {
   messageBuilder;
   commandRouter;
   mediaService;
+  outputFormat;
+  streamMode;
   showToolStatus;
   pairingStore;
   pairingGuard;
@@ -9681,6 +10765,11 @@ class TelegramPlatform extends PlatformAdapter {
     this.messageBuilder = new TelegramMessageBuilder;
     this.commandRouter = new TelegramCommandRouter;
     this.mediaService = new TelegramMediaService;
+    this.outputFormat = parseTelegramOutputFormat(config.outputFormat);
+    this.streamMode = parseTelegramStreamMode(config.streamMode);
+    if (this.outputFormat === "plain" && this.streamMode === "draft") {
+      throw new Error("telegram.streamMode=draft 需要 telegram.outputFormat=rich");
+    }
     this.showToolStatus = config.showToolStatus !== false;
     if (config.pairing && config.pairing.dmPolicy !== "open") {
       this.pairingStore = new PairingStore;
@@ -9744,6 +10833,7 @@ ${preview}`;
     for (const cs of this.chatStates.values()) {
       if (cs.stream?.throttleTimer)
         clearTimeout(cs.stream.throttleTimer);
+      this.stopTypingIndicator(cs);
     }
     this.chatStates.clear();
     this.messageDedup.clear();
@@ -9831,8 +10921,10 @@ ${preview}`;
         target,
         pendingMessages: [],
         stopped: false,
-        botMessageIdStack: [],
-        stream: null
+        botMessageGroups: [],
+        turnTrace: null,
+        stream: null,
+        typingTimer: null
       };
       this.chatStates.set(target.chatKey, cs);
     }
@@ -9861,37 +10953,32 @@ ${preview}`;
     this.backendListenersReady = true;
     this.backend.on("tool:execute", (sid, handle) => {
       autoApproveHandle(handle);
-      if (!this.showToolStatus)
-        return;
       const cs = this.findChatStateBySid(sid);
-      if (!cs?.stream || cs.stopped)
+      if (!cs || cs.stopped)
+        return;
+      if (this.showToolStatus) {
+        this.bindTraceToolHandle(cs, handle);
+      }
+      if (!this.showToolStatus || !cs.stream || cs.stream.kind !== "edit")
         return;
       handle.on("done", () => {
         if (!cs.stream)
           return;
         if (!cs.stream.committedToolIds.has(handle.id)) {
           cs.stream.committedToolIds.add(handle.id);
-          const line = formatTelegramToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
-          cs.stream.buffer = cs.stream.buffer ? `${cs.stream.buffer}
-
-${line}
-
-` : `${line}
-
-`;
-          cs.stream.dirty = true;
-          this.editStreamMessage(cs, cs.stream.buffer);
+          const line = formatTelegramToolLine({ toolName: handle.toolName, status: handle.status });
+          cs.stream.committedToolLines.push(line);
+          cs.stream.activeToolLine = undefined;
+          this.scheduleStreamUpdate(cs);
         }
       });
       handle.on("state", () => {
         if (!cs.stream || cs.stopped)
           return;
         if (handle.status !== "success" && handle.status !== "error" && handle.status !== "warning") {
-          const line = formatTelegramToolLine({ id: handle.id, toolName: handle.toolName, status: handle.status, args: handle.getSnapshot().args, createdAt: handle.getSnapshot().createdAt });
-          const displayText = cs.stream.buffer ? `${cs.stream.buffer}
-
-${line}` : line;
-          this.editStreamMessage(cs, displayText);
+          const line = formatTelegramToolLine({ toolName: handle.toolName, status: handle.status });
+          cs.stream.activeToolLine = line;
+          this.scheduleStreamUpdate(cs);
         }
       });
     });
@@ -9923,95 +11010,213 @@ ${line}` : line;
         this.initStream(cs);
       }
     });
+    this.backend.on("stream:parts", (sid, parts) => {
+      const cs = this.findChatStateBySid(sid);
+      if (!cs || cs.stopped)
+        return;
+      if (this.appendTraceParts(cs, parts) && cs.stream?.kind === "draft") {
+        this.scheduleStreamUpdate(cs);
+      }
+    });
     this.backend.on("stream:chunk", (sid, chunk) => {
       const cs = this.findChatStateBySid(sid);
       if (!cs?.stream || cs.stopped)
         return;
       cs.stream.buffer += chunk;
-      cs.stream.dirty = true;
-      if (!cs.stream.throttleTimer) {
-        cs.stream.throttleTimer = setTimeout(() => {
-          if (!cs.stream)
-            return;
-          cs.stream.throttleTimer = null;
-          if (!cs.stream.dirty)
-            return;
-          cs.stream.dirty = false;
-          this.editStreamMessage(cs, cs.stream.buffer);
-        }, STREAM_THROTTLE_MS);
-      }
+      this.scheduleStreamUpdate(cs);
+    });
+    this.backend.on("assistant:content", (sid, content) => {
+      const cs = this.findChatStateBySid(sid);
+      if (!cs || cs.stopped || cs.stream)
+        return;
+      this.appendTraceParts(cs, content.parts);
     });
     this.backend.on("response", (sid, text) => {
       const cs = this.findChatStateBySid(sid);
       if (!cs || cs.stopped)
         return;
+      this.stopTypingIndicator(cs);
       if (cs.stream) {
-        this.finalizeStream(cs, text);
+        this.finalizeStream(cs, text).catch((err) => logger5.error("流式关闭失败:", err));
       } else {
-        this.sendToChat(cs, this.messageBuilder.buildResponseText(text));
+        this.sendAssistantFinal(cs, this.messageBuilder.buildResponseText(text)).catch((err) => logger5.error("发送 Telegram 回复失败:", err));
       }
     });
     this.backend.on("error", (sid, errorMsg) => {
       const cs = this.findChatStateBySid(sid);
       if (!cs)
         return;
+      this.stopTypingIndicator(cs);
       const errorText = this.messageBuilder.buildErrorText(errorMsg);
       if (cs.stream) {
-        this.finalizeStream(cs, errorText);
+        this.finalizeStream(cs, errorText).catch((err) => logger5.error("流式错误消息发送失败:", err));
       } else {
-        this.sendToChat(cs, errorText);
+        this.sendToChat(cs, errorText).catch((err) => logger5.error("发送 Telegram 错误消息失败:", err));
       }
     });
     this.backend.on("done", (sid) => {
-      const cs = this.findChatStateBySid(sid);
-      if (!cs)
-        return;
-      if (cs.stream) {
-        if (!cs.stopped) {
-          const finalText = cs.stream.buffer || "✅ 处理完成。";
-          this.finalizeStream(cs, finalText);
-        }
-        this.cleanupStream(cs);
-      }
-      cs.busy = false;
-      cs.stopped = false;
-      if (cs.pendingMessages.length > 0) {
-        this.flushPendingMessages(cs);
-      }
+      this.handleDone(sid);
     });
   }
-  async initStream(cs) {
-    try {
+  startTypingIndicator(cs) {
+    if (cs.typingTimer)
+      return;
+    const sendTyping = () => {
+      this.client.sendTyping(cs.target).catch((err) => {
+        this.stopTypingIndicator(cs);
+        logger5.debug("Telegram typing 状态发送失败，已停止本回合 typing heartbeat:", err);
+      });
+    };
+    cs.typingTimer = setInterval(sendTyping, TYPING_REFRESH_MS);
+    sendTyping();
+  }
+  stopTypingIndicator(cs) {
+    if (!cs.typingTimer)
+      return;
+    clearInterval(cs.typingTimer);
+    cs.typingTimer = null;
+  }
+  async initStream(cs, message) {
+    const kind = this.resolveStreamKind(cs);
+    cs.stream = {
+      kind,
+      draftId: kind === "draft" ? this.createDraftId(message) : undefined,
+      buffer: "",
+      committedToolIds: new Set,
+      committedToolLines: [],
+      dirty: false,
+      throttleTimer: null,
+      finalized: false
+    };
+    if (kind === "draft") {
+      await this.updateDraftStream(cs);
+      return;
+    }
+    if (kind === "edit") {
       const messageId = await this.client.sendMessageReturningId(cs.target, this.messageBuilder.buildThinkingText());
-      cs.botMessageIdStack.push(messageId);
-      cs.stream = {
-        placeholderMessageId: messageId,
-        buffer: "",
-        committedToolIds: new Set,
-        dirty: false,
-        throttleTimer: null
-      };
-    } catch (err) {
-      logger5.warn("发送占位消息失败，降级为非流式模式:", err);
+      cs.stream.placeholderMessageId = messageId;
+      this.trackBotMessageGroup(cs, [messageId]);
     }
   }
-  editStreamMessage(cs, text) {
-    if (!cs.stream)
+  resolveStreamKind(cs) {
+    if (this.streamMode === "off")
+      return "silent";
+    if (this.streamMode === "edit")
+      return "edit";
+    if (this.streamMode === "draft") {
+      if (cs.target.scope !== "dm") {
+        throw new Error("telegram.streamMode=draft 仅支持 Telegram 私聊");
+      }
+      return "draft";
+    }
+    return this.outputFormat === "rich" && cs.target.scope === "dm" ? "draft" : "edit";
+  }
+  createDraftId(message) {
+    if (message?.messageId && Number.isInteger(message.messageId))
+      return message.messageId;
+    const draftId = Date.now() % 2147483647;
+    return draftId === 0 ? 1 : draftId;
+  }
+  appendTraceParts(cs, parts) {
+    if (!cs.turnTrace)
+      return false;
+    return cs.turnTrace.appendParts(parts, { includeTools: this.showToolStatus });
+  }
+  bindTraceToolHandle(cs, handle) {
+    const trace = cs.turnTrace;
+    if (!trace)
       return;
-    this.client.editText(cs.target, cs.stream.placeholderMessageId, text).catch((err) => {
-      logger5.error(`流式编辑失败:`, err);
+    trace.bindToolHandle(handle);
+    const refreshTrace = () => {
+      if (cs.turnTrace !== trace)
+        return;
+      trace.updateToolHandle(handle);
+      if (cs.stream?.kind === "draft")
+        this.scheduleStreamUpdate(cs);
+    };
+    handle.on("state", () => refreshTrace());
+    handle.on("progress", () => refreshTrace());
+    handle.on("output", () => refreshTrace());
+    handle.on("done", () => refreshTrace());
+    handle.on("child", (childHandle) => {
+      if (cs.turnTrace !== trace)
+        return;
+      this.bindTraceToolHandle(cs, childHandle);
+      refreshTrace();
     });
   }
-  finalizeStream(cs, text) {
-    if (!cs.stream)
+  scheduleStreamUpdate(cs) {
+    if (!cs.stream || cs.stream.finalized)
       return;
-    if (cs.stream.throttleTimer) {
-      clearTimeout(cs.stream.throttleTimer);
-      cs.stream.throttleTimer = null;
+    cs.stream.dirty = true;
+    if (cs.stream.throttleTimer)
+      return;
+    cs.stream.throttleTimer = setTimeout(() => {
+      this.flushStreamUpdate(cs).catch((err) => logger5.error("流式更新失败:", err));
+    }, STREAM_THROTTLE_MS);
+  }
+  async flushStreamUpdate(cs) {
+    const stream = cs.stream;
+    if (!stream || stream.finalized)
+      return;
+    stream.throttleTimer = null;
+    if (!stream.dirty)
+      return;
+    stream.dirty = false;
+    if (stream.kind === "draft") {
+      await this.updateDraftStream(cs);
+      return;
     }
-    this.client.editText(cs.target, cs.stream.placeholderMessageId, text).catch((err) => {
-      logger5.error("流式关闭失败:", err);
+    if (stream.kind === "edit") {
+      if (stream.placeholderMessageId == null) {
+        throw new Error("Telegram legacy stream 缺少 placeholderMessageId");
+      }
+      await this.client.editText(cs.target, stream.placeholderMessageId, this.buildLegacyStreamText(stream));
+    }
+  }
+  async updateDraftStream(cs) {
+    const stream = cs.stream;
+    if (!stream || stream.kind !== "draft")
+      return;
+    if (stream.draftId == null) {
+      throw new Error("Telegram rich draft stream 缺少 draftId");
+    }
+    const richMessage = renderTelegramDraftTurn({
+      answerMarkdown: stream.buffer,
+      traceSections: this.buildTraceSections(cs),
+      thinkingText: this.messageBuilder.buildThinkingText()
     });
+    await this.client.sendRichMessageDraft(cs.target, stream.draftId, richMessage);
+  }
+  buildLegacyStreamText(stream) {
+    const statusLines = [
+      ...stream.committedToolLines,
+      stream.activeToolLine
+    ].filter((line) => Boolean(line));
+    const sections = [...statusLines, stream.buffer].filter((section) => section.trim());
+    return sections.join(`
+
+`) || this.messageBuilder.buildThinkingText();
+  }
+  async finalizeStream(cs, text) {
+    const stream = cs.stream;
+    if (!stream || stream.finalized)
+      return;
+    this.stopTypingIndicator(cs);
+    stream.finalized = true;
+    if (stream.throttleTimer) {
+      clearTimeout(stream.throttleTimer);
+      stream.throttleTimer = null;
+    }
+    const finalText = text.trim() ? text : stream.buffer || "✅ 处理完成。";
+    if (stream.kind === "edit") {
+      if (stream.placeholderMessageId == null) {
+        throw new Error("Telegram legacy stream 缺少 placeholderMessageId");
+      }
+      await this.deliverAssistantFinal(cs, finalText, { editMessageId: stream.placeholderMessageId });
+      return;
+    }
+    await this.deliverAssistantFinal(cs, finalText);
   }
   cleanupStream(cs) {
     if (cs.stream?.throttleTimer) {
@@ -10019,23 +11224,153 @@ ${line}` : line;
     }
     cs.stream = null;
   }
+  async handleDone(sid) {
+    const cs = this.findChatStateBySid(sid);
+    if (!cs)
+      return;
+    try {
+      if (cs.stream && !cs.stopped) {
+        const finalText = cs.stream.buffer || "✅ 处理完成。";
+        await this.finalizeStream(cs, finalText);
+      }
+    } catch (err) {
+      logger5.error("Telegram 回合收尾失败:", err);
+    } finally {
+      this.stopTypingIndicator(cs);
+      if (cs.stream)
+        this.cleanupStream(cs);
+      cs.turnTrace = null;
+      cs.busy = false;
+      cs.stopped = false;
+      if (cs.pendingMessages.length > 0) {
+        this.flushPendingMessages(cs);
+      }
+    }
+  }
   async sendToChat(cs, text, options) {
     const msgId = await this.client.sendMessageReturningId(cs.target, text);
     if (options?.trackMessage !== false) {
-      cs.botMessageIdStack.push(msgId);
+      this.trackBotMessageGroup(cs, [msgId]);
     }
   }
+  async sendAssistantFinal(cs, text) {
+    await this.deliverAssistantFinal(cs, text);
+  }
+  async deliverAssistantFinal(cs, text, options = {}) {
+    const traceSections = this.buildTraceSections(cs);
+    if (this.outputFormat !== "rich") {
+      if (options.editMessageId != null) {
+        await this.replacePlainAssistantFinal(cs, options.editMessageId, text);
+      } else {
+        await this.sendPlainAssistantFinal(cs, text);
+      }
+      return;
+    }
+    try {
+      const richMessage = this.renderFinalRichMessage(text, traceSections);
+      if (options.editMessageId != null) {
+        await this.client.editRichMessage(cs.target, options.editMessageId, richMessage);
+      } else {
+        const msgId = await this.client.sendRichMessageReturningId(cs.target, richMessage);
+        this.trackBotMessageGroup(cs, [msgId]);
+      }
+      return;
+    } catch (err) {
+      logger5.warn(`Telegram Rich Message 投递失败，回落为纯文本: ${formatTelegramErrorSummary(err)}`);
+      const fallbackText = this.buildRichFallbackText(text, traceSections, err);
+      if (options.editMessageId != null) {
+        await this.replacePlainAssistantFinal(cs, options.editMessageId, fallbackText);
+      } else {
+        await this.sendPlainAssistantFinal(cs, fallbackText);
+      }
+    }
+  }
+  async sendPlainAssistantFinal(cs, text) {
+    const appendMessageId = this.createBotMessageGroupAppender(cs);
+    const messageIds = await this.client.sendTextReturningIds(cs.target, text, {}, { onMessageId: appendMessageId });
+    for (const messageId of messageIds)
+      appendMessageId(messageId);
+  }
+  async replacePlainAssistantFinal(cs, messageId, text) {
+    const appendMessageId = this.createBotMessageGroupAppender(cs, messageId);
+    const messageIds = await this.client.replaceMessageTextReturningIds(cs.target, messageId, text, {}, { onMessageId: appendMessageId });
+    for (const nextMessageId of messageIds)
+      appendMessageId(nextMessageId);
+  }
+  renderFinalRichMessage(text, traceSections) {
+    return renderTelegramRichTurn({
+      answerMarkdown: text,
+      traceSections
+    });
+  }
+  buildRichFallbackText(text, traceSections, error) {
+    const sections = [
+      `⚠️ Telegram Rich Message 投递失败，已改用纯文本显示。
+原因：${formatTelegramErrorSummary(error)}`,
+      ...traceSections.map((section) => this.renderPlainTraceSection(section)).filter((section) => section.trim()),
+      text
+    ].filter((section) => section.trim());
+    return sections.join(`
+
+`);
+  }
+  renderPlainTraceSection(section) {
+    const content = section.content.trim();
+    if (!content)
+      return "";
+    return `${section.title}
+
+${content}`;
+  }
+  buildTraceSections(cs) {
+    return cs.turnTrace?.toTraceSections() ?? [];
+  }
+  trackBotMessageGroup(cs, messageIds) {
+    if (messageIds.length === 0)
+      return;
+    const group = { messageIds: [...messageIds] };
+    cs.botMessageGroups.push(group);
+    return group;
+  }
+  createBotMessageGroupAppender(cs, primaryMessageId) {
+    let group = primaryMessageId == null ? undefined : this.findBotMessageGroup(cs, primaryMessageId);
+    return (messageId) => {
+      if (!group) {
+        group = this.trackBotMessageGroup(cs, [messageId]);
+        return;
+      }
+      if (!group.messageIds.includes(messageId)) {
+        group.messageIds.push(messageId);
+      }
+    };
+  }
+  findBotMessageGroup(cs, primaryMessageId) {
+    for (let i = cs.botMessageGroups.length - 1;i >= 0; i -= 1) {
+      const group = cs.botMessageGroups[i];
+      if (group.messageIds[0] === primaryMessageId)
+        return group;
+    }
+    return;
+  }
   async markBotMessageAsUndone(cs) {
-    const messageId = cs.botMessageIdStack.pop();
-    if (messageId != null) {
+    const group = cs.botMessageGroups.pop();
+    const [primaryMessageId, ...extraMessageIds] = group?.messageIds ?? [];
+    if (primaryMessageId != null) {
       try {
-        await this.client.editText(cs.target, messageId, "~~已撤销~~");
+        await this.client.editText(cs.target, primaryMessageId, "已撤销");
       } catch (e) {
-        logger5.warn(`Telegram 消息编辑为已撤销失败 (${messageId})，尝试删除:`, e);
+        logger5.warn(`Telegram 消息编辑为已撤销失败 (${primaryMessageId})，尝试删除:`, e);
+        try {
+          await this.client.deleteMessage(cs.target, primaryMessageId);
+        } catch (err) {
+          logger5.warn(`Telegram deleteMessage 也失败了:`, err);
+        }
+      }
+      for (const messageId of extraMessageIds) {
         try {
           await this.client.deleteMessage(cs.target, messageId);
         } catch (err) {
-          logger5.warn(`Telegram deleteMessage 也失败了:`, err);
+          logger5.warn(`Telegram deleteMessage 失败 (${messageId}):`, err);
         }
       }
     } else {
@@ -10044,10 +11379,10 @@ ${line}` : line;
   }
   async replayRedoResult(cs, assistantText) {
     if (assistantText.trim()) {
-      await this.sendToChat(cs, assistantText);
+      await this.sendAssistantFinal(cs, assistantText);
       return;
     }
-    await this.sendToChat(cs, "✅ 上一轮对话已恢复。");
+    await this.sendToChat(cs, "✅ 上一轮对话已恢复。", { trackMessage: false });
   }
   async handleMessage(ctx) {
     try {
@@ -10112,7 +11447,7 @@ ${line}` : line;
           text: parsed.text,
           hasUnsupportedMedia: hasTelegramUnsupportedMedia(parsed) && !this.mediaService.supportsInboundMedia()
         });
-        await this.sendToChat(cs, BUFFERED_NOTICE);
+        await this.sendToChat(cs, BUFFERED_NOTICE, { trackMessage: false });
         return;
       }
       await this.dispatchChat(cs, parsed);
@@ -10180,7 +11515,7 @@ ${line}` : line;
     const cmd = this.commandRouter.parse(text);
     if (!cmd)
       return false;
-    const reply = (content) => this.sendToChat(cs, content);
+    const reply = (content) => this.sendToChat(cs, content, { trackMessage: false });
     switch (cmd.name) {
       case "new": {
         const newSid = `telegram-${cs.target.chatKey.replace(/:/g, "-")}-${Date.now()}`;
@@ -10252,10 +11587,11 @@ ${line}` : line;
           return true;
         }
         cs.stopped = true;
+        this.stopTypingIndicator(cs);
         this.backend.abortChat(cs.sessionId);
         if (cs.stream) {
           const stopText = this.messageBuilder.buildAbortedText(cs.stream.buffer);
-          this.finalizeStream(cs, stopText);
+          await this.finalizeStream(cs, stopText);
           this.cleanupStream(cs);
         }
         return true;
@@ -10267,10 +11603,11 @@ ${line}` : line;
         }
         if (cs.busy) {
           cs.stopped = true;
+          this.stopTypingIndicator(cs);
           this.backend.abortChat(cs.sessionId);
           if (cs.stream) {
             const stopText = this.messageBuilder.buildAbortedText(cs.stream.buffer);
-            this.finalizeStream(cs, stopText);
+            await this.finalizeStream(cs, stopText);
             this.cleanupStream(cs);
           }
         } else {
@@ -10437,39 +11774,47 @@ ${list}`);
   async dispatchChat(cs, message) {
     const hasUnsupportedMedia = hasTelegramUnsupportedMedia(message) && !this.mediaService.supportsInboundMedia();
     if (!message.text && hasUnsupportedMedia) {
-      await this.sendToChat(cs, UNSUPPORTED_MEDIA_NOTICE);
+      await this.sendToChat(cs, UNSUPPORTED_MEDIA_NOTICE, { trackMessage: false });
       return;
     }
     cs.busy = true;
     cs.stopped = false;
     cs.sessionId = this.getSessionId(cs.target.chatKey);
     cs.target = message.session;
-    if (this.backend.isStreamEnabled()) {
-      await this.initStream(cs);
-    }
-    let images;
-    let documents;
-    if (this.mediaService.supportsInboundMedia()) {
-      if (message.photo) {
-        const img = await this.mediaService.downloadPhoto(this.client, message.photo);
-        if (img)
-          images = [img];
-      }
-      if (message.document) {
-        const doc = await this.mediaService.downloadDocument(this.client, message.document);
-        if (doc)
-          documents = [doc];
-      }
-      if (message.voice || message.audio) {
-        const voice = await this.mediaService.downloadVoice(this.client, message.voice || message.audio);
-        if (voice)
-          documents = [...documents || [], voice];
-      }
-    }
+    cs.turnTrace = new TelegramTurnTraceCollector;
     try {
+      if (this.backend.isStreamEnabled()) {
+        await this.initStream(cs, message);
+      }
+      if (this.backendListenersReady)
+        this.startTypingIndicator(cs);
+      let images;
+      let documents;
+      if (this.mediaService.supportsInboundMedia()) {
+        if (message.photo) {
+          const img = await this.mediaService.downloadPhoto(this.client, message.photo);
+          if (img)
+            images = [img];
+        }
+        if (message.document) {
+          const doc = await this.mediaService.downloadDocument(this.client, message.document);
+          if (doc)
+            documents = [doc];
+        }
+        if (message.voice || message.audio) {
+          const voice = await this.mediaService.downloadVoice(this.client, message.voice || message.audio);
+          if (voice)
+            documents = [...documents || [], voice];
+        }
+      }
       await this.backend.chat(cs.sessionId, message.text, images, documents, "telegram");
     } catch (err) {
-      logger5.error(`backend.chat 失败 (session=${cs.sessionId}):`, err);
+      logger5.error(`Telegram 回合分发失败 (session=${cs.sessionId}):`, err);
+      this.stopTypingIndicator(cs);
+      this.cleanupStream(cs);
+      cs.turnTrace = null;
+      cs.busy = false;
+      cs.stopped = false;
     }
   }
   flushPendingMessages(cs) {
@@ -10499,10 +11844,46 @@ ${list}`);
 function hasTelegramUnsupportedMedia(message) {
   return Boolean(message.photo || message.document || message.voice || message.audio);
 }
+function parseTelegramOutputFormat(value) {
+  if (value == null)
+    return "rich";
+  if (value === "plain" || value === "rich")
+    return value;
+  throw new Error(`telegram.outputFormat 无效: ${String(value)}`);
+}
+function parseTelegramStreamMode(value) {
+  if (value == null)
+    return "auto";
+  if (value === "auto" || value === "draft" || value === "edit" || value === "off")
+    return value;
+  throw new Error(`telegram.streamMode 无效: ${String(value)}`);
+}
+function formatTelegramErrorSummary(error) {
+  if (error && typeof error === "object") {
+    const record = error;
+    const description = nonEmptyString(record.description);
+    const message = nonEmptyString(record.message);
+    const errorCode = nonEmptyString(record.error_code);
+    const text = description ?? message;
+    if (errorCode && text)
+      return `${errorCode}: ${text}`;
+    if (text)
+      return text;
+  }
+  return String(error);
+}
+function nonEmptyString(value) {
+  if (typeof value !== "string" && typeof value !== "number")
+    return;
+  const text = String(value).trim();
+  return text ? text : undefined;
+}
 var createTelegramPlatform = definePlatformFactory({
   platformName: "telegram",
   resolveConfig: (raw, context) => ({
     token: raw.token ?? "",
+    outputFormat: raw.outputFormat,
+    streamMode: raw.streamMode,
     showToolStatus: raw.showToolStatus,
     groupMentionRequired: raw.groupMentionRequired,
     pairing: raw.pairing,
