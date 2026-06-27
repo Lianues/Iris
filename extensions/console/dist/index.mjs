@@ -3532,7 +3532,7 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
     if (isGenerating && hasQueue) {
       parts.push("/queue 管理队列");
     }
-    parts.push(isGenerating ? "ctrl+s 立即发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式");
+    parts.push(isGenerating ? "ctrl+enter 立即发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式");
     hintStr = parts.join(`  ${ICONS.separator}  `);
   }
   const hintWidth = getTextWidth(hintStr);
@@ -3592,7 +3592,7 @@ function HintBar({ isGenerating, hasRunningBackgroundTasks = false, queueSize, c
               ]
             }, undefined, true, undefined, this) : null,
             `  ${ICONS.separator}  `,
-            isGenerating ? "ctrl+s 立即发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式"
+            isGenerating ? "ctrl+enter 立即发送" : copyMode ? "f6 返回滚动模式" : "f6 复制模式"
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this)
@@ -3836,9 +3836,9 @@ function isPlanModeToggleShortcut(key) {
   return key.shift && key.name === "tab" || key.name === "backtab" || key.name === "shift-tab" || key.sequence === "\x1B[Z";
 }
 function isPrioritySubmitShortcut(key) {
-  return key.ctrl && key.name === "s" || key.sequence === "\x13" || key.raw === "\x13";
+  return key.ctrl && (key.name === "return" || key.name === "enter");
 }
-function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed, onOverlayActiveChange }) {
+function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onAbort, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed, onOverlayActiveChange }) {
   const [inputState, inputActions] = useTextInput("");
   const [selectedIndex, setSelectedIndex] = useState6(0);
   const [fileSelectedIndex, setFileSelectedIndex] = useState6(0);
@@ -4072,16 +4072,20 @@ function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmi
         return;
       }
     }
-    if (isPrioritySubmitShortcut(key)) {
+    if (isPrioritySubmitShortcut(key) || isQueueMode && key.name === "linefeed") {
       key.preventDefault?.();
       key.stopPropagation?.();
-      if (!isQueueMode)
-        return;
-      key.preventDefault?.();
       const text = value.trim();
-      if (!text)
+      if (!text) {
+        if (isQueueMode && queueSize > 0)
+          onAbort?.();
         return;
-      onPrioritySubmit(text);
+      }
+      if (isQueueMode) {
+        onPrioritySubmit(text);
+      } else {
+        onSubmit(text);
+      }
       inputActions.setValue("");
       setSelectedIndex(0);
       return;
@@ -4722,6 +4726,7 @@ function BottomPanel({
   queueSize,
   onSubmit,
   onPrioritySubmit,
+  onAbort,
   onToolMessage,
   agentName,
   modeName,
@@ -4847,6 +4852,7 @@ function BottomPanel({
                 queueSize,
                 onSubmit,
                 onPrioritySubmit,
+                onAbort,
                 onCycleThinkingEffort,
                 pendingFiles,
                 onRemoveFile,
@@ -15307,6 +15313,7 @@ function App({
         queueSize: messageQueue.size,
         onSubmit: handleSubmit,
         onPrioritySubmit: handlePrioritySubmit,
+        onAbort,
         onToolMessage,
         agentName,
         modeName,

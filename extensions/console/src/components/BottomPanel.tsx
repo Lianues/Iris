@@ -35,6 +35,7 @@ interface BottomPanelProps {
   queueSize: number;
   onSubmit: (text: string) => void;
   onPrioritySubmit: (text: string) => void;
+  onAbort?: () => void;
   onToolMessage?: (toolId: string, type: string, data?: unknown) => void;
   agentName?: string;
   modeName?: string;
@@ -110,6 +111,7 @@ export function BottomPanel({
   queueSize,
   onSubmit,
   onPrioritySubmit,
+  onAbort,
   onToolMessage,
   agentName,
   modeName,
@@ -217,6 +219,7 @@ export function BottomPanel({
               queueSize={queueSize}
               onSubmit={onSubmit}
               onPrioritySubmit={onPrioritySubmit}
+              onAbort={onAbort}
               onCycleThinkingEffort={onCycleThinkingEffort}
               pendingFiles={pendingFiles}
               onRemoveFile={onRemoveFile}

@@ -1009,6 +1009,7 @@ export function App({
         queueSize={messageQueue.size}
         onSubmit={handleSubmit}
         onPrioritySubmit={handlePrioritySubmit}
+        onAbort={onAbort}
         onToolMessage={onToolMessage}
         agentName={agentName}
         modeName={modeName}

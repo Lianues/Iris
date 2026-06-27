@@ -84,6 +84,8 @@ interface InputBarProps {
   onSubmit: (text: string) => void;
   /** 立即发送：中断当前生成，将消息插到队首并优先处理 */
   onPrioritySubmit: (text: string) => void;
+  /** 中断当前生成（用于输入为空但队列有消息时立即发送队列） */
+  onAbort?: () => void;
   /** Shift+Left/Right 切换思考强度 */
   onCycleThinkingEffort: (direction: 1 | -1) => void;
   /** 当前待发送的文件附件列表 */
@@ -107,12 +109,10 @@ interface InputBarProps {
 }
 
 function isPrioritySubmitShortcut(key: any): boolean {
-  return (key.ctrl && key.name === 's')
-    || key.sequence === '\x13'
-    || key.raw === '\x13';
+  return key.ctrl && (key.name === 'return' || key.name === 'enter');
 }
 
-export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed, onOverlayActiveChange }: InputBarProps) {
+export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onAbort, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed, onOverlayActiveChange }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [fileSelectedIndex, setFileSelectedIndex] = useState(0);
@@ -389,15 +389,22 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
       }
     }
 
-    // Ctrl+S → 立即发送（中断当前生成，并优先处理这条消息）
-    if (isPrioritySubmitShortcut(key)) {
+    // Ctrl+Enter → 立即发送（生成中中断并优先处理；非生成中普通提交）
+    // Windows Terminal 无 kitty keyboard 时 Ctrl+Enter 发送为 linefeed（无 ctrl 标志）
+    if (isPrioritySubmitShortcut(key) || (isQueueMode && key.name === 'linefeed')) {
       key.preventDefault?.();
       key.stopPropagation?.();
-      if (!isQueueMode) return;
-      key.preventDefault?.();
       const text = value.trim();
-      if (!text) return;
-      onPrioritySubmit(text);
+      if (!text) {
+        // 输入为空但队列中有消息时，中断当前生成让队列消息立即发送
+        if (isQueueMode && queueSize > 0) onAbort?.();
+        return;
+      }
+      if (isQueueMode) {
+        onPrioritySubmit(text);
+      } else {
+        onSubmit(text);
+      }
       inputActions.setValue('');
       setSelectedIndex(0);
       return;
