@@ -237,7 +237,7 @@ async function handleIdeCommand(manager: IdeManager, arg: string, state: Runtime
           '  /ide list-cli             列出当前 PATH 中可用的 VS Code 系 CLI',
           '  /ide debug                输出 IDE 调试信息',
           '',
-          '直接输入 /ide 会自动检测、尝试连接；如果没有 IDE 会话，会自动安装/激活 VS Code 扩展。',
+          '直接输入 /ide 会自动检测、尝试连接；如果没有 IDE 会话，会显示可用操作提示。',
         ].join('\n'),
       };
     case 'detect':
@@ -374,20 +374,14 @@ async function handleDefaultIdeCommand(manager: IdeManager, state: RuntimeState)
     return { label: 'ide', message: formatDetected(first.detected) };
   }
 
-  const result = await installVscodeExtension({
-    extensionRootDir: state.extensionRootDir,
-    dataDir: state.dataDir ?? resolveDefaultDataDir(),
-  });
-  if (!result.success) {
-    return { label: 'ide', message: result.message, isError: true };
-  }
-
-  const connected = await waitForFirstValidConnection(manager);
   return {
     label: 'ide',
-    message: connected
-      ? `${result.message}\n\n已自动连接 IDE：${connected.name} (${connected.port})`
-      : `${result.message}\n\n尚未检测到匹配当前 cwd 的 IDE 会话。请确认 VS Code 已打开当前工作区；如 VS Code 已打开但仍未连接，可执行 Developer: Reload Window 后再输入 /ide。`,
+    message: [
+      '未发现 IDE 插件会话。可执行以下操作：',
+      '  /ide install       安装 Iris VS Code 扩展（支持 VS Code / Cursor / Windsurf）',
+      '  /ide list-cli      查看可用的编辑器 CLI',
+      '  /ide detect        重新扫描 IDE 会话',
+    ].join('\n'),
   };
 }
 

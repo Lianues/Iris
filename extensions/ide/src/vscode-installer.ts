@@ -330,13 +330,19 @@ function getDefaultCandidates(): VscodeCliCandidate[] {
   return process.platform === 'win32' ? getWindowsCandidates() : getPosixCandidates();
 }
 
-function candidateMatchesAlias(candidate: VscodeCliCandidate, alias: string): boolean {
+/** 将用户输入的 alias（code/cursor/windsurf 等）映射到期望的 label。 */
+function aliasToLabel(alias: string): string | undefined {
   const normalized = alias.toLowerCase();
-  if (normalized === 'code' || normalized === 'vscode' || normalized === 'vs-code') return candidate.label === 'VS Code';
-  if (normalized === 'code-insiders' || normalized === 'insiders') return candidate.label === 'VS Code Insiders';
-  if (normalized === 'cursor') return candidate.label === 'Cursor';
-  if (normalized === 'windsurf') return candidate.label === 'Windsurf';
-  return false;
+  if (normalized === 'code' || normalized === 'vscode' || normalized === 'vs-code') return 'VS Code';
+  if (normalized === 'code-insiders' || normalized === 'insiders') return 'VS Code Insiders';
+  if (normalized === 'cursor') return 'Cursor';
+  if (normalized === 'windsurf') return 'Windsurf';
+  return undefined;
+}
+
+function candidateMatchesAlias(candidate: VscodeCliCandidate, alias: string): boolean {
+  const expected = aliasToLabel(alias);
+  return expected ? candidate.label === expected : false;
 }
 
 async function tryExec(command: string, args: string[], timeout = 15_000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
@@ -362,16 +368,72 @@ function resolveCandidate(target?: string): VscodeCliCandidate[] {
   return [{ label: trimmed, command: trimmed }];
 }
 
+/**
+ * 解析裸命令的真实绝对路径。
+ * Windows: where.exe <command>；POSIX: which <command>。
+ * 失败时返回 undefined，不影响原有流程。
+ */
+async function resolveRealCommandPath(command: string): Promise<string | undefined> {
+  if (path.isAbsolute(command)) return command;
+  const tool = process.platform === 'win32' ? 'where.exe' : 'which';
+  const result = await tryExec(tool, [command], 5_000);
+  if (!result.ok) return undefined;
+  const firstLine = result.stdout.split(/\r?\n/g).find((line) => line.trim());
+  return firstLine?.trim() || undefined;
+}
+
+/**
+ * 根据真实路径关键词纠正候选的 label。
+ * Cursor 安装时会创建伪装的 code.cmd，需要通过路径区分真实编辑器。
+ */
+function relabelCandidateByPath(candidate: VscodeCliCandidate, realPath: string): VscodeCliCandidate {
+  const lower = realPath.toLowerCase().replace(/\\/g, '/');
+  if (lower.includes('/cursor')) return { ...candidate, label: 'Cursor' };
+  if (lower.includes('/windsurf')) return { ...candidate, label: 'Windsurf' };
+  if (lower.includes('insiders')) return { ...candidate, label: 'VS Code Insiders' };
+  if (lower.includes('microsoft vs code') || lower.includes('visual studio code')) {
+    return { ...candidate, label: 'VS Code' };
+  }
+  return candidate;
+}
+
+/**
+ * 无 target 安装时，优先选择绝对路径的真 VS Code 候选。
+ * 避免裸 `code` 命令被 Cursor 劫持后误选。
+ */
+function selectBestCandidate(candidates: VscodeCliCandidate[], target?: string): VscodeCliCandidate | undefined {
+  if (candidates.length === 0) return undefined;
+  if (target) {
+    // 有 target 时，根据 alias 推导期望 label，优先选 relabel 后标签仍匹配的候选
+    const expectedLabel = aliasToLabel(target);
+    if (expectedLabel) {
+      const matching = candidates.filter((c) => c.label === expectedLabel);
+      if (matching.length > 0) {
+        return matching.find((c) => path.isAbsolute(c.command)) ?? matching[0];
+      }
+    }
+    return candidates[0];
+  }
+  // 无 target：优先绝对路径的真 VS Code，避免裸 code 被 Cursor 劫持
+  const vscodeAbs = candidates.find((c) => c.label === 'VS Code' && path.isAbsolute(c.command));
+  if (vscodeAbs) return vscodeAbs;
+  const vscodeBare = candidates.find((c) => c.label === 'VS Code');
+  if (vscodeBare) return vscodeBare;
+  return candidates[0];
+}
 
 export async function detectVscodeCliCommands(target?: string): Promise<VscodeCliCandidate[]> {
   const detected: VscodeCliCandidate[] = [];
   for (const candidate of resolveCandidate(target)) {
     const result = await tryExec(candidate.command, ['--version']);
     if (!result.ok) continue;
-    detected.push({
-      ...candidate,
-      version: result.stdout.split(/\r?\n/g).find(Boolean),
-    });
+    let resolved = { ...candidate, version: result.stdout.split(/\r?\n/g).find(Boolean) };
+    // 解析真实路径，纠正可能被 Cursor/Windsurf 劫持的 label
+    const realPath = await resolveRealCommandPath(candidate.command);
+    if (realPath) {
+      resolved = relabelCandidateByPath(resolved, realPath);
+    }
+    detected.push(resolved);
   }
   return detected;
 }
@@ -424,7 +486,7 @@ export async function installVscodeExtension(options: InstallVscodeExtensionOpti
     };
   }
 
-  const candidate = candidates[0];
+  const candidate = selectBestCandidate(candidates, options.target) ?? candidates[0];
   try {
     const extensionDir = getBundledVscodeExtensionDir(options.extensionRootDir);
     const bundledPackage = await readBundledVscodeExtensionPackage(extensionDir);

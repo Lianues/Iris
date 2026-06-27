@@ -25487,17 +25487,21 @@ function getPosixCandidates() {
 function getDefaultCandidates() {
   return process.platform === "win32" ? getWindowsCandidates() : getPosixCandidates();
 }
-function candidateMatchesAlias(candidate, alias) {
+function aliasToLabel(alias) {
   const normalized = alias.toLowerCase();
   if (normalized === "code" || normalized === "vscode" || normalized === "vs-code")
-    return candidate.label === "VS Code";
+    return "VS Code";
   if (normalized === "code-insiders" || normalized === "insiders")
-    return candidate.label === "VS Code Insiders";
+    return "VS Code Insiders";
   if (normalized === "cursor")
-    return candidate.label === "Cursor";
+    return "Cursor";
   if (normalized === "windsurf")
-    return candidate.label === "Windsurf";
-  return false;
+    return "Windsurf";
+  return;
+}
+function candidateMatchesAlias(candidate, alias) {
+  const expected = aliasToLabel(alias);
+  return expected ? candidate.label === expected : false;
 }
 async function tryExec(command, args, timeout = 15000) {
   try {
@@ -25521,16 +25525,62 @@ function resolveCandidate(target) {
     return aliased;
   return [{ label: trimmed, command: trimmed }];
 }
+async function resolveRealCommandPath(command) {
+  if (path3.isAbsolute(command))
+    return command;
+  const tool = process.platform === "win32" ? "where.exe" : "which";
+  const result = await tryExec(tool, [command], 5000);
+  if (!result.ok)
+    return;
+  const firstLine = result.stdout.split(/\r?\n/g).find((line) => line.trim());
+  return firstLine?.trim() || undefined;
+}
+function relabelCandidateByPath(candidate, realPath) {
+  const lower = realPath.toLowerCase().replace(/\\/g, "/");
+  if (lower.includes("/cursor"))
+    return { ...candidate, label: "Cursor" };
+  if (lower.includes("/windsurf"))
+    return { ...candidate, label: "Windsurf" };
+  if (lower.includes("insiders"))
+    return { ...candidate, label: "VS Code Insiders" };
+  if (lower.includes("microsoft vs code") || lower.includes("visual studio code")) {
+    return { ...candidate, label: "VS Code" };
+  }
+  return candidate;
+}
+function selectBestCandidate(candidates, target) {
+  if (candidates.length === 0)
+    return;
+  if (target) {
+    const expectedLabel = aliasToLabel(target);
+    if (expectedLabel) {
+      const matching = candidates.filter((c) => c.label === expectedLabel);
+      if (matching.length > 0) {
+        return matching.find((c) => path3.isAbsolute(c.command)) ?? matching[0];
+      }
+    }
+    return candidates[0];
+  }
+  const vscodeAbs = candidates.find((c) => c.label === "VS Code" && path3.isAbsolute(c.command));
+  if (vscodeAbs)
+    return vscodeAbs;
+  const vscodeBare = candidates.find((c) => c.label === "VS Code");
+  if (vscodeBare)
+    return vscodeBare;
+  return candidates[0];
+}
 async function detectVscodeCliCommands(target) {
   const detected = [];
   for (const candidate of resolveCandidate(target)) {
     const result = await tryExec(candidate.command, ["--version"]);
     if (!result.ok)
       continue;
-    detected.push({
-      ...candidate,
-      version: result.stdout.split(/\r?\n/g).find(Boolean)
-    });
+    let resolved = { ...candidate, version: result.stdout.split(/\r?\n/g).find(Boolean) };
+    const realPath = await resolveRealCommandPath(candidate.command);
+    if (realPath) {
+      resolved = relabelCandidateByPath(resolved, realPath);
+    }
+    detected.push(resolved);
   }
   return detected;
 }
@@ -25573,7 +25623,7 @@ async function installVscodeExtension(options) {
 `)
     };
   }
-  const candidate = candidates[0];
+  const candidate = selectBestCandidate(candidates, options.target) ?? candidates[0];
   try {
     const extensionDir = getBundledVscodeExtensionDir(options.extensionRootDir);
     const bundledPackage = await readBundledVscodeExtensionPackage(extensionDir);
@@ -25833,7 +25883,7 @@ async function handleIdeCommand(manager, arg, state) {
           "  /ide list-cli             列出当前 PATH 中可用的 VS Code 系 CLI",
           "  /ide debug                输出 IDE 调试信息",
           "",
-          "直接输入 /ide 会自动检测、尝试连接；如果没有 IDE 会话，会自动安装/激活 VS Code 扩展。"
+          "直接输入 /ide 会自动检测、尝试连接；如果没有 IDE 会话，会显示可用操作提示。"
         ].join(`
 `)
       };
@@ -25971,21 +26021,15 @@ ${formatDetected(first.detected)}`, isError: true };
   if (first.detected.length > 0) {
     return { label: "ide", message: formatDetected(first.detected) };
   }
-  const result = await installVscodeExtension({
-    extensionRootDir: state.extensionRootDir,
-    dataDir: state.dataDir ?? resolveDefaultDataDir()
-  });
-  if (!result.success) {
-    return { label: "ide", message: result.message, isError: true };
-  }
-  const connected = await waitForFirstValidConnection(manager);
   return {
     label: "ide",
-    message: connected ? `${result.message}
-
-已自动连接 IDE：${connected.name} (${connected.port})` : `${result.message}
-
-尚未检测到匹配当前 cwd 的 IDE 会话。请确认 VS Code 已打开当前工作区；如 VS Code 已打开但仍未连接，可执行 Developer: Reload Window 后再输入 /ide。`
+    message: [
+      "未发现 IDE 插件会话。可执行以下操作：",
+      "  /ide install       安装 Iris VS Code 扩展（支持 VS Code / Cursor / Windsurf）",
+      "  /ide list-cli      查看可用的编辑器 CLI",
+      "  /ide detect        重新扫描 IDE 会话"
+    ].join(`
+`)
   };
 }
 function formatDetected(detected) {
