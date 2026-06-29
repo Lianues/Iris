@@ -159,7 +159,10 @@ export class MCPClient {
       throw new Error(`MCP 服务器 "${this.serverName}" 未连接`);
     }
 
-    const result = await this.client.callTool({ name, arguments: args });
+    // 传入超时选项，避免 SDK 使用 60s 硬编码默认值（DEFAULT_REQUEST_TIMEOUT_MSEC）。
+    // 用户配置的 timeout 同时覆盖连接、listTools 和 callTool 三步。
+    const timeout = this.config.timeout ?? 30000;
+    const result = await this.client.callTool({ name, arguments: args }, undefined, { timeout });
 
     if (result.isError) {
       const text = this.extractText(result.content);
