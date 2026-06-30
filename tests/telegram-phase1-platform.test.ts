@@ -12,6 +12,7 @@ import { TelegramPlatform } from '../extensions/telegram/src';
 
 class FakeBackend extends EventEmitter {
   chats: Array<{ sessionId: string; text: string; images?: any[]; documents?: any[] }> = [];
+  abortChat = vi.fn();
 
   async chat(sessionId: string, text: string, images?: any[], documents?: any[]): Promise<void> {
     this.chats.push({ sessionId, text, images, documents });
@@ -23,6 +24,73 @@ class FakeBackend extends EventEmitter {
 }
 
 describe('Telegram Phase 1.3: platform concurrency', () => {
+  it('/stop 在长回合中可进入，并中止当前 turn 而不是继续处理缓冲消息', async () => {
+    class SlowBackend extends FakeBackend {
+      private readonly resolvers: Array<() => void> = [];
+
+      override chat(sessionId: string, text: string, images?: any[], documents?: any[]): Promise<void> {
+        this.chats.push({ sessionId, text, images, documents });
+        return new Promise((resolve) => {
+          this.resolvers.push(resolve);
+        });
+      }
+
+      resolveNext(): void {
+        this.resolvers.shift()?.();
+      }
+    }
+
+    const backend = new SlowBackend();
+    const platform = new TelegramPlatform(backend as any, {
+      token: 'bot-token',
+      groupMentionRequired: false,
+      outputFormat: 'plain',
+    });
+    (platform as any).setupBackendListeners();
+
+    const sentMessages: string[] = [];
+    (platform as any).client = {
+      sendMessageReturningId: vi.fn(async (_target: unknown, text: string) => {
+        sentMessages.push(text);
+        return 999;
+      }),
+      sendTextReturningIds: vi.fn(async (_target: unknown, text: string) => {
+        sentMessages.push(text);
+        return [999];
+      }),
+      sendTyping: vi.fn(async () => undefined),
+    };
+
+    const makeCtx = (messageId: number, text: string) => ({
+      chat: { id: 1003, type: 'private' },
+      me: { username: 'iris_bot' },
+      message: { message_id: messageId, text },
+    });
+
+    // 旧实现会一直 await backend.chat()，导致这一 Promise 在长回合结束前不 resolve。
+    // 现在 handler 必须尽快返回，后续 /stop 才能被 grammY 投递进来。
+    const firstTurn = (platform as any).handleMessage(makeCtx(10, '长回合'));
+    const firstResult = await Promise.race([
+      firstTurn.then(() => 'resolved'),
+      new Promise((resolve) => setTimeout(() => resolve('timeout'), 25)),
+    ]);
+    expect(firstResult).toBe('resolved');
+    expect(backend.chats).toHaveLength(1);
+
+    await (platform as any).handleMessage(makeCtx(11, '第二条'));
+    expect(sentMessages.some((m) => m.includes('暂存'))).toBe(true);
+
+    await (platform as any).handleMessage(makeCtx(12, '/stop'));
+    expect(backend.abortChat).toHaveBeenCalledWith(backend.chats[0].sessionId);
+
+    // /stop 会丢弃已暂存输入；done 后不应再自动 flush 第二条消息。
+    backend.resolveNext();
+    backend.emit('done', backend.chats[0].sessionId);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(backend.chats).toHaveLength(1);
+  });
+
   it('在 busy 时暂存消息，并在 done 后自动继续处理', async () => {
     const backend = new FakeBackend();
     const platform = new TelegramPlatform(backend as any, {

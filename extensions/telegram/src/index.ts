@@ -54,6 +54,7 @@ const TYPING_REFRESH_MS = 4_000;
 
 const UNSUPPORTED_MEDIA_NOTICE = '当前阶段暂不支持直接处理图片、文件或语音消息，请附带文字说明后再次发送。';
 const BUFFERED_NOTICE = '📥 消息已暂存，等 AI 回复结束后自动发送。\n发送 /flush 可立即处理，/stop 可中止当前回复。';
+const BUSY_COMMAND_NOTICE = 'ℹ️ 当前正在回复中，请先 /stop。';
 
 // ---- Phase 7：健壮性常量 ----
 
@@ -134,8 +135,8 @@ export class TelegramPlatform extends PlatformAdapter {
   private readonly chatStates = new Map<string, TelegramChatState>();
   /** chatKey → sessionId 映射，/new 时更新 */
   private readonly activeSessions = new Map<string, string>();
-  /** Phase 7：消息去重集合（update_id 或 message_id）。避免重复处理同一条消息。 */
-  private readonly messageDedup = new Set<number>();
+  /** Phase 7：消息去重集合（chatKey + message_id）。避免重复处理同一条消息。 */
+  private readonly messageDedup = new Set<string>();
   /** Phase 7：去重集合上次清理时间 */
   private lastDedupCleanup = Date.now();
   private backendListenersReady = false;
@@ -916,11 +917,13 @@ export class TelegramPlatform extends PlatformAdapter {
 
       // ---- Phase 7：消息去重 ----
       // 目的：避免 bot 重启或网络抖动导致重复处理同一条消息。
-      if (this.messageDedup.has(parsed.messageId)) {
-        logger.debug(`跳过重复消息: message_id=${parsed.messageId}`);
+      // Telegram 的 message_id 只在单个 chat 内唯一，必须带上 chatKey 才能避免跨私聊/群聊误去重。
+      const dedupKey = `${parsed.session.chatKey}:${parsed.messageId}`;
+      if (this.messageDedup.has(dedupKey)) {
+        logger.debug(`跳过重复消息: ${dedupKey}`);
         return;
       }
-      this.messageDedup.add(parsed.messageId);
+      this.messageDedup.add(dedupKey);
       this.cleanupDedupIfNeeded();
 
       // ---- Phase 7：消息过期检测 ----
@@ -981,7 +984,7 @@ export class TelegramPlatform extends PlatformAdapter {
         metadata: { sessionId: parsed.session.sessionId },
       });
 
-      // 命令处理（任何时候都能用，不受 busy 影响）
+      // 命令优先处理；busy 时 handleCommand 只放行不改变 turn 身份的安全命令。
       if (parsed.text.startsWith('/')) {
         const handled = await this.handleCommand(parsed.text, cs);
         if (handled) return;
@@ -1029,40 +1032,47 @@ export class TelegramPlatform extends PlatformAdapter {
       const command = data.substring(0, colonIdx);
       const arg = data.substring(colonIdx + 1);
 
+      const activeCs = this.chatStates.get(target.chatKey);
       let resultText = '';
 
-      switch (command) {
-        case 'model': {
-          try {
-            const result = this.backend.switchModel(arg, 'telegram');
-            resultText = `✅ 模型已切换为 ${result.modelName} → ${result.modelId}`;
-          } catch {
-            resultText = `❌ 未找到模型 "${arg}"。`;
+      if (activeCs?.busy) {
+        // Inline keyboard 可能来自旧菜单；busy 期间不允许按钮切换 session/model/mode，
+        // 否则当前 turn 的 response/done 将无法再按原 sessionId 精确收口。
+        resultText = BUSY_COMMAND_NOTICE;
+      } else {
+        switch (command) {
+          case 'model': {
+            try {
+              const result = this.backend.switchModel(arg, 'telegram');
+              resultText = `✅ 模型已切换为 ${result.modelName} → ${result.modelId}`;
+            } catch {
+              resultText = `❌ 未找到模型 "${arg}"。`;
+            }
+            break;
           }
-          break;
-        }
 
-        case 'session': {
-          const index = parseInt(arg, 10);
-          const metas = await this.backend.listSessionMetas();
-          if (isNaN(index) || index < 1 || index > metas.length) {
-            resultText = `❌ 会话编号无效。`;
-          } else {
-            const meta = metas[index - 1];
-            this.activeSessions.set(target.chatKey, meta.id);
-            resultText = `✅ 已切换到会话：${meta.title || '(无标题)'}`;
+          case 'session': {
+            const index = parseInt(arg, 10);
+            const metas = await this.backend.listSessionMetas();
+            if (isNaN(index) || index < 1 || index > metas.length) {
+              resultText = `❌ 会话编号无效。`;
+            } else {
+              const meta = metas[index - 1];
+              this.activeSessions.set(target.chatKey, meta.id);
+              resultText = `✅ 已切换到会话：${meta.title || '(无标题)'}`;
+            }
+            break;
           }
-          break;
-        }
 
-        case 'mode': {
-          const ok = this.backend.switchMode?.(arg);
-          resultText = ok ? `✅ 已切换到 Mode "${arg}"。` : `❌ 未找到 Mode "${arg}"。`;
-          break;
-        }
+          case 'mode': {
+            const ok = this.backend.switchMode?.(arg);
+            resultText = ok ? `✅ 已切换到 Mode "${arg}"。` : `❌ 未找到 Mode "${arg}"。`;
+            break;
+          }
 
-        default:
-          resultText = `❌ 未知操作: ${command}`;
+          default:
+            resultText = `❌ 未知操作: ${command}`;
+        }
       }
 
       // 编辑原消息为结果文本（去掉 inline keyboard）
@@ -1081,6 +1091,11 @@ export class TelegramPlatform extends PlatformAdapter {
     if (!cmd) return false;
 
     const reply = (content: string) => this.sendToChat(cs, content, { trackMessage: false });
+    if (cs.busy && cmd.name !== 'stop' && cmd.name !== 'flush' && cmd.name !== 'help') {
+      // Telegram 现在会在长回合中继续接收命令；busy 期间只放行不会改变 turn 身份的命令。
+      await reply(BUSY_COMMAND_NOTICE);
+      return true;
+    }
 
     switch (cmd.name) {
       case 'new': {
@@ -1165,6 +1180,8 @@ export class TelegramPlatform extends PlatformAdapter {
           await reply('ℹ️ 当前没有正在进行的回复。');
           return true;
         }
+        // /stop 的语义是“停下并丢弃已缓冲输入”；/flush 才负责“停下并继续处理缓冲”。
+        cs.pendingMessages.splice(0);
         cs.stopped = true;
         this.stopTypingIndicator(cs);
         this.backend.abortChat(cs.sessionId);
@@ -1198,10 +1215,6 @@ export class TelegramPlatform extends PlatformAdapter {
       }
 
       case 'undo': {
-        if (cs.busy) {
-          await reply('ℹ️ 当前正在回复中，请先 /stop。');
-          return true;
-        }
         if (typeof this.backend.undo !== 'function') {
           await reply('❌ 当前宿主未提供撤销能力。');
           return true;
@@ -1219,10 +1232,6 @@ export class TelegramPlatform extends PlatformAdapter {
       }
 
       case 'redo': {
-        if (cs.busy) {
-          await reply('ℹ️ 当前正在回复中，请先 /stop。');
-          return true;
-        }
         if (typeof this.backend.redo !== 'function') {
           await reply('❌ 当前宿主未提供恢复能力。');
           return true;
@@ -1413,7 +1422,17 @@ export class TelegramPlatform extends PlatformAdapter {
         }
       }
 
-      await this.backend.chat(cs.sessionId, message.text, images, documents, 'telegram');
+      const sessionId = cs.sessionId;
+      // grammY 的 simple long polling 会等待 middleware resolve；这里不能 await 整个 Backend turn，
+      // 否则后续 /stop update 进不了 handler。最终回复和清理由 response/error/done 事件收口。
+      void this.backend.chat(sessionId, message.text, images, documents, 'telegram').catch((err) => {
+        logger.error(`Telegram 回合执行失败 (session=${sessionId}):`, err);
+        this.stopTypingIndicator(cs);
+        this.cleanupStream(cs);
+        cs.turnTrace = null;
+        cs.busy = false;
+        cs.stopped = false;
+      });
     } catch (err) {
       logger.error(`Telegram 回合分发失败 (session=${cs.sessionId}):`, err);
       this.stopTypingIndicator(cs);

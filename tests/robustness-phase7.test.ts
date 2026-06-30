@@ -181,6 +181,35 @@ describe('Telegram Phase 7: 消息去重', () => {
     await (platform as any).handleMessage(makeCtx(101, '第二次'));
     expect(backend.chats).toHaveLength(2);
   });
+
+  it('相同 message_id 在不同聊天中互不影响', async () => {
+    // Telegram message_id 是 chat-local；跨聊天复用相同数字不应被全局去重吞掉。
+    const { TelegramPlatform } = await import('../extensions/telegram/src');
+
+    class FakeBackend extends EventEmitter {
+      chats: any[] = [];
+      async chat(sid: string, text: string) { this.chats.push({ sid, text }); }
+      isStreamEnabled() { return false; }
+    }
+
+    const backend = new FakeBackend();
+    const platform = new TelegramPlatform(backend as any, {
+      token: 'bot-token',
+      groupMentionRequired: false,
+    });
+
+    const now = Math.floor(Date.now() / 1000);
+    const makeCtx = (chatId: number, text: string) => ({
+      chat: { id: chatId, type: 'private' },
+      me: { username: 'test_bot' },
+      message: { message_id: 100, text, date: now },
+    });
+
+    await (platform as any).handleMessage(makeCtx(3003, '第一位用户'));
+    await (platform as any).handleMessage(makeCtx(3004, '第二位用户'));
+
+    expect(backend.chats.map((chat) => chat.text)).toEqual(['第一位用户', '第二位用户']);
+  });
 });
 
 describe('Telegram Phase 7: 消息过期', () => {
