@@ -69,12 +69,12 @@ describe('Telegram Phase 1.3: platform concurrency', () => {
 
     // 旧实现会一直 await backend.chat()，导致这一 Promise 在长回合结束前不 resolve。
     // 现在 handler 必须尽快返回，后续 /stop 才能被 grammY 投递进来。
-    const firstTurn = (platform as any).handleMessage(makeCtx(10, '长回合'));
-    const firstResult = await Promise.race([
-      firstTurn.then(() => 'resolved'),
-      new Promise((resolve) => setTimeout(() => resolve('timeout'), 25)),
-    ]);
-    expect(firstResult).toBe('resolved');
+    let firstTurnResolved = false;
+    const firstTurn = (platform as any).handleMessage(makeCtx(10, '长回合'))
+      .then(() => { firstTurnResolved = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(firstTurnResolved).toBe(true);
+    await firstTurn;
     expect(backend.chats).toHaveLength(1);
 
     await (platform as any).handleMessage(makeCtx(11, '第二条'));
@@ -89,6 +89,65 @@ describe('Telegram Phase 1.3: platform concurrency', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(backend.chats).toHaveLength(1);
+  });
+
+  it('旧 turn 的异步失败不会清理后续 turn 状态', async () => {
+    class RejectableBackend extends FakeBackend {
+      private readonly rejecters: Array<(err: Error) => void> = [];
+
+      override chat(sessionId: string, text: string, images?: any[], documents?: any[]): Promise<void> {
+        this.chats.push({ sessionId, text, images, documents });
+        return new Promise((_resolve, reject) => {
+          this.rejecters.push(reject);
+        });
+      }
+
+      rejectAt(index: number): void {
+        this.rejecters[index]?.(new Error(`turn ${index} failed`));
+      }
+    }
+
+    const backend = new RejectableBackend();
+    const platform = new TelegramPlatform(backend as any, {
+      token: 'bot-token',
+      groupMentionRequired: false,
+      outputFormat: 'plain',
+    });
+    (platform as any).setupBackendListeners();
+
+    const sentMessages: string[] = [];
+    (platform as any).client = {
+      sendMessageReturningId: vi.fn(async (_target: unknown, text: string) => {
+        sentMessages.push(text);
+        return 999;
+      }),
+      sendTextReturningIds: vi.fn(async (_target: unknown, text: string) => {
+        sentMessages.push(text);
+        return [999];
+      }),
+      sendTyping: vi.fn(async () => undefined),
+    };
+
+    const makeCtx = (messageId: number, text: string) => ({
+      chat: { id: 1004, type: 'private' },
+      me: { username: 'iris_bot' },
+      message: { message_id: messageId, text },
+    });
+
+    await (platform as any).handleMessage(makeCtx(20, '第一轮'));
+    backend.emit('done', backend.chats[0].sessionId);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await (platform as any).handleMessage(makeCtx(21, '第二轮'));
+    expect(backend.chats).toHaveLength(2);
+
+    // 第一轮的 Promise 如果迟到 reject，不应把第二轮 busy 状态清掉。
+    backend.rejectAt(0);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await (platform as any).handleMessage(makeCtx(22, '第三条'));
+    expect(backend.chats).toHaveLength(2);
+    expect(sentMessages.some((m) => m.includes('暂存'))).toBe(true);
   });
 
   it('在 busy 时暂存消息，并在 done 后自动继续处理', async () => {

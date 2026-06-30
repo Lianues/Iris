@@ -11812,13 +11812,15 @@ ${list}`);
         }
       }
       const sessionId = cs.sessionId;
+      const turnTrace = cs.turnTrace;
       this.backend.chat(sessionId, message.text, images, documents, "telegram").catch((err) => {
         logger5.error(`Telegram 回合执行失败 (session=${sessionId}):`, err);
+        if (cs.sessionId !== sessionId || cs.turnTrace !== turnTrace)
+          return;
         this.stopTypingIndicator(cs);
         this.cleanupStream(cs);
         cs.turnTrace = null;
         cs.busy = false;
-        cs.stopped = false;
       });
     } catch (err) {
       logger5.error(`Telegram 回合分发失败 (session=${cs.sessionId}):`, err);

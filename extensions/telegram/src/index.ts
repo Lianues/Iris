@@ -1423,15 +1423,16 @@ export class TelegramPlatform extends PlatformAdapter {
       }
 
       const sessionId = cs.sessionId;
+      const turnTrace = cs.turnTrace;
       // grammY 的 simple long polling 会等待 middleware resolve；这里不能 await 整个 Backend turn，
       // 否则后续 /stop update 进不了 handler。最终回复和清理由 response/error/done 事件收口。
       void this.backend.chat(sessionId, message.text, images, documents, 'telegram').catch((err) => {
         logger.error(`Telegram 回合执行失败 (session=${sessionId}):`, err);
+        if (cs.sessionId !== sessionId || cs.turnTrace !== turnTrace) return;
         this.stopTypingIndicator(cs);
         this.cleanupStream(cs);
         cs.turnTrace = null;
         cs.busy = false;
-        cs.stopped = false;
       });
     } catch (err) {
       logger.error(`Telegram 回合分发失败 (session=${cs.sessionId}):`, err);
