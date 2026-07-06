@@ -205,7 +205,7 @@ main() → IrisHost.start()
 ### 架构概览
 
 多 Agent 模式下，Agent 之间可以通过 `delegate_to_agent` 工具进行跨 Agent 委派。
-所有异步任务（sub_agent 异步子代理 + delegate 跨 Agent 委派）统一由 `CrossAgentTaskBoard` 管理。
+所有后台任务（sub_agent 异步子代理 + delegate 跨 Agent 委派 + cron 定时任务）统一由 `CrossAgentTaskBoard` 管理。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -214,7 +214,7 @@ main() → IrisHost.start()
 │                                                             │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
 │  │ TaskRecord│  │ TaskRecord│  │ TaskRecord│  ...             │
-│  │ sub_agent│  │ delegate │  │ sub_agent│                   │
+│  │ sub_agent│  │ delegate │  │   cron   │                   │
 │  └──────────┘  └──────────┘  └──────────┘                   │
 │                                                             │
 │  事件: registered / completed / failed / killed              │
@@ -234,14 +234,14 @@ main() → IrisHost.start()
 
 ### 任务类型与职责分离
 
-| | sub_agent | delegate |
-|---|---|---|
-| 执行位置 | 发起方 Agent 内部 | 目标 Agent 的独立 Backend |
-| 工具集 | 继承父级工具集（可过滤） | 使用目标 Agent 自己的工具集 |
-| 配置 | 继承父级 toolsConfig | 使用目标 Agent 的 tools.yaml |
-| 心跳/token | 有（驱动 StatusBar spinner） | 无（不传递心跳） |
-| 通知合并 | 参与（等全部完成后合并） | 不参与（不阻塞子代理通知） |
-| 前端显示 | 「N 个后台任务 ↑Ntk」（带 spinner） | 「⇢ N 个委派任务」（无 spinner） |
+| | sub_agent | delegate | cron |
+|---|---|---|---|
+| 执行位置 | 发起方 Agent 内部 | 目标 Agent 的独立 Backend | 目标 Agent 的后台 ToolLoop |
+| 工具集 | 继承父级工具集（可过滤） | 使用目标 Agent 自己的工具集 | 使用 cron 后台工具策略 |
+| 配置 | 继承父级 toolsConfig | 使用目标 Agent 的 tools.yaml | 使用 cron.yaml 和任务级配置 |
+| 心跳/token | 有（驱动 StatusBar spinner） | 无（不传递心跳） | 有 |
+| 通知合并 | 参与（等全部完成后合并） | 不参与（不阻塞子代理通知） | 不参与 |
+| 前端显示 | 「N 个后台任务 ↑Ntk」（带 spinner） | 「⇢ N 个委派任务」（无 spinner） | 按 cron 任务通知渲染 |
 
 ### 源码结构
 
@@ -316,8 +316,8 @@ this.emit('agent:notification',
   task.taskId,           // 任务 ID
   status,                // 'registered' | 'completed' | 'failed' | 'killed' | 'token-update' | 'chunk-heartbeat'
   summary,               // 描述文本或 token 数值字符串
-  task.type,             // 'sub_agent' | 'delegate'（第 6 个参数）
+  task.type,             // 'sub_agent' | 'delegate' | 'cron'（第 6 个参数）
 );
 ```
 
-前端据此将两种任务类型分开计数和渲染，互不干扰。
+前端据此将不同任务类型分开计数和渲染，互不干扰。

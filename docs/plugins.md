@@ -705,7 +705,8 @@ interface IrisAPI {
   listAgents?(): AgentDefinition[];
   agentManager?: AgentManagerLike;     // Agent CRUD 操作
   extensionManager?: ExtensionManagerLike; // 扩展安装/启用/禁用/删除
-  agentTaskRegistry?: unknown;         // 异步子代理任务注册表（供 cron 等后台插件使用）
+  taskBoard?: unknown;                 // 全局任务板（供 cron 等后台插件注册任务）
+  agentName?: string;                  // 当前 Agent 名称
 
   // --- ToolLoop 工厂 ---
   createToolLoop?(options: { tools, systemPrompt, maxRounds? }): ToolLoopRunnerLike; // 创建 ToolLoop 实例供插件后台执行 LLM+工具循环

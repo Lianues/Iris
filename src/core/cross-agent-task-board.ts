@@ -266,6 +266,11 @@ export class CrossAgentTaskBoard extends EventEmitter {
    * 返回创建的 TaskRecord（含 AbortController）。
    */
   register(input: RegisterTaskInput): TaskRecord {
+    // recurring executor 完成后必须能算出下一次时间；注册阶段失败比执行一次后静默断链更安全。
+    if (input.executor && input.schedule?.type === 'recurring' && !input.nextTimeResolver) {
+      throw new Error('Recurring scheduled tasks require nextTimeResolver');
+    }
+
     const task: TaskRecord = {
       ...input,
       status: 'running',

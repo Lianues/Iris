@@ -22,6 +22,7 @@ import type {
   CronRunRecord,
   CronBackgroundConfig,
   RunStatus,
+  ScheduleConfig,
 } from './types.js';
 import { DEFAULT_SCHEDULER_CONFIG, DEFAULT_BACKGROUND_CONFIG } from './types.js';
 import { shouldSkip } from './delivery-gate.js';
@@ -163,8 +164,25 @@ type TaskBoardExecutor = (taskId: string, signal: AbortSignal) => Promise<string
 
 // [TaskBoard 调度升级对齐] 这里与核心 TaskBoard 的 nextTimeResolver 命名保持一致，
 // 避免 cron 插件注册任务时把续调回调写到错误字段，导致 recurring 任务无法自动续排。
-// 返回值保留 number | null，方便插件侧在“无法计算下一次时间”时显式放弃续调。
-type TaskBoardNextTimeResolver = (source: TaskBoardScheduleSource) => number | null;
+type TaskBoardNextTimeResolver = (source: TaskBoardScheduleSource) => number;
+
+// interval 的合法性必须在 scheduler 核心层兜住：
+// CLI、LLM tool、文件热同步都可能写入任务，后续 TaskBoard 只消费绝对时间戳。
+function assertValidSchedule(schedule: ScheduleConfig): void {
+  if (schedule.type === 'interval' && (!Number.isSafeInteger(schedule.ms) || schedule.ms <= 0)) {
+    throw new Error(`无效 interval 值: ${schedule.ms}`);
+  }
+}
+
+// TaskBoard 只保存 source 元信息；cron 插件负责把不同重复规则还原为下一次触发时间。
+function resolveNextTaskBoardRunAt(source: TaskBoardScheduleSource): number {
+  switch (source.kind) {
+    case 'interval':
+      return Date.now() + source.intervalMs;
+    case 'cron':
+      return getNextCronTime(source.expression).getTime();
+  }
+}
 
 /**
  * CrossAgentTaskBoard 的最小接口（面向插件侧使用）。
@@ -374,6 +392,8 @@ export class CronScheduler {
    * @returns 创建好的任务对象
    */
   createJob(params: CreateJobParams): ScheduledJob {
+    assertValidSchedule(params.schedule);
+
     const job: ScheduledJob = {
       id: generateId(),
       name: params.name,
@@ -416,6 +436,10 @@ export class CronScheduler {
   updateJob(id: string, params: UpdateJobParams): ScheduledJob | null {
     const job = this.jobs.get(id);
     if (!job) return null;
+
+    if (params.schedule !== undefined) {
+      assertValidSchedule(params.schedule);
+    }
 
     // 逐字段合并
     if (params.name !== undefined) job.name = params.name;
@@ -684,13 +708,7 @@ export class CronScheduler {
 
     // [TaskBoard 调度升级对齐] 计算“下一次执行时间”的回调由插件提供给 TaskBoard。
     const nextTimeResolver: TaskBoardNextTimeResolver | undefined =
-      job.schedule.type === 'cron'
-        ? (source) => {
-            if (source.kind !== 'cron') return null;
-            const next = new Cron(source.expression).nextRun();
-            return next?.getTime() ?? null;
-          }
-        : undefined;
+      schedule.type === 'recurring' ? resolveNextTaskBoardRunAt : undefined;
 
     const taskId = createCronTaskId();
     const targetSessionId = job.delivery.sessionId ?? job.sessionId;
@@ -721,6 +739,8 @@ export class CronScheduler {
    * 后续 recurring 的续调再通过 nextRunResolver 完成。
    */
   private buildScheduleConfig(job: ScheduledJob): TaskBoardScheduleConfig | null {
+    assertValidSchedule(job.schedule);
+
     switch (job.schedule.type) {
       case 'cron': {
         const next = new Cron(job.schedule.expression).nextRun();

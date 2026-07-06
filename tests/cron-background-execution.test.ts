@@ -30,6 +30,7 @@ import { DEFAULT_SCHEDULER_CONFIG } from '../extensions/cron/src/types.js';
 // [croner 迁移测试修复] 显式导入 getNextCronTime，
 // 让底部的 croner 集成测试直接验证插件对外暴露的时间计算包装函数。
 import { CronScheduler, getNextCronTime } from '../extensions/cron/src/scheduler.js';
+import { clearScheduler, injectScheduler, manageScheduledTasksTool } from '../extensions/cron/src/tool.js';
 
 // DEFAULT_BACKGROUND_CONFIG 可能因模块别名导致导入为 undefined，
 // 此处手动定义预期的默认值用于断言。
@@ -315,6 +316,34 @@ describe('CronScheduler 后台执行', () => {
     expect(deleted).toBe(false);
   });
 
+  it('interval 任务注册到 TaskBoard 时携带续调 resolver', async () => {
+    await scheduler.start();
+
+    scheduler.createJob({
+      name: 'interval 续调测试',
+      schedule: { type: 'interval', ms: 60_000 },
+      sessionId: 'sess-1',
+      instruction: '操作',
+      createdInSession: 'sess-1',
+    });
+
+    const input = mockTaskBoard.register.mock.calls.at(-1)?.[0] as {
+      schedule?: { type: 'recurring'; source: { kind: 'interval'; intervalMs: number } };
+      nextTimeResolver?: (source: { kind: 'interval'; intervalMs: number }) => number;
+    };
+
+    expect(input.schedule).toMatchObject({
+      type: 'recurring',
+      source: { kind: 'interval', intervalMs: 60_000 },
+    });
+    expect(input.nextTimeResolver).toBeTypeOf('function');
+
+    const before = Date.now();
+    const nextRunAt = input.nextTimeResolver!(input.schedule!.source);
+    expect(nextRunAt).toBeGreaterThanOrEqual(before + 60_000);
+    expect(nextRunAt).toBeLessThanOrEqual(Date.now() + 60_000);
+  });
+
   it('文件同步仅更新运行状态时，不替换任务对象，也不重复注册 TaskBoard 任务', async () => {
     await scheduler.start();
 
@@ -385,6 +414,51 @@ describe('CronScheduler 后台执行', () => {
     expect(currentTaskId).toBeDefined();
     expect(currentTaskId).not.toBe(originalTaskId);
     expect(scheduler.getJob(job.id)?.instruction).toBe('更新后的指令');
+  });
+
+  it('updateJob 拒绝非法 interval 并保留原调度', async () => {
+    await scheduler.start();
+
+    const job = scheduler.createJob({
+      name: '非法 interval 更新测试',
+      schedule: { type: 'interval', ms: 60_000 },
+      sessionId: 'sess-1',
+      instruction: '原始指令',
+      createdInSession: 'sess-1',
+    });
+
+    expect(() => scheduler.updateJob(job.id, {
+      schedule: { type: 'interval', ms: Number.NaN },
+    })).toThrow('无效 interval 值');
+
+    expect(scheduler.getJob(job.id)?.schedule).toEqual({ type: 'interval', ms: 60_000 });
+  });
+
+  it('manage_scheduled_tasks update 拒绝非法 interval 值', async () => {
+    await scheduler.start();
+    injectScheduler(scheduler);
+
+    try {
+      const job = scheduler.createJob({
+        name: '工具非法 interval 更新测试',
+        schedule: { type: 'interval', ms: 60_000 },
+        sessionId: 'sess-1',
+        instruction: '原始指令',
+        createdInSession: 'sess-1',
+      });
+
+      const result = await manageScheduledTasksTool.handler({
+        action: 'update',
+        job_id: job.id,
+        schedule_type: 'interval',
+        schedule_value: 'not-a-number',
+      }) as { error?: string };
+
+      expect(result.error).toContain('无效的间隔值');
+      expect(scheduler.getJob(job.id)?.schedule).toEqual({ type: 'interval', ms: 60_000 });
+    } finally {
+      clearScheduler();
+    }
   });
 
   it('完成后将 lastRunStatus 统一写为 completed，并兼容旧 success 持久化值', async () => {
