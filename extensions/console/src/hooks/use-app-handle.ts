@@ -13,6 +13,7 @@ import {
   nextMsgId,
 } from '../message-utils';
 import { clearRedo, type UndoRedoStack } from '../undo-redo';
+import { findLiveAssistantTargetIndex, findResponseMetadataTargetIndex } from '../message-target';
 
 export interface AppHandle {
   addMessage(role: 'user' | 'assistant', content: string, meta?: MessageMeta): void;
@@ -50,6 +51,8 @@ export interface AppHandle {
   addSummaryMessage(summaryText: string, tokenCount?: number): void;
   commitTools(): void;
   setUsage(usage: UsageMetadata): void;
+  /** compact 后只更新状态栏上下文，不覆盖当前回复的 usage 元数据。 */
+  setCompactUsage(usage: UsageMetadata): void;
   setRetryInfo(info: RetryInfo | null): void;
   finalizeResponse(durationMs: number): void;
   /** 标记下一个 turn 为 notification turn（由平台在 turn:start 事件中调用） */
@@ -328,19 +331,9 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
         const isNotif = notificationContextRef.current.active;
         const notifDesc = notificationContextRef.current.description;
         setMessages((prev) => {
-          const last = prev[prev.length - 1];
           // 普通 turn 内的多轮 tool loop 复用同一条 assistant 消息（stream:start 在同一 turn 内多次调用）。
           // notification turn 必须创建新消息，不能合并到上一轮用户 turn 的 assistant 消息中。
-          // 错误/命令消息不可复用为流式占位，否则后续内容会混入错误或命令提示消息。
-          if (last?.role === 'assistant' && !isNotif && !last.isError && !last.isCommand) return prev;
-          if (last?.isCommand && !isNotif) {
-            // 流式输出/工具调用期间可能插入 /plan 等命令消息；此时继续复用命令前
-            // 已存在的普通 assistant 作为当前 turn 的占位，避免创建额外空回复块。
-            for (let i = prev.length - 2; i >= 0; i--) {
-              const message = prev[i];
-              if (message.role === 'assistant' && !message.isError && !message.isCommand) return prev;
-            }
-          }
+          if (!isNotif && findLiveAssistantTargetIndex(prev) >= 0) return prev;
           return [...prev, {
             id: nextMsgId(),
             role: 'assistant',
@@ -378,21 +371,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
         setMessages((prev) => {
           if (normalizedParts.length === 0 && !meta) return prev;
 
-          const resolveMergeTargetIndex = (): number => {
-            const tail = prev[prev.length - 1];
-            if (tail?.role === 'assistant' && !tail.isCommand) return prev.length - 1;
-            // 流式输出期间可能插入命令消息（例如 Shift+Tab 切换 Plan Mode）。
-            // 此时真正的回复目标是命令消息之前的普通 assistant 消息。
-            if (tail?.isCommand) {
-              for (let i = prev.length - 2; i >= 0; i--) {
-                const message = prev[i];
-                if (message.role === 'assistant' && !message.isCommand && !message.isError) return i;
-              }
-            }
-            return -1;
-          };
-
-          const targetIndex = resolveMergeTargetIndex();
+          const targetIndex = findLiveAssistantTargetIndex(prev);
           const target = targetIndex >= 0 ? prev[targetIndex] : undefined;
           if (normalizedParts.length === 0) {
             if (!target || target.role !== 'assistant') return prev;
@@ -434,18 +413,7 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
         setPendingApplies(copy.filter((invocation) => invocation.status === 'awaiting_apply'));
         setMessages((prev) => {
           if (prev.length === 0) return prev;
-          const resolveToolTargetIndex = (): number => {
-            const tail = prev[prev.length - 1];
-            if (tail?.role === 'assistant' && !tail.isCommand) return prev.length - 1;
-            if (tail?.isCommand) {
-              for (let i = prev.length - 2; i >= 0; i--) {
-                const message = prev[i];
-                if (message.role === 'assistant' && !message.isCommand && !message.isError) return i;
-              }
-            }
-            return -1;
-          };
-          const targetIndex = resolveToolTargetIndex();
+          const targetIndex = findLiveAssistantTargetIndex(prev);
           const target = targetIndex >= 0 ? prev[targetIndex] : undefined;
           if (!target || target.role !== 'assistant') return prev;
           // 如果 parts 为空（startStream 刚创建的占位消息，finalize 尚未完成），
@@ -550,7 +518,9 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
       },
       addSummaryMessage(summaryText: string, tokenCount?: number) {
         setMessages((prev) => [
-          ...prev.filter((m) => !m.isCommand),
+          ...prev.filter((m) =>
+            !m.isCommand && !(m.role === 'assistant' && m.parts.length === 0)
+          ),
           {
             id: nextMsgId(),
             role: 'user',
@@ -564,15 +534,18 @@ export function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendin
         setContextTokens(usage.totalTokenCount ?? 0);
         lastUsageRef.current = usage;
       },
+      setCompactUsage(usage) {
+        setContextTokens(usage.totalTokenCount ?? 0);
+      },
       finalizeResponse(durationMs) {
         const usage = lastUsageRef.current;
         setMessages((prev) => {
           if (prev.length === 0) return prev;
-          const last = prev[prev.length - 1];
-          if (last.role !== 'assistant') return prev;
+          const targetIndex = findResponseMetadataTargetIndex(prev);
+          if (targetIndex < 0) return prev;
           const copy = [...prev];
-          copy[copy.length - 1] = {
-            ...last,
+          copy[targetIndex] = {
+            ...copy[targetIndex],
             tokenIn: usage?.promptTokenCount,
             cachedTokenIn: usage?.cachedContentTokenCount,
             tokenOut: usage?.candidatesTokenCount,

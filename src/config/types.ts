@@ -32,11 +32,11 @@ export interface LLMConfig {
   /** 显式声明当前模型是否支持图片输入 */
   supportsVision?: boolean;
   /**
-   * 自动上下文压缩阈值（token 数超过此值时自动执行 /compact）
+   * 自动上下文压缩阈值（token 数超过此值时自动执行 /compact），默认 "90%"
    * 支持绝对值（如 100000）或 contextWindow 百分比（如 "80%"）
-   * 不设置则不自动压缩
+   * 设为 false 可显式关闭自动压缩
    */
-  autoSummaryThreshold?: number | string;
+  autoSummaryThreshold?: number | string | false;
   /** 自定义请求头，会覆盖 provider 内置同名 header */
   headers?: Record<string, string>;
   /** 自定义请求体，会深合并到 provider 编码后的最终请求体，支持嵌套参数 */

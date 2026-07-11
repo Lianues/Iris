@@ -369,6 +369,9 @@ var init_protocol = __esm(() => {
     DONE: "event:done",
     TURN_START: "event:turn:start",
     ASSISTANT_CONTENT: "event:assistant:content",
+    COMPACT_START: "event:compact:start",
+    COMPACT_COMPLETE: "event:compact:complete",
+    COMPACT_ERROR: "event:compact:error",
     AUTO_COMPACT: "event:auto-compact",
     ATTACHMENTS: "event:attachments",
     RETRY: "event:retry",
@@ -395,6 +398,9 @@ var init_protocol = __esm(() => {
     done: Events.DONE,
     "turn:start": Events.TURN_START,
     "assistant:content": Events.ASSISTANT_CONTENT,
+    "compact:start": Events.COMPACT_START,
+    "compact:complete": Events.COMPACT_COMPLETE,
+    "compact:error": Events.COMPACT_ERROR,
     "auto-compact": Events.AUTO_COMPACT,
     attachments: Events.ATTACHMENTS,
     retry: Events.RETRY,
@@ -1826,68 +1832,6 @@ function readGitInstallMetadata(rootDir) {
     return;
   }
 }
-// node_modules/tokenx/dist/index.mjs
-var PATTERNS = {
-  whitespace: /^\s+$/,
-  cjk: /[\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uFF00-\uFFEF\u30A0-\u30FF\u2E80-\u2EFF\u31C0-\u31EF\u3200-\u32FF\u3300-\u33FF\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]/,
-  numeric: /^\d+(?:[.,]\d+)*$/,
-  punctuation: /[.,!?;(){}[\]<>:/\\|@#$%^&*+=`~_-]/,
-  alphanumeric: /^[a-zA-Z0-9\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF]+$/
-};
-var TOKEN_SPLIT_PATTERN = /* @__PURE__ */ new RegExp(`(\\s+|${PATTERNS.punctuation.source}+)`);
-var DEFAULT_CHARS_PER_TOKEN = 6;
-var SHORT_TOKEN_THRESHOLD = 3;
-var DEFAULT_LANGUAGE_CONFIGS = [
-  {
-    pattern: /[äöüßẞ]/i,
-    averageCharsPerToken: 3
-  },
-  {
-    pattern: /[éèêëàâîïôûùüÿçœæáíóúñ]/i,
-    averageCharsPerToken: 3
-  },
-  {
-    pattern: /[ąćęłńóśźżěščřžýůúďťň]/i,
-    averageCharsPerToken: 3.5
-  }
-];
-function estimateTokenCount(text, options = {}) {
-  if (!text)
-    return 0;
-  const { defaultCharsPerToken = DEFAULT_CHARS_PER_TOKEN, languageConfigs = DEFAULT_LANGUAGE_CONFIGS } = options;
-  const segments = text.split(TOKEN_SPLIT_PATTERN).filter(Boolean);
-  let tokenCount = 0;
-  for (const segment of segments)
-    tokenCount += estimateSegmentTokens(segment, languageConfigs, defaultCharsPerToken);
-  return tokenCount;
-}
-function estimateSegmentTokens(segment, languageConfigs, defaultCharsPerToken) {
-  if (PATTERNS.whitespace.test(segment))
-    return 0;
-  if (PATTERNS.cjk.test(segment))
-    return getCharacterCount(segment);
-  if (PATTERNS.numeric.test(segment))
-    return 1;
-  if (segment.length <= SHORT_TOKEN_THRESHOLD)
-    return 1;
-  if (PATTERNS.punctuation.test(segment))
-    return segment.length > 1 ? Math.ceil(segment.length / 2) : 1;
-  if (PATTERNS.alphanumeric.test(segment)) {
-    const charsPerToken$1 = getLanguageSpecificCharsPerToken(segment, languageConfigs) ?? defaultCharsPerToken;
-    return Math.ceil(segment.length / charsPerToken$1);
-  }
-  const charsPerToken = getLanguageSpecificCharsPerToken(segment, languageConfigs) ?? defaultCharsPerToken;
-  return Math.ceil(segment.length / charsPerToken);
-}
-function getLanguageSpecificCharsPerToken(segment, languageConfigs) {
-  for (const config of languageConfigs)
-    if (config.pattern.test(segment))
-      return config.averageCharsPerToken;
-}
-function getCharacterCount(text) {
-  return Array.from(text).length;
-}
-
 // src/App.tsx
 import { useCallback as useCallback11, useEffect as useEffect16, useMemo as useMemo10, useRef as useRef11, useState as useState19 } from "react";
 import { useRenderer } from "@opentui/react";
@@ -10020,6 +9964,8 @@ function createEmptyModel(provider = CONSOLE_LLM_PROVIDER_OPTIONS[0], modelName 
     apiKey: "",
     modelId: provider === "deepseek" ? normalizeDeepSeekModelId(providerDefaults.model) : providerDefaults.model ?? "",
     contextWindow: typeof providerDefaults.contextWindow === "number" ? providerDefaults.contextWindow : undefined,
+    autoSummaryEnabled: true,
+    autoSummaryThreshold: "90%",
     baseUrl: providerDefaults.baseUrl ?? ""
   };
 }
@@ -10053,11 +9999,15 @@ function cloneConsoleSettingsSnapshot(snapshot) {
   return JSON.parse(JSON.stringify(snapshot));
 }
 function buildModelPayload(model) {
+  const thresholdText = (model.autoSummaryThreshold ?? "90%").trim();
+  const autoSummaryEnabled = model.autoSummaryEnabled !== false;
+  const thresholdValue = /^\d+(?:\.\d+)?$/.test(thresholdText) ? Number(thresholdText) : thresholdText;
   const payload = {
     provider: model.provider,
     model: model.provider === "deepseek" ? normalizeDeepSeekModelId(model.modelId) : model.modelId,
     baseUrl: model.provider === "deepseek" ? DEEPSEEK_BASE_URL : model.baseUrl,
-    contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : null
+    contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : null,
+    autoSummaryThreshold: autoSummaryEnabled ? thresholdValue : false
   };
   payload.apiKey = model.apiKey || null;
   return payload;
@@ -10089,6 +10039,18 @@ function validateSnapshot(snapshot) {
     }
     if (model.contextWindow != null && (!Number.isFinite(model.contextWindow) || model.contextWindow <= 0)) {
       return `模型 "${modelName}" 的上下文窗口必须为正数`;
+    }
+    if (model.autoSummaryEnabled !== false) {
+      const threshold = (model.autoSummaryThreshold ?? "90%").trim();
+      const percent = threshold.match(/^(\d+(?:\.\d+)?)%$/);
+      const absolute = threshold.match(/^\d+(?:\.\d+)?$/);
+      if (!percent && !absolute) {
+        return `模型 "${modelName}" 的自动压缩阈值必须是百分比（如 90%）或正数`;
+      }
+      const value = Number((percent ?? absolute)[1] ?? (absolute ? threshold : ""));
+      if (!Number.isFinite(value) || value <= 0 || percent && value > 100) {
+        return `模型 "${modelName}" 的自动压缩阈值无效`;
+      }
     }
     modelNames.add(modelName);
   }
@@ -10215,6 +10177,8 @@ class ConsoleSettingsController {
         apiKey: model.apiKey,
         modelId: model.provider === "deepseek" ? normalizeDeepSeekModelId(model.model) : model.model,
         contextWindow: model.contextWindow,
+        autoSummaryEnabled: model.autoSummaryThreshold !== false,
+        autoSummaryThreshold: model.autoSummaryThreshold === false ? "90%" : String(model.autoSummaryThreshold ?? "90%"),
         baseUrl: model.provider === "deepseek" ? DEEPSEEK_BASE_URL : model.baseUrl
       })),
       modelOriginalNames: (llm.models ?? []).map((model) => model.modelName),
@@ -10475,6 +10439,10 @@ function buildRows(snapshot, termWidth) {
     pushField(`model.${index}.apiKey`, "general", "API Key", model.apiKey || "未配置", { kind: "modelField", modelIndex: index, field: "apiKey" }, undefined, 6);
     if (model.provider !== "deepseek") {
       pushField(`model.${index}.baseUrl`, "general", "Base URL", model.baseUrl || "(空)", { kind: "modelField", modelIndex: index, field: "baseUrl" }, "回车编辑。", 6);
+    }
+    pushField(`model.${index}.autoSummaryEnabled`, "general", "自动压缩上下文", boolText(model.autoSummaryEnabled), { kind: "modelAutoCompact", modelIndex: index }, "默认开启；空格切换。关闭时写入 autoSummaryThreshold: false。", 6);
+    if (model.autoSummaryEnabled) {
+      pushField(`model.${index}.autoSummaryThreshold`, "general", "自动压缩阈值", model.autoSummaryThreshold, { kind: "modelField", modelIndex: index, field: "autoSummaryThreshold" }, "百分比（如 90%）或绝对 token，回车编辑。", 6);
     }
   });
   pushField("system.systemPrompt", "general", "System / Prompt", previewText(snapshot.system.systemPrompt, maxPreview), { kind: "systemField", field: "systemPrompt" }, "回车编辑；\\n 表示换行。");
@@ -10821,6 +10789,12 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
         snapshot.defaultModelName = model.modelName.trim();
         return;
       }
+      if (target.kind === "modelAutoCompact") {
+        const model = snapshot.models[target.modelIndex];
+        if (model)
+          model.autoSummaryEnabled = !model.autoSummaryEnabled;
+        return;
+      }
       if (target.kind === "systemField" && target.field === "stream") {
         snapshot.system.stream = !snapshot.system.stream;
         return;
@@ -10900,6 +10874,20 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
         return;
       }
     }
+    if (editor.target.kind === "modelField" && editor.target.field === "autoSummaryThreshold") {
+      const threshold = value.trim();
+      const percent = threshold.match(/^(\d+(?:\.\d+)?)%$/);
+      const absolute = /^\d+(?:\.\d+)?$/.test(threshold) ? Number(threshold) : undefined;
+      const percentValue = percent ? Number(percent[1]) : undefined;
+      if (absolute == null && percentValue == null) {
+        setStatus("请输入百分比（如 90%）或绝对 token", "error");
+        return;
+      }
+      if (absolute != null && absolute <= 0 || percentValue != null && (percentValue <= 0 || percentValue > 100)) {
+        setStatus("自动压缩阈值必须大于 0，百分比不能超过 100%", "error");
+        return;
+      }
+    }
     if (editor.target.kind === "mcpField" && editor.target.field === "timeout") {
       const parsed = Number(value.trim());
       if (!Number.isFinite(parsed) || parsed < 1000) {
@@ -10921,6 +10909,8 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
           model.modelId = value;
         } else if (editor.target.field === "apiKey") {
           model.apiKey = value;
+        } else if (editor.target.field === "autoSummaryThreshold") {
+          model.autoSummaryThreshold = value.trim();
         } else {
           model.baseUrl = value;
         }
@@ -11304,7 +11294,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
       return;
     }
     if (key.name === "space" && selectedRow?.target) {
-      if (selectedRow.target.kind === "modelDefault" || selectedRow.target.kind === "toolApprovalView" || selectedRow.target.kind === "toolGlobalToggle" || selectedRow.target.kind === "systemField" && (selectedRow.target.field === "stream" || selectedRow.target.field === "retryOnError" || selectedRow.target.field === "logRequests" || selectedRow.target.field === "asyncSubAgents") || selectedRow.target.kind === "mcpField" && selectedRow.target.field === "enabled") {
+      if (selectedRow.target.kind === "modelDefault" || selectedRow.target.kind === "modelAutoCompact" || selectedRow.target.kind === "toolApprovalView" || selectedRow.target.kind === "toolGlobalToggle" || selectedRow.target.kind === "systemField" && (selectedRow.target.field === "stream" || selectedRow.target.field === "retryOnError" || selectedRow.target.field === "logRequests" || selectedRow.target.field === "asyncSubAgents") || selectedRow.target.kind === "mcpField" && selectedRow.target.field === "enabled") {
         applyToggle(selectedRow.target);
       } else if (selectedRow.target.kind === "pluginField" && selectedRow.target.fieldType === "toggle") {
         const { tabId, fieldKey } = selectedRow.target;
@@ -11326,7 +11316,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
           handleAddModel();
         return;
       }
-      if (selectedRow.target.kind === "modelDefault" || selectedRow.target.kind === "toolApprovalView" || selectedRow.target.kind === "toolGlobalToggle" || selectedRow.target.kind === "systemField" && (selectedRow.target.field === "stream" || selectedRow.target.field === "retryOnError" || selectedRow.target.field === "logRequests" || selectedRow.target.field === "asyncSubAgents") || selectedRow.target.kind === "mcpField" && selectedRow.target.field === "enabled") {
+      if (selectedRow.target.kind === "modelDefault" || selectedRow.target.kind === "modelAutoCompact" || selectedRow.target.kind === "toolApprovalView" || selectedRow.target.kind === "toolGlobalToggle" || selectedRow.target.kind === "systemField" && (selectedRow.target.field === "stream" || selectedRow.target.field === "retryOnError" || selectedRow.target.field === "logRequests" || selectedRow.target.field === "asyncSubAgents") || selectedRow.target.kind === "mcpField" && selectedRow.target.field === "enabled") {
         applyToggle(selectedRow.target);
         return;
       }
@@ -11759,6 +11749,40 @@ function clearRedo(stack) {
   stack.redoStack.length = 0;
 }
 
+// src/message-target.ts
+function findLiveAssistantTargetIndex(messages) {
+  if (messages.length === 0)
+    return -1;
+  const tailIndex = messages.length - 1;
+  const tail = messages[tailIndex];
+  if (tail.role === "assistant" && !tail.isCommand && !tail.isError && !tail.isNotificationSummary) {
+    return tailIndex;
+  }
+  if (!tail.isCommand)
+    return -1;
+  for (let i = tailIndex - 1;i >= 0; i--) {
+    const message = messages[i];
+    if (message.role === "user")
+      break;
+    if (!message.isCommand && !message.isError && !message.isNotificationSummary)
+      return i;
+  }
+  return -1;
+}
+function findResponseMetadataTargetIndex(messages) {
+  for (let i = messages.length - 1;i >= 0; i--) {
+    const message = messages[i];
+    if (message.role === "user") {
+      if (message.isSummary)
+        continue;
+      break;
+    }
+    if (!message.isCommand && !message.isError && !message.isNotificationSummary)
+      return i;
+  }
+  return -1;
+}
+
 // src/hooks/use-app-handle.ts
 function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesRef, openFileBrowserRef, fileBrowserCallbackRef, setExtensionListRef }) {
   const [messages, setMessages] = useState14([]);
@@ -11917,16 +11941,8 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         const isNotif = notificationContextRef.current.active;
         const notifDesc = notificationContextRef.current.description;
         setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "assistant" && !isNotif && !last.isError && !last.isCommand)
+          if (!isNotif && findLiveAssistantTargetIndex(prev) >= 0)
             return prev;
-          if (last?.isCommand && !isNotif) {
-            for (let i = prev.length - 2;i >= 0; i--) {
-              const message = prev[i];
-              if (message.role === "assistant" && !message.isError && !message.isCommand)
-                return prev;
-            }
-          }
           return [...prev, {
             id: nextMsgId(),
             role: "assistant",
@@ -11965,20 +11981,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         setMessages((prev) => {
           if (normalizedParts.length === 0 && !meta)
             return prev;
-          const resolveMergeTargetIndex = () => {
-            const tail = prev[prev.length - 1];
-            if (tail?.role === "assistant" && !tail.isCommand)
-              return prev.length - 1;
-            if (tail?.isCommand) {
-              for (let i = prev.length - 2;i >= 0; i--) {
-                const message = prev[i];
-                if (message.role === "assistant" && !message.isCommand && !message.isError)
-                  return i;
-              }
-            }
-            return -1;
-          };
-          const targetIndex = resolveMergeTargetIndex();
+          const targetIndex = findLiveAssistantTargetIndex(prev);
           const target = targetIndex >= 0 ? prev[targetIndex] : undefined;
           if (normalizedParts.length === 0) {
             if (!target || target.role !== "assistant")
@@ -12016,20 +12019,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         setMessages((prev) => {
           if (prev.length === 0)
             return prev;
-          const resolveToolTargetIndex = () => {
-            const tail = prev[prev.length - 1];
-            if (tail?.role === "assistant" && !tail.isCommand)
-              return prev.length - 1;
-            if (tail?.isCommand) {
-              for (let i = prev.length - 2;i >= 0; i--) {
-                const message = prev[i];
-                if (message.role === "assistant" && !message.isCommand && !message.isError)
-                  return i;
-              }
-            }
-            return -1;
-          };
-          const targetIndex = resolveToolTargetIndex();
+          const targetIndex = findLiveAssistantTargetIndex(prev);
           const target = targetIndex >= 0 ? prev[targetIndex] : undefined;
           if (!target || target.role !== "assistant")
             return prev;
@@ -12126,7 +12116,7 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
       },
       addSummaryMessage(summaryText, tokenCount) {
         setMessages((prev) => [
-          ...prev.filter((m) => !m.isCommand),
+          ...prev.filter((m) => !m.isCommand && !(m.role === "assistant" && m.parts.length === 0)),
           {
             id: nextMsgId(),
             role: "user",
@@ -12140,17 +12130,20 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
         setContextTokens(usage.totalTokenCount ?? 0);
         lastUsageRef.current = usage;
       },
+      setCompactUsage(usage) {
+        setContextTokens(usage.totalTokenCount ?? 0);
+      },
       finalizeResponse(durationMs) {
         const usage = lastUsageRef.current;
         setMessages((prev) => {
           if (prev.length === 0)
             return prev;
-          const last = prev[prev.length - 1];
-          if (last.role !== "assistant")
+          const targetIndex = findResponseMetadataTargetIndex(prev);
+          if (targetIndex < 0)
             return prev;
           const copy = [...prev];
-          copy[copy.length - 1] = {
-            ...last,
+          copy[targetIndex] = {
+            ...copy[targetIndex],
             tokenIn: usage?.promptTokenCount,
             cachedTokenIn: usage?.cachedContentTokenCount,
             tokenOut: usage?.candidatesTokenCount,
@@ -16867,6 +16860,7 @@ class ConsolePlatform extends PlatformAdapter {
   backendListenerDisposers = [];
   ideDiffOpenedToolIds = new Set;
   _isGenerating = false;
+  compactSessionId;
   foregroundTurnActive = false;
   notificationTurnActive = false;
   sessionLoadEpoch = 0;
@@ -17267,7 +17261,11 @@ class ConsolePlatform extends PlatformAdapter {
     });
     this.onBackend("usage", (sid, usage) => {
       if (sid === this.sessionId) {
-        this.appHandle?.setUsage(usage);
+        if (this.compactSessionId === sid) {
+          this.appHandle?.setCompactUsage(usage);
+        } else {
+          this.appHandle?.setUsage(usage);
+        }
       }
     });
     this.onBackend("retry", (sid, attempt, maxRetries, error) => {
@@ -17373,13 +17371,36 @@ class ConsolePlatform extends PlatformAdapter {
         this.appHandle?.setAutoEditActive(active);
       }
     });
-    this.onBackend("auto-compact", (sid, summaryText) => {
-      if (sid === this.sessionId) {
-        const fullText = `[Context Summary]
+    this.onBackend("compact:start", (sid, reason) => {
+      if (sid !== this.sessionId)
+        return;
+      this.compactSessionId = sid;
+      const continuesTask = reason === "in-turn-threshold" || reason === "context-overflow-retry";
+      this.appHandle?.setGeneratingLabel(continuesTask ? "上下文接近上限，正在创建任务检查点..." : "正在压缩上下文...");
+    });
+    this.onBackend("compact:complete", (sid, result) => {
+      if (this.compactSessionId === sid)
+        this.compactSessionId = undefined;
+      if (sid !== this.sessionId)
+        return;
+      const continuesTask = result.reason === "in-turn-threshold" || result.reason === "context-overflow-retry";
+      const fullText = `[Context Summary]
 
-${summaryText}`;
-        const tokenCount = estimateTokenCount(fullText);
-        this.appHandle?.addSummaryMessage(fullText, tokenCount > 0 ? tokenCount : undefined);
+${result.summaryText}`;
+      this.appHandle?.addSummaryMessage(fullText, result.afterTokens > 0 ? result.afterTokens : undefined);
+      this.appHandle?.setCompactUsage({ promptTokenCount: result.afterTokens, totalTokenCount: result.afterTokens });
+      this.appHandle?.addCommandMessage(`上下文已压缩：${result.beforeTokens.toLocaleString()} -> ${result.afterTokens.toLocaleString()} tokens` + (continuesTask ? "，继续执行任务" : ""), { label: "compact" });
+      this.appHandle?.setGeneratingLabel(undefined);
+    });
+    this.onBackend("compact:error", (sid, reason, error) => {
+      if (this.compactSessionId === sid)
+        this.compactSessionId = undefined;
+      if (sid !== this.sessionId)
+        return;
+      this.appHandle?.setGeneratingLabel(undefined);
+      if (reason !== "manual") {
+        const continuesTask = reason === "in-turn-threshold" || reason === "context-overflow-retry";
+        this.appHandle?.addErrorMessage(continuesTask ? `任务检查点压缩失败：${error}（原历史未修改，当前任务将停止）` : `上下文压缩失败：${error}（原历史未修改）`);
       }
     });
     return new Promise(async (resolve4, reject) => {
@@ -18994,16 +19015,10 @@ ${plan2.trim() ? "已有计划文件，模型会在下一轮读取/更新它。"
     this.foregroundTurnActive = true;
     this.refreshGeneratingState();
     try {
-      const summaryText = await this.backend.summarize?.(this.sessionId) ?? "";
-      const fullText = `[Context Summary]
-
-${summaryText}`;
-      const tokenCount = estimateTokenCount(fullText);
-      this.appHandle?.addSummaryMessage(fullText, tokenCount > 0 ? tokenCount : undefined);
-      return { ok: true, message: "Context compressed." };
+      await this.backend.summarize?.(this.sessionId);
+      return { ok: true, message: "上下文已压缩。" };
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
-      this.appHandle?.addErrorMessage(`Context compression failed: ${detail}`);
       return { ok: false, message: detail };
     } finally {
       this.foregroundTurnActive = false;

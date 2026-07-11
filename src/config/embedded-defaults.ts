@@ -26,7 +26,7 @@ models:
     baseUrl: https://generativelanguage.googleapis.com/v1beta
     supportsVision: true
     # contextWindow: 1048576
-    # autoSummaryThreshold: "80%"
+    autoSummaryThreshold: "90%" # 设为 false 可关闭自动压缩
     # headers:
     #   x-custom-header: hello
     # requestBody:

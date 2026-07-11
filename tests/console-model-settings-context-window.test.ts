@@ -10,6 +10,8 @@ function createSnapshot(contextWindow?: number): ConsoleSettingsSnapshot {
       apiKey: 'test-key',
       modelId: 'gemini-2.5-flash',
       contextWindow,
+      autoSummaryEnabled: true,
+      autoSummaryThreshold: '90%',
       baseUrl: 'https://example.invalid',
     }],
     modelOriginalNames: ['main'],
@@ -42,6 +44,8 @@ describe('ConsoleSettingsController 模型上下文窗口持久化', () => {
       modelId: 'deepseek-v4-flash',
       baseUrl: 'https://api.deepseek.com/v1',
       contextWindow: 1000000,
+      autoSummaryEnabled: true,
+      autoSummaryThreshold: '90%',
     });
   });
 
@@ -87,5 +91,45 @@ describe('ConsoleSettingsController 模型上下文窗口持久化', () => {
 
     expect(result.ok).toBe(true);
     expect(capturedUpdates?.llm?.models?.main?.contextWindow).toBeNull();
+  });
+
+  it('保存快照时应写入自动压缩阈值', async () => {
+    let capturedUpdates: Record<string, any> | undefined;
+    const controller = new ConsoleSettingsController({
+      backend: { getToolNames: () => [] } as any,
+      configManager: {
+        updateEditableConfig: (updates: Record<string, any>) => {
+          capturedUpdates = updates;
+          return { mergedRaw: {}, sanitized: {} };
+        },
+        applyRuntimeConfigReload: async () => ({ success: true }),
+      } as any,
+    });
+    const snapshot = createSnapshot(128000);
+    snapshot.models[0].autoSummaryThreshold = '92%';
+    vi.spyOn(controller, 'loadSnapshot').mockResolvedValue(snapshot);
+
+    expect((await controller.saveSnapshot(snapshot)).ok).toBe(true);
+    expect(capturedUpdates?.llm?.models?.main?.autoSummaryThreshold).toBe('92%');
+  });
+
+  it('关闭自动压缩时应写入 false', async () => {
+    let capturedUpdates: Record<string, any> | undefined;
+    const controller = new ConsoleSettingsController({
+      backend: { getToolNames: () => [] } as any,
+      configManager: {
+        updateEditableConfig: (updates: Record<string, any>) => {
+          capturedUpdates = updates;
+          return { mergedRaw: {}, sanitized: {} };
+        },
+        applyRuntimeConfigReload: async () => ({ success: true }),
+      } as any,
+    });
+    const snapshot = createSnapshot(128000);
+    snapshot.models[0].autoSummaryEnabled = false;
+    vi.spyOn(controller, 'loadSnapshot').mockResolvedValue(snapshot);
+
+    expect((await controller.saveSnapshot(snapshot)).ok).toBe(true);
+    expect(capturedUpdates?.llm?.models?.main?.autoSummaryThreshold).toBe(false);
   });
 });

@@ -2,7 +2,8 @@
  * Console 设置中心的数据模型与控制器
  *
  * 当前已覆盖的配置项：
- *   llm.yaml    — defaultModel, models.*.{provider, model, apiKey, baseUrl}
+ *   llm.yaml    — defaultModel, models.*.{provider, model, apiKey, baseUrl,
+ *                 contextWindow, autoSummaryThreshold}
  *   system.yaml — systemPrompt, maxToolRounds, stream, retryOnError, maxRetries,
  *                 logRequests, maxAgentDepth, defaultMode, asyncSubAgents
  *   tools.yaml  — autoApproveAll, autoApproveConfirmation, autoApproveDiff,
@@ -12,9 +13,7 @@
  * TODO: 以下配置项尚未加入 settings 界面，按优先级排列：
  *
  *  ▸ llm.yaml 模型高级字段
- *     - models.*.contextWindow          上下文窗口大小
  *     - models.*.supportsVision         是否支持图片输入
- *     - models.*.autoSummaryThreshold   自动上下文压缩阈值
  *     - models.*.requestBody            自定义请求体（temperature, maxOutputTokens 等）
  *     - models.*.headers                自定义请求头
  *     - models.*.promptCaching          Claude Prompt Caching 开关
@@ -112,6 +111,10 @@ export interface ConsoleModelSettings {
   /** 提供商真实模型 ID，对应 LLMConfig.model */
   modelId: string;
   contextWindow?: number;
+  /** TUI 便捷开关；关闭时保存为 autoSummaryThreshold: false。 */
+  autoSummaryEnabled: boolean;
+  /** 开启时保存的百分比或绝对 token 文本。 */
+  autoSummaryThreshold: string;
   baseUrl: string;
 }
 
@@ -208,6 +211,8 @@ export function createEmptyModel(
       ? normalizeDeepSeekModelId(providerDefaults.model)
       : (providerDefaults.model as string) ?? '',
     contextWindow: typeof providerDefaults.contextWindow === 'number' ? providerDefaults.contextWindow : undefined,
+    autoSummaryEnabled: true,
+    autoSummaryThreshold: '90%',
     baseUrl: (providerDefaults.baseUrl as string) ?? '',
   };
 }
@@ -262,11 +267,17 @@ export function cloneConsoleSettingsSnapshot(snapshot: ConsoleSettingsSnapshot):
 }
 
 function buildModelPayload(model: ConsoleModelSettings): Record<string, unknown> {
+  const thresholdText = (model.autoSummaryThreshold ?? '90%').trim();
+  const autoSummaryEnabled = model.autoSummaryEnabled !== false;
+  const thresholdValue = /^\d+(?:\.\d+)?$/.test(thresholdText)
+    ? Number(thresholdText)
+    : thresholdText;
   const payload: Record<string, unknown> = {
     provider: model.provider,
     model: model.provider === 'deepseek' ? normalizeDeepSeekModelId(model.modelId) : model.modelId,
     baseUrl: model.provider === 'deepseek' ? DEEPSEEK_BASE_URL : model.baseUrl,
     contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : null,
+    autoSummaryThreshold: autoSummaryEnabled ? thresholdValue : false,
   };
   payload.apiKey = model.apiKey || null;
 
@@ -304,6 +315,18 @@ function validateSnapshot(snapshot: ConsoleSettingsSnapshot): string | null {
     }
     if (model.contextWindow != null && (!Number.isFinite(model.contextWindow) || model.contextWindow <= 0)) {
       return `模型 "${modelName}" 的上下文窗口必须为正数`;
+    }
+    if (model.autoSummaryEnabled !== false) {
+      const threshold = (model.autoSummaryThreshold ?? '90%').trim();
+      const percent = threshold.match(/^(\d+(?:\.\d+)?)%$/);
+      const absolute = threshold.match(/^\d+(?:\.\d+)?$/);
+      if (!percent && !absolute) {
+        return `模型 "${modelName}" 的自动压缩阈值必须是百分比（如 90%）或正数`;
+      }
+      const value = Number((percent ?? absolute)![1] ?? (absolute ? threshold : ''));
+      if (!Number.isFinite(value) || value <= 0 || (percent && value > 100)) {
+        return `模型 "${modelName}" 的自动压缩阈值无效`;
+      }
     }
     modelNames.add(modelName);
   }
@@ -461,6 +484,10 @@ export class ConsoleSettingsController {
         apiKey: model.apiKey,
         modelId: model.provider === 'deepseek' ? normalizeDeepSeekModelId(model.model) : model.model,
         contextWindow: model.contextWindow,
+        autoSummaryEnabled: model.autoSummaryThreshold !== false,
+        autoSummaryThreshold: model.autoSummaryThreshold === false
+          ? '90%'
+          : String(model.autoSummaryThreshold ?? '90%'),
         baseUrl: model.provider === 'deepseek' ? DEEPSEEK_BASE_URL : model.baseUrl,
       })),
       modelOriginalNames: (llm.models ?? []).map((model: any) => model.modelName),

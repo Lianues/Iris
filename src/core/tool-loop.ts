@@ -37,6 +37,7 @@ import {
 import type { Content, Part, LLMRequest, FunctionCallPart, FunctionResponsePart, ToolAttachment } from '../types';
 import { cleanupTrailingHistory } from './history-sanitizer';
 import type { RuntimeApprovalContext } from '../auto-edit/types';
+import { hasPartialLLMOutput, isContextOverflowError } from './context-overflow';
 
 const logger = createLogger('ToolLoop');
 
@@ -68,11 +69,35 @@ export interface ToolLoopResult {
   text: string;
   /** 错误信息（LLM 调用失败等）—— 不应存入对话历史 */
   error?: string;
+  /** 可恢复错误分类。 */
+  errorKind?: 'context_overflow' | 'context_compaction' | 'llm_error' | 'max_rounds';
+  /** 发生错误的工具循环轮次（从 1 开始）。 */
+  failedRound?: number;
   /** 完整对话历史（含本次所有新消息） */
   history: Content[];
   /** 是否因 abort 而中止 */
   aborted?: boolean;
 }
+
+export type ContextCheckpointCause = 'preflight' | 'context-overflow';
+
+export interface ContextCheckpointRequest {
+  /** 当前 ToolLoop 的有效历史；回调不得直接修改，需通过返回值替换。 */
+  history: Content[];
+  /** 已经过 beforeLLMCall hook 的最终请求。 */
+  request: LLMRequest;
+  /** 当前工具轮次（从 1 开始）。 */
+  round: number;
+  cause: ContextCheckpointCause;
+  /** 本轮是否已经执行过一次历史替换；用于阻止 compact 循环。 */
+  compactedThisRound: boolean;
+  /** overflow 场景中的原始 provider 错误。 */
+  error?: Error;
+}
+
+export type ContextCheckpointHandler = (
+  context: ContextCheckpointRequest,
+) => Promise<Content[] | undefined>;
 
 /** 每轮执行的可选参数 */
 export interface ToolLoopRunOptions {
@@ -106,6 +131,11 @@ export interface ToolLoopRunOptions {
    * 或修正最终说明。返回 false/undefined 则按正常最终回复提交。
    */
   beforeFinalResponse?: (content: Content, round: number) => Promise<boolean> | boolean;
+  /**
+   * 每次最终 LLM 请求发送前及零输出 context overflow 后的安全检查点回调。
+   * 返回新历史时 ToolLoop 会原地替换并重建同一 round 的请求，不会重跑工具。
+   */
+  onContextCheckpoint?: ContextCheckpointHandler;
   /**
    * 流式工具执行器（可选）。
    *
@@ -192,7 +222,7 @@ export class ToolLoop {
     const signal = options?.signal;
     let rounds = 0;
     // 记录进入循环前的历史长度，用于 abort 时的清理基准
-    const historyBaseLength = history.length;
+    let historyBaseLength = history.length;
 
     while (rounds < this.config.maxRounds) {
       // 每轮开始前检查 abort
@@ -201,36 +231,123 @@ export class ToolLoop {
       }
 
       rounds++;
-
-      // 组装请求
-      // toolsConfig 仅控制执行策略（autoApprove/deny），不过滤工具声明。
-      // 所有已注册工具的声明均传给 LLM，未配置 policy 的工具执行时默认需审批。
-      const declarations = this.tools.getDeclarations();
-      let request = this.prompt.assemble(
-        history, declarations, undefined, options?.extraParts,
-      );
-
-      // 插件钩子：LLM 请求前拦截
-      if (this.config.beforeLLMCall) {
-        try {
-          const interception = await this.config.beforeLLMCall(request, rounds);
-          if (interception) {
-            request = interception.request;
-          }
-        } catch (err) {
-          logger.warn(`beforeLLMCall 执行失败 (round=${rounds}):`, err);
-        }
-      }
-
-      // 调用 LLM（具体方式由 callLLM 决定）
+      let compactedThisRound = false;
       let modelContent: Content;
-      try {
-        modelContent = await this.callLLMWithRetry(callLLM, request, options, rounds, signal);
-      } catch (err) {
-        if (signal?.aborted) return await this.buildAbortResult(history, historyBaseLength, options?.onMessageAppend);
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        logger.error(`LLM 调用失败 (round=${rounds}): ${errorMsg}`);
-        return { text: '', error: `LLM 调用出错: ${errorMsg}`, history };
+
+      // 同一个工具 round 可以因 preflight/overflow compact 而重建请求，但最多替换一次。
+      // rounds 只在外层递增，因此恢复不会消耗工具轮次，也不会重放已完成工具。
+      while (true) {
+        // toolsConfig 仅控制执行策略（autoApprove/deny），不过滤工具声明。
+        // 所有已注册工具的声明均传给 LLM，未配置 policy 的工具执行时默认需审批。
+        const declarations = this.tools.getDeclarations();
+        let request = this.prompt.assemble(
+          history, declarations, undefined, options?.extraParts,
+        );
+
+        // 插件钩子：LLM 请求前拦截。历史替换后必须重新执行，以确保最终请求
+        // 与新 history 一致；hook 应保持幂等。
+        if (this.config.beforeLLMCall) {
+          try {
+            const interception = await this.config.beforeLLMCall(request, rounds);
+            if (interception) request = interception.request;
+          } catch (err) {
+            logger.warn(`beforeLLMCall 执行失败 (round=${rounds}):`, err);
+          }
+        }
+
+        // 请求发送前的主动安全线检查。
+        if (options?.onContextCheckpoint) {
+          try {
+            const replacement = await options.onContextCheckpoint({
+              history: [...history],
+              request,
+              round: rounds,
+              cause: 'preflight',
+              compactedThisRound,
+            });
+            if (replacement) {
+              if (compactedThisRound || replacement.length === 0) {
+                const detail = compactedThisRound
+                  ? '同一工具轮次内拒绝重复压缩上下文'
+                  : '上下文压缩返回了空历史';
+                return {
+                  text: '', error: detail, errorKind: 'context_compaction',
+                  failedRound: rounds, history,
+                };
+              }
+              history.splice(0, history.length, ...replacement);
+              historyBaseLength = history.length;
+              compactedThisRound = true;
+              continue;
+            }
+          } catch (err) {
+            if (signal?.aborted) {
+              return await this.buildAbortResult(history, historyBaseLength, options?.onMessageAppend);
+            }
+            const detail = err instanceof Error ? err.message : String(err);
+            logger.error(`上下文检查点失败 (round=${rounds}): ${detail}`);
+            return {
+              text: '', error: `上下文压缩失败: ${detail}`,
+              errorKind: 'context_compaction', failedRound: rounds, history,
+            };
+          }
+        }
+
+        // 调用 LLM（具体方式由 callLLM 决定）。context overflow 只有在本次请求
+        // 尚无任何模型输出、且本 round 尚未 compact 时才允许检查点恢复一次。
+        try {
+          modelContent = await this.callLLMWithRetry(callLLM, request, options, rounds, signal);
+          break;
+        } catch (err) {
+          if (signal?.aborted) {
+            return await this.buildAbortResult(history, historyBaseLength, options?.onMessageAppend);
+          }
+
+          const normalizedError = err instanceof Error ? err : new Error(String(err));
+          if (
+            isContextOverflowError(normalizedError)
+            && !hasPartialLLMOutput(normalizedError)
+            && !compactedThisRound
+            && options?.onContextCheckpoint
+          ) {
+            try {
+              const replacement = await options.onContextCheckpoint({
+                history: [...history],
+                request,
+                round: rounds,
+                cause: 'context-overflow',
+                compactedThisRound,
+                error: normalizedError,
+              });
+              if (replacement && replacement.length > 0) {
+                history.splice(0, history.length, ...replacement);
+                historyBaseLength = history.length;
+                compactedThisRound = true;
+                continue;
+              }
+            } catch (recoveryError) {
+              if (signal?.aborted) {
+                return await this.buildAbortResult(history, historyBaseLength, options?.onMessageAppend);
+              }
+              const detail = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
+              logger.error(`上下文溢出恢复失败 (round=${rounds}): ${detail}`);
+              return {
+                text: '', error: `上下文溢出恢复失败: ${detail}`,
+                errorKind: 'context_compaction', failedRound: rounds, history,
+              };
+            }
+          }
+
+          const errorMsg = normalizedError.message;
+          logger.error(`LLM 调用失败 (round=${rounds}): ${errorMsg}`);
+          return {
+            text: '',
+            error: `LLM 调用出错: ${errorMsg}`,
+            errorKind: isContextOverflowError(normalizedError) ? 'context_overflow' : 'llm_error',
+            failedRound: rounds,
+            history,
+          };
+        }
       }
 
       // abort 可能在 LLM 调用过程中触发，但 callLLM 没有抛异常（比如流式已读完部分数据）
@@ -311,6 +428,7 @@ export class ToolLoop {
     return {
       text: '',
       error: `工具执行轮次超过上限（${this.config.maxRounds}），已中断。`,
+      errorKind: 'max_rounds',
       history,
     };
   }
@@ -346,6 +464,10 @@ export class ToolLoop {
       } catch (err) {
         if (signal?.aborted) throw err;
         lastError = err instanceof Error ? err : new Error(String(err));
+        // 上下文溢出不会随指数退避自行恢复；交给 Backend compact 后重建请求。
+        if (isContextOverflowError(lastError)) {
+          throw lastError;
+        }
       }
     }
 

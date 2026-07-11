@@ -8,6 +8,7 @@ import { createLLMRouter } from '../llm/factory';
 import { parseLLMConfig } from './llm';
 import { parseToolsConfig } from './tools';
 import { parseSystemConfig } from './system';
+import { parseSummaryConfig } from './summary';
 import { DEFAULT_SYSTEM_PROMPT } from '../prompt/templates/default';
 import type { BootstrapExtensionRegistry } from '../bootstrap/extensions';
 import type { PluginManager } from '../extension/manager';
@@ -50,6 +51,7 @@ export async function applyRuntimeConfigReload(
   // 避免多 Agent 热重载时错误地扫描全局 skills 目录。
   const effectiveDataDir = context.dataDir ?? dataDir;
   const systemConfig = parseSystemConfig(mergedConfig.system, effectiveDataDir);
+  const summaryConfig = parseSummaryConfig(mergedConfig.summary);
   context.onCallmeConfigReload?.(systemConfig.callme);
   context.backend.reloadConfig({
     stream: mergedConfig.system?.stream,
@@ -59,6 +61,8 @@ export async function applyRuntimeConfigReload(
     toolsConfig,
     systemPrompt: mergedConfig.system?.systemPrompt || DEFAULT_SYSTEM_PROMPT,
     currentLLMConfig: newRouter.getCurrentConfig(),
+    summaryModelName: llmConfig.summaryModelName,
+    summaryConfig,
     callme: systemConfig.callme,
     // 热重载 Skill 定义
     skills: systemConfig.skills,

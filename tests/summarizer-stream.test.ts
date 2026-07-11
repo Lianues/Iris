@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Backend } from '../src/core/backend/backend.js';
-import { summarizeHistory } from '../src/core/summarizer.js';
+import {
+  groupHistoryByCompactUnit,
+  prepareHistoryForSummary,
+  summarizeHistory,
+} from '../src/core/summarizer.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { ToolStateManager } from '../src/tools/state.js';
 import { PromptAssembler } from '../src/prompt/assembler.js';
@@ -69,6 +73,130 @@ describe('summarizeHistory stream option', () => {
     expect(router.chat).not.toHaveBeenCalled();
     expect(router.chatStream).toHaveBeenCalledTimes(1);
     expect(router.chatStream).toHaveBeenCalledWith(expect.any(Object), 'summary-model', signal);
+  });
+});
+
+describe('compact history hardening', () => {
+  it('removes thought text and truncates oversized tool payloads', () => {
+    const prepared = prepareHistoryForSummary([
+      {
+        role: 'model',
+        parts: [
+          { text: 'private reasoning', thought: true, thoughtSignatures: { gemini: 'sig' } },
+          { text: 'visible result' },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [{ functionResponse: { name: 'shell', response: { output: 'x'.repeat(20_000) } } }],
+      },
+    ]);
+
+    expect(JSON.stringify(prepared)).not.toContain('private reasoning');
+    expect(JSON.stringify(prepared)).not.toContain('sig');
+    expect(JSON.stringify(prepared)).toContain('visible result');
+    expect(JSON.stringify(prepared)).toContain('truncated');
+    expect(JSON.stringify(prepared).length).toBeLessThan(10_000);
+  });
+
+  it('rejects an empty model summary', async () => {
+    const router = {
+      chat: vi.fn(async () => ({
+        content: { role: 'model' as const, parts: [{ text: '   ' }] },
+      })),
+      chatStream: vi.fn(),
+    } as any;
+
+    await expect(summarizeHistory(router, history, 'summary-model'))
+      .rejects.toThrow('总结模型返回了空摘要');
+  });
+
+  it('groups one long user task by complete tool exchanges instead of one giant turn', () => {
+    const longTaskHistory: Content[] = [
+      { role: 'user', parts: [{ text: 'long task' }] },
+      { role: 'model', parts: [{ functionCall: { name: 'a', args: {}, callId: 'a1' } }] },
+      { role: 'user', parts: [{ functionResponse: { name: 'a', response: { ok: true }, callId: 'a1' } }] },
+      { role: 'model', parts: [{ functionCall: { name: 'b', args: {}, callId: 'b1' } }] },
+      { role: 'user', parts: [{ functionResponse: { name: 'b', response: { ok: true }, callId: 'b1' } }] },
+      { role: 'model', parts: [{ text: 'final' }] },
+    ];
+
+    const units = groupHistoryByCompactUnit(longTaskHistory);
+    expect(units.map(unit => unit.length)).toEqual([1, 2, 2, 1]);
+    expect(units[1][0].parts.some(part => 'functionCall' in part)).toBe(true);
+    expect(units[1][1].parts.some(part => 'functionResponse' in part)).toBe(true);
+  });
+
+  it('keeps every function call/response pair in the same bounded summary request', async () => {
+    const longTaskHistory: Content[] = [{ role: 'user', parts: [{ text: 'process all stages' }] }];
+    for (let i = 0; i < 5; i++) {
+      longTaskHistory.push({
+        role: 'model',
+        parts: [{ functionCall: { name: `stage_${i}`, args: { i }, callId: `call_${i}` } }],
+      });
+      longTaskHistory.push({
+        role: 'user',
+        parts: [{
+          functionResponse: {
+            name: `stage_${i}`,
+            response: { output: `${i}:` + 'x'.repeat(10_000) },
+            callId: `call_${i}`,
+          },
+        }],
+      });
+    }
+    const requests: LLMRequest[] = [];
+    const modelConfig = {
+      provider: 'openai-compatible', apiKey: '', model: 'summary', baseUrl: '', contextWindow: 2_000,
+    };
+    const router = {
+      chat: vi.fn(async (request: LLMRequest) => {
+        requests.push(request);
+        return { content: { role: 'model' as const, parts: [{ text: `summary-${requests.length}` }] } };
+      }),
+      chatStream: vi.fn(),
+      getModelConfig: vi.fn(() => modelConfig),
+      getCurrentConfig: vi.fn(() => modelConfig),
+    } as any;
+
+    await summarizeHistory(router, longTaskHistory, 'summary', undefined, {
+      stream: false,
+      purpose: 'continuation',
+    });
+
+    expect(requests.length).toBeGreaterThan(1);
+    for (const request of requests) {
+      for (let i = 0; i < request.contents.length; i++) {
+        const calls = request.contents[i].parts.filter(part => 'functionCall' in part);
+        if (calls.length === 0) continue;
+        const next = request.contents[i + 1];
+        expect(next?.role).toBe('user');
+        expect(next?.parts.filter(part => 'functionResponse' in part)).toHaveLength(calls.length);
+      }
+    }
+  });
+
+  it('appends mandatory continuation guidance even with a custom summary prompt', async () => {
+    const router = {
+      chat: vi.fn(async (_request: LLMRequest) => ({
+        content: { role: 'model' as const, parts: [{ text: 'checkpoint summary' }] },
+      })),
+      chatStream: vi.fn(),
+    } as any;
+
+    await summarizeHistory(
+      router,
+      history,
+      'summary-model',
+      { systemPrompt: 'custom system', userPrompt: 'CUSTOM SUMMARY REQUEST' },
+      { purpose: 'continuation' },
+    );
+
+    const request = router.chat.mock.calls[0][0] as LLMRequest;
+    const prompt = (request.contents.at(-1)?.parts[0] as { text?: string }).text ?? '';
+    expect(prompt).toContain('CUSTOM SUMMARY REQUEST');
+    expect(prompt).toContain('unfinished tool loop');
+    expect(prompt).toContain('Do not claim the task is complete');
   });
 });
 
@@ -146,7 +274,7 @@ describe('Backend.summarize', () => {
     expect(storage.addMessage).not.toHaveBeenCalled();
   });
 
-  it('prepares compact history with the same LLM-safe cleanup used for chat context', async () => {
+  it('prepares compact history without binary payloads or local tool metadata', async () => {
     const unsafeHistory: Content[] = [
       {
         role: 'user',
@@ -179,6 +307,10 @@ describe('Backend.summarize', () => {
             diffPreview: { toolName: 'write_file', title: 'Diff', toolLabel: 'write_file', summary: [], items: [] } as any,
           },
         }],
+      },
+      {
+        role: 'model',
+        parts: [{ text: 'tool work completed' }],
       },
     ];
     const histories = new Map<string, Content[]>([['s1', [...unsafeHistory]]]);
@@ -213,7 +345,8 @@ describe('Backend.summarize', () => {
     const imagePart = request.contents[0].parts[0] as any;
     const responsePart = request.contents[2].parts[0] as any;
 
-    expect(imagePart.inlineData).toEqual({ mimeType: 'image/png', data: 'abc123' });
+    expect(imagePart.text).toContain('image/png');
+    expect(imagePart.text).toContain('binary omitted');
     expect(responsePart.functionResponse).toEqual({
       name: 'write_file',
       response: { ok: true },

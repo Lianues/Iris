@@ -38,10 +38,11 @@ models:
     # 常见模型已有内置默认值，通常无需手动设置
     # contextWindow: 1048576
 
-    # 自动上下文压缩阈值：token 数超过此值时自动执行 /compact
+    # 自动上下文压缩阈值：默认 90%，token 数超过此值时自动执行 /compact
     # 支持绝对值（如 100000）或 contextWindow 百分比（如 "80%"）
-    # 不设置则不自动压缩
-    # autoSummaryThreshold: "80%"
+    # 设为 false 可显式关闭
+    autoSummaryThreshold: "90%"
+    # autoSummaryThreshold: false
     # autoSummaryThreshold: 100000
 
     # 便捷思考强度控制（Shift+←/→ 调节，默认开启）
