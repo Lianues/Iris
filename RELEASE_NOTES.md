@@ -1,20 +1,18 @@
-# Iris v1.0.38 Release Notes
-
-## Telegram
-- 增强 Rich Message 渲染，支持折叠 trace、官方流式输出（sendRichMessageDraft）与失败自动回退纯文本
-- 支持回合执行期间 typing 状态刷新
-- 支持 Rich trace 工具执行摘要展示
-- undo 消息追踪从单 message id 扩展为消息组，支持长文本分片和 fallback 分片后的正确撤销
-- 新增 outputFormat / streamMode 配置项
-
-## Console
-- 将立即发送快捷键从 Ctrl+S 改为 Ctrl+Enter
-- 添加 Ctrl+↓ 快捷键回到查看栏最底部
-- Settings 模型 ID 字段支持从 provider API 拉取可用模型列表
-- 修复 Gemini thinking levels 大小写问题
-
-## IDE
-- 修复安装 Cursor 后 /ide 误启动 Cursor 的问题
+# Iris v1.0.39 Release Notes
 
 ## Core
-- 加固 Skill resource 访问安全
+- 新增长任务回合内上下文检查点压缩，可在多轮工具执行期间压缩历史并继续任务，避免重放已完成工具
+- 增强上下文窗口溢出恢复：支持在无部分输出时压缩上下文并重试当前 LLM 请求
+- 完善自动压缩阈值、上下文窗口预算、输出 token 预留与压缩后 token 统计
+- 增强流式摘要、流生命周期管理与中止处理
+
+## Console
+- 新增自动压缩开关和阈值配置，并持久化模型 contextWindow
+- 增加压缩进度、上下文摘要及压缩前后 token 数展示
+- 改进压缩期间的流式消息目标与状态处理
+
+## MCP
+- MCP 工具调用现在使用服务器配置的 timeout，避免始终采用 SDK 默认超时
+
+## Tests
+- 新增自动压缩、长任务检查点、上下文溢出恢复、流生命周期和 Console 压缩消息等测试
