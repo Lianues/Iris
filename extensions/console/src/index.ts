@@ -45,7 +45,6 @@ import {
   fetchRemoteManifest,
   readGitInstallMetadata,
 } from 'irises-extension-sdk/utils';
-import { estimateTokenCount } from 'tokenx';
 import { App, AppHandle, MessageMeta } from './App';
 import { MessagePart } from './components/MessageItem';
 import { ConsoleSettingsController, ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
@@ -678,6 +677,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   private ideDiffOpenedToolIds = new Set<string>();
   /** 当前是否正在生成响应（用于阻止 addErrorMessage 破坏流式占位消息） */
   private _isGenerating = false;
+  /** compact 期间的 usage 只更新状态栏，不能覆盖当前 assistant 回复的 usage。 */
+  private compactSessionId?: string;
   private foregroundTurnActive = false;
   private notificationTurnActive = false;
   /**
@@ -1114,7 +1115,11 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
     this.onBackend('usage', (sid: string, usage: UsageMetadata) => {
       if (sid === this.sessionId) {
-        this.appHandle?.setUsage(usage);
+        if (this.compactSessionId === sid) {
+          this.appHandle?.setCompactUsage(usage);
+        } else {
+          this.appHandle?.setUsage(usage);
+        }
       }
     });
 
@@ -1252,11 +1257,47 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       }
     });
 
-    this.onBackend('auto-compact', (sid: string, summaryText: string) => {
-      if (sid === this.sessionId) {
-        const fullText = `[Context Summary]\n\n${summaryText}`;
-        const tokenCount = estimateTokenCount(fullText);
-        this.appHandle?.addSummaryMessage(fullText, tokenCount > 0 ? tokenCount : undefined);
+    this.onBackend('compact:start', (sid: string, reason: string) => {
+      if (sid !== this.sessionId) return;
+      this.compactSessionId = sid;
+      const continuesTask = reason === 'in-turn-threshold' || reason === 'context-overflow-retry';
+      this.appHandle?.setGeneratingLabel(
+        continuesTask ? '上下文接近上限，正在创建任务检查点...' : '正在压缩上下文...',
+      );
+    });
+
+    this.onBackend('compact:complete', (sid: string, result: {
+      summaryText: string;
+      beforeTokens: number;
+      afterTokens: number;
+      reason: string;
+    }) => {
+      if (this.compactSessionId === sid) this.compactSessionId = undefined;
+      if (sid !== this.sessionId) return;
+      const continuesTask = result.reason === 'in-turn-threshold'
+        || result.reason === 'context-overflow-retry';
+      const fullText = `[Context Summary]\n\n${result.summaryText}`;
+      this.appHandle?.addSummaryMessage(fullText, result.afterTokens > 0 ? result.afterTokens : undefined);
+      this.appHandle?.setCompactUsage({ promptTokenCount: result.afterTokens, totalTokenCount: result.afterTokens });
+      this.appHandle?.addCommandMessage(
+        `上下文已压缩：${result.beforeTokens.toLocaleString()} -> ${result.afterTokens.toLocaleString()} tokens`
+          + (continuesTask ? '，继续执行任务' : ''),
+        { label: 'compact' },
+      );
+      this.appHandle?.setGeneratingLabel(undefined);
+    });
+
+    this.onBackend('compact:error', (sid: string, reason: string, error: string) => {
+      if (this.compactSessionId === sid) this.compactSessionId = undefined;
+      if (sid !== this.sessionId) return;
+      this.appHandle?.setGeneratingLabel(undefined);
+      if (reason !== 'manual') {
+        const continuesTask = reason === 'in-turn-threshold' || reason === 'context-overflow-retry';
+        this.appHandle?.addErrorMessage(
+          continuesTask
+            ? `任务检查点压缩失败：${error}（原历史未修改，当前任务将停止）`
+            : `上下文压缩失败：${error}（原历史未修改）`,
+        );
       }
     });
 
@@ -3188,14 +3229,10 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.foregroundTurnActive = true;
     this.refreshGeneratingState();
     try {
-      const summaryText = await this.backend.summarize?.(this.sessionId) ?? '';
-      const fullText = `[Context Summary]\n\n${summaryText}`;
-      const tokenCount = estimateTokenCount(fullText);
-      this.appHandle?.addSummaryMessage(fullText, tokenCount > 0 ? tokenCount : undefined);
-      return { ok: true, message: 'Context compressed.' };
+      await this.backend.summarize?.(this.sessionId);
+      return { ok: true, message: '上下文已压缩。' };
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err);
-      this.appHandle?.addErrorMessage(`Context compression failed: ${detail}`);
       return { ok: false, message: detail };
     } finally {
       this.foregroundTurnActive = false;

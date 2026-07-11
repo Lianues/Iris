@@ -37,7 +37,7 @@ import { ToolStateManager } from '../../tools/state';
 import { PromptAssembler } from '../../prompt/assembler';
 import { ModeRegistry, ModeDefinition, applyToolFilter } from '../../modes';
 import { supportsVision as llmSupportsVision, supportsNativePDF, supportsNativeOffice } from '../../llm/vision';
-import { ToolLoop, ToolLoopConfig, LLMCaller } from '../tool-loop';
+import { ToolLoop, ToolLoopConfig, LLMCaller, type ContextCheckpointRequest } from '../tool-loop';
 import { createLogger } from '../../logger';
 import { sanitizeHistory } from '../history-sanitizer';
 import { estimateTokenCount } from 'tokenx';
@@ -65,6 +65,18 @@ import { UndoRedoManager } from './undo-redo';
 import { buildPluginHookConfig } from './plugins';
 import type { AutoEditSessionState } from '../../auto-edit';
 import { AutoEditManager } from '../../auto-edit';
+import {
+  estimateActiveHistoryTokens,
+  estimateLLMRequestTokens,
+  findLastPersistedTotalTokens,
+  hasCompleteToolBoundary,
+  hasSafeCompactBoundary,
+  hasStableCompactBoundary,
+  resolveAutoSummaryThreshold,
+  resolveRequestCompactThreshold,
+  type CompactReason,
+  type CompactResult,
+} from './compaction';
 
 import { sessionContext, getSessionCwd, setSessionCwd, getRememberedCwd, getActiveSessionId, clearSessionCwd } from './session-context';
 import type { SessionExecutionContext } from './session-context';
@@ -72,6 +84,7 @@ import { AgentsMdManager, type AgentsMdReloadResult } from '../agents-md';
 
 const logger = createLogger('Backend');
 const RUN_COMMAND_TIMEOUT_MS = 30000;
+const MAX_IN_TURN_COMPACTIONS = 8;
 
 export function formatRunCommandFailureMessage(
   result: Pick<SpawnSyncReturns<string>, 'status' | 'signal' | 'error'>,
@@ -567,7 +580,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       };
       return await sessionContext.run(execCtx, () =>
         agentContext.run('main', () =>
-          this.summarizeUnlocked(sessionId, abortController.signal)
+          this.compactUnlocked(sessionId, 'manual', abortController.signal).then(result => result.summaryText)
         )
       );
     } finally {
@@ -585,55 +598,134 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     }
   }
 
-  private async summarizeUnlocked(sessionId: string, signal?: AbortSignal): Promise<string> {
-    const history = await this.storage.getHistory(sessionId);
+  private async compactUnlocked(
+    sessionId: string,
+    reason: CompactReason,
+    signal?: AbortSignal,
+    sourceHistory?: Content[],
+    beforeTokensHint?: number,
+    retainedTail: Content[] = [],
+    stableKeepCount?: number,
+  ): Promise<CompactResult> {
+    const history = sourceHistory ?? await this.storage.getHistory(sessionId);
     if (history.length === 0) {
       throw new Error('当前会话没有历史消息');
     }
 
-    let startIndex = 0;
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].isSummary) {
-        startIndex = i;
-        break;
+    try {
+      let startIndex = 0;
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].isSummary) {
+          startIndex = i;
+          break;
+        }
       }
+
+      const toSummarize = history.slice(startIndex);
+      if (toSummarize.length < 2) {
+        throw new Error('消息过少，无需压缩');
+      }
+      const allowsToolBoundary = reason === 'in-turn-threshold' || reason === 'context-overflow-retry';
+      const boundaryValid = allowsToolBoundary
+        ? hasSafeCompactBoundary(toSummarize)
+        : hasStableCompactBoundary(toSummarize);
+      if (!boundaryValid) {
+        throw new Error('当前对话回合尚未完整结束，暂不能压缩');
+      }
+
+      const preparedHistory = prepareHistoryForLLM(toSummarize, this.getSummaryModelConfig());
+      // 固定上下文成本必须与未做 summarizer 限幅的活动历史比较；否则被截短的
+      // 工具结果会被误算成 system/tools 固定成本，导致 compact 后 token 虚高。
+      const estimatedActiveBeforeTokens = estimateActiveHistoryTokens(preparedHistory);
+      const estimatedBeforeTokens = beforeTokensHint && beforeTokensHint > 0
+        ? beforeTokensHint
+        : findLastPersistedTotalTokens(history)
+          ?? estimatedActiveBeforeTokens;
+      this.emit('compact:start', sessionId, reason, estimatedBeforeTokens);
+
+      const summaryText = await summarizeHistory(
+        this.router,
+        preparedHistory,
+        this.summaryModelName,
+        this.summaryConfig,
+        {
+          stream: this.stream,
+          signal,
+          purpose: allowsToolBoundary ? 'continuation' : 'default',
+        },
+      );
+
+      const now = Date.now();
+      const fullText = `[Context Summary]\n\n${summaryText.trim()}`;
+      const estimatedTokens = estimateTokenCount(fullText);
+      if (!summaryText.trim() || estimatedTokens <= 0) {
+        throw new Error('总结模型返回了空摘要');
+      }
+      if (estimatedActiveBeforeTokens > 0 && estimatedTokens >= estimatedActiveBeforeTokens) {
+        throw new Error(`摘要未能减少有效历史（${estimatedActiveBeforeTokens} -> ${estimatedTokens} tokens）`);
+      }
+
+      const summaryContent: Content = {
+        role: 'user',
+        parts: [{ text: fullText }],
+        isSummary: true,
+        createdAt: now,
+        usageMetadata: {
+          promptTokenCount: estimatedTokens,
+          totalTokenCount: estimatedTokens,
+        },
+      };
+
+      // overflow 恢复需要把 summary 插入当前用户消息之前。摘要生成期间不动存储，
+      // 只有验证成功后才截断并按 summary -> retained tail 的顺序提交。
+      if (retainedTail.length > 0) {
+        await this.storage.truncateHistory(sessionId, stableKeepCount ?? history.length);
+      }
+      await this.storage.addMessage(sessionId, summaryContent);
+      for (const content of retainedTail) {
+        await this.storage.addMessage(sessionId, content);
+      }
+
+      const retainedTokens = retainedTail.reduce((total, content) => {
+        const persisted = content.usageMetadata?.promptTokenCount;
+        return total + (persisted && persisted > 0
+          ? persisted
+          : estimateTokenCount(JSON.stringify(content.parts)));
+      }, 0);
+      // actual usage 中还包含 system prompt、工具声明等固定成本；compact 后仍需保留该估算，
+      // 否则状态栏和下一轮 preflight 会把上下文显示得过低。beforeTokensHint 在
+      // 首轮恢复场景已包含 retained tail，需先扣除，避免把当前用户消息计算两次。
+      const fixedContextTokens = Math.max(
+        0, estimatedBeforeTokens - estimatedActiveBeforeTokens - retainedTokens,
+      );
+      const afterTokens = estimatedTokens + retainedTokens + fixedContextTokens;
+      this.lastSessionTokens.set(sessionId, afterTokens);
+
+      this.undoRedo.clearRedo(sessionId);
+      const agentsReload = await this.agentsMd.reload(sessionId, getSessionCwd());
+      if (!agentsReload.ok) {
+        logger.warn(`compact 后重载 AGENTS.md 失败: ${agentsReload.error ?? agentsReload.message}`);
+      }
+
+      const result: CompactResult = {
+        summaryText: summaryText.trim(),
+        beforeTokens: estimatedBeforeTokens,
+        afterTokens,
+        reason,
+        modelName: this.summaryModelName ?? this.router.getCurrentModelName(),
+      };
+      this.emit('usage', sessionId, {
+        promptTokenCount: afterTokens,
+        totalTokenCount: afterTokens,
+      });
+      this.emit('compact:complete', sessionId, result);
+      if (reason !== 'manual') this.emit('auto-compact', sessionId, result.summaryText);
+      return result;
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      this.emit('compact:error', sessionId, reason, detail);
+      throw err;
     }
-
-    const toSummarize = history.slice(startIndex);
-    if (toSummarize.length < 2) {
-      throw new Error('消息过少，无需压缩');
-    }
-
-    const preparedHistory = prepareHistoryForLLM(toSummarize, this.getSummaryModelConfig());
-
-    const summaryText = await summarizeHistory(
-      this.router,
-      preparedHistory,
-      this.summaryModelName,
-      this.summaryConfig,
-      { stream: this.stream, signal },
-    );
-
-    const now = Date.now();
-    const fullText = `[Context Summary]\n\n${summaryText}`;
-    const estimatedTokens = estimateTokenCount(fullText);
-
-    const summaryContent: Content = {
-      role: 'user',
-      parts: [{ text: fullText }],
-      isSummary: true,
-      createdAt: now,
-      ...(estimatedTokens > 0 ? { usageMetadata: { promptTokenCount: estimatedTokens } } : {}),
-    };
-    await this.storage.addMessage(sessionId, summaryContent);
-    this.lastSessionTokens.set(sessionId, estimatedTokens);
-
-    this.undoRedo.clearRedo(sessionId);
-    const agentsReload = await this.agentsMd.reload(sessionId, getSessionCwd());
-    if (!agentsReload.ok) {
-      logger.warn(`compact 后重载 AGENTS.md 失败: ${agentsReload.error ?? agentsReload.message}`);
-    }
-    return summaryText;
   }
 
   /** 清空指定会话的 redo 栈 */
@@ -1125,6 +1217,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     toolsConfig?: ToolsConfig;
     systemPrompt?: string;
     currentLLMConfig?: LLMConfig;
+    summaryModelName?: string;
+    summaryConfig?: SummaryConfig;
     callme?: CallmeAttributionConfig;
     skills?: SkillDefinition[];
   }): void {
@@ -1136,6 +1230,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     if (opts.systemPrompt !== undefined) this.prompt.replaceSystemPromptText(opts.systemPrompt);
     if ('callme' in opts) this.callmeConfig = opts.callme;
     if ('currentLLMConfig' in opts) this.currentLLMConfig = opts.currentLLMConfig;
+    if ('summaryModelName' in opts) this.summaryModelName = opts.summaryModelName;
+    if ('summaryConfig' in opts) this.summaryConfig = opts.summaryConfig;
     if ('skills' in opts) {
       this.skills = opts.skills ?? [];
       this._onSkillsChanged?.();
@@ -1306,22 +1402,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   // ============ 核心流程 ============
 
   private getAutoSummaryThreshold(): number | undefined {
-    const config = this.currentLLMConfig;
-    if (!config?.autoSummaryThreshold) return undefined;
-    const raw = config.autoSummaryThreshold;
-    if (typeof raw === 'number') return raw > 0 ? raw : undefined;
-    if (typeof raw === 'string') {
-      const trimmed = raw.trim();
-      if (trimmed.endsWith('%')) {
-        const percent = parseFloat(trimmed);
-        if (!isNaN(percent) && percent > 0 && config.contextWindow && config.contextWindow > 0) {
-          return Math.floor(config.contextWindow * percent / 100);
-        }
-      }
-      const num = parseFloat(trimmed);
-      return !isNaN(num) && num > 0 ? num : undefined;
-    }
-    return undefined;
+    return resolveAutoSummaryThreshold(this.currentLLMConfig);
   }
 
   /**
@@ -1335,16 +1416,41 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private async handleNotificationTurn(sessionId: string, notificationText: string, turnId: string, signal?: AbortSignal): Promise<void> {
     this.toolState.clearSession(sessionId);
 
-    const storedHistory = await this.storage.getHistory(sessionId);
-    const history = prepareHistoryForLLM(storedHistory, this.currentLLMConfig);
-
-    // 将通知作为 user-role message 加入历史并持久化（不占用 undo 栈、不计 token）。
-    // 在原始 XML 前追加引导前缀，告诉主 LLM 这不是用户说的话，而是后台任务完成的通知。
     const count = (notificationText.match(/<task-notification>/g) || []).length;
     const prefix = count > 1
       ? `后台子代理完成了 ${count} 个任务：\n`
       : `后台子代理完成了一个任务：\n`;
     const wrappedText = prefix + notificationText;
+
+    let storedHistory = await this.storage.getHistory(sessionId);
+    let preTurnCompacted = false;
+    const autoThreshold = this.getAutoSummaryThreshold();
+    if (autoThreshold && hasStableCompactBoundary(storedHistory)) {
+      const lastTokens = this.lastSessionTokens.get(sessionId)
+        ?? findLastPersistedTotalTokens(storedHistory)
+        ?? estimateActiveHistoryTokens(storedHistory);
+      const projectedTokens = lastTokens + estimateTokenCount(wrappedText);
+      if (projectedTokens >= autoThreshold) {
+        try {
+          await this.compactUnlocked(
+            sessionId,
+            'pre-turn-threshold',
+            signal,
+            storedHistory,
+            lastTokens,
+          );
+          preTurnCompacted = true;
+          storedHistory = await this.storage.getHistory(sessionId);
+        } catch (err) {
+          logger.warn('Auto-compact (pre-notification) failed:', err);
+        }
+      }
+    }
+
+    const stableHistoryForTurn = [...storedHistory];
+    const history = prepareHistoryForLLM(storedHistory, this.currentLLMConfig);
+
+    // 将通知作为 user-role message 加入历史并持久化（不占用 undo 栈）。
     const notificationContent: Content = {
       role: 'user',
       parts: [{ text: wrappedText }],
@@ -1362,7 +1468,24 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       // notification 路径跳过所有用户消息专有后置步骤
       updateMeta: false,
       runAfterChatHooks: false,
-      postCompact: false,
+      postCompact: !preTurnCompacted,
+      initialContextRecovery: hasStableCompactBoundary(stableHistoryForTurn)
+        ? async (reason, beforeTokens) => {
+          await this.compactUnlocked(
+            sessionId,
+            reason,
+            signal,
+            stableHistoryForTurn,
+            beforeTokens,
+            [notificationContent],
+            stableHistoryForTurn.length,
+          );
+          return prepareHistoryForLLM(
+            await this.storage.getHistory(sessionId),
+            this.currentLLMConfig,
+          );
+        }
+        : undefined,
     });
   }
 
@@ -1418,24 +1541,38 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     }
 
     // 1.2 自动上下文压缩（pre-message，notification 路径不需要）
+    let preTurnCompacted = false;
     const autoThreshold = this.getAutoSummaryThreshold();
     if (autoThreshold && storedHistory.length > 0) {
-      const lastTokens = this.lastSessionTokens.get(sessionId) ?? 0;
+      const lastTokens = this.lastSessionTokens.get(sessionId)
+        ?? findLastPersistedTotalTokens(storedHistory)
+        ?? estimateActiveHistoryTokens(storedHistory);
       if (lastTokens > 0) {
+        this.lastSessionTokens.set(sessionId, lastTokens);
         const estUser = (estimateTokenCount(extractText(storedUserParts) || '')) + estimateMultimodalTokens(storedUserParts);
-        if (lastTokens + estUser > autoThreshold) {
-          logger.info(`Auto-compact (pre-message): ${lastTokens} + ${estUser} > ${autoThreshold}`);
+        const projectedTokens = lastTokens + estUser;
+        if (projectedTokens >= autoThreshold) {
+          logger.info(`Auto-compact (pre-message): ${lastTokens} + ${estUser} >= ${autoThreshold}`);
           try {
-            const summaryText = await this.summarizeUnlocked(sessionId, signal);
-            this.emit('auto-compact', sessionId, summaryText);
+            await this.compactUnlocked(
+              sessionId,
+              'pre-turn-threshold',
+              signal,
+              storedHistory,
+              lastTokens,
+            );
+            preTurnCompacted = true;
             storedHistory = await this.storage.getHistory(sessionId);
           } catch (err) {
             logger.warn('Auto-compact (pre-message) failed:', err);
+            const detail = err instanceof Error ? err.message : String(err);
+            throw new Error(`自动压缩失败，已停止本轮请求以保护上下文: ${detail}`);
           }
         }
       }
     }
 
+    const stableHistoryForTurn = [...storedHistory];
     const history = prepareHistoryForLLM(storedHistory, this.currentLLMConfig);
     const isNewSession = storedHistory.length === 0;
 
@@ -1483,9 +1620,23 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       // 用户消息路径的后置步骤全部启用
       updateMeta: true,
       runAfterChatHooks: true,
-      postCompact: true,
+      postCompact: !preTurnCompacted,
       storedUserParts,
       platformName,
+      initialContextRecovery: hasStableCompactBoundary(stableHistoryForTurn)
+        ? async (reason, beforeTokens) => {
+          await this.compactUnlocked(
+            sessionId,
+            reason,
+            signal,
+            stableHistoryForTurn,
+            beforeTokens,
+            [storedUserContent],
+            stableHistoryForTurn.length,
+          );
+          return prepareHistoryForLLM(await this.storage.getHistory(sessionId), this.currentLLMConfig);
+        }
+        : undefined,
     });
   }
 
@@ -1515,6 +1666,10 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     storedUserParts?: Part[];
     /** 平台名称（仅 handleMessage 路径提供，用于 meta 更新） */
     platformName?: string;
+    /**
+     * 首轮最终请求超预算/溢出时，压缩稳定旧历史并原样保留当前用户消息。
+     */
+    initialContextRecovery?: (reason: CompactReason, beforeTokens: number) => Promise<Content[] | undefined>;
   }): Promise<void> {
     const { sessionId, turnId, history, signal } = options;
     const startTime = Date.now();
@@ -1593,6 +1748,81 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       loop = new ToolLoop(requestTools, this.prompt, this.toolLoopConfig, this.toolState);
     }
 
+    let inTurnCompactCount = 0;
+    const onContextCheckpoint = async (
+      checkpoint: ContextCheckpointRequest,
+    ): Promise<Content[] | undefined> => {
+      const requestTokens = estimateLLMRequestTokens(checkpoint.request);
+      const requestThreshold = resolveRequestCompactThreshold(
+        this.currentLLMConfig,
+        checkpoint.request,
+      );
+      const proactivePressure = checkpoint.cause === 'preflight'
+        && requestThreshold != null
+        && requestTokens >= requestThreshold;
+      const overflowPressure = checkpoint.cause === 'context-overflow';
+
+      if (!proactivePressure && !overflowPressure) return undefined;
+      // false 是用户明确关闭；百分比暂时不可计算时仍允许 provider overflow
+      // 触发一次应急恢复。
+      if (this.currentLLMConfig?.autoSummaryThreshold === false) return undefined;
+
+      if (checkpoint.compactedThisRound) {
+        if (proactivePressure) {
+          throw new Error(
+            `压缩后请求仍超过安全线（${requestTokens} >= ${requestThreshold} tokens）`,
+          );
+        }
+        return undefined;
+      }
+      if (inTurnCompactCount >= MAX_IN_TURN_COMPACTIONS) {
+        throw new Error(`单个任务的上下文检查点已达到上限（${MAX_IN_TURN_COMPACTIONS} 次）`);
+      }
+
+      const reason: CompactReason = overflowPressure
+        ? 'context-overflow-retry'
+        : 'in-turn-threshold';
+      let replacement: Content[] | undefined;
+
+      if (checkpoint.round === 1) {
+        if (!options.initialContextRecovery) {
+          if (proactivePressure) {
+            throw new Error('当前请求本身已超过模型安全预算，且没有可压缩的稳定旧历史');
+          }
+          return undefined;
+        }
+        replacement = await options.initialContextRecovery(reason, requestTokens);
+      } else {
+        if (!hasCompleteToolBoundary(checkpoint.history)) {
+          if (proactivePressure) {
+            throw new Error('上下文已接近上限，但当前不在完整工具响应边界，无法安全压缩');
+          }
+          return undefined;
+        }
+        await this.compactUnlocked(
+          sessionId,
+          reason,
+          signal,
+          checkpoint.history,
+          requestTokens,
+        );
+        replacement = prepareHistoryForLLM(
+          await this.storage.getHistory(sessionId),
+          this.currentLLMConfig,
+        );
+      }
+
+      if (!replacement || replacement.length === 0) {
+        throw new Error('上下文检查点没有生成可继续执行的历史');
+      }
+      inTurnCompactCount++;
+      logger.info(
+        `In-turn compact: session=${sessionId}, round=${checkpoint.round}, `
+        + `cause=${checkpoint.cause}, request=${requestTokens}, threshold=${requestThreshold ?? 'unknown'}`,
+      );
+      return replacement;
+    };
+
     // 4. 执行工具循环
     const result = await loop.run(history, callLLM, {
       sessionId,
@@ -1610,11 +1840,11 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       onRetry: (attempt, maxRetries, error) => {
         this.emit('retry', sessionId, attempt, maxRetries, error);
       },
+      onContextCheckpoint,
     });
 
     // 5. 处理 abort
     if (result.aborted) {
-      await this.storage.truncateHistory(sessionId, result.history.length);
       this.emit('done', sessionId, Date.now() - startTime, turnId);
       return;
     }
@@ -1678,26 +1908,34 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     if ((!this.stream || appendedFallbackModel) && finalText) {
       this.emit('response', sessionId, finalText);
     }
-    this.emit('done', sessionId, durationMs, turnId);
 
     // 12. 更新 session token 追踪
     if (lastCallTotalTokens > 0) {
       this.lastSessionTokens.set(sessionId, lastCallTotalTokens);
     }
 
-    // 13. 条件后置步骤：post-response auto-compact（仅用户消息路径）
-    if (options.postCompact) {
+    // 13. 完整回合结束后、done 之前执行自动压缩。
+    // 此时工具链和最终 assistant 消息均已闭合，是最可靠的摘要边界。
+    if (options.postCompact && inTurnCompactCount === 0) {
       const autoThreshold = this.getAutoSummaryThreshold();
-      if (autoThreshold && lastCallTotalTokens > autoThreshold) {
-        logger.info(`Auto-compact (post-response): ${lastCallTotalTokens} > ${autoThreshold}`);
+      if (autoThreshold && lastCallTotalTokens >= autoThreshold) {
+        logger.info(`Auto-compact (post-response): ${lastCallTotalTokens} >= ${autoThreshold}`);
         try {
-          const summaryText = await this.summarizeUnlocked(sessionId, signal);
-          this.emit('auto-compact', sessionId, summaryText);
+          await this.compactUnlocked(
+            sessionId,
+            'post-turn-threshold',
+            signal,
+            undefined,
+            lastCallTotalTokens,
+          );
         } catch (err) {
           logger.warn('Auto-compact (post-response) failed:', err);
         }
       }
     }
+
+    // done 必须在 compact 完全结束后发送；平台收到 done 时 turn lock 即将释放。
+    this.emit('done', sessionId, Date.now() - startTime, turnId);
   }
 
   // ============ 工具事件转发 ============

@@ -5,6 +5,7 @@
 import { LLMConfig, LLMModelDef, LLMRegistryConfig } from './types';
 
 export const DEFAULT_MODEL_NAME = 'default';
+export const DEFAULT_AUTO_SUMMARY_THRESHOLD = '90%';
 
 const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash';
 const DEEPSEEK_ALLOWED_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro']);
@@ -58,9 +59,11 @@ export function parseSingleLLMConfig(raw: any = {}): LLMConfig {
     baseUrl,
     contextWindow: typeof source.contextWindow === 'number' ? source.contextWindow : defaults.contextWindow,
     supportsVision: typeof source.supportsVision === 'boolean' ? source.supportsVision : undefined,
-    autoSummaryThreshold: (typeof source.autoSummaryThreshold === 'number' || typeof source.autoSummaryThreshold === 'string')
-      ? source.autoSummaryThreshold
-      : undefined,
+    autoSummaryThreshold: source.autoSummaryThreshold === false
+      ? false
+      : (typeof source.autoSummaryThreshold === 'number' || typeof source.autoSummaryThreshold === 'string')
+        ? source.autoSummaryThreshold
+        : DEFAULT_AUTO_SUMMARY_THRESHOLD,
     headers: source.headers && typeof source.headers === 'object' && !Array.isArray(source.headers) ? source.headers : undefined,
     requestBody: source.requestBody && typeof source.requestBody === 'object' && !Array.isArray(source.requestBody) ? source.requestBody : undefined,
     promptCaching: source.promptCaching === true ? true : undefined,

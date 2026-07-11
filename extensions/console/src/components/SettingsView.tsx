@@ -43,8 +43,9 @@ type ToolPolicyMode = 'disabled' | 'manual' | 'auto';
 type RowTarget =
   | { kind: 'modelProvider'; modelIndex: number }
   | { kind: 'deepseekModel'; modelIndex: number }
-  | { kind: 'modelField'; modelIndex: number; field: 'modelName' | 'modelId' | 'apiKey' | 'baseUrl' }
+  | { kind: 'modelField'; modelIndex: number; field: 'modelName' | 'modelId' | 'apiKey' | 'baseUrl' | 'autoSummaryThreshold' }
   | { kind: 'modelDefault'; modelIndex: number }
+  | { kind: 'modelAutoCompact'; modelIndex: number }
   | { kind: 'systemField'; field: 'systemPrompt' | 'maxToolRounds' | 'stream' | 'retryOnError' | 'maxRetries' | 'logRequests' | 'maxAgentDepth' | 'defaultMode' | 'asyncSubAgents' }
   | { kind: 'toolPolicy'; toolIndex: number }
   | { kind: 'toolApprovalView'; toolIndex: number }
@@ -240,6 +241,14 @@ function buildRows(snapshot: ConsoleSettingsSnapshot, termWidth: number): Settin
     pushField(`model.${index}.apiKey`, 'general', 'API Key', model.apiKey || '未配置', { kind: 'modelField', modelIndex: index, field: 'apiKey' }, undefined, 6);
     if (model.provider !== 'deepseek') {
       pushField(`model.${index}.baseUrl`, 'general', 'Base URL', model.baseUrl || '(空)', { kind: 'modelField', modelIndex: index, field: 'baseUrl' }, '回车编辑。', 6);
+    }
+    pushField(
+      `model.${index}.autoSummaryEnabled`, 'general', '自动压缩上下文',
+      boolText(model.autoSummaryEnabled), { kind: 'modelAutoCompact', modelIndex: index },
+      '默认开启；空格切换。关闭时写入 autoSummaryThreshold: false。', 6,
+    );
+    if (model.autoSummaryEnabled) {
+      pushField(`model.${index}.autoSummaryThreshold`, 'general', '自动压缩阈值', model.autoSummaryThreshold, { kind: 'modelField', modelIndex: index, field: 'autoSummaryThreshold' }, '百分比（如 90%）或绝对 token，回车编辑。', 6);
     }
   });
 
@@ -632,6 +641,11 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         snapshot.defaultModelName = model.modelName.trim();
         return;
       }
+      if (target.kind === 'modelAutoCompact') {
+        const model = snapshot.models[target.modelIndex];
+        if (model) model.autoSummaryEnabled = !model.autoSummaryEnabled;
+        return;
+      }
       if (target.kind === 'systemField' && target.field === 'stream') {
         snapshot.system.stream = !snapshot.system.stream;
         return;
@@ -706,6 +720,14 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       const parsed = Number(value.trim());
       if (!Number.isFinite(parsed) || parsed < 1 || parsed > 20) { setStatus('最大代理深度必须在 1 到 20 之间', 'error'); return; }
     }
+    if (editor.target.kind === 'modelField' && editor.target.field === 'autoSummaryThreshold') {
+      const threshold = value.trim();
+      const percent = threshold.match(/^(\d+(?:\.\d+)?)%$/);
+      const absolute = /^\d+(?:\.\d+)?$/.test(threshold) ? Number(threshold) : undefined;
+      const percentValue = percent ? Number(percent[1]) : undefined;
+      if (absolute == null && percentValue == null) { setStatus('请输入百分比（如 90%）或绝对 token', 'error'); return; }
+      if ((absolute != null && absolute <= 0) || (percentValue != null && (percentValue <= 0 || percentValue > 100))) { setStatus('自动压缩阈值必须大于 0，百分比不能超过 100%', 'error'); return; }
+    }
 
     if (editor.target.kind === 'mcpField' && editor.target.field === 'timeout') {
       const parsed = Number(value.trim());
@@ -722,6 +744,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
           if (snapshot.defaultModelName === previousName) snapshot.defaultModelName = model.modelName;
         } else if (editor.target.field === 'modelId') { model.modelId = value; }
         else if (editor.target.field === 'apiKey') { model.apiKey = value; }
+        else if (editor.target.field === 'autoSummaryThreshold') { model.autoSummaryThreshold = value.trim(); }
         else { model.baseUrl = value; }
         return;
       }
@@ -1076,7 +1099,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       return;
     }
     if (key.name === 'space' && selectedRow?.target) {
-      if (selectedRow.target.kind === 'modelDefault' || selectedRow.target.kind === 'toolApprovalView' || selectedRow.target.kind === 'toolGlobalToggle' || (selectedRow.target.kind === 'systemField' && (selectedRow.target.field === 'stream' || selectedRow.target.field === 'retryOnError' || selectedRow.target.field === 'logRequests' || selectedRow.target.field === 'asyncSubAgents')) || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'enabled')) {
+      if (selectedRow.target.kind === 'modelDefault' || selectedRow.target.kind === 'modelAutoCompact' || selectedRow.target.kind === 'toolApprovalView' || selectedRow.target.kind === 'toolGlobalToggle' || (selectedRow.target.kind === 'systemField' && (selectedRow.target.field === 'stream' || selectedRow.target.field === 'retryOnError' || selectedRow.target.field === 'logRequests' || selectedRow.target.field === 'asyncSubAgents')) || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'enabled')) {
 
         applyToggle(selectedRow.target);
       } else if (selectedRow.target.kind === 'pluginField' && selectedRow.target.fieldType === 'toggle') {
@@ -1100,7 +1123,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         else handleAddModel();
         return;
       }
-      if (selectedRow.target.kind === 'modelDefault' || selectedRow.target.kind === 'toolApprovalView' || selectedRow.target.kind === 'toolGlobalToggle' || (selectedRow.target.kind === 'systemField' && (selectedRow.target.field === 'stream' || selectedRow.target.field === 'retryOnError' || selectedRow.target.field === 'logRequests' || selectedRow.target.field === 'asyncSubAgents')) || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'enabled')) {
+      if (selectedRow.target.kind === 'modelDefault' || selectedRow.target.kind === 'modelAutoCompact' || selectedRow.target.kind === 'toolApprovalView' || selectedRow.target.kind === 'toolGlobalToggle' || (selectedRow.target.kind === 'systemField' && (selectedRow.target.field === 'stream' || selectedRow.target.field === 'retryOnError' || selectedRow.target.field === 'logRequests' || selectedRow.target.field === 'asyncSubAgents')) || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'enabled')) {
         applyToggle(selectedRow.target);
         return;
       }

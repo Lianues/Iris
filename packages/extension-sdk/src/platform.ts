@@ -106,6 +106,9 @@ export interface BackendEventMap {
   'turn:start':         (sessionId: string, turnId: string, mode: string) => void;
   'retry':              (sessionId: string, attempt: number, maxRetries: number, error: string) => void;
   'user:token':         (sessionId: string, tokenCount: number) => void;
+  'compact:start':      (sessionId: string, reason: string, beforeTokens: number) => void;
+  'compact:complete':   (sessionId: string, result: unknown) => void;
+  'compact:error':      (sessionId: string, reason: string, error: string) => void;
   'auto-compact':       (sessionId: string, summaryText: string) => void;
   'attachments':        (sessionId: string, attachments: unknown[]) => void;
   'agent:notification': (sessionId: string, taskId: string, status: string, summary: string, taskType?: string, silent?: boolean) => void;

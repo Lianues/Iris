@@ -6,6 +6,7 @@ import { EventEmitter } from 'events';
 import type { LLMRouter } from '../../llm/router';
 import type { Content, Part, LLMRequest, UsageMetadata } from '../../types';
 import { createLogger } from '../../logger';
+import { markLLMErrorPartialOutput } from '../context-overflow';
 
 const logger = createLogger('Backend');
 
@@ -99,8 +100,9 @@ export async function callLLMStream(
 
   emitter.emit('stream:start', sessionId);
 
-  const llmStream = router.chatStream(request, modelName, signal);
-  for await (const chunk of llmStream) {
+  try {
+    const llmStream = router.chatStream(request, modelName, signal);
+    for await (const chunk of llmStream) {
     const deltaParts: Part[] = [];
 
     if (chunk.partsDelta && chunk.partsDelta.length > 0) {
@@ -162,19 +164,21 @@ export async function callLLMStream(
     if (deltaParts.length > 0) {
       await new Promise<void>(resolve => setTimeout(resolve, 0));
     }
+    }
+  } catch (err) {
+    throw markLLMErrorPartialOutput(err, parts.length > 0);
+  } finally {
+    // 成功、provider 报错和 abort 都必须闭合 stream 状态，否则 Console 会一直
+    // 把后续 compact/retry 当成上一段仍在流式输出。
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    emitter.emit('stream:end', sessionId, usageMetadata);
+    if (usageMetadata) emitter.emit('usage', sessionId, usageMetadata);
   }
 
   // 诊断日志：流式 chunk 到达时间分布
   if (streamOutputChunkCount > 0) {
     const spread = (streamOutputLastChunkAt ?? 0) - (streamOutputFirstChunkAt ?? 0);
     logger.info(`[Stream] ${streamOutputChunkCount} chunks, spread=${spread}ms (first→last)`);
-  }
-
-  // 确保最后一个 chunk 的 SSE 数据已刷新到 TCP socket，再发送 stream:end
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
-  emitter.emit('stream:end', sessionId, usageMetadata);
-  if (usageMetadata) {
-    emitter.emit('usage', sessionId, usageMetadata);
   }
 
   if (parts.length === 0) parts.push({ text: '' });

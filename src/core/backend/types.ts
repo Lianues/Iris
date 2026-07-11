@@ -7,6 +7,7 @@ import type { Part, Content, UsageMetadata, ToolInvocation, ToolAttachment } fro
 import type { ToolExecutionHandle } from '../../tools/handle';
 import type { LLMModelInfo } from '../../llm/router';
 import type { CallmeAttributionConfig } from '../../git/callme';
+import type { CompactReason, CompactResult } from './compaction';
 
 // ============ 常量 ============
 
@@ -216,7 +217,13 @@ export interface BackendEvents {
   'turn:start': (sessionId: string, turnId: string, mode: 'chat' | 'task-notification') => void;
   /** 一轮模型输出完成后的完整内容（结构化） */
   'assistant:content': (sessionId: string, content: Content) => void;
-  /** 自动上下文压缩完成（阈值触发） */
+  /** 上下文压缩开始。 */
+  'compact:start': (sessionId: string, reason: CompactReason, beforeTokens: number) => void;
+  /** 上下文压缩成功（手动和自动共用）。 */
+  'compact:complete': (sessionId: string, result: CompactResult) => void;
+  /** 上下文压缩失败；历史保持不变。 */
+  'compact:error': (sessionId: string, reason: CompactReason, error: string) => void;
+  /** 自动上下文压缩完成（兼容既有平台事件）。 */
   'auto-compact': (sessionId: string, summaryText: string) => void;
   /**
    * 工具执行产生的附件（例如 MCP 生图结果）。
