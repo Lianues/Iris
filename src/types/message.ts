@@ -99,6 +99,11 @@ export interface Content {
   createdAt?: number;
   /** 是否为上下文总结消息（/compact 生成），后续 LLM 调用仅从最后一条总结消息开始加载上下文 */
   isSummary?: boolean;
+  /**
+   * compact 后完整主模型请求的 token 估算（仅 summary 消息持久化/UI 恢复使用）。
+   * 与 usageMetadata 中“摘要消息自身 token”分离，组装 LLM 请求时必须剥离。
+   */
+  compactedContextTokenCount?: number;
 }
 
 // ============ 类型守卫工具函数 ============

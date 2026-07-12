@@ -155,6 +155,11 @@ export class RemoteBackendHandle extends EventEmitter {
     return (await this.callRemote(Methods.GET_HISTORY, [sessionId])) as unknown[] ?? [];
   }
 
+  async getLastSessionTokens(sessionId: string): Promise<number | undefined> {
+    const value = await this.callRemote(Methods.GET_LAST_SESSION_TOKENS, [sessionId]);
+    return typeof value === 'number' ? value : undefined;
+  }
+
   listSkills(): unknown[] {
     return this._cachedSkills;
   }

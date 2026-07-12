@@ -9,7 +9,11 @@
 import { estimateTokenCount } from 'tokenx';
 import { Content, Part, LLMRequest, extractText, isFunctionCallPart, isFunctionResponsePart, isInlineDataPart } from '../types';
 import { LLMRouter } from '../llm/router';
-import { DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT } from '../config/summary';
+import {
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  DEFAULT_SYSTEM_PROMPT,
+  DEFAULT_USER_PROMPT,
+} from '../config/summary';
 import type { LLMConfig, SummaryConfig } from '../config/types';
 
 export interface SummarizeHistoryOptions {
@@ -26,6 +30,8 @@ const MAX_TOOL_ARRAY_ITEMS = 40;
 const MAX_TOOL_OBJECT_KEYS = 80;
 const MAX_TOOL_DEPTH = 8;
 const SUMMARY_INPUT_RATIO = 0.8;
+const SUMMARY_OUTPUT_WINDOW_RATIO = 0.2;
+const SUMMARY_SOFT_TARGET_RATIO = 0.75;
 const MAX_CHUNK_REDUCTION_DEPTH = 4;
 const CONTINUATION_PROMPT = `
 
@@ -37,9 +43,66 @@ Mandatory requirements:
 - Do not claim the task is complete unless the conversation explicitly proves it.
 - Do not ask the user to repeat the original request.`;
 
-function resolveSummaryUserPrompt(config?: SummaryConfig, purpose: SummarizeHistoryOptions['purpose'] = 'default'): string {
+function asPositiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined;
+}
+
+function getModelConfiguredOutputLimit(config?: LLMConfig): number | undefined {
+  const body = config?.requestBody;
+  if (!body || typeof body !== 'object') return undefined;
+  const generationConfig = body.generationConfig;
+  const candidates = [
+    body.maxOutputTokens,
+    body.max_output_tokens,
+    body.max_tokens,
+    body.max_completion_tokens,
+    generationConfig && typeof generationConfig === 'object'
+      ? (generationConfig as Record<string, unknown>).maxOutputTokens
+      : undefined,
+  ];
+  let limit: number | undefined;
+  for (const candidate of candidates) {
+    const value = asPositiveInteger(candidate);
+    if (value) limit = limit === undefined ? value : Math.min(limit, value);
+  }
+  return limit;
+}
+
+/**
+ * 解析单次 compact 请求的硬输出上限。summary.yaml 决定默认 ceiling；已知模型
+ * 窗口时最多占 20%，而模型静态 requestBody 中更小的显式限制仍会被尊重。
+ */
+export function resolveSummaryMaxOutputTokens(
+  config?: SummaryConfig,
+  modelConfig?: LLMConfig,
+): number {
+  let limit = asPositiveInteger(config?.maxOutputTokens) ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  const staticLimit = getModelConfiguredOutputLimit(modelConfig);
+  if (staticLimit) limit = Math.min(limit, staticLimit);
+
+  const contextWindow = asPositiveInteger(modelConfig?.contextWindow);
+  if (contextWindow) {
+    limit = Math.min(limit, Math.max(1, Math.floor(contextWindow * SUMMARY_OUTPUT_WINDOW_RATIO)));
+  }
+  return Math.max(1, limit);
+}
+
+function resolveSummaryUserPrompt(
+  config?: SummaryConfig,
+  purpose: SummarizeHistoryOptions['purpose'] = 'default',
+  maxOutputTokens = resolveSummaryMaxOutputTokens(config),
+): string {
   const base = config?.userPrompt ?? DEFAULT_USER_PROMPT;
-  return purpose === 'continuation' ? `${base}${CONTINUATION_PROMPT}` : base;
+  const continuation = purpose === 'continuation' ? CONTINUATION_PROMPT : '';
+  const softTarget = Math.max(1, Math.floor(maxOutputTokens * SUMMARY_SOFT_TARGET_RATIO));
+  const lengthGuidance = `
+
+Length guidance:
+- Aim for approximately ${softTarget} tokens or fewer.
+- The hard output limit is ${maxOutputTokens} tokens. Prioritize task-critical facts if space is tight.`;
+  return `${base}${continuation}${lengthGuidance}`;
 }
 
 function truncateMiddle(text: string, maxChars: number): string {
@@ -134,9 +197,10 @@ export function estimateSummaryInputTokens(
   history: Content[],
   config?: SummaryConfig,
   purpose: SummarizeHistoryOptions['purpose'] = 'default',
+  maxOutputTokens = resolveSummaryMaxOutputTokens(config),
 ): number {
   const systemPrompt = config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
-  const userPrompt = resolveSummaryUserPrompt(config, purpose);
+  const userPrompt = resolveSummaryUserPrompt(config, purpose, maxOutputTokens);
   return estimateTokenCount(`${systemPrompt}\n${JSON.stringify(history)}\n${userPrompt}`);
 }
 
@@ -152,12 +216,15 @@ function normalizeOptions(optionsOrSignal?: AbortSignal | SummarizeHistoryOption
 async function collectStreamText(
   router: LLMRouter,
   request: LLMRequest,
+  maxOutputTokens: number,
   modelName?: string,
   signal?: AbortSignal,
 ): Promise<string> {
   const parts: string[] = [];
 
-  for await (const chunk of router.chatStream(request, modelName, signal)) {
+  for await (const chunk of router.chatStream(request, modelName, signal, {
+    maxOutputTokensCeiling: maxOutputTokens,
+  })) {
     if (chunk.partsDelta && chunk.partsDelta.length > 0) {
       for (const part of chunk.partsDelta) {
         if ('text' in part && part.thought !== true && part.text) parts.push(part.text);
@@ -173,16 +240,20 @@ async function collectStreamText(
 
 function buildSummaryRequest(
   history: Content[],
+  maxOutputTokens: number,
   config?: SummaryConfig,
   purpose: SummarizeHistoryOptions['purpose'] = 'default',
 ): LLMRequest {
   const contents = history.map(({ role, parts }) => ({ role, parts }));
   contents.push({
     role: 'user',
-    parts: [{ text: resolveSummaryUserPrompt(config, purpose) }],
+    parts: [{ text: resolveSummaryUserPrompt(config, purpose, maxOutputTokens) }],
   });
 
-  const request: LLMRequest = { contents };
+  const request: LLMRequest = {
+    contents,
+    generationConfig: { maxOutputTokens },
+  };
   const systemPrompt = config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
   if (systemPrompt) request.systemInstruction = { parts: [{ text: systemPrompt }] };
   return request;
@@ -194,11 +265,14 @@ async function callSummaryModel(
   modelName: string | undefined,
   config: SummaryConfig | undefined,
   options: SummarizeHistoryOptions,
+  maxOutputTokens: number,
 ): Promise<string> {
-  const request = buildSummaryRequest(history, config, options.purpose);
+  const request = buildSummaryRequest(history, maxOutputTokens, config, options.purpose);
   const text = options.stream
-    ? await collectStreamText(router, request, modelName, options.signal)
-    : extractText((await router.chat(request, modelName, options.signal)).content.parts).trim();
+    ? await collectStreamText(router, request, maxOutputTokens, modelName, options.signal)
+    : extractText((await router.chat(request, modelName, options.signal, {
+        maxOutputTokensCeiling: maxOutputTokens,
+      })).content.parts).trim();
 
   if (!text.trim()) throw new Error('总结模型返回了空摘要');
   return text.trim();
@@ -263,9 +337,10 @@ function fitCompactUnitToBudget(
   budget: number,
   config: SummaryConfig | undefined,
   purpose: SummarizeHistoryOptions['purpose'],
+  maxOutputTokens: number,
 ): Content[] {
   const normalized = normalizeChunkStart(unit);
-  if (!Number.isFinite(budget) || estimateSummaryInputTokens(normalized, config, purpose) <= budget) {
+  if (!Number.isFinite(budget) || estimateSummaryInputTokens(normalized, config, purpose, maxOutputTokens) <= budget) {
     return unit;
   }
 
@@ -278,7 +353,7 @@ function fitCompactUnitToBudget(
         text: `[${oversizedUnitLabel(unit)}; payload bounded for compact]\n${truncateMiddle(serialized, charLimit)}`,
       }],
     }];
-    if (estimateSummaryInputTokens(fallback, config, purpose) <= budget) return fallback;
+    if (estimateSummaryInputTokens(fallback, config, purpose, maxOutputTokens) <= budget) return fallback;
     charLimit = Math.max(64, Math.floor(charLimit * 0.6));
   }
 
@@ -286,7 +361,7 @@ function fitCompactUnitToBudget(
     role: 'user',
     parts: [{ text: `[${oversizedUnitLabel(unit)}; detailed payload omitted because it exceeds the summary model window]` }],
   }];
-  if (estimateSummaryInputTokens(minimal, config, purpose) > budget) {
+  if (estimateSummaryInputTokens(minimal, config, purpose, maxOutputTokens) > budget) {
     throw new Error(`总结模型可用上下文过小，无法容纳 compact 指令（budget=${budget} tokens）`);
   }
   return minimal;
@@ -297,15 +372,16 @@ function chunkHistoryByBudget(
   budget: number,
   config: SummaryConfig | undefined,
   purpose: SummarizeHistoryOptions['purpose'],
+  maxOutputTokens: number,
 ): Content[][] {
   const units = groupHistoryByCompactUnit(history);
   const chunks: Content[][] = [];
   let current: Content[] = [];
 
   for (const rawUnit of units) {
-    const unit = fitCompactUnitToBudget(rawUnit, budget, config, purpose);
+    const unit = fitCompactUnitToBudget(rawUnit, budget, config, purpose, maxOutputTokens);
     const candidate = normalizeChunkStart([...current, ...unit]);
-    if (current.length > 0 && estimateSummaryInputTokens(candidate, config, purpose) > budget) {
+    if (current.length > 0 && estimateSummaryInputTokens(candidate, config, purpose, maxOutputTokens) > budget) {
       chunks.push(normalizeChunkStart(current));
       current = [...unit];
     } else {
@@ -354,27 +430,28 @@ async function summarizeWithBudget(
   options: SummarizeHistoryOptions,
   depth = 0,
 ): Promise<string> {
+  const maxOutputTokens = resolveSummaryMaxOutputTokens(config, modelConfig);
   const contextWindow = modelConfig?.contextWindow;
   // 低于 1k 的 contextWindow 只会出现在精简测试桩中；真实模型若连 compact
   // 指令本身都装不下，不应把生产绝对预留逻辑套到该模拟值上。
   const budget = contextWindow && contextWindow >= MIN_ENFORCED_SUMMARY_BUDGET
     ? Math.max(1, Math.floor(contextWindow * SUMMARY_INPUT_RATIO))
     : Number.POSITIVE_INFINITY;
-  const inputTokens = estimateSummaryInputTokens(history, config, options.purpose);
+  const inputTokens = estimateSummaryInputTokens(history, config, options.purpose, maxOutputTokens);
 
   if (inputTokens <= budget || depth >= MAX_CHUNK_REDUCTION_DEPTH) {
-    return callSummaryModel(router, history, modelName, config, options);
+    return callSummaryModel(router, history, modelName, config, options, maxOutputTokens);
   }
 
-  const chunks = chunkHistoryByBudget(history, budget, config, options.purpose);
-  if (chunks.length === 0) return callSummaryModel(router, history, modelName, config, options);
+  const chunks = chunkHistoryByBudget(history, budget, config, options.purpose, maxOutputTokens);
+  if (chunks.length === 0) return callSummaryModel(router, history, modelName, config, options, maxOutputTokens);
   if (chunks.length === 1) {
-    return callSummaryModel(router, chunks[0], modelName, config, options);
+    return callSummaryModel(router, chunks[0], modelName, config, options, maxOutputTokens);
   }
 
   const partialSummaries: string[] = [];
   for (let i = 0; i < chunks.length; i++) {
-    const partial = await callSummaryModel(router, chunks[i], modelName, config, options);
+    const partial = await callSummaryModel(router, chunks[i], modelName, config, options, maxOutputTokens);
     partialSummaries.push(`## Partial Summary ${i + 1}/${chunks.length}\n${truncateMiddle(partial, MAX_TEXT_PART_CHARS)}`);
   }
 
@@ -398,7 +475,12 @@ export async function summarizeHistory(
 ): Promise<string> {
   const options = normalizeOptions(optionsOrSignal);
   const cleanHistory = prepareHistoryForSummary(history);
-  const inputTokens = estimateSummaryInputTokens(cleanHistory, config, options.purpose);
+  const inputTokens = estimateSummaryInputTokens(
+    cleanHistory,
+    config,
+    options.purpose,
+    resolveSummaryMaxOutputTokens(config),
+  );
   const resolved = resolveSummaryModel(router, modelName, inputTokens);
   return summarizeWithBudget(router, cleanHistory, resolved.modelName, resolved.config, config, options);
 }

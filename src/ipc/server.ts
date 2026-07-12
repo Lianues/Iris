@@ -104,6 +104,7 @@ interface IPCBackendLike {
   rewind?(sessionId: string, checkpointId: string, mode?: string): Promise<unknown>;
   clearRedo?(sessionId: string): void;
   getHistory?(sessionId: string): Promise<unknown[]>;
+  getLastSessionTokens?(sessionId: string): number | undefined;
   listSkills?(): unknown[];
   listModes?(): unknown[];
   switchMode?(modeName: string): boolean;
@@ -352,6 +353,9 @@ export class IPCServer extends EventEmitter {
           break;
         case Methods.GET_HISTORY:
           result = await this.backend.getHistory?.(params[0] as string) ?? [];
+          break;
+        case Methods.GET_LAST_SESSION_TOKENS:
+          result = this.backend.getLastSessionTokens?.(params[0] as string);
           break;
         case Methods.LIST_SKILLS:
           result = this.backend.listSkills?.() ?? [];
@@ -672,6 +676,8 @@ export class IPCServer extends EventEmitter {
         return null;
       case Methods.GET_HISTORY:
         return await backend.getHistory?.(params[0] as string) ?? [];
+      case Methods.GET_LAST_SESSION_TOKENS:
+        return backend.getLastSessionTokens?.(params[0] as string);
       case Methods.LIST_SKILLS:
         return backend.listSkills?.() ?? [];
       case Methods.LIST_MODES:

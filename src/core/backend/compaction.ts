@@ -3,6 +3,7 @@ import { isFunctionCallPart, isFunctionResponsePart } from '../../types';
 import type { LLMConfig } from '../../config/types';
 import { DEFAULT_AUTO_SUMMARY_THRESHOLD } from '../../config/llm';
 import { estimateTokenCount } from 'tokenx';
+import { sanitizeLLMRequest } from '../../prompt/request-sanitizer';
 
 /** 自动上下文压缩的触发原因。 */
 export type CompactReason =
@@ -14,6 +15,7 @@ export type CompactReason =
 
 export interface CompactResult {
   summaryText: string;
+  summaryTokens: number;
   beforeTokens: number;
   afterTokens: number;
   reason: CompactReason;
@@ -153,7 +155,7 @@ export function resolveRequestCompactThreshold(
 
 /** 估算最终 LLMRequest（含 system/tools/history）的 token，而非只估历史文本。 */
 export function estimateLLMRequestTokens(request: LLMRequest): number {
-  return estimateTokenCount(JSON.stringify(request));
+  return estimateTokenCount(JSON.stringify(sanitizeLLMRequest(request)));
 }
 
 /** 从持久化历史恢复最近一次真实 LLM totalTokenCount。 */
@@ -167,7 +169,11 @@ export function findLastPersistedTotalTokens(history: Content[]): number | undef
   return undefined;
 }
 
-/** 从最后一条 summary 开始估算当前真正会发送给主模型的历史 token。 */
+/**
+ * 从最后一条 summary 开始估算当前真正会发送给主模型的历史 token。
+ * 与最终请求估算使用同一净化边界，避免持久化的 diffPreview/durationMs 等
+ * 本地元数据在 pre-turn fallback 中重新形成 ghost token。
+ */
 export function estimateActiveHistoryTokens(history: Content[]): number {
   let startIndex = 0;
   for (let i = history.length - 1; i >= 0; i--) {
@@ -177,7 +183,7 @@ export function estimateActiveHistoryTokens(history: Content[]): number {
     }
   }
   const active = startIndex > 0 ? history.slice(startIndex) : history;
-  return estimateTokenCount(JSON.stringify(active));
+  return estimateTokenCount(JSON.stringify(sanitizeLLMRequest({ contents: active }).contents));
 }
 
 /** compact 只能发生在完整 model 回合之后。 */

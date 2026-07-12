@@ -7,8 +7,13 @@ import { StorageProvider, type SessionMeta } from '../src/storage/base.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { ToolStateManager } from '../src/tools/state.js';
 import { PromptAssembler } from '../src/prompt/assembler.js';
+import { writeFile } from '../src/tools/internal/write_file.js';
+import { clearSessionCwd, setSessionCwd } from '../src/core/backend/session-context.js';
+import { estimateLLMRequestTokens } from '../src/core/backend/compaction.js';
+import { prepareHistoryForLLM } from '../src/core/backend/history.js';
 import type { Content, LLMRequest } from '../src/types/index.js';
 import type { LLMConfig } from '../src/config/types.js';
+import { estimateTokenCount } from 'tokenx';
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -91,7 +96,7 @@ function makeBackend(storage: MemoryStorage, usageForChat: number, requests: LLM
     },
   );
   backend.on('error', () => {});
-  return { backend, router, dataDir };
+  return { backend, router, dataDir, modelConfig };
 }
 
 describe('Backend auto compact timing', () => {
@@ -104,7 +109,7 @@ describe('Backend auto compact timing', () => {
       usageMetadata: { totalTokenCount: 89 },
     });
     const requests: LLMRequest[] = [];
-    const { backend, dataDir } = makeBackend(storage, 95, requests);
+    const { backend, dataDir, modelConfig } = makeBackend(storage, 95, requests);
     const complete = vi.fn();
     backend.on('compact:complete', complete);
 
@@ -123,6 +128,15 @@ describe('Backend auto compact timing', () => {
       const newQuestionIndex = history.findIndex(item => item.parts.some(part => 'text' in part && part.text === 'NEW QUESTION'));
       expect(summaryIndex).toBeGreaterThanOrEqual(0);
       expect(newQuestionIndex).toBeGreaterThan(summaryIndex);
+
+      const compactedPrompt = new PromptAssembler();
+      compactedPrompt.setSystemPrompt('test');
+      const expectedAfterRequest = compactedPrompt.assemble(
+        prepareHistoryForLLM([history[summaryIndex]], modelConfig),
+        [],
+      );
+      expect(complete.mock.calls[0][1].afterTokens)
+        .toBe(estimateLLMRequestTokens(expectedAfterRequest));
     } finally {
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
@@ -131,10 +145,14 @@ describe('Backend auto compact timing', () => {
   it('finishes post-turn compact before emitting done', async () => {
     const storage = new MemoryStorage();
     const requests: LLMRequest[] = [];
-    const { backend, dataDir } = makeBackend(storage, 95, requests);
+    const { backend, dataDir, modelConfig } = makeBackend(storage, 95, requests);
     const order: string[] = [];
+    let completedResult: any;
     backend.on('compact:start', () => order.push('compact:start'));
-    backend.on('compact:complete', () => order.push('compact:complete'));
+    backend.on('compact:complete', (_sid, result) => {
+      completedResult = result;
+      order.push('compact:complete');
+    });
     backend.on('done', () => order.push('done'));
 
     try {
@@ -143,8 +161,23 @@ describe('Backend auto compact timing', () => {
       expect(order).toEqual(['compact:start', 'compact:complete', 'done']);
       const history = await storage.getHistory('s1');
       expect(history.at(-1)?.isSummary).toBe(true);
-      expect(backend.getLastSessionTokens('s1')).toBeGreaterThan(0);
-      expect(backend.getLastSessionTokens('s1')).toBeLessThan(95);
+      const summary = history.at(-1)!;
+      const summaryText = (summary.parts[0] as { text: string }).text;
+      const expectedSummaryTokens = estimateTokenCount(summaryText);
+      const mainRequest = requests.find(request => !isSummaryRequest(request))!;
+      const expectedCompactedRequest: LLMRequest = {
+        ...mainRequest,
+        contents: prepareHistoryForLLM([summary], modelConfig),
+      };
+
+      expect(completedResult.summaryTokens).toBe(expectedSummaryTokens);
+      expect(summary.usageMetadata).toMatchObject({
+        promptTokenCount: expectedSummaryTokens,
+        totalTokenCount: expectedSummaryTokens,
+      });
+      expect(completedResult.afterTokens).toBe(estimateLLMRequestTokens(expectedCompactedRequest));
+      expect(backend.getLastSessionTokens('s1')).toBe(completedResult.afterTokens);
+      expect(completedResult.afterTokens).toBeLessThan(95);
     } finally {
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
@@ -198,6 +231,10 @@ describe('Backend auto compact timing', () => {
       const summaryIndex = history.findIndex(content => content.isSummary);
       const userIndex = history.findIndex(content => content === exactUserMessages[0]);
       expect(userIndex).toBeGreaterThan(summaryIndex);
+      const normalRequests = requests.filter(request => !isSummaryRequest(request));
+      expect(normalRequests).toHaveLength(2);
+      expect(complete.mock.calls[0][1].afterTokens)
+        .toBe(estimateLLMRequestTokens(normalRequests[1]));
       expect(history.at(-1)?.role).toBe('model');
     } finally {
       fs.rmSync(dataDir, { recursive: true, force: true });
@@ -285,12 +322,138 @@ describe('Backend auto compact timing', () => {
       expect(order).toEqual(['compact:in-turn-threshold', 'done']);
       const normalRequests = requests.filter(request => !isSummaryRequest(request));
       expect(normalRequests).toHaveLength(2);
+      expect(complete.mock.calls[0][0].afterTokens)
+        .toBe(estimateLLMRequestTokens(normalRequests[1]));
       expect(JSON.stringify(normalRequests[1])).toContain('tool step completed successfully');
       expect(JSON.stringify(normalRequests[1])).not.toContain('x'.repeat(1_000));
       const history = await storage.getHistory('s-long');
       expect(history.some(item => item.isSummary)).toBe(true);
+      const persistedLargeResponse = history
+        .flatMap(content => content.parts)
+        .find(part => (
+          'functionResponse' in part
+          && part.functionResponse.name === 'large_step'
+        ));
+      expect(persistedLargeResponse && 'functionResponse' in persistedLargeResponse
+        ? persistedLargeResponse.functionResponse.response
+        : undefined).toEqual({
+        result: { payload: 'x'.repeat(8_000), ok: true },
+      });
+      expect(persistedLargeResponse && 'functionResponse' in persistedLargeResponse
+        ? persistedLargeResponse.functionResponse.diffPreview
+        : undefined).toBeUndefined();
       expect(history.at(-1)?.role).toBe('model');
     } finally {
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not compact when a fresh tool response only has a huge local diff preview', async () => {
+    const sessionId = 's-local-diff-preview';
+    const storage = new MemoryStorage();
+    const requests: LLMRequest[] = [];
+    const modelConfig: LLMConfig = {
+      provider: 'openai-compatible',
+      apiKey: '',
+      model: 'mock-local-metadata',
+      baseUrl: 'https://example.test/v1',
+      contextWindow: 10_000,
+      autoSummaryThreshold: '90%',
+    };
+    let normalCalls = 0;
+    const router = {
+      chat: vi.fn(async (request: LLMRequest) => {
+        requests.push(clone(request));
+        if (isSummaryRequest(request)) {
+          return {
+            content: { role: 'model' as const, parts: [{ text: 'unexpected summary' }] },
+            usageMetadata: { totalTokenCount: 100 },
+          };
+        }
+        normalCalls++;
+        if (normalCalls === 1) {
+          return {
+            content: {
+              role: 'model' as const,
+              parts: [{
+                functionCall: {
+                  name: 'write_file',
+                  args: { path: 'large-existing.txt', content: 'small replacement\n' },
+                  callId: 'write-small-result',
+                },
+              }],
+            },
+            usageMetadata: { totalTokenCount: 200 },
+          };
+        }
+        return {
+          content: { role: 'model' as const, parts: [{ text: 'write completed' }] },
+          usageMetadata: { totalTokenCount: 300 },
+        };
+      }),
+      chatStream: vi.fn(),
+      getCurrentModelName: vi.fn(() => 'mock-local-metadata'),
+      getCurrentConfig: vi.fn(() => modelConfig),
+      getModelConfig: vi.fn(() => modelConfig),
+      getModelInfo: vi.fn(() => ({})),
+    } as any;
+    const tools = new ToolRegistry();
+    tools.register(writeFile);
+    const prompt = new PromptAssembler();
+    prompt.setSystemPrompt('test');
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-local-diff-workspace-'));
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-local-diff-data-'));
+    const localOnlyContent = 'LOCAL_ONLY_DIFF_PREVIEW_LINE\n'.repeat(12_000);
+    fs.writeFileSync(path.join(workspaceDir, 'large-existing.txt'), localOnlyContent, 'utf-8');
+    setSessionCwd(sessionId, workspaceDir);
+
+    const backend = new Backend(router, storage, tools, new ToolStateManager(), prompt, {
+      stream: false,
+      maxToolRounds: 5,
+      currentLLMConfig: modelConfig,
+      summaryModelName: 'mock-local-metadata',
+      toolsConfig: {
+        autoApproveDiff: true,
+        permissions: { write_file: { autoApprove: true } },
+      },
+      dataDir,
+    });
+    backend.on('error', () => {});
+    const complete = vi.fn();
+    backend.on('compact:complete', complete);
+
+    try {
+      await backend.chat(sessionId, 'replace the existing file with a short value');
+
+      expect(normalCalls).toBe(2);
+      expect(complete).not.toHaveBeenCalled();
+      expect(requests.filter(isSummaryRequest)).toHaveLength(0);
+
+      const normalRequests = requests.filter(request => !isSummaryRequest(request));
+      expect(normalRequests).toHaveLength(2);
+      const secondRequestText = JSON.stringify(normalRequests[1]);
+      expect(secondRequestText).not.toContain('diffPreview');
+      expect(secondRequestText).not.toContain('durationMs');
+      expect(secondRequestText).not.toContain('LOCAL_ONLY_DIFF_PREVIEW_LINE');
+      expect(estimateLLMRequestTokens(normalRequests[1])).toBeLessThan(9_000);
+
+      const persistedHistory = await storage.getHistory(sessionId);
+      const persistedResponse = persistedHistory
+        .flatMap(content => content.parts)
+        .find(part => 'functionResponse' in part)?.functionResponse;
+      expect(persistedResponse).toBeDefined();
+      expect(persistedResponse?.durationMs).toEqual(expect.any(Number));
+      expect(persistedResponse?.diffPreview).toBeDefined();
+      expect(JSON.stringify(persistedResponse?.diffPreview)).toContain('LOCAL_ONLY_DIFF_PREVIEW_LINE');
+      expect(estimateTokenCount(JSON.stringify(persistedResponse?.diffPreview))).toBeGreaterThan(9_000);
+      expect(persistedResponse?.response).toEqual({
+        result: { path: 'large-existing.txt', success: true, action: 'modified' },
+      });
+      expect(fs.readFileSync(path.join(workspaceDir, 'large-existing.txt'), 'utf-8'))
+        .toBe('small replacement\n');
+    } finally {
+      clearSessionCwd(sessionId);
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
   });

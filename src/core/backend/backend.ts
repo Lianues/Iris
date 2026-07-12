@@ -42,7 +42,7 @@ import { createLogger } from '../../logger';
 import { sanitizeHistory } from '../history-sanitizer';
 import { estimateTokenCount } from 'tokenx';
 import { extractText, isTextPart, isInlineDataPart } from '../../types';
-import type { Content, Part, UsageMetadata } from '../../types';
+import type { Content, Part, UsageMetadata, LLMRequest } from '../../types';
 import { summarizeHistory } from '../summarizer';
 import { resetConfigToDefaults as doResetConfigToDefaults } from '../../config/index';
 import { MessageQueue } from '../message-queue';
@@ -531,9 +531,64 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     }
   }
 
+  /**
+   * 从持久化历史恢复状态栏/自动 compact 使用的完整上下文 token。
+   *
+   * summary.usageMetadata 只表示摘要消息自身，不能再作为完整上下文使用；新记录
+   * 优先读取 compactedContextTokenCount。旧 transcript 没有该字段时，按当前
+   * system/tools/有效历史重建一次完整请求估算，保持向后兼容。
+   */
+  private restoreSessionContextTokens(sessionId: string, history: Content[]): number | undefined {
+    const existing = this.lastSessionTokens.get(sessionId);
+    if (typeof existing === 'number' && Number.isFinite(existing) && existing > 0) {
+      return existing;
+    }
+
+    let lastSummaryIndex = -1;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].isSummary) {
+        lastSummaryIndex = i;
+        break;
+      }
+    }
+
+    let restored: number | undefined;
+    if (lastSummaryIndex >= 0) {
+      // summary 后若已有新的模型回复，provider 的真实 totalTokenCount 最准确。
+      for (let i = history.length - 1; i > lastSummaryIndex; i--) {
+        if (history[i].role !== 'model') continue;
+        const value = history[i].usageMetadata?.totalTokenCount;
+        if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+          restored = value;
+          break;
+        }
+      }
+
+      const persistedCompactTokens = history[lastSummaryIndex].compactedContextTokenCount;
+      if (!restored && typeof persistedCompactTokens === 'number'
+        && Number.isFinite(persistedCompactTokens) && persistedCompactTokens > 0) {
+        restored = persistedCompactTokens;
+      }
+
+      if (!restored) {
+        const prepared = prepareHistoryForLLM(history, this.currentLLMConfig);
+        restored = estimateLLMRequestTokens(
+          this.prompt.assemble(prepared, this.tools.getDeclarations()),
+        );
+      }
+    } else {
+      restored = findLastPersistedTotalTokens(history);
+    }
+
+    if (restored && restored > 0) this.lastSessionTokens.set(sessionId, restored);
+    return restored;
+  }
+
   /** 获取指定会话的历史消息 */
   async getHistory(sessionId: string): Promise<Content[]> {
-    return this.storage.getHistory(sessionId);
+    const history = await this.storage.getHistory(sessionId);
+    this.restoreSessionContextTokens(sessionId, history);
+    return history;
   }
 
   /** 获取指定会话的元数据 */
@@ -554,6 +609,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   /** 截断会话历史 */
   async truncateHistory(sessionId: string, keepCount: number): Promise<void> {
     await this.storage.truncateHistory(sessionId, keepCount);
+    this.lastSessionTokens.delete(sessionId);
+    const history = await this.storage.getHistory(sessionId);
+    this.restoreSessionContextTokens(sessionId, history);
   }
 
   /**
@@ -606,6 +664,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     beforeTokensHint?: number,
     retainedTail: Content[] = [],
     stableKeepCount?: number,
+    requestTemplate?: LLMRequest,
   ): Promise<CompactResult> {
     const history = sourceHistory ?? await this.storage.getHistory(sessionId);
     if (history.length === 0) {
@@ -657,12 +716,12 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
 
       const now = Date.now();
       const fullText = `[Context Summary]\n\n${summaryText.trim()}`;
-      const estimatedTokens = estimateTokenCount(fullText);
-      if (!summaryText.trim() || estimatedTokens <= 0) {
+      const summaryTokens = estimateTokenCount(fullText);
+      if (!summaryText.trim() || summaryTokens <= 0) {
         throw new Error('总结模型返回了空摘要');
       }
-      if (estimatedActiveBeforeTokens > 0 && estimatedTokens >= estimatedActiveBeforeTokens) {
-        throw new Error(`摘要未能减少有效历史（${estimatedActiveBeforeTokens} -> ${estimatedTokens} tokens）`);
+      if (estimatedActiveBeforeTokens > 0 && summaryTokens >= estimatedActiveBeforeTokens) {
+        throw new Error(`摘要未能减少有效历史（${estimatedActiveBeforeTokens} -> ${summaryTokens} tokens）`);
       }
 
       const summaryContent: Content = {
@@ -671,10 +730,25 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         isSummary: true,
         createdAt: now,
         usageMetadata: {
-          promptTokenCount: estimatedTokens,
-          totalTokenCount: estimatedTokens,
+          promptTokenCount: summaryTokens,
+          totalTokenCount: summaryTokens,
         },
       };
+
+      // afterTokens 表示 compact 后主模型的完整请求，而不是摘要文本本身。直接用
+      // summary -> retained tail 重建请求，避免把 before/active 的估算口径差异（尤其
+      // fresh tool response 的本地 UI 元数据）误当成固定 system/tools 成本。
+      const compactedHistory = prepareHistoryForLLM(
+        [summaryContent, ...retainedTail],
+        this.currentLLMConfig,
+      );
+      const compactedRequest: LLMRequest = requestTemplate
+        ? { ...requestTemplate, contents: compactedHistory }
+        : this.prompt.assemble(compactedHistory, this.tools.getDeclarations());
+      const afterTokens = estimateLLMRequestTokens(compactedRequest);
+      // 单独持久化完整上下文估算，供 session 重载恢复状态栏；摘要卡片仍只读取
+      // usageMetadata 中的 summaryTokens。该字段会在请求边界被剥离。
+      summaryContent.compactedContextTokenCount = afterTokens;
 
       // overflow 恢复需要把 summary 插入当前用户消息之前。摘要生成期间不动存储，
       // 只有验证成功后才截断并按 summary -> retained tail 的顺序提交。
@@ -686,19 +760,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
         await this.storage.addMessage(sessionId, content);
       }
 
-      const retainedTokens = retainedTail.reduce((total, content) => {
-        const persisted = content.usageMetadata?.promptTokenCount;
-        return total + (persisted && persisted > 0
-          ? persisted
-          : estimateTokenCount(JSON.stringify(content.parts)));
-      }, 0);
-      // actual usage 中还包含 system prompt、工具声明等固定成本；compact 后仍需保留该估算，
-      // 否则状态栏和下一轮 preflight 会把上下文显示得过低。beforeTokensHint 在
-      // 首轮恢复场景已包含 retained tail，需先扣除，避免把当前用户消息计算两次。
-      const fixedContextTokens = Math.max(
-        0, estimatedBeforeTokens - estimatedActiveBeforeTokens - retainedTokens,
-      );
-      const afterTokens = estimatedTokens + retainedTokens + fixedContextTokens;
       this.lastSessionTokens.set(sessionId, afterTokens);
 
       this.undoRedo.clearRedo(sessionId);
@@ -709,6 +770,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
 
       const result: CompactResult = {
         summaryText: summaryText.trim(),
+        summaryTokens,
         beforeTokens: estimatedBeforeTokens,
         afterTokens,
         reason,
@@ -745,7 +807,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     if (!range) return null;
 
     const removed = history.slice(range.removeStart);
-    await this.storage.truncateHistory(sessionId, range.removeStart);
+    await this.truncateHistory(sessionId, range.removeStart);
     this.undoRedo.pushRedoGroup(sessionId, removed);
 
     const summary = this.undoRedo.summarizeGroup(removed);
@@ -825,6 +887,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     for (const content of restored) {
       await this.addMessage(sessionId, content, { clearRedo: false });
     }
+    const history = await this.storage.getHistory(sessionId);
+    this.restoreSessionContextTokens(sessionId, history);
 
     const summary = this.undoRedo.summarizeGroup(restored);
     return {
@@ -840,6 +904,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       this.undoRedo.clearRedo(sessionId);
     }
     await this.storage.addMessage(sessionId, content);
+    this.lastSessionTokens.delete(sessionId);
   }
 
   setCwd(dirPath: string): void {
@@ -1427,7 +1492,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const autoThreshold = this.getAutoSummaryThreshold();
     if (autoThreshold && hasStableCompactBoundary(storedHistory)) {
       const lastTokens = this.lastSessionTokens.get(sessionId)
-        ?? findLastPersistedTotalTokens(storedHistory)
+        ?? this.restoreSessionContextTokens(sessionId, storedHistory)
         ?? estimateActiveHistoryTokens(storedHistory);
       const projectedTokens = lastTokens + estimateTokenCount(wrappedText);
       if (projectedTokens >= autoThreshold) {
@@ -1470,7 +1535,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       runAfterChatHooks: false,
       postCompact: !preTurnCompacted,
       initialContextRecovery: hasStableCompactBoundary(stableHistoryForTurn)
-        ? async (reason, beforeTokens) => {
+        ? async (reason, beforeTokens, requestTemplate) => {
           await this.compactUnlocked(
             sessionId,
             reason,
@@ -1479,6 +1544,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
             beforeTokens,
             [notificationContent],
             stableHistoryForTurn.length,
+            requestTemplate,
           );
           return prepareHistoryForLLM(
             await this.storage.getHistory(sessionId),
@@ -1537,6 +1603,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       for (const msg of sanitizeAppended) {
         await this.storage.addMessage(sessionId, msg);
       }
+      this.lastSessionTokens.delete(sessionId);
       logger.info(`历史兜底清理: session=${sessionId}, ${beforeSanitize} -> ${storedHistory.length} 条`);
     }
 
@@ -1545,7 +1612,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     const autoThreshold = this.getAutoSummaryThreshold();
     if (autoThreshold && storedHistory.length > 0) {
       const lastTokens = this.lastSessionTokens.get(sessionId)
-        ?? findLastPersistedTotalTokens(storedHistory)
+        ?? this.restoreSessionContextTokens(sessionId, storedHistory)
         ?? estimateActiveHistoryTokens(storedHistory);
       if (lastTokens > 0) {
         this.lastSessionTokens.set(sessionId, lastTokens);
@@ -1624,7 +1691,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       storedUserParts,
       platformName,
       initialContextRecovery: hasStableCompactBoundary(stableHistoryForTurn)
-        ? async (reason, beforeTokens) => {
+        ? async (reason, beforeTokens, requestTemplate) => {
           await this.compactUnlocked(
             sessionId,
             reason,
@@ -1633,6 +1700,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
             beforeTokens,
             [storedUserContent],
             stableHistoryForTurn.length,
+            requestTemplate,
           );
           return prepareHistoryForLLM(await this.storage.getHistory(sessionId), this.currentLLMConfig);
         }
@@ -1669,7 +1737,11 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     /**
      * 首轮最终请求超预算/溢出时，压缩稳定旧历史并原样保留当前用户消息。
      */
-    initialContextRecovery?: (reason: CompactReason, beforeTokens: number) => Promise<Content[] | undefined>;
+    initialContextRecovery?: (
+      reason: CompactReason,
+      beforeTokens: number,
+      requestTemplate: LLMRequest,
+    ) => Promise<Content[] | undefined>;
   }): Promise<void> {
     const { sessionId, turnId, history, signal } = options;
     const startTime = Date.now();
@@ -1698,6 +1770,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
 
     // 2. 构建 LLM 调用函数
     let lastCallTotalTokens = 0;
+    let lastCallRequest: LLMRequest | undefined;
 
     // 流式模式下创建 StreamingToolExecutor，在 LLM 流式输出过程中
     // 通过 onFunctionCallReady 回调提前启动工具执行。
@@ -1705,6 +1778,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     let streamingExecutor: StreamingToolExecutor | undefined;
 
     const callLLM: LLMCaller = async (request, modelName, callSignal) => {
+      lastCallRequest = request;
       let content: Content;
       if (this.stream) {
         // 每轮 LLM 调用创建新的 StreamingToolExecutor
@@ -1791,7 +1865,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
           }
           return undefined;
         }
-        replacement = await options.initialContextRecovery(reason, requestTokens);
+        replacement = await options.initialContextRecovery(reason, requestTokens, checkpoint.request);
       } else {
         if (!hasCompleteToolBoundary(checkpoint.history)) {
           if (proactivePressure) {
@@ -1805,6 +1879,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
           signal,
           checkpoint.history,
           requestTokens,
+          [],
+          undefined,
+          checkpoint.request,
         );
         replacement = prepareHistoryForLLM(
           await this.storage.getHistory(sessionId),
@@ -1927,6 +2004,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
             signal,
             undefined,
             lastCallTotalTokens,
+            [],
+            undefined,
+            lastCallRequest,
           );
         } catch (err) {
           logger.warn('Auto-compact (post-response) failed:', err);

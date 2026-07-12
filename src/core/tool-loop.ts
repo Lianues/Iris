@@ -24,6 +24,7 @@ import type { StreamingToolExecutor } from '../tools/streaming-executor';
 import { ToolsConfig, ToolPolicyConfig } from '../config';
 import type { SkillContextModifier } from '../config/types';
 import { PromptAssembler } from '../prompt/assembler';
+import { sanitizeLLMRequest } from '../prompt/request-sanitizer';
 import type {
   BeforeToolExecInterceptor,
   AfterToolExecInterceptor,
@@ -254,6 +255,10 @@ export class ToolLoop {
             logger.warn(`beforeLLMCall 执行失败 (round=${rounds}):`, err);
           }
         }
+
+        // 插件钩子之后建立最终请求边界：fresh tool response 中的本地 UI/持久化
+        // 元数据不得进入 preflight 估算，也不得依赖 Provider 编码阶段才被剥离。
+        request = sanitizeLLMRequest(request);
 
         // 请求发送前的主动安全线检查。
         if (options?.onContextCheckpoint) {

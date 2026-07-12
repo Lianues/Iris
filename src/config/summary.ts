@@ -6,6 +6,8 @@ import { SummaryConfig } from './types';
 
 export const DEFAULT_SYSTEM_PROMPT = 'Please summarize the above conversation, keeping key information and context points while removing redundant content.';
 
+export const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
+
 export const DEFAULT_USER_PROMPT = `Please summarize the above conversation history and output the following sections, so that the AI can continue completing the unfinished tasks.
 
 ## User Requirements
@@ -34,5 +36,9 @@ export function parseSummaryConfig(raw: any = {}): SummaryConfig {
     userPrompt: typeof raw?.userPrompt === 'string' && raw.userPrompt.trim()
       ? raw.userPrompt.trim()
       : DEFAULT_USER_PROMPT,
+    maxOutputTokens: typeof raw?.maxOutputTokens === 'number'
+      && Number.isFinite(raw.maxOutputTokens) && raw.maxOutputTokens > 0
+      ? Math.floor(raw.maxOutputTokens)
+      : DEFAULT_MAX_OUTPUT_TOKENS,
   };
 }

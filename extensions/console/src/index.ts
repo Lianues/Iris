@@ -45,7 +45,7 @@ import {
   fetchRemoteManifest,
   readGitInstallMetadata,
 } from 'irises-extension-sdk/utils';
-import { App, AppHandle, MessageMeta } from './App';
+import { App, AppHandle } from './App';
 import { MessagePart } from './components/MessageItem';
 import { ConsoleSettingsController, ConsoleSettingsSaveResult, ConsoleSettingsSnapshot } from './settings';
 import { configureBundledOpenTuiTreeSitter } from './opentui-runtime';
@@ -77,6 +77,10 @@ import {
 import { handleConsoleToggleExtension } from './extension-toggle';
 import { attachResultDiffPreview, extractResultDiffPreview } from './tool-renderers/diff-preview-meta.js';
 import { listFileMentionFiles as listLocalFileMentionFiles } from './file-mention-files';
+import {
+  getHistoryMessageMeta as getMessageMeta,
+  resolveLoadedSessionContextTokenCount,
+} from './history-usage';
 
 /**
  * 从 shell 命令生成可记忆的命令模式。
@@ -297,18 +301,6 @@ function convertPartsToMessageParts(
   }
 
   return result;
-}
-
-function getMessageMeta(content: Content): MessageMeta | undefined {
-  const meta: MessageMeta = {};
-  if (content.usageMetadata?.promptTokenCount != null) meta.tokenIn = content.usageMetadata.promptTokenCount;
-  if (content.usageMetadata?.candidatesTokenCount != null) meta.tokenOut = content.usageMetadata.candidatesTokenCount;
-  if (content.createdAt != null) meta.createdAt = content.createdAt;
-  if (content.isSummary) meta.isSummary = true;
-  if (content.durationMs != null) meta.durationMs = content.durationMs;
-  if (content.streamOutputDurationMs != null) meta.streamOutputDurationMs = content.streamOutputDurationMs;
-  if (content.modelName) (meta as any).modelName = content.modelName;
-  return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
 // /extension 入口必须优先展示本地列表；远程 catalog 走后台刷新并缓存，避免 GitHub raw 网络抖动阻塞 TUI。
@@ -1268,6 +1260,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
     this.onBackend('compact:complete', (sid: string, result: {
       summaryText: string;
+      summaryTokens: number;
       beforeTokens: number;
       afterTokens: number;
       reason: string;
@@ -1277,7 +1270,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       const continuesTask = result.reason === 'in-turn-threshold'
         || result.reason === 'context-overflow-retry';
       const fullText = `[Context Summary]\n\n${result.summaryText}`;
-      this.appHandle?.addSummaryMessage(fullText, result.afterTokens > 0 ? result.afterTokens : undefined);
+      this.appHandle?.addSummaryMessage(fullText, result.summaryTokens > 0 ? result.summaryTokens : undefined);
       this.appHandle?.setCompactUsage({ promptTokenCount: result.afterTokens, totalTokenCount: result.afterTokens });
       this.appHandle?.addCommandMessage(
         `上下文已压缩：${result.beforeTokens.toLocaleString()} -> ${result.afterTokens.toLocaleString()} tokens`
@@ -2298,6 +2291,33 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
 
 
+  private async getLoadedSessionContextTokenCount(
+    sessionId: string,
+    history: readonly Content[],
+  ): Promise<number | undefined> {
+    const persisted = resolveLoadedSessionContextTokenCount(history);
+    if (persisted !== undefined || !history.some(message => message.isSummary)) {
+      return persisted;
+    }
+
+    // getHistory() 会先让 Backend 从 transcript 恢复完整上下文 token。直接查询
+    // Backend 可同时覆盖本地和远程 IPC；agentManager 保留为旧宿主兼容回退。
+    let restored: number | undefined;
+    try {
+      restored = await this.backend.getLastSessionTokens?.(sessionId);
+    } catch {
+      // 旧远程服务端可能还不认识该 IPC 方法，继续尝试 API/历史字段回退。
+    }
+    if (restored == null) {
+      try {
+        restored = this.api?.agentManager?.getLastSessionTokens?.(sessionId);
+      } catch {
+        // token 恢复失败不应阻止历史会话加载。
+      }
+    }
+    return resolveLoadedSessionContextTokenCount(history, restored);
+  }
+
   private async handleLoadSession(id: string): Promise<void> {
     this.sessionId = id;
     this.currentToolIds.clear();
@@ -2312,6 +2332,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     this.syncAutoEditStatus();
 
     const history = await this.backend.getHistory?.(id) ?? [];
+    const loadedContextTokenCount = await this.getLoadedSessionContextTokenCount(id, history);
     const progressArchives = (await this.loadProgressArchives(id))
       .filter(entry => entry?.snapshot?.items?.length > 0)
       .sort((a, b) => (a.afterHistoryIndex ?? 0) - (b.afterHistoryIndex ?? 0) || (a.archivedAt ?? 0) - (b.archivedAt ?? 0));
@@ -2361,6 +2382,14 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
       if (msg.usageMetadata) {
         this.appHandle?.setUsage(msg.usageMetadata);
       }
+    }
+    // 摘要卡片已经从 summary.usageMetadata 取得摘要自身 token；历史回放完成后，
+    // 再只更新状态栏为 compact 后的完整请求 token，不覆盖 lastUsageRef。
+    if (loadedContextTokenCount !== undefined) {
+      this.appHandle?.setCompactUsage({
+        promptTokenCount: loadedContextTokenCount,
+        totalTokenCount: loadedContextTokenCount,
+      });
     }
     insertProgressArchivesUpTo(Number.MAX_SAFE_INTEGER);
 

@@ -81,6 +81,7 @@ export const Methods = {
   LIST_REWIND_CHECKPOINTS: 'backend.listRewindCheckpoints',
   REWIND: 'backend.rewind',
   GET_HISTORY: 'backend.getHistory',
+  GET_LAST_SESSION_TOKENS: 'backend.getLastSessionTokens',
   LIST_SKILLS: 'backend.listSkills',
   LIST_MODES: 'backend.listModes',
   SWITCH_MODE: 'backend.switchMode',

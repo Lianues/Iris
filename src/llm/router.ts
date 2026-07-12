@@ -4,7 +4,7 @@
  * 管理一组按 modelName 注册的模型，并维护当前活动模型。
  */
 
-import type { LLMProviderLike } from './providers/base';
+import type { LLMCallOptions, LLMProviderLike } from './providers/base';
 import { LLMRequest, LLMResponse, LLMStreamChunk } from '../types';
 import { LLMConfig } from '../config/types';
 
@@ -146,13 +146,23 @@ export class LLMRouter {
   }
 
   /** 非流式调用（按模型名称，可省略以使用当前模型） */
-  async chat(request: LLMRequest, modelName?: LLMModelName, signal?: AbortSignal): Promise<LLMResponse> {
-    return this.resolve(modelName).chat(request, signal);
+  async chat(
+    request: LLMRequest,
+    modelName?: LLMModelName,
+    signal?: AbortSignal,
+    options?: LLMCallOptions,
+  ): Promise<LLMResponse> {
+    return this.resolve(modelName).chat(request, signal, options);
   }
 
   /** 流式调用（按模型名称，可省略以使用当前模型） */
-  async *chatStream(request: LLMRequest, modelName?: LLMModelName, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
-    yield* this.resolve(modelName).chatStream(request, signal);
+  async *chatStream(
+    request: LLMRequest,
+    modelName?: LLMModelName,
+    signal?: AbortSignal,
+    options?: LLMCallOptions,
+  ): AsyncGenerator<LLMStreamChunk> {
+    yield* this.resolve(modelName).chatStream(request, signal, options);
   }
 
   /** 运行时浅合并当前模型的 requestBody 覆盖 */

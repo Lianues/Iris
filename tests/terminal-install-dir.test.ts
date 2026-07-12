@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveTerminalInstallDir } from '../terminal/src/shared/install-dir.js';
 
 const createdDirs: string[] = [];
@@ -35,6 +35,13 @@ function restoreEnv(name: 'IRIS_DIR' | '__IRIS_PKG_DIR', value: string | undefin
     process.env[name] = value;
   }
 }
+
+beforeEach(() => {
+  // 测试必须与启动 Vitest 的 shell 环境隔离；全局 npm 包装器会设置
+  // __IRIS_PKG_DIR，否则无显式覆盖的用例会错误命中真实安装目录。
+  delete process.env.IRIS_DIR;
+  delete process.env.__IRIS_PKG_DIR;
+});
 
 afterEach(() => {
   restoreEnv('IRIS_DIR', originalIrisDir);

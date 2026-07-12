@@ -176,6 +176,34 @@ describe('Backend undo/redo', () => {
     ]);
   });
 
+  it('undo/redo 会同步恢复 compact 后的完整上下文 token，不沿用被截断回复的缓存', async () => {
+    storage.setHistory(sessionId, [
+      {
+        role: 'user',
+        parts: [{ text: '[Context Summary]\n\nsummary' }],
+        isSummary: true,
+        usageMetadata: { promptTokenCount: 25, totalTokenCount: 25 },
+        compactedContextTokenCount: 300,
+      },
+      {
+        role: 'model',
+        parts: [{ text: 'response after compact' }],
+        usageMetadata: { totalTokenCount: 500 },
+      },
+    ]);
+
+    await backend.getHistory(sessionId);
+    expect(backend.getLastSessionTokens(sessionId)).toBe(500);
+
+    const undoResult = await backend.undo(sessionId, 'last-visible-message');
+    expect(undoResult?.removedCount).toBe(1);
+    expect(backend.getLastSessionTokens(sessionId)).toBe(300);
+
+    const redoResult = await backend.redo(sessionId);
+    expect(redoResult?.restoredCount).toBe(1);
+    expect(backend.getLastSessionTokens(sessionId)).toBe(500);
+  });
+
   it('listRewindCheckpoints 只列出普通用户消息，过滤工具响应、summary 和通知', async () => {
     storage.setHistory(sessionId, [
       { ...textContent('user', '第一问'), createdAt: 1000 },

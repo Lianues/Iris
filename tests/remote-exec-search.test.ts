@@ -7,6 +7,32 @@ import { getTranslator } from '../extensions/remote-exec/src/translators.js';
 
 const tempDirs: string[] = [];
 
+function resolveBashExecutable(): string | undefined {
+  const candidates = process.platform === 'win32'
+    ? [
+        process.env.BASH_PATH,
+        process.env.BASH,
+        'C:\\Program Files\\Git\\bin\\bash.exe',
+        'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+        'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+        process.env.LOCALAPPDATA
+          ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe')
+          : undefined,
+      ]
+    : [process.env.BASH_PATH, process.env.BASH, '/bin/bash', '/usr/bin/bash'];
+
+  return candidates.find((candidate): candidate is string => (
+    typeof candidate === 'string'
+    && candidate.length > 0
+    && fs.existsSync(candidate)
+  ));
+}
+
+const bashExecutable = resolveBashExecutable();
+// 这些测试验证远端 POSIX translator；宿主机没有任何 Bash 实现时无法建立本地
+// transport fixture。Windows 上优先使用 Git Bash，而不是硬编码不存在的 /bin/bash。
+const describeWithBash = bashExecutable ? describe : describe.skip;
+
 function makeTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-remote-exec-search-'));
   tempDirs.push(dir);
@@ -19,7 +45,7 @@ function createBashTransport(counter: { execs: number; commands?: string[] }) {
     execCommand(_alias: string, command: string, _signal?: AbortSignal, input?: Buffer | string) {
       counter.execs++;
       counter.commands?.push(command);
-      const result = spawnSync('/bin/bash', ['-lc', command], { input, encoding: 'buffer' });
+      const result = spawnSync(bashExecutable!, ['-lc', command], { input, encoding: 'buffer' });
       return Promise.resolve({
         stdout: result.stdout.toString('utf8'),
         stderr: result.stderr.toString('utf8'),
@@ -36,7 +62,7 @@ afterEach(() => {
   }
 });
 
-describe('remote-exec search_in_files', () => {
+describeWithBash('remote-exec search_in_files', () => {
   it('search 模式在远端用 grep 生成结果，避免逐文件下载', async () => {
     const cwd = makeTempDir();
     fs.mkdirSync(path.join(cwd, 'projects/new-api/common'), { recursive: true });

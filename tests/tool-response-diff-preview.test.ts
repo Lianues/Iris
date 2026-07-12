@@ -7,6 +7,7 @@ import { sessionContext } from '../src/core/backend/session-context.js';
 import { prepareHistoryForLLM } from '../src/core/backend/history.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { ToolStateManager } from '../src/tools/state.js';
+import { PromptAssembler } from '../src/prompt/assembler.js';
 import { buildExecutionPlan, executePlan } from '../src/tools/scheduler.js';
 import { applyDiff } from '../src/tools/internal/apply_diff/index.js';
 import { writeFile } from '../src/tools/internal/write_file.js';
@@ -141,5 +142,65 @@ describe('tool response diff preview persistence', () => {
     expect(preparedPart.functionResponse.callId).toBe('call_1');
     expect(preparedPart.functionResponse.durationMs).toBeUndefined();
     expect(preparedPart.functionResponse.diffPreview).toBeUndefined();
+  });
+
+  it('PromptAssembler 会净化同轮 fresh response，同时保留原始历史与模型所需字段', () => {
+    const inlinePart = {
+      inlineData: {
+        mimeType: 'image/png',
+        data: 'base64-image-data',
+        name: 'result.png',
+      },
+    };
+    const history: Content[] = [{
+      role: 'user',
+      parts: [{
+        functionResponse: {
+          name: 'write_file',
+          response: { result: { path: 'demo.txt', success: true } },
+          callId: 'fresh-call-1',
+          parts: [inlinePart],
+          durationMs: 321,
+          diffPreview: {
+            toolName: 'write_file',
+            title: 'Large local preview',
+            toolLabel: 'write_file',
+            summary: [],
+            items: [{
+              filePath: 'demo.txt',
+              label: 'demo.txt',
+              diff: 'LOCAL_ONLY_DIFF'.repeat(20_000),
+              added: 1,
+              removed: 1,
+            }],
+          },
+        },
+      }],
+      usageMetadata: { promptTokenCount: 999, totalTokenCount: 1_234 },
+      durationMs: 456,
+      compactedContextTokenCount: 2_345,
+      createdAt: 123,
+    }];
+
+    const request = new PromptAssembler().assemble(history);
+    const sent = (request.contents[0].parts[0] as any).functionResponse;
+    const original = (history[0].parts[0] as any).functionResponse;
+
+    expect(sent).toEqual({
+      name: 'write_file',
+      response: { result: { path: 'demo.txt', success: true } },
+      callId: 'fresh-call-1',
+      parts: [inlinePart],
+    });
+    expect((request.contents[0] as any).usageMetadata).toBeUndefined();
+    expect((request.contents[0] as any).durationMs).toBeUndefined();
+    expect((request.contents[0] as any).compactedContextTokenCount).toBeUndefined();
+
+    // 请求净化不得原地破坏持久化/TUI 所需元数据。
+    expect(original.durationMs).toBe(321);
+    expect(original.diffPreview.items[0].diff).toContain('LOCAL_ONLY_DIFF');
+    expect(history[0].usageMetadata?.totalTokenCount).toBe(1_234);
+    expect(history[0].compactedContextTokenCount).toBe(2_345);
+    expect(request.contents[0]).not.toBe(history[0]);
   });
 });

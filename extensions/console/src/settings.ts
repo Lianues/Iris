@@ -33,7 +33,7 @@
  *     - platform.yaml                   平台类型与各平台参数（console/discord/telegram/web/...）
  *     - modes.yaml                      自定义模式（description, systemPrompt, tools include/exclude）
  *     - sub_agents.yaml                 子代理类型定义（enabled, stream, types.* 各项参数）
- *     - summary.yaml                    上下文压缩提示词（systemPrompt, userPrompt）
+ *     - summary.yaml                    上下文压缩配置（systemPrompt, userPrompt, maxOutputTokens）
  *     - storage.yaml                    存储类型与路径（type, dir, dbPath）
  *     - ocr.yaml                        OCR 配置（provider, apiKey, baseUrl, model）
  *     - plugins.yaml                    插件列表（name, type, enabled, priority, config）

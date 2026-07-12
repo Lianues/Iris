@@ -3,6 +3,10 @@
 # 之后 Iris 实际读取和写入的是用户运行时目录中的同名文件；请在用户目录中修改配置。
 # 上下文压缩配置（/compact 指令）
 
+# 单次摘要请求的最大输出 token。已知模型 contextWindow 时还会自动限制为窗口的 20%。
+# 此限制仅作用于 compact，不会改变主聊天请求。
+maxOutputTokens: 16384
+
 # 总结 AI 的系统提示词
 systemPrompt: |
   Please summarize the above conversation, keeping key information and context points while removing redundant content.

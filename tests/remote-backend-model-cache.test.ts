@@ -103,6 +103,36 @@ describe('RemoteBackendHandle 模型缓存同步', () => {
     });
   });
 
+  it('通过默认 IPC 方法读取恢复后的完整 session token', async () => {
+    const client = new FakeIPCClient({
+      [Methods.GET_LAST_SESSION_TOKENS]: 4321,
+    });
+    const backend = new RemoteBackendHandle(client);
+
+    await expect(backend.getLastSessionTokens('session-1')).resolves.toBe(4321);
+    expect(client.calls).toEqual([{
+      method: Methods.GET_LAST_SESSION_TOKENS,
+      params: ['session-1'],
+    }]);
+  });
+
+  it('指定 agentName 时通过 AGENT_BACKEND_CALL 读取目标 Agent 的 session token', async () => {
+    const client = new FakeIPCClient({
+      [Methods.AGENT_BACKEND_CALL]: 9876,
+    });
+    const backend = new RemoteBackendHandle(client, { agentName: 'worker' });
+
+    await expect(backend.getLastSessionTokens('session-worker')).resolves.toBe(9876);
+    expect(client.calls).toEqual([{
+      method: Methods.AGENT_BACKEND_CALL,
+      params: [
+        'worker',
+        Methods.GET_LAST_SESSION_TOKENS,
+        ['session-worker'],
+      ],
+    }]);
+  });
+
   it('远程 API 的 getPeerBackendHandle 应返回按目标 Agent 路由的 RemoteBackendHandle', async () => {
     const client = new FakeIPCClient({});
     const api = createRemoteApiProxy(client, 'master');

@@ -372,6 +372,8 @@ export interface SummaryConfig {
   systemPrompt: string;
   /** 追加在对话末尾的用户指令 */
   userPrompt: string;
+  /** 单次 compact 摘要请求的最大输出 token；默认 16384 */
+  maxOutputTokens: number;
 }
 
 export interface DeliveryConfig {

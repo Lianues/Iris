@@ -190,6 +190,8 @@ export interface IrisBackendLike {
   switchMode?(modeName: string): boolean;
   clearRedo?(sessionId: string): void;
   getHistory?(sessionId: string): Promise<Content[]>;
+  /** 获取指定会话当前完整 LLM 请求上下文的 token 数；远程 Backend 可异步返回。 */
+  getLastSessionTokens?(sessionId: string): number | undefined | Promise<number | undefined>;
   runCommand?(cmd: string): unknown;
   summarize?(sessionId: string): Promise<unknown>;
   reloadAgentsMd?(sessionId: string): Promise<AgentsMdReloadResultLike>;
@@ -347,6 +349,10 @@ export class BackendHandle implements IrisBackendLike {
 
   getHistory(sessionId: string): Promise<Content[]> {
     return this._backend.getHistory?.(sessionId) ?? Promise.resolve([]);
+  }
+
+  getLastSessionTokens(sessionId: string): number | undefined | Promise<number | undefined> {
+    return this._backend.getLastSessionTokens?.(sessionId);
   }
 
   runCommand(cmd: string): unknown { return this._backend.runCommand?.(cmd); }

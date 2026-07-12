@@ -122,7 +122,7 @@ export abstract class StorageProvider {
 
   /** 统一 Content 的字段顺序：role → parts → usageMetadata → durationMs → streamOutputDurationMs → 其余 */
   protected normalize(content: Content): Content {
-    const known = new Set(['role', 'parts', 'usageMetadata', 'durationMs', 'streamOutputDurationMs', 'isSummary']);
+    const known = new Set(['role', 'parts', 'usageMetadata', 'durationMs', 'streamOutputDurationMs', 'isSummary', 'compactedContextTokenCount']);
     const normalized: Content = {
       role: content.role,
   parts: content.parts,
@@ -141,6 +141,9 @@ export abstract class StorageProvider {
     }
     if (content.isSummary) {
       normalized.isSummary = true;
+    }
+    if (content.compactedContextTokenCount != null) {
+      normalized.compactedContextTokenCount = content.compactedContextTokenCount;
     }
     for (const [k, v] of Object.entries(content)) {
       if (!known.has(k)) {

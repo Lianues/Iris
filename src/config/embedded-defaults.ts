@@ -357,6 +357,8 @@ plugins:
 
   'summary.yaml': `# 上下文压缩配置（/compact 指令）
 # 使用默认提示词，通常无需修改
+# 单次摘要输出上限；仅作用于 compact，已知模型窗口时还会限制为窗口的 20%。
+maxOutputTokens: 16384
 `,
 
   'cloudflare.yaml': `# Cloudflare 管理配置

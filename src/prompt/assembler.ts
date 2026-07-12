@@ -6,6 +6,7 @@
  */
 
 import { Content, Part, LLMRequest, FunctionDeclaration } from '../types';
+import { sanitizeLLMRequest } from './request-sanitizer';
 
 export class PromptAssembler {
   private systemParts: Part[] = [];
@@ -61,8 +62,7 @@ export class PromptAssembler {
     extraParts?: Part[],
   ): LLMRequest {
     const request: LLMRequest = {
-      // 剥离 usageMetadata（仅存储用，不发送给 LLM）
-      contents: history.map(({ role, parts }) => ({ role, parts })),
+      contents: history,
     };
 
     // 系统提示词（含可选的额外片段）
@@ -84,6 +84,6 @@ export class PromptAssembler {
       request.generationConfig = config;
     }
 
-    return request;
+    return sanitizeLLMRequest(request);
   }
 }

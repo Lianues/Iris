@@ -48,10 +48,67 @@ function mergeRequestBody(baseBody: unknown, overrideBody?: Record<string, unkno
   return deepMergeObjects(baseBody, overrideBody);
 }
 
+const OUTPUT_TOKEN_KEYS = [
+  'maxOutputTokens',
+  'max_output_tokens',
+  'max_tokens',
+  'max_completion_tokens',
+] as const;
+
+function asPositiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined;
+}
+
+/**
+ * 对 Provider 编码、runtime overrides、静态 requestBody 三层合并后的最终请求体
+ * 应用单次调用输出上限。静态配置可以继续收紧上限，但不能抬高该 ceiling。
+ *
+ * 同时处理各 Provider 常见字段；若用户在 requestBody 中留下多个等价字段，统一
+ * 取其中最小值，避免某个更大的别名绕过 compact 专用上限。
+ */
+export function applyMaxOutputTokensCeiling(body: unknown, ceiling?: number): unknown {
+  const normalizedCeiling = asPositiveInteger(ceiling);
+  if (!normalizedCeiling || !isPlainObject(body)) return body;
+
+  let effectiveLimit = normalizedCeiling;
+  for (const key of OUTPUT_TOKEN_KEYS) {
+    const value = asPositiveInteger(body[key]);
+    if (value) effectiveLimit = Math.min(effectiveLimit, value);
+  }
+
+  const generationConfig = isPlainObject(body.generationConfig)
+    ? body.generationConfig
+    : undefined;
+  const geminiLimit = asPositiveInteger(generationConfig?.maxOutputTokens);
+  if (geminiLimit) effectiveLimit = Math.min(effectiveLimit, geminiLimit);
+
+  const result: Record<string, unknown> = { ...body };
+  for (const key of OUTPUT_TOKEN_KEYS) {
+    if (asPositiveInteger(body[key])) result[key] = effectiveLimit;
+  }
+  if (generationConfig && geminiLimit) {
+    result.generationConfig = {
+      ...generationConfig,
+      maxOutputTokens: effectiveLimit,
+    };
+  }
+  return result;
+}
+
+export interface LLMCallOptions {
+  /**
+   * 本次调用的硬输出上限。Provider 在所有 requestBody override 合并完成后应用，
+   * 因此静态配置只能进一步收紧，不能抬高该值。
+   */
+  maxOutputTokensCeiling?: number;
+}
+
 export interface LLMProviderLike {
   setLogging(logsDir: string): void;
-  chat(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse>;
-  chatStream(request: LLMRequest, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk>;
+  chat(request: LLMRequest, signal?: AbortSignal, options?: LLMCallOptions): Promise<LLMResponse>;
+  chatStream(request: LLMRequest, signal?: AbortSignal, options?: LLMCallOptions): AsyncGenerator<LLMStreamChunk>;
   /** 运行时深合并 requestBody 覆盖（递归合并嵌套对象） */
   patchRequestBodyOverrides?(patch: Record<string, unknown>): void;
   /** 运行时按点分路径删除 requestBody 覆盖中的嵌套 key（如 'thinking.type'） */
@@ -105,15 +162,25 @@ export class LLMProvider implements LLMProviderLike {
   }
 
   /** 非流式调用 */
-  async chat(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
-    const body = mergeRequestBody(this.format.encodeRequest(request, false), this.effectiveOverrides);
+  async chat(
+    request: LLMRequest,
+    signal?: AbortSignal,
+    options?: LLMCallOptions,
+  ): Promise<LLMResponse> {
+    const mergedBody = mergeRequestBody(this.format.encodeRequest(request, false), this.effectiveOverrides);
+    const body = applyMaxOutputTokensCeiling(mergedBody, options?.maxOutputTokensCeiling);
     const res = await sendRequest(this.endpoint, body, false, undefined, signal, this.loggingDir);
     return processResponse(res, this.format);
   }
 
   /** 流式调用 */
-  async *chatStream(request: LLMRequest, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
-    const body = mergeRequestBody(this.format.encodeRequest(request, true), this.effectiveOverrides);
+  async *chatStream(
+    request: LLMRequest,
+    signal?: AbortSignal,
+    options?: LLMCallOptions,
+  ): AsyncGenerator<LLMStreamChunk> {
+    const mergedBody = mergeRequestBody(this.format.encodeRequest(request, true), this.effectiveOverrides);
+    const body = applyMaxOutputTokensCeiling(mergedBody, options?.maxOutputTokensCeiling);
     const res = await sendRequest(this.endpoint, body, true, undefined, signal, this.loggingDir);
     yield* processStreamResponse(res, this.format);
   }

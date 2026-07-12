@@ -69,6 +69,8 @@ export interface Content {
   modelName?: string;
   createdAt?: number;
   isSummary?: boolean;
+  /** compact 后完整主模型请求的 token 估算；仅本地持久化/UI 恢复使用。 */
+  compactedContextTokenCount?: number;
 }
 
 
