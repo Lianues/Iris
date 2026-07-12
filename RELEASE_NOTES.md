@@ -1,18 +1,24 @@
-# Iris v1.0.39 Release Notes
+# Iris v1.0.40 Release Notes
 
-## Core
-- 新增长任务回合内上下文检查点压缩，可在多轮工具执行期间压缩历史并继续任务，避免重放已完成工具
-- 增强上下文窗口溢出恢复：支持在无部分输出时压缩上下文并重试当前 LLM 请求
-- 完善自动压缩阈值、上下文窗口预算、输出 token 预留与压缩后 token 统计
-- 增强流式摘要、流生命周期管理与中止处理
+## Compact 与 Token 统计
+- 修复 TUI `/compact` 的 token 统计语义：`summaryTokens` 仅表示摘要消息自身，`afterTokens` 表示 compact 后完整、净化的主模型请求上下文
+- 新增最终 LLM 请求净化边界，`diffPreview`、`durationMs`、usage 等本地 UI/持久化元数据不再进入主模型请求或 preflight token 估算
+- 保留真实 `functionResponse.response`、多模态结果以及完整的 `functionCall` / `functionResponse` 配对；巨大真实工具结果仍会正常触发 compact
+- 修复巨大本地 `diffPreview` 误触发 `in-turn-threshold` compact 的问题
 
-## Console
-- 新增自动压缩开关和阈值配置，并持久化模型 contextWindow
-- 增加压缩进度、上下文摘要及压缩前后 token 数展示
-- 改进压缩期间的流式消息目标与状态处理
+## Summary 输出预算
+- 新增 `summary.maxOutputTokens`，默认值为 `16384`
+- 已知总结模型 `contextWindow` 时，summary 输出硬上限自动收紧到窗口的 20%
+- 模型静态 `requestBody` 可进一步收紧上限，但不能抬高 compact 专用 ceiling
+- 流式、非流式、分块摘要和合并摘要统一使用单次请求级输出限制，并附加约 75% 的软长度目标
 
-## MCP
-- MCP 工具调用现在使用服务器配置的 timeout，避免始终采用 SDK 默认超时
+## Console 与 Session 恢复
+- 摘要卡片显示摘要自身 token，状态栏 `ctx` 显示 compact 后完整请求 token
+- 新增 `compactedContextTokenCount` 持久化字段，session 重载后可恢复正确的上下文统计
+- summary 后若已有模型回复，优先恢复最新 Provider usage；旧 transcript 会按当前 system prompt、工具声明和有效历史重建估算
+- 完成本地 Backend、远程 IPC Backend 与多 Agent IPC 路由兼容
 
-## Tests
-- 新增自动压缩、长任务检查点、上下文溢出恢复、流生命周期和 Console 压缩消息等测试
+## 稳定性与测试
+- 加强连续 compact、overflow recovery、notification turn、undo/redo/rewind 及 token cache 失效语义
+- 新增 fresh 巨大 `diffPreview`、真实大工具结果、summary 输出 ceiling、Console usage 隔离、session 重载和 IPC 回归测试
+- 完整测试套件通过：126 个测试文件、1111 个测试
