@@ -1,24 +1,21 @@
-# Iris v1.0.40 Release Notes
+# Iris v1.0.41 Release Notes
 
-## Compact 与 Token 统计
-- 修复 TUI `/compact` 的 token 统计语义：`summaryTokens` 仅表示摘要消息自身，`afterTokens` 表示 compact 后完整、净化的主模型请求上下文
-- 新增最终 LLM 请求净化边界，`diffPreview`、`durationMs`、usage 等本地 UI/持久化元数据不再进入主模型请求或 preflight token 估算
-- 保留真实 `functionResponse.response`、多模态结果以及完整的 `functionCall` / `functionResponse` 配对；巨大真实工具结果仍会正常触发 compact
-- 修复巨大本地 `diffPreview` 误触发 `in-turn-threshold` compact 的问题
+## TUI 设置体验
+- 重构模型列表拉取与选择浮层，支持搜索、取消加载、长模型名称截断及当前模型定位
+- 修复设置页底部栏高度、宽度和快捷键提示计算，避免说明、状态和快捷键相互覆盖或被终端边缘裁切
+- 根据当前行和编辑状态动态显示可用快捷键，模型 ID 行可直接使用 `F` 拉取 Provider 模型列表
 
-## Summary 输出预算
-- 新增 `summary.maxOutputTokens`，默认值为 `16384`
-- 已知总结模型 `contextWindow` 时，summary 输出硬上限自动收紧到窗口的 20%
-- 模型静态 `requestBody` 可进一步收紧上限，但不能抬高 compact 专用 ceiling
-- 流式、非流式、分块摘要和合并摘要统一使用单次请求级输出限制，并附加约 75% 的软长度目标
+## Prompt Cache 配置
+- 在 TUI 设置中加入 Prompt Cache 开关，并按模型独立写回配置
+- Claude 使用关闭、自动断点、显式断点三态策略，自动与手动断点保持互斥
+- OpenAI Compatible 与 Responses 渠道为 GPT-5.6+ 支持新的缓存参数、30 分钟 TTL 和稳定 cache key
+- Provider 或模型切换时重新判定缓存能力，保留兼容设置并清理不适用字段
 
-## Console 与 Session 恢复
-- 摘要卡片显示摘要自身 token，状态栏 `ctx` 显示 compact 后完整请求 token
-- 新增 `compactedContextTokenCount` 持久化字段，session 重载后可恢复正确的上下文统计
-- summary 后若已有模型回复，优先恢复最新 Provider usage；旧 transcript 会按当前 system prompt、工具声明和有效历史重建估算
-- 完成本地 Backend、远程 IPC Backend 与多 Agent IPC 路由兼容
+## IDE 启动
+- 修复同时安装 VS Code 与 Cursor 时 `/ide` 错误优先启动 Cursor 的问题
+- 加强 Windows、macOS 与 Linux 上的 VS Code 命令识别、候选排序和安装提示
+- 新增 IDE 默认命令与 VS Code 安装器的回归测试
 
 ## 稳定性与测试
-- 加强连续 compact、overflow recovery、notification turn、undo/redo/rewind 及 token cache 失效语义
-- 新增 fresh 巨大 `diffPreview`、真实大工具结果、summary 输出 ceiling、Console usage 隔离、session 重载和 IPC 回归测试
-- 完整测试套件通过：126 个测试文件、1111 个测试
+- 覆盖 Claude 缓存模式、GPT-5.6+ Chat Completions/Responses 缓存、Provider 切换和设置持久化边界
+- 覆盖模型选择器布局、底部栏显示和多 IDE 共存场景
