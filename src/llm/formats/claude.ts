@@ -160,8 +160,9 @@ export class ClaudeFormat implements FormatAdapter {
     }
 
     // 注入顶层自动缓存标记。
-    // 服务端会自动将断点放置在最后一个可缓存的内容块上。
-    if (this.autoCaching) {
+    // 显式策略已经标记最后一个可缓存消息块；两者同开时自动断点是 no-op，
+    // 因此让显式策略优先，避免冗余字段及 requestBody TTL 覆盖造成的冲突。
+    if (this.autoCaching && !this.promptCaching) {
       (body as any).cache_control = { type: 'ephemeral' };
     }
 

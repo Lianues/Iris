@@ -287,16 +287,18 @@ async function handleIdeCommand(manager: IdeManager, arg: string, state: Runtime
         target: target || undefined,
       });
       if (!result.success) return { label: 'ide', message: result.message, isError: true };
-      const connected = await waitForFirstValidConnection(manager);
+      const connection = await waitForFirstValidConnection(manager, 6, result.label);
       return {
         label: 'ide',
-        message: connected
-          ? `${result.message}\n\n已自动连接 IDE：${connected.name} (${connected.port})`
-          : `${result.message}\n\n暂未发现匹配当前 cwd 的 IDE 会话。请确认 VS Code 已打开当前工作区；如仍无结果，再执行 /ide detect。`,
+        message: connection.connected
+          ? `${result.message}\n\n已自动连接 IDE：${connection.connected.name} (${connection.connected.port})`
+          : connection.ambiguous
+            ? `${result.message}\n\n发现多个匹配当前 cwd 的 IDE 会话，请使用 /ide connect <id|port> 明确选择。`
+            : `${result.message}\n\n暂未发现匹配当前 cwd 的 IDE 会话。请确认 VS Code 已打开当前工作区；如仍无结果，再执行 /ide detect。`,
       };
     }
     case '':
-      return handleDefaultIdeCommand(manager, state);
+      return handleDefaultIdeCommand(manager);
     case 'status':
       return { label: 'ide', message: formatStatus(manager.status()) };
     default: {
@@ -314,10 +316,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function connectFirstValidIde(manager: IdeManager): Promise<{ connected?: DetectedIde; detected: DetectedIde[]; error?: string }> {
+async function connectFirstValidIde(manager: IdeManager, preferredLabel?: string): Promise<{
+  connected?: DetectedIde;
+  detected: DetectedIde[];
+  error?: string;
+  ambiguous?: boolean;
+}> {
   const detected = await manager.detect();
-  const valid = detected.filter((ide) => ide.isValid);
+  let valid = detected.filter((ide) => ide.isValid);
+  if (preferredLabel) {
+    valid = valid.filter((ide) => ideMatchesEditorLabel(ide, preferredLabel));
+  }
   if (valid.length === 0) return { detected };
+  if (valid.length > 1) return { detected, ambiguous: true };
 
   const errors: string[] = [];
   for (const ide of valid) {
@@ -335,37 +346,56 @@ async function connectFirstValidIde(manager: IdeManager): Promise<{ connected?: 
   };
 }
 
-async function waitForFirstValidConnection(manager: IdeManager, attempts = 6): Promise<DetectedIde | undefined> {
+async function waitForFirstValidConnection(
+  manager: IdeManager,
+  attempts = 6,
+  preferredLabel?: string,
+): Promise<{ connected?: DetectedIde; ambiguous?: boolean }> {
   for (let i = 0; i < attempts; i++) {
-    const result = await connectFirstValidIde(manager);
-    if (result.connected) return result.connected;
+    const result = await connectFirstValidIde(manager, preferredLabel);
+    if (result.connected) return { connected: result.connected };
+    if (result.ambiguous) return { ambiguous: true };
     if (i < attempts - 1) await sleep(800);
   }
-  return undefined;
+  return {};
 }
 
-async function ensureVscodeExtensionCurrent(state: RuntimeState): Promise<string | undefined> {
-  const result = await installVscodeExtension({
-    extensionRootDir: state.extensionRootDir,
-    dataDir: state.dataDir ?? resolveDefaultDataDir(),
-    activateIfCurrent: false,
-  });
-  if (!result.success || result.alreadyInstalled) return undefined;
-  return result.message;
+export function ideMatchesEditorLabel(ide: DetectedIde, label: string): boolean {
+  const ideName = ide.name.trim().toLowerCase();
+  switch (label.trim().toLowerCase()) {
+    case 'vs code':
+    case 'vs code insiders':
+      return ideName === 'vs code' || ideName.includes('visual studio code');
+    case 'cursor':
+      return ideName.includes('cursor');
+    case 'windsurf':
+      return ideName.includes('windsurf');
+    default:
+      return ideName === label.trim().toLowerCase();
+  }
 }
 
-async function handleDefaultIdeCommand(manager: IdeManager, state: RuntimeState) {
+export async function handleDefaultIdeCommand(manager: IdeManager) {
   const snapshot = manager.status();
   const current = snapshot.state === 'connected' ? manager.current() : undefined;
   if (current) {
-    const updateMessage = await ensureVscodeExtensionCurrent(state);
-    return { label: 'ide', message: updateMessage ? `${formatStatus(snapshot)}\n\n${updateMessage}` : formatStatus(snapshot) };
+    return { label: 'ide', message: formatStatus(snapshot) };
   }
 
   const first = await connectFirstValidIde(manager);
   if (first.connected) {
-    const updateMessage = await ensureVscodeExtensionCurrent(state);
-    return { label: 'ide', message: `已连接 IDE：${first.connected.name} (${first.connected.port})${updateMessage ? `\n\n${updateMessage}` : ''}` };
+    return { label: 'ide', message: `已连接 IDE：${first.connected.name} (${first.connected.port})` };
+  }
+  if (first.ambiguous) {
+    return {
+      label: 'ide',
+      message: [
+        '发现多个匹配当前 cwd 的 IDE 会话，请明确指定连接目标：',
+        '  /ide connect <id|port>',
+        '',
+        formatDetected(first.detected),
+      ].join('\n'),
+    };
   }
   if (first.error) {
     return { label: 'ide', message: `发现 IDE 会话，但连接失败：${first.error}\n\n${formatDetected(first.detected)}`, isError: true };

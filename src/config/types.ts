@@ -42,19 +42,18 @@ export interface LLMConfig {
   /** 自定义请求体，会深合并到 provider 编码后的最终请求体，支持嵌套参数 */
   requestBody?: Record<string, unknown>;
   /**
-   * [仅 Claude] 启用 Anthropic Prompt Caching（手动缓存断点）。
+   * Provider 级 Prompt Caching 开关。
    *
-   * 启用后，会在请求体的关键位置注入 cache_control: { type: "ephemeral" } 标记，
-   * 遵循 Anthropic 的缓存前缀层级：
-   *   1. tools    — 最后一个工具定义
-   *   2. system   — 系统指令（转换为 content-block 数组）
-   *   3. messages — 最后一条用户消息的最后一个内容块
+   * Claude：
+   *   true 时在 tools / system / messages 注入显式 cache_control 断点；
+   *   默认 false。
    *
-   * 最多使用 3 个断点（Anthropic 允许最多 4 个）。
-   * 缓存读取仅需基础输入 token 价格的 10%。
+   * OpenAI GPT-5.6 及后续模型：
+   *   true 或未设置时使用 prompt_cache_options.mode=implicit、ttl=30m，
+   *   并生成稳定 prompt_cache_key；false 时使用 explicit 且不注入断点，
+   *   从而关闭该请求的 Prompt Caching。
    *
-   * 仅在 provider 为 "claude" 时生效，其他 provider 忽略此选项。
-   * 默认值：false
+   * 其他 provider / 较早 OpenAI 模型忽略此选项。
    */
   promptCaching?: boolean;
   /**
@@ -64,8 +63,9 @@ export interface LLMConfig {
    * 服务端会自动将缓存断点放置在最后一个可缓存的内容块上，
    * 并随对话增长自动前移。不注入逐块标记。
    *
-   * 可单独使用，也可与 promptCaching（显式断点）组合使用。
-   * 组合使用时，自动断点占用 4 个可用槽位中的 1 个。
+   * Iris 将自动缓存与 promptCaching 显式断点视为两种策略。若两者都为 true，
+   * 显式策略优先；因为 Iris 的显式策略已标记最后一个可缓存消息块，
+   * 顶层自动断点在这种请求中不会增加有效断点。
    * 仅在 provider 为 "claude" 时生效，其他 provider 忽略此选项。
    * 默认值：false
    */

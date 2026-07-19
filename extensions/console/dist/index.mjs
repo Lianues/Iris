@@ -16,7 +16,7 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// ../../packages/extension-sdk/dist/logger.js
+// node_modules/irises-extension-sdk/dist/logger.js
 function createExtensionLogger(extensionName, tag) {
   const scope = tag ? `${extensionName}:${tag}` : extensionName;
   return {
@@ -222,7 +222,7 @@ var init_terminal_compat = __esm(() => {
   HOURGLASS_SPINNER_INTERVAL_MS = terminalTier === "basic" ? 240 : 360;
 });
 
-// ../../packages/extension-sdk/dist/ipc/framing.js
+// node_modules/irises-extension-sdk/dist/ipc/framing.js
 import { Transform } from "node:stream";
 function encodeFrame(data) {
   const payload = Buffer.from(JSON.stringify(data), "utf-8");
@@ -273,7 +273,7 @@ var init_framing = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/protocol.js
+// node_modules/irises-extension-sdk/dist/ipc/protocol.js
 function isRequest(msg) {
   return "id" in msg && "method" in msg;
 }
@@ -308,6 +308,7 @@ var init_protocol = __esm(() => {
     LIST_REWIND_CHECKPOINTS: "backend.listRewindCheckpoints",
     REWIND: "backend.rewind",
     GET_HISTORY: "backend.getHistory",
+    GET_LAST_SESSION_TOKENS: "backend.getLastSessionTokens",
     LIST_SKILLS: "backend.listSkills",
     LIST_MODES: "backend.listModes",
     SWITCH_MODE: "backend.switchMode",
@@ -414,7 +415,7 @@ var init_protocol = __esm(() => {
   IPC_TO_BACKEND_EVENT = Object.fromEntries(Object.entries(BACKEND_EVENT_TO_IPC).map(([k, v]) => [v, k]));
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-tool-handle.js
+// node_modules/irises-extension-sdk/dist/ipc/remote-tool-handle.js
 import { EventEmitter } from "node:events";
 var logger, RemoteToolHandle;
 var init_remote_tool_handle = __esm(() => {
@@ -518,7 +519,7 @@ var init_remote_tool_handle = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-backend-handle.js
+// node_modules/irises-extension-sdk/dist/ipc/remote-backend-handle.js
 import { EventEmitter as EventEmitter2 } from "node:events";
 var logger2, RemoteBackendHandle;
 var init_remote_backend_handle = __esm(() => {
@@ -600,6 +601,10 @@ var init_remote_backend_handle = __esm(() => {
     }
     async getHistory(sessionId) {
       return await this.callRemote(Methods.GET_HISTORY, [sessionId]) ?? [];
+    }
+    async getLastSessionTokens(sessionId) {
+      const value = await this.callRemote(Methods.GET_LAST_SESSION_TOKENS, [sessionId]);
+      return typeof value === "number" ? value : undefined;
     }
     listSkills() {
       return this._cachedSkills;
@@ -806,7 +811,7 @@ var init_remote_backend_handle = __esm(() => {
   };
 });
 
-// ../../packages/extension-sdk/dist/ipc/remote-api-proxy.js
+// node_modules/irises-extension-sdk/dist/ipc/remote-api-proxy.js
 function callApi(client, targetAgentName, method, params) {
   if (!targetAgentName) {
     return client.call(method, params);
@@ -877,7 +882,7 @@ var init_remote_api_proxy = __esm(() => {
   logger3 = createExtensionLogger("RemoteApiProxy");
 });
 
-// ../../packages/extension-sdk/dist/ipc/index.js
+// node_modules/irises-extension-sdk/dist/ipc/index.js
 var exports_ipc = {};
 __export(exports_ipc, {
   isResponse: () => isResponse,
@@ -1365,7 +1370,7 @@ import React17 from "react";
 import { createCliRenderer, capture as opentuiCapture } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 
-// ../../packages/extension-sdk/dist/platform.js
+// node_modules/irises-extension-sdk/dist/platform.js
 class BackendHandle {
   _backend;
   _listeners = new Map;
@@ -1461,6 +1466,9 @@ class BackendHandle {
   getHistory(sessionId) {
     return this._backend.getHistory?.(sessionId) ?? Promise.resolve([]);
   }
+  getLastSessionTokens(sessionId) {
+    return this._backend.getLastSessionTokens?.(sessionId);
+  }
   runCommand(cmd) {
     return this._backend.runCommand?.(cmd);
   }
@@ -1519,9 +1527,9 @@ class PlatformAdapter {
   }
 }
 
-// ../../packages/extension-sdk/dist/index.js
+// node_modules/irises-extension-sdk/dist/index.js
 init_logger();
-// ../../packages/extension-sdk/dist/utils/dependencies.js
+// node_modules/irises-extension-sdk/dist/utils/dependencies.js
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
@@ -1658,7 +1666,7 @@ async function ensureExtensionRuntimeDependencies(extensionDir, options = {}) {
     installArgs: args
   };
 }
-// ../../packages/extension-sdk/dist/utils/paths.js
+// node_modules/irises-extension-sdk/dist/utils/paths.js
 function normalizeText(value) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -1692,7 +1700,7 @@ function encodeRepoPathForUrl(repoPath) {
   return repoPath.split("/").map((part) => encodeURIComponent(part)).join("/");
 }
 
-// ../../packages/extension-sdk/dist/utils/manifest.js
+// node_modules/irises-extension-sdk/dist/utils/manifest.js
 var MANIFEST_FILE = "manifest.json";
 function parseExtensionManifest(raw, sourceLabel) {
   if (!raw || typeof raw !== "object") {
@@ -1708,7 +1716,7 @@ function parseExtensionManifest(raw, sourceLabel) {
   return manifest;
 }
 
-// ../../packages/extension-sdk/dist/utils/remote.js
+// node_modules/irises-extension-sdk/dist/utils/remote.js
 var DEFAULT_REMOTE_EXTENSION_INDEX_URL = "https://raw.githubusercontent.com/Lianues/Iris/main/extensions/index.json";
 var DEFAULT_REMOTE_EXTENSION_RAW_BASE_URL = "https://raw.githubusercontent.com/Lianues/Iris/main";
 var DEFAULT_REMOTE_EXTENSIONS_SUBDIR = "extensions";
@@ -1768,7 +1776,7 @@ async function fetchRemoteManifest(requestedPath, options) {
   const raw = await fetchJson(manifestUrl, "extension manifest");
   return parseExtensionManifest(raw, `${buildRemoteExtensionPath(requestedPath, options)}/${MANIFEST_FILE}`);
 }
-// ../../packages/extension-sdk/dist/utils/git.js
+// node_modules/irises-extension-sdk/dist/utils/git.js
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 var GIT_INSTALL_METADATA_FILE = ".iris-extension-install.json";
@@ -1833,7 +1841,7 @@ function readGitInstallMetadata(rootDir) {
   }
 }
 // src/App.tsx
-import { useCallback as useCallback11, useEffect as useEffect16, useMemo as useMemo10, useRef as useRef11, useState as useState19 } from "react";
+import { useCallback as useCallback11, useEffect as useEffect16, useMemo as useMemo10, useRef as useRef12, useState as useState19 } from "react";
 import { useRenderer } from "@opentui/react";
 
 // src/components/BottomPanel.tsx
@@ -9868,7 +9876,7 @@ function ExtensionListView({
 }
 
 // src/components/SettingsView.tsx
-import { useCallback as useCallback4, useEffect as useEffect12, useMemo as useMemo9, useState as useState13 } from "react";
+import { useCallback as useCallback4, useEffect as useEffect12, useMemo as useMemo9, useRef as useRef8, useState as useState13 } from "react";
 import { useKeyboard as useKeyboard5, useTerminalDimensions as useTerminalDimensions12 } from "@opentui/react";
 init_terminal_compat();
 
@@ -9946,6 +9954,67 @@ var CONSOLE_LLM_PROVIDER_DEFAULTS = {
     contextWindow: 200000
   }
 };
+var CONSOLE_CLAUDE_PROMPT_CACHE_MODES = [
+  "off",
+  "automatic",
+  "explicit"
+];
+function isOpenAIGpt56OrLater(modelId) {
+  const normalized = String(modelId ?? "").trim().toLowerCase();
+  const match = normalized.match(/(?:^|[/_:])gpt-(\d+)\.(\d+)(?:$|[-._:])/);
+  if (!match)
+    return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 5 || major === 5 && minor >= 6;
+}
+function getConsolePromptCacheKind(model) {
+  if (model.provider === "claude")
+    return "claude";
+  if ((model.provider === "openai-compatible" || model.provider === "openai-responses") && isOpenAIGpt56OrLater(model.modelId)) {
+    return "openai-gpt-5.6";
+  }
+  return null;
+}
+function isConsolePromptCachingEnabled(model) {
+  const kind = getConsolePromptCacheKind(model);
+  if (kind === "claude")
+    return model.promptCaching === true;
+  if (kind === "openai-gpt-5.6")
+    return model.promptCaching !== false;
+  return false;
+}
+function getConsoleClaudePromptCacheMode(model) {
+  if (model.promptCaching === true)
+    return "explicit";
+  if (model.autoCaching === true)
+    return "automatic";
+  return "off";
+}
+function applyConsoleClaudePromptCacheMode(model, mode) {
+  return {
+    ...model,
+    promptCaching: mode === "explicit",
+    autoCaching: mode === "automatic"
+  };
+}
+function normalizeConsolePromptCacheSettings(model) {
+  const kind = getConsolePromptCacheKind(model);
+  if (kind === "claude") {
+    return applyConsoleClaudePromptCacheMode(model, getConsoleClaudePromptCacheMode(model));
+  }
+  if (kind === "openai-gpt-5.6") {
+    return {
+      ...model,
+      autoCaching: undefined
+    };
+  }
+  return {
+    ...model,
+    promptCaching: undefined,
+    autoCaching: undefined
+  };
+}
 function normalizeTransport(value) {
   if (value === "sse" || value === "streamable-http")
     return value;
@@ -9974,13 +10043,15 @@ function applyModelProviderChange(model, nextProvider, defaults = {}) {
   const newDefaults = defaults[nextProvider] ?? CONSOLE_LLM_PROVIDER_DEFAULTS[nextProvider] ?? {};
   const baseUrl = nextProvider === "deepseek" ? DEEPSEEK_BASE_URL : !model.baseUrl || model.baseUrl === oldDefaults.baseUrl ? newDefaults.baseUrl ?? model.baseUrl : model.baseUrl;
   const modelId = nextProvider === "deepseek" ? normalizeDeepSeekModelId(newDefaults.model) : !model.modelId || model.modelId === oldDefaults.model ? newDefaults.model ?? model.modelId : model.modelId;
-  return {
+  const nextModel = {
     ...model,
     provider: nextProvider,
     apiKey: model.apiKey,
     modelId,
     baseUrl
   };
+  const cacheKindChanged = getConsolePromptCacheKind(model) !== getConsolePromptCacheKind(nextModel);
+  return normalizeConsolePromptCacheSettings(cacheKindChanged ? { ...nextModel, promptCaching: undefined, autoCaching: undefined } : nextModel);
 }
 function createDefaultMCPServerEntry() {
   return {
@@ -10010,6 +10081,18 @@ function buildModelPayload(model) {
     autoSummaryThreshold: autoSummaryEnabled ? thresholdValue : false
   };
   payload.apiKey = model.apiKey || null;
+  const promptCacheKind = getConsolePromptCacheKind(model);
+  if (promptCacheKind === "claude") {
+    const mode = getConsoleClaudePromptCacheMode(model);
+    payload.promptCaching = mode === "explicit";
+    payload.autoCaching = mode === "automatic";
+  } else if (promptCacheKind === "openai-gpt-5.6") {
+    payload.promptCaching = isConsolePromptCachingEnabled(model);
+    payload.autoCaching = null;
+  } else {
+    payload.promptCaching = null;
+    payload.autoCaching = null;
+  }
   return payload;
 }
 function validateSnapshot(snapshot) {
@@ -10170,7 +10253,7 @@ class ConsoleSettingsController {
     const rawMcpServers = data.mcp?.servers && typeof data.mcp.servers === "object" ? data.mcp.servers : {};
     const permissions = toolsConfig.permissions ?? {};
     return {
-      models: (llm.models ?? []).map((model) => ({
+      models: (llm.models ?? []).map((model) => normalizeConsolePromptCacheSettings({
         modelName: model.modelName,
         originalModelName: model.modelName,
         provider: model.provider,
@@ -10179,6 +10262,8 @@ class ConsoleSettingsController {
         contextWindow: model.contextWindow,
         autoSummaryEnabled: model.autoSummaryThreshold !== false,
         autoSummaryThreshold: model.autoSummaryThreshold === false ? "90%" : String(model.autoSummaryThreshold ?? "90%"),
+        promptCaching: typeof model.promptCaching === "boolean" ? model.promptCaching : undefined,
+        autoCaching: typeof model.autoCaching === "boolean" ? model.autoCaching : undefined,
         baseUrl: model.provider === "deepseek" ? DEEPSEEK_BASE_URL : model.baseUrl
       })),
       modelOriginalNames: (llm.models ?? []).map((model) => model.modelName),
@@ -10308,6 +10393,81 @@ class ConsoleSettingsController {
   }
 }
 
+// src/settings-model-picker.ts
+init_terminal_compat();
+function normalizeSingleLine2(value) {
+  return String(value ?? "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function normalizeModelCatalogEntries(models) {
+  const seen = new Set;
+  const entries = [];
+  for (const model of models ?? []) {
+    const id = normalizeSingleLine2(model?.id);
+    if (!id || seen.has(id))
+      continue;
+    seen.add(id);
+    const completeLabel = normalizeSingleLine2("label" in model ? model.label : undefined).replace(/\s+·\s+/g, ` ${ICONS.separator} `);
+    const displayName = normalizeSingleLine2(model.displayName);
+    entries.push({
+      id,
+      label: completeLabel || (displayName && displayName !== id ? `${id} ${ICONS.separator} ${displayName}` : id)
+    });
+  }
+  return entries;
+}
+function filterModelPickerEntries(entries, filter) {
+  const keyword = filter.trim().toLowerCase();
+  if (!keyword)
+    return entries;
+  return entries.filter((entry) => entry.id.toLowerCase().includes(keyword) || entry.label.toLowerCase().includes(keyword));
+}
+function fitModelPickerSingleLine(text, maxWidth) {
+  const normalized = normalizeSingleLine2(text);
+  const targetWidth = Math.max(1, maxWidth);
+  if (getTextWidth(normalized) <= targetWidth)
+    return normalized;
+  const ellipsisWidth = getTextWidth(ICONS.ellipsis);
+  let output = "";
+  let usedWidth = 0;
+  for (const grapheme of splitGraphemes(normalized)) {
+    const graphemeWidth = getTextWidth(grapheme);
+    if (usedWidth + graphemeWidth + ellipsisWidth > targetWidth)
+      break;
+    output += grapheme;
+    usedWidth += graphemeWidth;
+  }
+  return `${output}${ICONS.ellipsis}`;
+}
+function getModelPickerVisibleRowCount(termHeight) {
+  const safeHeight = Number.isFinite(termHeight) ? Math.trunc(termHeight) : 24;
+  return Math.max(3, Math.min(8, safeHeight - 19));
+}
+function getSettingsBottomBarContentRowCount(editing, hasEditorHint) {
+  return editing ? 3 + (hasEditorHint ? 1 : 0) : 3;
+}
+function getModelPickerWindow(entries, highlightIndex, maxVisible) {
+  if (entries.length === 0)
+    return { startIndex: 0, entries: [] };
+  const visibleCount = Math.max(1, Math.trunc(maxVisible));
+  const safeHighlight = Math.max(0, Math.min(entries.length - 1, highlightIndex));
+  let startIndex = Math.max(0, safeHighlight - Math.floor(visibleCount / 2));
+  startIndex = Math.min(startIndex, Math.max(0, entries.length - visibleCount));
+  return {
+    startIndex,
+    entries: entries.slice(startIndex, startIndex + visibleCount)
+  };
+}
+function buildSettingsShortcutHelp(parts, maxWidth) {
+  let output = "";
+  for (const part of parts) {
+    const next = output ? `${output}  ${part}` : part;
+    if (getTextWidth(next) > Math.max(1, maxWidth))
+      break;
+    output = next;
+  }
+  return output || fitModelPickerSingleLine(parts[0] ?? "", maxWidth);
+}
+
 // src/components/SettingsView.tsx
 import { jsxDEV as jsxDEV48 } from "@opentui/react/jsx-dev-runtime";
 function getToolPolicyMode(configured, autoApprove) {
@@ -10324,7 +10484,17 @@ function formatToolPolicyMode(mode) {
 }
 var DEEPSEEK_MODEL_IDS2 = ["deepseek-v4-flash", "deepseek-v4-pro"];
 function isInlineCycleTarget(target) {
-  return target.kind === "modelProvider" || target.kind === "deepseekModel" || target.kind === "toolPolicy" || target.kind === "mcpField" && target.field === "transport";
+  return target.kind === "modelProvider" || target.kind === "deepseekModel" || target.kind === "modelClaudePromptCacheMode" || target.kind === "toolPolicy" || target.kind === "mcpField" && target.field === "transport";
+}
+function isToggleTarget(target) {
+  return target.kind === "modelDefault" || target.kind === "modelAutoCompact" || target.kind === "modelPromptCaching" || target.kind === "toolApprovalView" || target.kind === "toolGlobalToggle" || target.kind === "systemField" && (target.field === "stream" || target.field === "retryOnError" || target.field === "logRequests" || target.field === "asyncSubAgents") || target.kind === "mcpField" && target.field === "enabled";
+}
+function formatClaudePromptCacheMode(mode) {
+  if (mode === "automatic")
+    return "自动（推荐）";
+  if (mode === "explicit")
+    return "显式断点";
+  return "关闭";
 }
 function getStatusColor(kind) {
   switch (kind) {
@@ -10440,6 +10610,14 @@ function buildRows(snapshot, termWidth) {
     if (model.provider !== "deepseek") {
       pushField(`model.${index}.baseUrl`, "general", "Base URL", model.baseUrl || "(空)", { kind: "modelField", modelIndex: index, field: "baseUrl" }, "回车编辑。", 6);
     }
+    const promptCacheKind = getConsolePromptCacheKind(model);
+    if (promptCacheKind === "claude") {
+      const cacheMode = getConsoleClaudePromptCacheMode(model);
+      pushField(`model.${index}.promptCacheMode`, "general", "Prompt Cache 策略", formatClaudePromptCacheMode(cacheMode), { kind: "modelClaudePromptCacheMode", modelIndex: index }, "Anthropic：关闭 / 自动（推荐）/ 显式断点。Iris 将其作为互斥策略，避免重复标记最后一个消息块；空格、Enter 或 ←/→ 切换。", 6);
+    } else if (promptCacheKind === "openai-gpt-5.6") {
+      const enabled = isConsolePromptCachingEnabled(model);
+      pushField(`model.${index}.promptCaching`, "general", "Prompt Cache", `${boolText(enabled)}${model.promptCaching == null ? "（默认）" : ""}`, { kind: "modelPromptCaching", modelIndex: index }, "OpenAI GPT-5.6+：开启使用 implicit、30m TTL 和稳定 cache key，缓存写入按 1.25× 未缓存输入计费；关闭则使用 explicit 且不放置断点。空格切换。", 6);
+    }
     pushField(`model.${index}.autoSummaryEnabled`, "general", "自动压缩上下文", boolText(model.autoSummaryEnabled), { kind: "modelAutoCompact", modelIndex: index }, "默认开启；空格切换。关闭时写入 autoSummaryThreshold: false。", 6);
     if (model.autoSummaryEnabled) {
       pushField(`model.${index}.autoSummaryThreshold`, "general", "自动压缩阈值", model.autoSummaryThreshold, { kind: "modelField", modelIndex: index, field: "autoSummaryThreshold" }, "百分比（如 90%）或绝对 token，回车编辑。", 6);
@@ -10526,6 +10704,7 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
   const [statusKind, setStatusKind] = useState13("info");
   const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState13(false);
   const [modelPicker, setModelPicker] = useState13(null);
+  const modelFetchRequestIdRef = useRef8(0);
   const [pluginDraft, setPluginDraft] = useState13({});
   const [pluginBaseline, setPluginBaseline] = useState13({});
   const sections = useMemo9(() => {
@@ -10616,6 +10795,17 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
   }, [selectableRows, selectedRowId]);
   const sectionSelectableRows = useMemo9(() => selectableRows.filter((row) => row.section === currentSection), [selectableRows, currentSection]);
   const selectedSectionIndex = useMemo9(() => sectionSelectableRows.findIndex((row) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
+  const selectedFetchTarget = useMemo9(() => {
+    if (!onFetchAvailableModels || navFocused)
+      return null;
+    const target = selectedRow?.target;
+    if (target?.kind !== "modelField" || target.field !== "modelId")
+      return null;
+    const model = draft?.models[target.modelIndex];
+    if (!model || model.provider === "deepseek")
+      return null;
+    return { modelIndex: target.modelIndex, model };
+  }, [draft, navFocused, onFetchAvailableModels, selectedRow]);
   useEffect12(() => {
     let cancelled = false;
     const load = async () => {
@@ -10658,6 +10848,11 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
       cancelled = true;
     };
   }, [onLoad, setStatus, pluginTabs]);
+  useEffect12(() => {
+    return () => {
+      modelFetchRequestIdRef.current += 1;
+    };
+  }, []);
   useEffect12(() => {
     if (rows.length === 0)
       return;
@@ -10762,6 +10957,15 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
         model.modelId = cycleValue(DEEPSEEK_MODEL_IDS2, model.modelId, direction);
         return;
       }
+      if (target.kind === "modelClaudePromptCacheMode") {
+        const model = snapshot.models[target.modelIndex];
+        if (!model)
+          return;
+        const current = getConsoleClaudePromptCacheMode(model);
+        const next = cycleValue(CONSOLE_CLAUDE_PROMPT_CACHE_MODES, current, direction);
+        snapshot.models[target.modelIndex] = applyConsoleClaudePromptCacheMode(model, next);
+        return;
+      }
       if (target.kind === "mcpField" && target.field === "transport") {
         const current = snapshot.mcpServers[target.serverIndex]?.transport;
         if (!current)
@@ -10793,6 +10997,12 @@ function SettingsView({ initialSection = "general", onBack, onLoad, onSave, plug
         const model = snapshot.models[target.modelIndex];
         if (model)
           model.autoSummaryEnabled = !model.autoSummaryEnabled;
+        return;
+      }
+      if (target.kind === "modelPromptCaching") {
+        const model = snapshot.models[target.modelIndex];
+        if (model)
+          model.promptCaching = !isConsolePromptCachingEnabled(model);
         return;
       }
       if (target.kind === "systemField" && target.field === "stream") {
@@ -11032,7 +11242,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
       setStatus("请先选中某个模型字段后再删除", "warning");
       return;
     }
-    if (selectedRow.target.kind !== "modelField" && selectedRow.target.kind !== "modelProvider" && selectedRow.target.kind !== "modelDefault") {
+    if (selectedRow.target.kind !== "modelField" && selectedRow.target.kind !== "modelProvider" && selectedRow.target.kind !== "modelDefault" && selectedRow.target.kind !== "modelAutoCompact" && selectedRow.target.kind !== "modelPromptCaching" && selectedRow.target.kind !== "modelClaudePromptCacheMode" && selectedRow.target.kind !== "deepseekModel") {
       setStatus("请先选中某个模型字段后再删除", "warning");
       return;
     }
@@ -11077,43 +11287,69 @@ ${JSON.stringify(result.data, null, 2)}` : "";
       setStatus("请先填写该模型的 API Key 再拉取模型列表", "warning");
       return;
     }
+    const requestId = modelFetchRequestIdRef.current + 1;
+    modelFetchRequestIdRef.current = requestId;
     setStatus(`正在拉取 ${model.provider} 可用模型列表...`, "info");
-    setModelPicker({ modelIndex, models: [], filter: "", highlightIndex: 0 });
+    setModelPicker({
+      modelIndex,
+      provider: model.provider,
+      phase: "loading",
+      models: [],
+      filter: "",
+      highlightIndex: 0
+    });
     try {
       const result = await onFetchAvailableModels({
         provider: model.provider,
         apiKey: model.apiKey,
         baseUrl: model.baseUrl || undefined
       });
-      const entries = (result.models ?? []).map((m) => ({
-        id: m.id,
-        label: m.label || m.displayName ? `${m.id} · ${m.label || m.displayName}` : m.id
-      }));
+      if (modelFetchRequestIdRef.current !== requestId)
+        return;
+      const entries = normalizeModelCatalogEntries(result.models ?? []);
       if (entries.length === 0) {
         setStatus("拉取到的模型列表为空", "warning");
         setModelPicker(null);
         return;
       }
-      setModelPicker({ modelIndex, models: entries, filter: "", highlightIndex: 0 });
-      setStatus(`已拉取 ${entries.length} 个模型，输入关键词过滤，↑↓ 选择，Enter 确认`, "success");
+      const currentModelIndex = entries.findIndex((entry) => entry.id === model.modelId);
+      setModelPicker({
+        modelIndex,
+        provider: model.provider,
+        phase: "ready",
+        models: entries,
+        filter: "",
+        highlightIndex: Math.max(0, currentModelIndex)
+      });
+      setStatus(`已拉取 ${entries.length} 个模型`, "success");
     } catch (err) {
+      if (modelFetchRequestIdRef.current !== requestId)
+        return;
       setModelPicker(null);
       setStatus(`拉取模型列表失败：${err instanceof Error ? err.message : String(err)}`, "error");
     }
   }, [draft, onFetchAvailableModels, setStatus]);
   const submitModelPicker = useCallback4(() => {
-    if (!modelPicker)
+    if (!modelPicker || modelPicker.phase !== "ready")
       return;
-    const filtered = modelPicker.models.filter((m) => m.id.toLowerCase().includes(modelPicker.filter.toLowerCase()) || m.label.toLowerCase().includes(modelPicker.filter.toLowerCase()));
+    const filtered = filterModelPickerEntries(modelPicker.models, modelPicker.filter);
     const selected = filtered[modelPicker.highlightIndex] ?? filtered[0];
-    if (selected) {
-      updateDraft((snapshot) => {
-        snapshot.models[modelPicker.modelIndex].modelId = selected.id;
-      });
-      setStatus(`已选择模型 ID: ${selected.id}，按 S 保存并热重载`, "success");
-    }
+    if (!selected)
+      return;
+    updateDraft((snapshot) => {
+      snapshot.models[modelPicker.modelIndex].modelId = selected.id;
+    });
+    setStatus(`已选择模型 ID: ${selected.id}，按 S 保存并热重载`, "success");
     setModelPicker(null);
   }, [modelPicker, updateDraft, setStatus]);
+  const cancelModelPicker = useCallback4(() => {
+    if (!modelPicker)
+      return;
+    modelFetchRequestIdRef.current += 1;
+    const wasLoading = modelPicker.phase === "loading";
+    setModelPicker(null);
+    setStatus(wasLoading ? "已取消拉取模型列表" : "已取消模型选择", "warning");
+  }, [modelPicker, setStatus]);
   const switchSection = useCallback4((direction) => {
     if (sections.length === 0)
       return;
@@ -11132,44 +11368,55 @@ ${JSON.stringify(result.data, null, 2)}` : "";
   useKeyboard5((key) => {
     if (modelPicker) {
       if (key.name === "escape") {
-        setModelPicker(null);
-        setStatus("已取消模型选择", "warning");
+        cancelModelPicker();
+        key.preventDefault();
         return;
       }
+      if (modelPicker.phase === "loading")
+        return;
       if (key.name === "enter" || key.name === "return") {
         submitModelPicker();
+        key.preventDefault();
         return;
       }
       if (key.name === "up") {
-        setModelPicker((prev) => prev ? {
+        setModelPicker((prev) => prev?.phase === "ready" ? {
           ...prev,
           highlightIndex: Math.max(0, prev.highlightIndex - 1)
         } : prev);
+        key.preventDefault();
         return;
       }
       if (key.name === "down") {
         setModelPicker((prev) => {
-          if (!prev)
+          if (prev?.phase !== "ready")
             return prev;
-          const filtered = prev.models.filter((m) => m.id.toLowerCase().includes(prev.filter.toLowerCase()) || m.label.toLowerCase().includes(prev.filter.toLowerCase()));
-          return { ...prev, highlightIndex: Math.min(filtered.length - 1, prev.highlightIndex + 1) };
+          const filtered = filterModelPickerEntries(prev.models, prev.filter);
+          return {
+            ...prev,
+            highlightIndex: filtered.length === 0 ? 0 : Math.min(filtered.length - 1, prev.highlightIndex + 1)
+          };
         });
+        key.preventDefault();
         return;
       }
       if (key.name === "backspace") {
-        setModelPicker((prev) => prev ? {
+        setModelPicker((prev) => prev?.phase === "ready" ? {
           ...prev,
           filter: prev.filter.slice(0, -1),
           highlightIndex: 0
         } : prev);
+        key.preventDefault();
         return;
       }
-      if (key.name && key.name.length === 1 && /[a-zA-Z0-9 _\-.]/.test(key.name)) {
-        setModelPicker((prev) => prev ? {
+      const printableText = !key.ctrl && !key.meta && key.sequence && /^[^\u0000-\u001f\u007f]+$/u.test(key.sequence) ? key.sequence : "";
+      if (printableText) {
+        setModelPicker((prev) => prev?.phase === "ready" ? {
           ...prev,
-          filter: prev.filter + key.name,
+          filter: prev.filter + printableText,
           highlightIndex: 0
         } : prev);
+        key.preventDefault();
         return;
       }
       return;
@@ -11270,13 +11517,8 @@ ${JSON.stringify(result.data, null, 2)}` : "";
       return;
     }
     if (key.name === "f") {
-      if (selectedRow?.target?.kind === "modelField" && selectedRow.target.field === "modelId") {
-        const modelIndex = selectedRow.target.modelIndex;
-        const model = draft?.models[modelIndex];
-        if (model && model.provider !== "deepseek") {
-          handleFetchModels(modelIndex);
-        }
-      }
+      if (selectedFetchTarget)
+        handleFetchModels(selectedFetchTarget.modelIndex);
       return;
     }
     if (key.name === "a") {
@@ -11294,7 +11536,9 @@ ${JSON.stringify(result.data, null, 2)}` : "";
       return;
     }
     if (key.name === "space" && selectedRow?.target) {
-      if (selectedRow.target.kind === "modelDefault" || selectedRow.target.kind === "modelAutoCompact" || selectedRow.target.kind === "toolApprovalView" || selectedRow.target.kind === "toolGlobalToggle" || selectedRow.target.kind === "systemField" && (selectedRow.target.field === "stream" || selectedRow.target.field === "retryOnError" || selectedRow.target.field === "logRequests" || selectedRow.target.field === "asyncSubAgents") || selectedRow.target.kind === "mcpField" && selectedRow.target.field === "enabled") {
+      if (selectedRow.target.kind === "modelClaudePromptCacheMode") {
+        applyCycle(selectedRow.target, 1);
+      } else if (isToggleTarget(selectedRow.target)) {
         applyToggle(selectedRow.target);
       } else if (selectedRow.target.kind === "pluginField" && selectedRow.target.fieldType === "toggle") {
         const { tabId, fieldKey } = selectedRow.target;
@@ -11316,7 +11560,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
           handleAddModel();
         return;
       }
-      if (selectedRow.target.kind === "modelDefault" || selectedRow.target.kind === "modelAutoCompact" || selectedRow.target.kind === "toolApprovalView" || selectedRow.target.kind === "toolGlobalToggle" || selectedRow.target.kind === "systemField" && (selectedRow.target.field === "stream" || selectedRow.target.field === "retryOnError" || selectedRow.target.field === "logRequests" || selectedRow.target.field === "asyncSubAgents") || selectedRow.target.kind === "mcpField" && selectedRow.target.field === "enabled") {
+      if (isToggleTarget(selectedRow.target)) {
         applyToggle(selectedRow.target);
         return;
       }
@@ -11363,7 +11607,39 @@ ${JSON.stringify(result.data, null, 2)}` : "";
       }
     }
   });
-  const listHeight = Math.max(10, termHeight - (editor ? 26 : modelPicker ? 34 : 22));
+  const pickerVisibleRowCount = getModelPickerVisibleRowCount(termHeight);
+  const pickerPanelHeight = pickerVisibleRowCount + 5;
+  const filteredPickerModels = modelPicker?.phase === "ready" ? filterModelPickerEntries(modelPicker.models, modelPicker.filter) : [];
+  const pickerWindow = getModelPickerWindow(filteredPickerModels, modelPicker?.highlightIndex ?? 0, pickerVisibleRowCount);
+  const pickerPanelTextWidth = Math.max(8, termWidth - 4);
+  const pickerLabelWidth = Math.max(12, termWidth - 8);
+  const pickerHeaderText = modelPicker ? fitModelPickerSingleLine(modelPicker.phase === "loading" ? `选择模型 ID  ${ICONS.separator}  正在拉取 ${modelPicker.provider}...` : `选择模型 ID  ${ICONS.separator}  ${filteredPickerModels.length}/${modelPicker.models.length}`, pickerPanelTextWidth) : "";
+  const pickerPromptText = modelPicker ? fitModelPickerSingleLine(modelPicker.phase === "loading" ? "正在请求提供商模型目录，请稍候。" : `搜索: ${modelPicker.filter || "(直接输入关键词过滤)"}`, pickerPanelTextWidth) : "";
+  const pickerFooterText = modelPicker ? fitModelPickerSingleLine(modelPicker.phase === "loading" ? "Esc 取消" : `${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 确认  Backspace 删除  Esc 取消`, pickerPanelTextWidth) : "";
+  const bottomBarTextWidth = Math.max(12, termWidth - 4);
+  const bottomBarContentRowCount = getSettingsBottomBarContentRowCount(!!editor, !!editor?.hint);
+  const bottomBarPanelHeight = bottomBarContentRowCount + 1;
+  const shortcutHelp = buildSettingsShortcutHelp(selectedFetchTarget ? [
+    "F 拉取模型",
+    "Enter 手动编辑",
+    `${ICONS.arrowUp}${ICONS.arrowDown} 选择`,
+    "S 保存",
+    "Esc 返回",
+    "R 重载"
+  ] : [
+    `${ICONS.arrowUp}${ICONS.arrowDown} 选择`,
+    `${ICONS.arrowLeft}${ICONS.arrowRight} 切换`,
+    "Enter 编辑/执行",
+    "S 保存",
+    "Esc 返回",
+    "Space 开关",
+    "A 新增",
+    "D 删除",
+    "R 重载",
+    `1~${sections.length} 分栏`
+  ], bottomBarTextWidth);
+  const selectedDescription = selectedFetchTarget ? "F 拉取提供商可用模型；Enter 手动编辑模型 ID。" : selectedRow?.description;
+  const listHeight = Math.max(3, termHeight - (modelPicker ? pickerPanelHeight + 12 : bottomBarPanelHeight + 18));
   const selectedRowSectionIndex = Math.max(0, sectionRows.findIndex((row) => row.id === selectedRowId));
   let windowStart = Math.max(0, selectedRowSectionIndex - Math.floor(listHeight / 2));
   let windowEnd = Math.min(sectionRows.length, windowStart + listHeight);
@@ -11385,6 +11661,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
   }
   return /* @__PURE__ */ jsxDEV48("box", {
     flexDirection: "column",
+    position: "relative",
     width: "100%",
     height: "100%",
     children: [
@@ -11412,7 +11689,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
                 children: sections.map((sec) => /* @__PURE__ */ jsxDEV48("text", {
                   fg: currentSection === sec.id ? navFocused ? "#00ffff" : C.accent : "#555",
                   children: [
-                    currentSection === sec.id ? navFocused ? "❯" : ICONS.dotFilled : ICONS.dotEmpty,
+                    currentSection === sec.id ? navFocused ? ICONS.selectorArrow : ICONS.dotFilled : ICONS.dotEmpty,
                     " ",
                     sec.icon,
                     " ",
@@ -11465,7 +11742,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
                   }, undefined, false, undefined, this),
                   visibleRows.map((row) => {
                     const isSelected = !navFocused && row.id === selectedRowId && !!row.target;
-                    const prefix = row.kind === "action" ? isSelected ? "❯" : "•" : row.kind === "field" ? isSelected ? "❯" : " " : " ";
+                    const prefix = row.kind === "action" ? isSelected ? ICONS.selectorArrow : ICONS.bullet : row.kind === "field" ? isSelected ? ICONS.selectorArrow : " " : " ";
                     return /* @__PURE__ */ jsxDEV48("box", {
                       paddingLeft: row.indent ?? 0,
                       children: /* @__PURE__ */ jsxDEV48("text", {
@@ -11504,121 +11781,152 @@ ${JSON.stringify(result.data, null, 2)}` : "";
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsxDEV48("box", {
+      !modelPicker && /* @__PURE__ */ jsxDEV48("box", {
         flexDirection: "column",
         marginTop: 1,
         paddingX: 2,
+        height: bottomBarPanelHeight,
+        flexShrink: 0,
+        overflow: "hidden",
         children: [
           /* @__PURE__ */ jsxDEV48("text", {
             fg: C.dim,
             children: "─".repeat(Math.max(3, termWidth - 4))
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsxDEV48("box", {
+          editor ? /* @__PURE__ */ jsxDEV48("box", {
             flexDirection: "column",
-            minHeight: 4,
+            height: bottomBarContentRowCount,
+            overflow: "hidden",
             children: [
-              selectedRow?.description && !editor && !modelPicker && /* @__PURE__ */ jsxDEV48("text", {
+              /* @__PURE__ */ jsxDEV48("text", {
+                fg: C.accent,
+                children: /* @__PURE__ */ jsxDEV48("strong", {
+                  children: fitModelPickerSingleLine(`编辑：${editor.label}`, bottomBarTextWidth)
+                }, undefined, false, undefined, this)
+              }, undefined, false, undefined, this),
+              editor.hint && /* @__PURE__ */ jsxDEV48("text", {
                 fg: "#888",
-                children: selectedRow.description
+                children: fitModelPickerSingleLine(editor.hint, bottomBarTextWidth)
               }, undefined, false, undefined, this),
-              statusText && /* @__PURE__ */ jsxDEV48("text", {
-                fg: getStatusColor(statusKind),
-                children: statusText
-              }, undefined, false, undefined, this),
-              modelPicker ? /* @__PURE__ */ jsxDEV48("box", {
-                flexDirection: "column",
+              /* @__PURE__ */ jsxDEV48("box", {
+                flexDirection: "row",
+                width: "100%",
+                height: 1,
+                flexShrink: 0,
+                overflow: "hidden",
                 children: [
                   /* @__PURE__ */ jsxDEV48("text", {
                     fg: C.accent,
-                    children: /* @__PURE__ */ jsxDEV48("strong", {
-                      children: "选择模型 ID"
-                    }, undefined, false, undefined, this)
+                    children: `${ICONS.selectorArrow} `
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV48("box", {
-                    children: [
-                      /* @__PURE__ */ jsxDEV48("text", {
-                        fg: C.accent,
-                        children: "❯ "
-                      }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV48("text", {
-                        fg: "#888",
-                        children: `搜索: ${modelPicker.filter || "(输入关键词过滤)"}`
-                      }, undefined, false, undefined, this)
-                    ]
-                  }, undefined, true, undefined, this),
-                  /* @__PURE__ */ jsxDEV48("scrollbox", {
-                    maxHeight: 8,
+                  /* @__PURE__ */ jsxDEV48("input", {
+                    value: editorValue,
+                    onInput: setEditorValue,
                     flexGrow: 1,
-                    children: (() => {
-                      const filtered = modelPicker.models.filter((m) => m.id.toLowerCase().includes(modelPicker.filter.toLowerCase()) || m.label.toLowerCase().includes(modelPicker.filter.toLowerCase()));
-                      if (filtered.length === 0) {
-                        return /* @__PURE__ */ jsxDEV48("text", {
-                          fg: "#888",
-                          children: "  没有匹配的模型"
-                        }, undefined, false, undefined, this);
-                      }
-                      const maxVisible = 8;
-                      const start = Math.max(0, modelPicker.highlightIndex - Math.floor(maxVisible / 2));
-                      const end = Math.min(filtered.length, start + maxVisible);
-                      const adjustedStart = Math.max(0, end - maxVisible);
-                      return filtered.slice(adjustedStart, end).map((m, i) => {
-                        const realIndex = adjustedStart + i;
-                        const isHighlighted = realIndex === modelPicker.highlightIndex;
-                        return /* @__PURE__ */ jsxDEV48("text", {
-                          fg: isHighlighted ? "#00ffff" : "#aaa",
-                          children: [
-                            isHighlighted ? "❯ " : "  ",
-                            m.label
-                          ]
-                        }, m.id, true, undefined, this);
-                      });
-                    })()
-                  }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV48("text", {
-                    fg: "#888",
-                    children: `Enter 确认 ${ICONS.separator} Esc 取消 ${ICONS.separator} ↑↓ 导航 ${ICONS.separator} 输入文字过滤`
+                    minWidth: 1,
+                    focused: true
                   }, undefined, false, undefined, this)
                 ]
-              }, undefined, true, undefined, this) : editor ? /* @__PURE__ */ jsxDEV48("box", {
-                flexDirection: "column",
-                children: [
-                  /* @__PURE__ */ jsxDEV48("text", {
-                    fg: C.accent,
-                    children: /* @__PURE__ */ jsxDEV48("strong", {
-                      children: [
-                        "编辑：",
-                        editor.label
-                      ]
-                    }, undefined, true, undefined, this)
-                  }, undefined, false, undefined, this),
-                  editor.hint && /* @__PURE__ */ jsxDEV48("text", {
-                    fg: "#888",
-                    children: editor.hint
-                  }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsxDEV48("box", {
-                    children: [
-                      /* @__PURE__ */ jsxDEV48("text", {
-                        fg: C.accent,
-                        children: "❯ "
-                      }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsxDEV48("input", {
-                        value: editorValue,
-                        onInput: setEditorValue,
-                        focused: true
-                      }, undefined, false, undefined, this)
-                    ]
-                  }, undefined, true, undefined, this),
-                  /* @__PURE__ */ jsxDEV48("text", {
-                    fg: "#888",
-                    children: `Enter 保存 ${ICONS.separator} Esc 取消`
-                  }, undefined, false, undefined, this)
-                ]
-              }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV48("text", {
+              }, undefined, true, undefined, this),
+              /* @__PURE__ */ jsxDEV48("text", {
                 fg: "#888",
-                children: `${ICONS.arrowUp}${ICONS.arrowDown} 选择  ${ICONS.arrowLeft}${ICONS.arrowRight} 切换  1~${sections.length} 分栏  Space 开关  Enter 编辑/执行  A 新增  D 删除  S 保存  R 重载  Esc 返回${onFetchAvailableModels ? "  F 拉取模型" : ""}`
+                children: `Enter 保存 ${ICONS.separator} Esc 取消`
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this) : /* @__PURE__ */ jsxDEV48("box", {
+            flexDirection: "column",
+            height: bottomBarContentRowCount,
+            overflow: "hidden",
+            children: [
+              /* @__PURE__ */ jsxDEV48("text", {
+                fg: "#888",
+                children: selectedDescription ? fitModelPickerSingleLine(selectedDescription, bottomBarTextWidth) : " "
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsxDEV48("text", {
+                fg: getStatusColor(statusKind),
+                children: statusText ? fitModelPickerSingleLine(statusText, bottomBarTextWidth) : " "
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsxDEV48("text", {
+                fg: "#888",
+                children: shortcutHelp
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      modelPicker && /* @__PURE__ */ jsxDEV48("box", {
+        position: "absolute",
+        left: 0,
+        bottom: 0,
+        zIndex: 100,
+        width: "100%",
+        height: pickerPanelHeight,
+        shouldFill: true,
+        flexDirection: "column",
+        backgroundColor: C.panelBg,
+        border: true,
+        borderStyle: "single",
+        borderColor: C.border,
+        paddingX: 1,
+        children: [
+          /* @__PURE__ */ jsxDEV48("box", {
+            width: "100%",
+            height: 1,
+            flexShrink: 0,
+            overflow: "hidden",
+            children: /* @__PURE__ */ jsxDEV48("text", {
+              fg: C.accent,
+              children: /* @__PURE__ */ jsxDEV48("strong", {
+                children: pickerHeaderText
+              }, undefined, false, undefined, this)
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV48("box", {
+            width: "100%",
+            height: 1,
+            flexShrink: 0,
+            overflow: "hidden",
+            children: /* @__PURE__ */ jsxDEV48("text", {
+              fg: "#888",
+              children: pickerPromptText
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV48("box", {
+            flexDirection: "column",
+            height: pickerVisibleRowCount,
+            children: modelPicker.phase === "loading" ? /* @__PURE__ */ jsxDEV48("text", {
+              fg: C.dim,
+              children: "  拉取中..."
+            }, undefined, false, undefined, this) : filteredPickerModels.length === 0 ? /* @__PURE__ */ jsxDEV48("text", {
+              fg: C.dim,
+              children: "  没有匹配的模型"
+            }, undefined, false, undefined, this) : pickerWindow.entries.map((entry, index) => {
+              const realIndex = pickerWindow.startIndex + index;
+              const isHighlighted = realIndex === modelPicker.highlightIndex;
+              return /* @__PURE__ */ jsxDEV48("box", {
+                width: "100%",
+                height: 1,
+                overflow: "hidden",
+                children: /* @__PURE__ */ jsxDEV48("text", {
+                  fg: isHighlighted ? "#00ffff" : "#aaa",
+                  children: [
+                    isHighlighted ? `${ICONS.selectorArrow} ` : "  ",
+                    fitModelPickerSingleLine(entry.label, pickerLabelWidth)
+                  ]
+                }, undefined, true, undefined, this)
+              }, entry.id, false, undefined, this);
+            })
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsxDEV48("box", {
+            width: "100%",
+            height: 1,
+            flexShrink: 0,
+            overflow: "hidden",
+            children: /* @__PURE__ */ jsxDEV48("text", {
+              fg: "#888",
+              children: pickerFooterText
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this)
     ]
@@ -11626,7 +11934,7 @@ ${JSON.stringify(result.data, null, 2)}` : "";
 }
 
 // src/hooks/use-app-handle.ts
-import { useCallback as useCallback5, useEffect as useEffect13, useRef as useRef8, useState as useState14 } from "react";
+import { useCallback as useCallback5, useEffect as useEffect13, useRef as useRef9, useState as useState14 } from "react";
 
 // src/message-utils.ts
 var msgIdCounter = 0;
@@ -11800,26 +12108,26 @@ function useAppHandle({ onReady, undoRedoRef, drainCallbackRef, setPendingFilesR
   const [noteEditorOpen, setNoteEditorOpen] = useState14(false);
   const [noteEditorInitialValue, setNoteEditorInitialValue] = useState14("");
   const [noteEditorDraft, setNoteEditorDraft] = useState14("");
-  const noteContentRef = useRef8("");
+  const noteContentRef = useRef9("");
   const [progressSnapshot, setProgressSnapshot] = useState14(null);
-  const progressSnapshotRef = useRef8(null);
-  const archivedProgressUpdatedAtRef = useRef8(null);
+  const progressSnapshotRef = useRef9(null);
+  const archivedProgressUpdatedAtRef = useRef9(null);
   const [toolInvocations, setToolInvocationsState] = useState14([]);
   const [backgroundTaskCount, setBackgroundTaskCount] = useState14(0);
   const [delegateTaskCount, setDelegateTaskCount] = useState14(0);
-  const backgroundTaskTokenMapRef = useRef8(new Map);
+  const backgroundTaskTokenMapRef = useRef9(new Map);
   const [backgroundTaskTokens, setBackgroundTaskTokens] = useState14(0);
-  const spinnerFrameRef = useRef8(0);
+  const spinnerFrameRef = useRef9(0);
   const [backgroundTaskSpinnerFrame, setBackgroundTaskSpinnerFrame] = useState14(0);
   const [toolDetailData, setToolDetailData] = useState14(null);
   const [toolDetailStack, setToolDetailStack] = useState14([]);
   const [toolListItems, setToolListItems] = useState14([]);
-  const streamPartsRef = useRef8([]);
-  const toolInvocationsRef = useRef8([]);
-  const throttleTimerRef = useRef8(null);
-  const uncommittedStreamPartsRef = useRef8([]);
-  const lastUsageRef = useRef8(null);
-  const notificationContextRef = useRef8({ active: false });
+  const streamPartsRef = useRef9([]);
+  const toolInvocationsRef = useRef9([]);
+  const throttleTimerRef = useRef9(null);
+  const uncommittedStreamPartsRef = useRef9([]);
+  const lastUsageRef = useRef9(null);
+  const notificationContextRef = useRef9({ active: false });
   const commitTools = useCallback5(() => {
     toolInvocationsRef.current = [];
     setToolInvocationsState([]);
@@ -14292,10 +14600,10 @@ function useCommandDispatch({
 }
 
 // src/hooks/use-exit-confirm.ts
-import { useCallback as useCallback8, useEffect as useEffect15, useRef as useRef9, useState as useState16 } from "react";
+import { useCallback as useCallback8, useEffect as useEffect15, useRef as useRef10, useState as useState16 } from "react";
 function useExitConfirm({ timeoutMs = 1500 } = {}) {
   const [exitConfirmArmed, setExitConfirmArmed] = useState16(false);
-  const exitConfirmTimerRef = useRef9(null);
+  const exitConfirmTimerRef = useRef10(null);
   const clearExitConfirm = useCallback8(() => {
     if (exitConfirmTimerRef.current) {
       clearTimeout(exitConfirmTimerRef.current);
@@ -14326,11 +14634,11 @@ function useExitConfirm({ timeoutMs = 1500 } = {}) {
 }
 
 // src/hooks/use-message-queue.ts
-import { useCallback as useCallback9, useRef as useRef10, useState as useState17 } from "react";
+import { useCallback as useCallback9, useRef as useRef11, useState as useState17 } from "react";
 var queueIdCounter = 0;
 function useMessageQueue() {
   const [queue, setQueue] = useState17([]);
-  const queueRef = useRef10([]);
+  const queueRef = useRef11([]);
   const sync = useCallback9((next) => {
     queueRef.current = next;
     setQueue(next);
@@ -14686,7 +14994,7 @@ function App({
     return [...pluginCommands, ...runtimeSlashCommands];
   }, [activePluginSettingsTabs, runtimeSlashCommands]);
   const canOpenLoverSettings = dynamicCommands.some((command) => command.name === "/lover");
-  const copySelectionBufferRef = useRef11("");
+  const copySelectionBufferRef = useRef12("");
   const resetCopySelectionBuffer = useCallback11(() => {
     copySelectionBufferRef.current = "";
   }, []);
@@ -14710,15 +15018,15 @@ function App({
   const [modelEditState, modelEditActions] = useTextInput("");
   const [extensionGitInputState, extensionGitInputActions] = useTextInput("");
   const renderer = useRenderer();
-  const undoRedoRef = useRef11(createUndoRedoStack());
-  const promptInputControllerRef = useRef11(null);
+  const undoRedoRef = useRef12(createUndoRedoStack());
+  const promptInputControllerRef = useRef12(null);
   useEffect16(() => {
     if (!inputService)
       return;
     const disposable = inputService.bindControllerGetter(() => promptInputControllerRef.current);
     return () => disposable.dispose();
   }, [inputService]);
-  const chatScrollBoxRef = useRef11(null);
+  const chatScrollBoxRef = useRef12(null);
   const [chatScrolledUp, setChatScrolledUp] = useState19(false);
   useEffect16(() => {
     const timer = setInterval(() => {
@@ -14733,17 +15041,17 @@ function App({
     return () => clearInterval(timer);
   }, []);
   const messageQueue = useMessageQueue();
-  const drainCallbackRef = useRef11(null);
+  const drainCallbackRef = useRef12(null);
   drainCallbackRef.current = () => {
     if (viewMode === "queue-list")
       return;
     const msg = messageQueue.dequeue();
     return msg?.text;
   };
-  const setPendingFilesRef = useRef11(null);
+  const setPendingFilesRef = useRef12(null);
   setPendingFilesRef.current = setPendingFiles;
-  const openFileBrowserRef = useRef11(null);
-  const setExtensionListRef = useRef11(null);
+  const openFileBrowserRef = useRef12(null);
+  const setExtensionListRef = useRef12(null);
   setExtensionListRef.current = setExtensionList;
   openFileBrowserRef.current = (path4, entries) => {
     setFileBrowserPath(path4);
@@ -14751,7 +15059,7 @@ function App({
     setSelectedIndex(0);
     setViewMode("file-browser");
   };
-  const fileBrowserCallbackRef = useRef11(null);
+  const fileBrowserCallbackRef = useRef12(null);
   fileBrowserCallbackRef.current = {
     select: (dirPath, entry, showHidden) => onFileBrowserSelect?.(dirPath, entry, showHidden),
     goUp: (dirPath, showHidden) => onFileBrowserGoUp?.(dirPath, showHidden),
@@ -14906,7 +15214,7 @@ function App({
       selectionRenderer.off?.("selection", handleSelection);
     };
   }, [renderer, copyMode]);
-  const prevViewModeRef = useRef11(viewMode);
+  const prevViewModeRef = useRef12(viewMode);
   useEffect16(() => {
     const prev = prevViewModeRef.current;
     prevViewModeRef.current = viewMode;
@@ -16487,6 +16795,51 @@ function listFileMentionFiles(root, options = {}) {
   return result;
 }
 
+// src/history-usage.ts
+function asPositiveTokenCount(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+function getHistoryMessageMeta(content) {
+  const meta = {};
+  if (content.usageMetadata?.promptTokenCount != null)
+    meta.tokenIn = content.usageMetadata.promptTokenCount;
+  if (content.usageMetadata?.candidatesTokenCount != null)
+    meta.tokenOut = content.usageMetadata.candidatesTokenCount;
+  if (content.createdAt != null)
+    meta.createdAt = content.createdAt;
+  if (content.isSummary)
+    meta.isSummary = true;
+  if (content.durationMs != null)
+    meta.durationMs = content.durationMs;
+  if (content.streamOutputDurationMs != null)
+    meta.streamOutputDurationMs = content.streamOutputDurationMs;
+  if (content.modelName)
+    meta.modelName = content.modelName;
+  return Object.keys(meta).length > 0 ? meta : undefined;
+}
+function resolveLoadedSessionContextTokenCount(history, restoredTokenCount) {
+  let lastSummaryIndex = -1;
+  for (let i = history.length - 1;i >= 0; i--) {
+    if (history[i].isSummary) {
+      lastSummaryIndex = i;
+      break;
+    }
+  }
+  if (lastSummaryIndex < 0)
+    return;
+  for (let i = history.length - 1;i > lastSummaryIndex; i--) {
+    if (history[i].role !== "model")
+      continue;
+    const providerTokens = asPositiveTokenCount(history[i].usageMetadata?.totalTokenCount);
+    if (providerTokens !== undefined)
+      return providerTokens;
+  }
+  const persistedCompactTokens = asPositiveTokenCount(history[lastSummaryIndex].compactedContextTokenCount);
+  if (persistedCompactTokens !== undefined)
+    return persistedCompactTokens;
+  return asPositiveTokenCount(restoredTokenCount);
+}
+
 // src/index.ts
 function generateCommandPatterns(command) {
   const normalized = command.trim().replace(/\s+/g, " ");
@@ -16586,24 +16939,6 @@ function convertPartsToMessageParts(parts, toolStatus = "success", responseParts
     }
   }
   return result;
-}
-function getMessageMeta(content) {
-  const meta = {};
-  if (content.usageMetadata?.promptTokenCount != null)
-    meta.tokenIn = content.usageMetadata.promptTokenCount;
-  if (content.usageMetadata?.candidatesTokenCount != null)
-    meta.tokenOut = content.usageMetadata.candidatesTokenCount;
-  if (content.createdAt != null)
-    meta.createdAt = content.createdAt;
-  if (content.isSummary)
-    meta.isSummary = true;
-  if (content.durationMs != null)
-    meta.durationMs = content.durationMs;
-  if (content.streamOutputDurationMs != null)
-    meta.streamOutputDurationMs = content.streamOutputDurationMs;
-  if (content.modelName)
-    meta.modelName = content.modelName;
-  return Object.keys(meta).length > 0 ? meta : undefined;
 }
 var REMOTE_EXTENSION_ITEMS_CACHE_TTL_MS = 5 * 60 * 1000;
 function generateSessionId() {
@@ -17194,7 +17529,7 @@ class ConsolePlatform extends PlatformAdapter {
     configureBundledOpenTuiTreeSitter(this.isCompiledBinary);
     this.onBackend("assistant:content", (sid, content) => {
       if (sid === this.sessionId) {
-        const meta = getMessageMeta(content);
+        const meta = getHistoryMessageMeta(content);
         const parts = convertPartsToMessageParts(content.parts, "queued");
         this.appHandle?.finalizeAssistantParts(parts, meta);
       }
@@ -17387,7 +17722,7 @@ class ConsolePlatform extends PlatformAdapter {
       const fullText = `[Context Summary]
 
 ${result.summaryText}`;
-      this.appHandle?.addSummaryMessage(fullText, result.afterTokens > 0 ? result.afterTokens : undefined);
+      this.appHandle?.addSummaryMessage(fullText, result.summaryTokens > 0 ? result.summaryTokens : undefined);
       this.appHandle?.setCompactUsage({ promptTokenCount: result.afterTokens, totalTokenCount: result.afterTokens });
       this.appHandle?.addCommandMessage(`上下文已压缩：${result.beforeTokens.toLocaleString()} -> ${result.afterTokens.toLocaleString()} tokens` + (continuesTask ? "，继续执行任务" : ""), { label: "compact" });
       this.appHandle?.setGeneratingLabel(undefined);
@@ -18217,6 +18552,22 @@ ${result.summaryText}`;
       await this.getLocalProgressService()?.getActiveProvider()?.saveUiState?.(sessionId, state);
     } catch {}
   }
+  async getLoadedSessionContextTokenCount(sessionId, history) {
+    const persisted = resolveLoadedSessionContextTokenCount(history);
+    if (persisted !== undefined || !history.some((message) => message.isSummary)) {
+      return persisted;
+    }
+    let restored;
+    try {
+      restored = await this.backend.getLastSessionTokens?.(sessionId);
+    } catch {}
+    if (restored == null) {
+      try {
+        restored = this.api?.agentManager?.getLastSessionTokens?.(sessionId);
+      } catch {}
+    }
+    return resolveLoadedSessionContextTokenCount(history, restored);
+  }
   async handleLoadSession(id) {
     this.sessionId = id;
     this.currentToolIds.clear();
@@ -18230,6 +18581,7 @@ ${result.summaryText}`;
     await this.syncProgress();
     this.syncAutoEditStatus();
     const history = await this.backend.getHistory?.(id) ?? [];
+    const loadedContextTokenCount = await this.getLoadedSessionContextTokenCount(id, history);
     const progressArchives = (await this.loadProgressArchives(id)).filter((entry) => entry?.snapshot?.items?.length > 0).sort((a, b) => (a.afterHistoryIndex ?? 0) - (b.afterHistoryIndex ?? 0) || (a.archivedAt ?? 0) - (b.archivedAt ?? 0));
     let progressArchiveCursor = 0;
     const insertProgressArchivesUpTo = (position) => {
@@ -18262,7 +18614,7 @@ ${result.summaryText}`;
           }
         }
       }
-      const meta = getMessageMeta(msg);
+      const meta = getHistoryMessageMeta(msg);
       if (parts.length > 0) {
         this.appHandle?.addHistoryMessage(role, parts, meta);
       }
@@ -18270,6 +18622,12 @@ ${result.summaryText}`;
       if (msg.usageMetadata) {
         this.appHandle?.setUsage(msg.usageMetadata);
       }
+    }
+    if (loadedContextTokenCount !== undefined) {
+      this.appHandle?.setCompactUsage({
+        promptTokenCount: loadedContextTokenCount,
+        totalTokenCount: loadedContextTokenCount
+      });
     }
     insertProgressArchivesUpTo(Number.MAX_SAFE_INTEGER);
     const envRestore = await envRestorePromise;

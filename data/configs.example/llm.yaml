@@ -88,6 +88,17 @@ models:
   #   baseUrl: https://api.openai.com/v1
   #   supportsVision: true
 
+  # gpt56:
+  #   provider: openai-responses
+  #   apiKey: your-api-key-here
+  #   model: gpt-5.6
+  #   baseUrl: https://api.openai.com/v1
+  #   contextWindow: 1050000
+  #   # GPT-5.6+ 默认开启 Prompt Cache。Iris 会发送 implicit + 30m TTL，
+  #   # 并根据稳定系统指令与工具声明生成 prompt_cache_key。
+  #   # 设为 false 时发送 explicit 且不放置断点，从而关闭缓存。
+  #   promptCaching: true
+
   # deepseek_flash:
   #   provider: deepseek
   #   apiKey: your-api-key-here
@@ -102,19 +113,21 @@ models:
 #     apiKey: your-api-key-here
 #     model: claude-sonnet-4-6
 #     baseUrl: https://api.anthropic.com/v1
-#     # 启用 Anthropic Prompt Caching（手动缓存断点）。
-#     # 在请求体的关键位置注入 cache_control: { type: "ephemeral" } 标记：
+#     # Anthropic 缓存策略二选一：
+#     # 推荐自动策略。服务端会把断点放在最后一个可缓存内容块上，
+#     # 并随着多轮对话向前移动。
+#     autoCaching: true
+#     #
+#     # 如需精确控制，可改用显式策略，在请求体关键位置注入
+#     # cache_control: { type: "ephemeral" } 标记：
 #     #   1. tools    — 最后一个工具定义
 #     #   2. system   — 系统指令（转换为 content-block 数组）
 #     #   3. messages — 最后一条用户消息的最后一个内容块
 #     # 最多使用 3 个断点（Anthropic 允许最多 4 个）。
 #     # 缓存读取仅需基础输入 token 价格的 10%。
-#     promptCaching: true
-#     # 启用 Anthropic 自动提示词缓存。
-#     # 在请求体顶层添加 cache_control 字段；
-#     # 服务端自动决定缓存哪部分前缀。
-#     # 可单独使用，也可与 promptCaching 组合使用。
-#     autoCaching: true
+#     # promptCaching: true
+#     #
+#     # 若两个字段都为 true，Iris 会让显式策略优先，避免重复标记最后消息。
 # Gemini 示例：
 # models:
 #   gemini_flash:

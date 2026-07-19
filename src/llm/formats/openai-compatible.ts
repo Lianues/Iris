@@ -14,9 +14,10 @@ import {
 import { FormatAdapter, StreamDecodeState } from './types';
 import { consumeCallId, normalizeCallId, resolveCallId } from './tool-call-ids';
 import { sanitizeSchemaForOpenAI } from './schema-sanitizer';
+import { applyOpenAIPromptCachePolicy } from './openai-prompt-cache';
 
 export class OpenAICompatibleFormat implements FormatAdapter {
-  constructor(private model: string) {}
+  constructor(private model: string, private promptCaching?: boolean) {}
 
   // ============ 编码请求：Gemini → OpenAI ============
 
@@ -152,6 +153,15 @@ export class OpenAICompatibleFormat implements FormatAdapter {
       body.stream = true;
       body.stream_options = { include_usage: true };
     }
+
+    applyOpenAIPromptCachePolicy(body, {
+      model: this.model,
+      enabled: this.promptCaching,
+      stablePrefix: {
+        system: messages.find(message => message.role === 'system')?.content,
+        tools: body.tools,
+      },
+    });
 
     return body;
   }

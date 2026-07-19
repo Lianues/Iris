@@ -39,6 +39,15 @@ models:
   #   model: gpt-4o-mini
   #   baseUrl: https://api.openai.com/v1
 
+  # gpt56:
+  #   provider: openai-responses
+  #   apiKey: your-api-key-here
+  #   model: gpt-5.6
+  #   baseUrl: https://api.openai.com/v1
+  #   contextWindow: 1050000
+  #   # GPT-5.6+ 默认开启；设为 false 可关闭 Prompt Cache。
+  #   promptCaching: true
+
   # deepseek_flash:
   #   provider: deepseek
   #   apiKey: your-api-key-here
@@ -51,7 +60,7 @@ models:
   #   apiKey: your-api-key-here
   #   model: claude-sonnet-4-6
   #   baseUrl: https://api.anthropic.com/v1
-  #   promptCaching: true
+  #   # 推荐自动策略；如需显式断点，改为 promptCaching: true。
   #   autoCaching: true
 `,
 

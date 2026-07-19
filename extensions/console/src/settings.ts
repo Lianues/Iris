@@ -3,7 +3,7 @@
  *
  * 当前已覆盖的配置项：
  *   llm.yaml    — defaultModel, models.*.{provider, model, apiKey, baseUrl,
- *                 contextWindow, autoSummaryThreshold}
+ *                 contextWindow, autoSummaryThreshold, promptCaching, autoCaching}
  *   system.yaml — systemPrompt, maxToolRounds, stream, retryOnError, maxRetries,
  *                 logRequests, maxAgentDepth, defaultMode, asyncSubAgents
  *   tools.yaml  — autoApproveAll, autoApproveConfirmation, autoApproveDiff,
@@ -16,8 +16,6 @@
  *     - models.*.supportsVision         是否支持图片输入
  *     - models.*.requestBody            自定义请求体（temperature, maxOutputTokens 等）
  *     - models.*.headers                自定义请求头
- *     - models.*.promptCaching          Claude Prompt Caching 开关
- *     - models.*.autoCaching            Claude 自动缓存
  *     - summaryModel                    /compact 压缩用的模型
  *     - rememberPlatformModel           记住各平台上次使用的模型
  *
@@ -115,7 +113,99 @@ export interface ConsoleModelSettings {
   autoSummaryEnabled: boolean;
   /** 开启时保存的百分比或绝对 token 文本。 */
   autoSummaryThreshold: string;
+  /**
+   * Provider 级 Prompt Cache 开关。
+   * Claude 与 autoCaching 共同表示关闭/自动/显式策略；OpenAI GPT-5.6+
+   * 默认开启，显式 false 表示关闭。
+   */
+  promptCaching?: boolean;
+  /** Claude 顶层自动缓存策略的兼容字段；TUI 会确保它与 promptCaching 互斥。 */
+  autoCaching?: boolean;
   baseUrl: string;
+}
+
+export type ConsolePromptCacheKind = 'claude' | 'openai-gpt-5.6';
+export type ConsoleClaudePromptCacheMode = 'off' | 'automatic' | 'explicit';
+
+export const CONSOLE_CLAUDE_PROMPT_CACHE_MODES: readonly ConsoleClaudePromptCacheMode[] = [
+  'off',
+  'automatic',
+  'explicit',
+];
+
+function isOpenAIGpt56OrLater(modelId: string): boolean {
+  const normalized = String(modelId ?? '').trim().toLowerCase();
+  const match = normalized.match(/(?:^|[/_:])gpt-(\d+)\.(\d+)(?:$|[-._:])/);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 5 || (major === 5 && minor >= 6);
+}
+
+export function getConsolePromptCacheKind(
+  model: Pick<ConsoleModelSettings, 'provider' | 'modelId'>,
+): ConsolePromptCacheKind | null {
+  if (model.provider === 'claude') return 'claude';
+  if (
+    (model.provider === 'openai-compatible' || model.provider === 'openai-responses')
+    && isOpenAIGpt56OrLater(model.modelId)
+  ) {
+    return 'openai-gpt-5.6';
+  }
+  return null;
+}
+
+export function isConsolePromptCachingEnabled(
+  model: Pick<ConsoleModelSettings, 'provider' | 'modelId' | 'promptCaching'>,
+): boolean {
+  const kind = getConsolePromptCacheKind(model);
+  if (kind === 'claude') return model.promptCaching === true;
+  if (kind === 'openai-gpt-5.6') return model.promptCaching !== false;
+  return false;
+}
+
+/**
+ * Claude 的两个历史布尔字段在 TUI 中表现为单一策略。
+ *
+ * Anthropic 允许自动缓存与显式断点组合，但 Iris 的显式策略已经在最后一个
+ * 可缓存消息块上放置断点，因此顶层自动断点会成为 no-op。旧配置两者都为
+ * true 时优先保留显式策略，避免把冗余组合继续传播。
+ */
+export function getConsoleClaudePromptCacheMode(
+  model: Pick<ConsoleModelSettings, 'promptCaching' | 'autoCaching'>,
+): ConsoleClaudePromptCacheMode {
+  if (model.promptCaching === true) return 'explicit';
+  if (model.autoCaching === true) return 'automatic';
+  return 'off';
+}
+
+export function applyConsoleClaudePromptCacheMode(
+  model: ConsoleModelSettings,
+  mode: ConsoleClaudePromptCacheMode,
+): ConsoleModelSettings {
+  return {
+    ...model,
+    promptCaching: mode === 'explicit',
+    autoCaching: mode === 'automatic',
+  };
+}
+
+function normalizeConsolePromptCacheSettings(model: ConsoleModelSettings): ConsoleModelSettings {
+  const kind = getConsolePromptCacheKind(model);
+  if (kind === 'claude') {
+    return applyConsoleClaudePromptCacheMode(model, getConsoleClaudePromptCacheMode(model));
+  }
+  if (kind === 'openai-gpt-5.6') {
+    return {
+      ...model,
+      autoCaching: undefined,
+    };
+  }
+  return {
+    ...model,
+    promptCaching: undefined,
+    autoCaching: undefined,
+  };
 }
 
 export interface ConsoleToolPolicySettings {
@@ -239,13 +329,18 @@ export function applyModelProviderChange(
       ? (newDefaults.model as string) ?? model.modelId
       : model.modelId;
 
-  return {
+  const nextModel = {
     ...model,
     provider: nextProvider,
     apiKey: model.apiKey,
     modelId,
     baseUrl,
   };
+  const cacheKindChanged = getConsolePromptCacheKind(model) !== getConsolePromptCacheKind(nextModel);
+
+  return normalizeConsolePromptCacheSettings(cacheKindChanged
+    ? { ...nextModel, promptCaching: undefined, autoCaching: undefined }
+    : nextModel);
 }
 
 export function createDefaultMCPServerEntry(): ConsoleMCPServerSettings {
@@ -280,6 +375,19 @@ function buildModelPayload(model: ConsoleModelSettings): Record<string, unknown>
     autoSummaryThreshold: autoSummaryEnabled ? thresholdValue : false,
   };
   payload.apiKey = model.apiKey || null;
+  const promptCacheKind = getConsolePromptCacheKind(model);
+  if (promptCacheKind === 'claude') {
+    const mode = getConsoleClaudePromptCacheMode(model);
+    payload.promptCaching = mode === 'explicit';
+    payload.autoCaching = mode === 'automatic';
+  } else if (promptCacheKind === 'openai-gpt-5.6') {
+    payload.promptCaching = isConsolePromptCachingEnabled(model);
+    payload.autoCaching = null;
+  } else {
+    // updateEditableConfig 使用 null 删除旧键，避免切换 Provider 后缓存状态串台。
+    payload.promptCaching = null;
+    payload.autoCaching = null;
+  }
 
   return payload;
 }
@@ -477,7 +585,7 @@ export class ConsoleSettingsController {
     const permissions = toolsConfig.permissions ?? {};
 
     return {
-      models: (llm.models ?? []).map((model: any) => ({
+      models: (llm.models ?? []).map((model: any) => normalizeConsolePromptCacheSettings({
         modelName: model.modelName,
         originalModelName: model.modelName,
         provider: model.provider,
@@ -488,6 +596,8 @@ export class ConsoleSettingsController {
         autoSummaryThreshold: model.autoSummaryThreshold === false
           ? '90%'
           : String(model.autoSummaryThreshold ?? '90%'),
+        promptCaching: typeof model.promptCaching === 'boolean' ? model.promptCaching : undefined,
+        autoCaching: typeof model.autoCaching === 'boolean' ? model.autoCaching : undefined,
         baseUrl: model.provider === 'deepseek' ? DEEPSEEK_BASE_URL : model.baseUrl,
       })),
       modelOriginalNames: (llm.models ?? []).map((model: any) => model.modelName),

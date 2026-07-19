@@ -80,7 +80,13 @@ export interface AgentDefinitionLike {
 export interface ModelCatalogResultLike {
   provider: string;
   baseUrl: string;
-  models: { id: string; displayName?: string }[];
+  models: {
+    id: string;
+    /** 已格式化的完整展示文本；若提供，调用方不应再次拼接 id。 */
+    label?: string;
+    /** 仅展示名称；调用方可在缺少 label 时与 id 组合。 */
+    displayName?: string;
+  }[];
 }
 
 /** 扩展管理接口（安装/启用/禁用/删除） */

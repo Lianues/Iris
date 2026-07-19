@@ -13,7 +13,7 @@
  *   - Enter 键名兼容：OpenTUI 中 key.name 可能为 'return'，需同时匹配 'enter' 和 'return'
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import { C } from '../theme';
 import { ICONS } from '../terminal-compat';
@@ -21,19 +21,35 @@ import { ICONS } from '../terminal-compat';
 interface MCPServerInfo { name: string; status: string; toolCount: number; error?: string; }
 import type { ConsoleSettingsTabDefinition } from '../settings-tab-service';
 import {
+  applyConsoleClaudePromptCacheMode,
   applyModelProviderChange,
   cloneConsoleSettingsSnapshot,
+  CONSOLE_CLAUDE_PROMPT_CACHE_MODES,
   CONSOLE_LLM_PROVIDER_OPTIONS,
   CONSOLE_MCP_TRANSPORT_OPTIONS,
+  ConsoleClaudePromptCacheMode,
   ConsoleLLMProvider,
   ConsoleMCPTransport,
   ConsoleSettingsSaveResult,
   ConsoleSettingsSnapshot,
   createDefaultMCPServerEntry,
   createEmptyModel,
+  getConsoleClaudePromptCacheMode,
+  getConsolePromptCacheKind,
+  isConsolePromptCachingEnabled,
 } from '../settings';
 import { getConsoleDiffApprovalViewDescription, supportsConsoleDiffApprovalViewSetting } from '../diff-approval';
 import type { ModelCatalogResultLike } from 'irises-extension-sdk';
+import {
+  buildSettingsShortcutHelp,
+  filterModelPickerEntries,
+  fitModelPickerSingleLine,
+  getModelPickerVisibleRowCount,
+  getModelPickerWindow,
+  getSettingsBottomBarContentRowCount,
+  normalizeModelCatalogEntries,
+  type ModelPickerEntry,
+} from '../settings-model-picker';
 
 // 放宽为 string：插件可注册自定义 tab，section id 不再限于内置三个
 type SettingsSection = string;
@@ -46,6 +62,8 @@ type RowTarget =
   | { kind: 'modelField'; modelIndex: number; field: 'modelName' | 'modelId' | 'apiKey' | 'baseUrl' | 'autoSummaryThreshold' }
   | { kind: 'modelDefault'; modelIndex: number }
   | { kind: 'modelAutoCompact'; modelIndex: number }
+  | { kind: 'modelPromptCaching'; modelIndex: number }
+  | { kind: 'modelClaudePromptCacheMode'; modelIndex: number }
   | { kind: 'systemField'; field: 'systemPrompt' | 'maxToolRounds' | 'stream' | 'retryOnError' | 'maxRetries' | 'logRequests' | 'maxAgentDepth' | 'defaultMode' | 'asyncSubAgents' }
   | { kind: 'toolPolicy'; toolIndex: number }
   | { kind: 'toolApprovalView'; toolIndex: number }
@@ -82,8 +100,30 @@ const DEEPSEEK_MODEL_IDS = ['deepseek-v4-flash', 'deepseek-v4-pro'] as const;
 function isInlineCycleTarget(target: RowTarget): boolean {
   return target.kind === 'modelProvider'
     || target.kind === 'deepseekModel'
+    || target.kind === 'modelClaudePromptCacheMode'
     || target.kind === 'toolPolicy'
     || (target.kind === 'mcpField' && target.field === 'transport');
+}
+
+function isToggleTarget(target: RowTarget): boolean {
+  return target.kind === 'modelDefault'
+    || target.kind === 'modelAutoCompact'
+    || target.kind === 'modelPromptCaching'
+    || target.kind === 'toolApprovalView'
+    || target.kind === 'toolGlobalToggle'
+    || (target.kind === 'systemField' && (
+      target.field === 'stream'
+      || target.field === 'retryOnError'
+      || target.field === 'logRequests'
+      || target.field === 'asyncSubAgents'
+    ))
+    || (target.kind === 'mcpField' && target.field === 'enabled');
+}
+
+function formatClaudePromptCacheMode(mode: ConsoleClaudePromptCacheMode): string {
+  if (mode === 'automatic') return '自动（推荐）';
+  if (mode === 'explicit') return '显式断点';
+  return '关闭';
 }
 
 interface EditorState {
@@ -91,6 +131,15 @@ interface EditorState {
   label: string;
   value: string;
   hint?: string;
+}
+
+interface ModelPickerState {
+  modelIndex: number;
+  provider: string;
+  phase: 'loading' | 'ready';
+  models: ModelPickerEntry[];
+  filter: string;
+  highlightIndex: number;
 }
 
 interface SettingsViewProps {
@@ -242,6 +291,24 @@ function buildRows(snapshot: ConsoleSettingsSnapshot, termWidth: number): Settin
     if (model.provider !== 'deepseek') {
       pushField(`model.${index}.baseUrl`, 'general', 'Base URL', model.baseUrl || '(空)', { kind: 'modelField', modelIndex: index, field: 'baseUrl' }, '回车编辑。', 6);
     }
+    const promptCacheKind = getConsolePromptCacheKind(model);
+    if (promptCacheKind === 'claude') {
+      const cacheMode = getConsoleClaudePromptCacheMode(model);
+      pushField(
+        `model.${index}.promptCacheMode`, 'general', 'Prompt Cache 策略',
+        formatClaudePromptCacheMode(cacheMode),
+        { kind: 'modelClaudePromptCacheMode', modelIndex: index },
+        'Anthropic：关闭 / 自动（推荐）/ 显式断点。Iris 将其作为互斥策略，避免重复标记最后一个消息块；空格、Enter 或 ←/→ 切换。', 6,
+      );
+    } else if (promptCacheKind === 'openai-gpt-5.6') {
+      const enabled = isConsolePromptCachingEnabled(model);
+      pushField(
+        `model.${index}.promptCaching`, 'general', 'Prompt Cache',
+        `${boolText(enabled)}${model.promptCaching == null ? '（默认）' : ''}`,
+        { kind: 'modelPromptCaching', modelIndex: index },
+        'OpenAI GPT-5.6+：开启使用 implicit、30m TTL 和稳定 cache key，缓存写入按 1.25× 未缓存输入计费；关闭则使用 explicit 且不放置断点。空格切换。', 6,
+      );
+    }
     pushField(
       `model.${index}.autoSummaryEnabled`, 'general', '自动压缩上下文',
       boolText(model.autoSummaryEnabled), { kind: 'modelAutoCompact', modelIndex: index },
@@ -356,12 +423,8 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
   const [statusText, setStatusText] = useState('');
   const [statusKind, setStatusKind] = useState<StatusKind>('info');
   const [pendingLeaveConfirm, setPendingLeaveConfirm] = useState(false);
-  const [modelPicker, setModelPicker] = useState<{
-    modelIndex: number;
-    models: { id: string; label: string }[];
-    filter: string;
-    highlightIndex: number;
-  } | null>(null);
+  const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
+  const modelFetchRequestIdRef = useRef(0);
 
   // ── 插件 tab 数据 ──────────────────────────────────────
   // 插件 tab 的配置值独立于内置 ConsoleSettingsSnapshot，各插件自带 onLoad/onSave。
@@ -467,6 +530,14 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
   }, [selectableRows, selectedRowId]);
   const sectionSelectableRows = useMemo(() => selectableRows.filter((row: SettingsRow) => row.section === currentSection), [selectableRows, currentSection]);
   const selectedSectionIndex = useMemo(() => sectionSelectableRows.findIndex((row: SettingsRow) => row.id === selectedRowId), [sectionSelectableRows, selectedRowId]);
+  const selectedFetchTarget = useMemo(() => {
+    if (!onFetchAvailableModels || navFocused) return null;
+    const target = selectedRow?.target;
+    if (target?.kind !== 'modelField' || target.field !== 'modelId') return null;
+    const model = draft?.models[target.modelIndex];
+    if (!model || model.provider === 'deepseek') return null;
+    return { modelIndex: target.modelIndex, model };
+  }, [draft, navFocused, onFetchAvailableModels, selectedRow]);
 
   useEffect(() => {
     let cancelled = false;
@@ -506,6 +577,12 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
     void load();
     return () => { cancelled = true; };
   }, [onLoad, setStatus, pluginTabs]);
+
+  useEffect(() => {
+    return () => {
+      modelFetchRequestIdRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (rows.length === 0) return;
@@ -616,6 +693,14 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         model.modelId = cycleValue(DEEPSEEK_MODEL_IDS, model.modelId as typeof DEEPSEEK_MODEL_IDS[number], direction);
         return;
       }
+      if (target.kind === 'modelClaudePromptCacheMode') {
+        const model = snapshot.models[target.modelIndex];
+        if (!model) return;
+        const current = getConsoleClaudePromptCacheMode(model);
+        const next = cycleValue(CONSOLE_CLAUDE_PROMPT_CACHE_MODES, current, direction);
+        snapshot.models[target.modelIndex] = applyConsoleClaudePromptCacheMode(model, next);
+        return;
+      }
       if (target.kind === 'mcpField' && target.field === 'transport') {
         const current = snapshot.mcpServers[target.serverIndex]?.transport;
         if (!current) return;
@@ -644,6 +729,11 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       if (target.kind === 'modelAutoCompact') {
         const model = snapshot.models[target.modelIndex];
         if (model) model.autoSummaryEnabled = !model.autoSummaryEnabled;
+        return;
+      }
+      if (target.kind === 'modelPromptCaching') {
+        const model = snapshot.models[target.modelIndex];
+        if (model) model.promptCaching = !isConsolePromptCachingEnabled(model);
         return;
       }
       if (target.kind === 'systemField' && target.field === 'stream') {
@@ -847,7 +937,18 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
 
   const handleDeleteCurrentModel = useCallback(() => {
     if (!selectedRow?.target || !draft) { setStatus('请先选中某个模型字段后再删除', 'warning'); return; }
-    if (selectedRow.target.kind !== 'modelField' && selectedRow.target.kind !== 'modelProvider' && selectedRow.target.kind !== 'modelDefault') { setStatus('请先选中某个模型字段后再删除', 'warning'); return; }
+    if (
+      selectedRow.target.kind !== 'modelField'
+      && selectedRow.target.kind !== 'modelProvider'
+      && selectedRow.target.kind !== 'modelDefault'
+      && selectedRow.target.kind !== 'modelAutoCompact'
+      && selectedRow.target.kind !== 'modelPromptCaching'
+      && selectedRow.target.kind !== 'modelClaudePromptCacheMode'
+      && selectedRow.target.kind !== 'deepseekModel'
+    ) {
+      setStatus('请先选中某个模型字段后再删除', 'warning');
+      return;
+    }
     if (draft.models.length <= 1) { setStatus('至少需要保留一个模型', 'warning'); return; }
     const index = selectedRow.target.modelIndex;
     const model = draft.models[index];
@@ -881,46 +982,66 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       setStatus('请先填写该模型的 API Key 再拉取模型列表', 'warning');
       return;
     }
+    const requestId = modelFetchRequestIdRef.current + 1;
+    modelFetchRequestIdRef.current = requestId;
     setStatus(`正在拉取 ${model.provider} 可用模型列表...`, 'info');
-    setModelPicker({ modelIndex, models: [], filter: '', highlightIndex: 0 });
+    setModelPicker({
+      modelIndex,
+      provider: model.provider,
+      phase: 'loading',
+      models: [],
+      filter: '',
+      highlightIndex: 0,
+    });
     try {
       const result = await onFetchAvailableModels({
         provider: model.provider,
         apiKey: model.apiKey,
         baseUrl: model.baseUrl || undefined,
       });
-      const entries = (result.models ?? []).map((m) => ({
-        id: m.id,
-        label: (m as any).label || (m as any).displayName ? `${m.id} · ${(m as any).label || (m as any).displayName}` : m.id,
-      }));
+      if (modelFetchRequestIdRef.current !== requestId) return;
+      const entries = normalizeModelCatalogEntries(result.models ?? []);
       if (entries.length === 0) {
         setStatus('拉取到的模型列表为空', 'warning');
         setModelPicker(null);
         return;
       }
-      setModelPicker({ modelIndex, models: entries, filter: '', highlightIndex: 0 });
-      setStatus(`已拉取 ${entries.length} 个模型，输入关键词过滤，↑↓ 选择，Enter 确认`, 'success');
+      const currentModelIndex = entries.findIndex((entry) => entry.id === model.modelId);
+      setModelPicker({
+        modelIndex,
+        provider: model.provider,
+        phase: 'ready',
+        models: entries,
+        filter: '',
+        highlightIndex: Math.max(0, currentModelIndex),
+      });
+      setStatus(`已拉取 ${entries.length} 个模型`, 'success');
     } catch (err: unknown) {
+      if (modelFetchRequestIdRef.current !== requestId) return;
       setModelPicker(null);
       setStatus(`拉取模型列表失败：${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   }, [draft, onFetchAvailableModels, setStatus]);
 
   const submitModelPicker = useCallback(() => {
-    if (!modelPicker) return;
-    const filtered = modelPicker.models.filter((m) =>
-      m.id.toLowerCase().includes(modelPicker.filter.toLowerCase())
-      || m.label.toLowerCase().includes(modelPicker.filter.toLowerCase()),
-    );
+    if (!modelPicker || modelPicker.phase !== 'ready') return;
+    const filtered = filterModelPickerEntries(modelPicker.models, modelPicker.filter);
     const selected = filtered[modelPicker.highlightIndex] ?? filtered[0];
-    if (selected) {
-      updateDraft((snapshot: ConsoleSettingsSnapshot) => {
-        snapshot.models[modelPicker.modelIndex].modelId = selected.id;
-      });
-      setStatus(`已选择模型 ID: ${selected.id}，按 S 保存并热重载`, 'success');
-    }
+    if (!selected) return;
+    updateDraft((snapshot: ConsoleSettingsSnapshot) => {
+      snapshot.models[modelPicker.modelIndex].modelId = selected.id;
+    });
+    setStatus(`已选择模型 ID: ${selected.id}，按 S 保存并热重载`, 'success');
     setModelPicker(null);
   }, [modelPicker, updateDraft, setStatus]);
+
+  const cancelModelPicker = useCallback(() => {
+    if (!modelPicker) return;
+    modelFetchRequestIdRef.current += 1;
+    const wasLoading = modelPicker.phase === 'loading';
+    setModelPicker(null);
+    setStatus(wasLoading ? '已取消拉取模型列表' : '已取消模型选择', 'warning');
+  }, [modelPicker, setStatus]);
 
   const switchSection = useCallback((direction: 1 | -1) => {
     if (sections.length === 0) return;
@@ -941,47 +1062,60 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
     // 模型选择器活动时：独立处理键盘事件
     if (modelPicker) {
       if (key.name === 'escape') {
-        setModelPicker(null);
-        setStatus('已取消模型选择', 'warning');
+        cancelModelPicker();
+        key.preventDefault();
         return;
       }
+      if (modelPicker.phase === 'loading') return;
       if (key.name === 'enter' || key.name === 'return') {
         submitModelPicker();
+        key.preventDefault();
         return;
       }
       if (key.name === 'up') {
-        setModelPicker((prev) => prev ? {
+        setModelPicker((prev) => prev?.phase === 'ready' ? {
           ...prev,
           highlightIndex: Math.max(0, prev.highlightIndex - 1),
         } : prev);
+        key.preventDefault();
         return;
       }
       if (key.name === 'down') {
         setModelPicker((prev) => {
-          if (!prev) return prev;
-          const filtered = prev.models.filter((m) =>
-            m.id.toLowerCase().includes(prev.filter.toLowerCase())
-            || m.label.toLowerCase().includes(prev.filter.toLowerCase()),
-          );
-          return { ...prev, highlightIndex: Math.min(filtered.length - 1, prev.highlightIndex + 1) };
+          if (prev?.phase !== 'ready') return prev;
+          const filtered = filterModelPickerEntries(prev.models, prev.filter);
+          return {
+            ...prev,
+            highlightIndex: filtered.length === 0
+              ? 0
+              : Math.min(filtered.length - 1, prev.highlightIndex + 1),
+          };
         });
+        key.preventDefault();
         return;
       }
       if (key.name === 'backspace') {
-        setModelPicker((prev) => prev ? {
+        setModelPicker((prev) => prev?.phase === 'ready' ? {
           ...prev,
           filter: prev.filter.slice(0, -1),
           highlightIndex: 0,
         } : prev);
+        key.preventDefault();
         return;
       }
-      // 可打印字符：追加到 filter
-      if (key.name && key.name.length === 1 && /[a-zA-Z0-9 _\-.]/.test(key.name)) {
-        setModelPicker((prev) => prev ? {
+      // 使用原始 sequence 接收可打印文本，兼容斜杠、冒号和非 ASCII 模型名。
+      const printableText = !key.ctrl && !key.meta
+        && key.sequence
+        && /^[^\u0000-\u001f\u007f]+$/u.test(key.sequence)
+        ? key.sequence
+        : '';
+      if (printableText) {
+        setModelPicker((prev) => prev?.phase === 'ready' ? {
           ...prev,
-          filter: prev.filter + key.name,
+          filter: prev.filter + printableText,
           highlightIndex: 0,
         } : prev);
+        key.preventDefault();
         return;
       }
       return;
@@ -1079,13 +1213,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
     }
     if (key.name === 'r') { void reloadSnapshot(); return; }
     if (key.name === 'f') {
-      if (selectedRow?.target?.kind === 'modelField' && selectedRow.target.field === 'modelId') {
-        const modelIndex = selectedRow.target.modelIndex;
-        const model = draft?.models[modelIndex];
-        if (model && model.provider !== 'deepseek') {
-          void handleFetchModels(modelIndex);
-        }
-      }
+      if (selectedFetchTarget) void handleFetchModels(selectedFetchTarget.modelIndex);
       return;
     }
     if (key.name === 'a') {
@@ -1099,8 +1227,9 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       return;
     }
     if (key.name === 'space' && selectedRow?.target) {
-      if (selectedRow.target.kind === 'modelDefault' || selectedRow.target.kind === 'modelAutoCompact' || selectedRow.target.kind === 'toolApprovalView' || selectedRow.target.kind === 'toolGlobalToggle' || (selectedRow.target.kind === 'systemField' && (selectedRow.target.field === 'stream' || selectedRow.target.field === 'retryOnError' || selectedRow.target.field === 'logRequests' || selectedRow.target.field === 'asyncSubAgents')) || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'enabled')) {
-
+      if (selectedRow.target.kind === 'modelClaudePromptCacheMode') {
+        applyCycle(selectedRow.target, 1);
+      } else if (isToggleTarget(selectedRow.target)) {
         applyToggle(selectedRow.target);
       } else if (selectedRow.target.kind === 'pluginField' && selectedRow.target.fieldType === 'toggle') {
         // 插件 tab 的 toggle 字段：空格切换
@@ -1123,7 +1252,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         else handleAddModel();
         return;
       }
-      if (selectedRow.target.kind === 'modelDefault' || selectedRow.target.kind === 'modelAutoCompact' || selectedRow.target.kind === 'toolApprovalView' || selectedRow.target.kind === 'toolGlobalToggle' || (selectedRow.target.kind === 'systemField' && (selectedRow.target.field === 'stream' || selectedRow.target.field === 'retryOnError' || selectedRow.target.field === 'logRequests' || selectedRow.target.field === 'asyncSubAgents')) || (selectedRow.target.kind === 'mcpField' && selectedRow.target.field === 'enabled')) {
+      if (isToggleTarget(selectedRow.target)) {
         applyToggle(selectedRow.target);
         return;
       }
@@ -1176,7 +1305,83 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
   // 滚动窗口计算。
   // 顶部 LOGO 区域占 5 行（3 行文字 + paddingTop=1 + marginTop=1），
   // 加上底部信息栏，需要从终端高度中减去这些固定占用。
-  const listHeight = Math.max(10, termHeight - (editor ? 26 : modelPicker ? 34 : 22));
+  const pickerVisibleRowCount = getModelPickerVisibleRowCount(termHeight);
+  const pickerPanelHeight = pickerVisibleRowCount + 5;
+  const filteredPickerModels = modelPicker?.phase === 'ready'
+    ? filterModelPickerEntries(modelPicker.models, modelPicker.filter)
+    : [];
+  const pickerWindow = getModelPickerWindow(
+    filteredPickerModels,
+    modelPicker?.highlightIndex ?? 0,
+    pickerVisibleRowCount,
+  );
+  const pickerPanelTextWidth = Math.max(8, termWidth - 4);
+  const pickerLabelWidth = Math.max(12, termWidth - 8);
+  const pickerHeaderText = modelPicker
+    ? fitModelPickerSingleLine(
+        modelPicker.phase === 'loading'
+          ? `选择模型 ID  ${ICONS.separator}  正在拉取 ${modelPicker.provider}...`
+          : `选择模型 ID  ${ICONS.separator}  ${filteredPickerModels.length}/${modelPicker.models.length}`,
+        pickerPanelTextWidth,
+      )
+    : '';
+  const pickerPromptText = modelPicker
+    ? fitModelPickerSingleLine(
+        modelPicker.phase === 'loading'
+          ? '正在请求提供商模型目录，请稍候。'
+          : `搜索: ${modelPicker.filter || '(直接输入关键词过滤)'}`,
+        pickerPanelTextWidth,
+      )
+    : '';
+  const pickerFooterText = modelPicker
+    ? fitModelPickerSingleLine(
+        modelPicker.phase === 'loading'
+          ? 'Esc 取消'
+          : `${ICONS.arrowUp}${ICONS.arrowDown} 选择  Enter 确认  Backspace 删除  Esc 取消`,
+        pickerPanelTextWidth,
+      )
+    : '';
+  const bottomBarTextWidth = Math.max(12, termWidth - 4);
+  const bottomBarContentRowCount = getSettingsBottomBarContentRowCount(
+    !!editor,
+    !!editor?.hint,
+  );
+  const bottomBarPanelHeight = bottomBarContentRowCount + 1;
+  const shortcutHelp = buildSettingsShortcutHelp(
+    selectedFetchTarget
+      ? [
+          'F 拉取模型',
+          'Enter 手动编辑',
+          `${ICONS.arrowUp}${ICONS.arrowDown} 选择`,
+          'S 保存',
+          'Esc 返回',
+          'R 重载',
+        ]
+      : [
+          `${ICONS.arrowUp}${ICONS.arrowDown} 选择`,
+          `${ICONS.arrowLeft}${ICONS.arrowRight} 切换`,
+          'Enter 编辑/执行',
+          'S 保存',
+          'Esc 返回',
+          'Space 开关',
+          'A 新增',
+          'D 删除',
+          'R 重载',
+          `1~${sections.length} 分栏`,
+        ],
+    bottomBarTextWidth,
+  );
+  const selectedDescription = selectedFetchTarget
+    ? 'F 拉取提供商可用模型；Enter 手动编辑模型 ID。'
+    : selectedRow?.description;
+  const listHeight = Math.max(
+    3,
+    termHeight - (
+      modelPicker
+        ? pickerPanelHeight + 12
+        : bottomBarPanelHeight + 18
+    ),
+  );
   const selectedRowSectionIndex = Math.max(0, sectionRows.findIndex((row: SettingsRow) => row.id === selectedRowId));
   let windowStart = Math.max(0, selectedRowSectionIndex - Math.floor(listHeight / 2));
   let windowEnd = Math.min(sectionRows.length, windowStart + listHeight);
@@ -1194,7 +1399,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
   }
 
   return (
-    <box flexDirection="column" width="100%" height="100%">
+    <box flexDirection="column" position="relative" width="100%" height="100%">
       {/* 主体：左栏导航 + 右栏内容，LOGO 放在右栏顶部居中 */}
       <box flexDirection="row" flexGrow={1}>
         {/* 左栏导航：用 paddingRight + 竖线字符模拟分隔线，
@@ -1205,7 +1410,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
             {sections.map((sec) => (
               <text key={sec.id} fg={currentSection === sec.id ? (navFocused ? '#00ffff' : C.accent) : '#555'}>
                 {currentSection === sec.id
-                  ? (navFocused ? '\u276F' : ICONS.dotFilled)
+                  ? (navFocused ? ICONS.selectorArrow : ICONS.dotFilled)
                   : ICONS.dotEmpty
                 } {sec.icon} {sec.label}
               </text>
@@ -1266,9 +1471,9 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
             {visibleRows.map((row: SettingsRow) => {
               const isSelected = !navFocused && row.id === selectedRowId && !!row.target;
               const prefix = row.kind === 'action'
-                  ? (isSelected ? '\u276F' : '\u2022')
+                  ? (isSelected ? ICONS.selectorArrow : ICONS.bullet)
                   : row.kind === 'field'
-                    ? (isSelected ? '\u276F' : ' ')
+                    ? (isSelected ? ICONS.selectorArrow : ' ')
                     : ' ';
               return (
                 <box key={row.id} paddingLeft={row.indent ?? 0}>
@@ -1290,59 +1495,118 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
           </scrollbox>
         </box>
       </box>
-      <box flexDirection="column" marginTop={1} paddingX={2}>
-        <text fg={C.dim}>{'─'.repeat(Math.max(3, termWidth - 4))}</text>
-        <box flexDirection="column" minHeight={4}>
-          {selectedRow?.description && !editor && !modelPicker && <text fg="#888">{selectedRow.description}</text>}
-          {statusText && <text fg={getStatusColor(statusKind)}>{statusText}</text>}
-          {modelPicker ? (
-            <box flexDirection="column">
-              <text fg={C.accent}><strong>选择模型 ID</strong></text>
-              <box>
-                <text fg={C.accent}>{'\u276F '}</text>
-                <text fg="#888">{`搜索: ${modelPicker.filter || '(输入关键词过滤)'}`}</text>
-              </box>
-              <scrollbox maxHeight={8} flexGrow={1}>
-                {(() => {
-                  const filtered = modelPicker.models.filter((m) =>
-                    m.id.toLowerCase().includes(modelPicker.filter.toLowerCase())
-                    || m.label.toLowerCase().includes(modelPicker.filter.toLowerCase()),
-                  );
-                  if (filtered.length === 0) {
-                    return <text fg="#888">  没有匹配的模型</text>;
-                  }
-                  const maxVisible = 8;
-                  const start = Math.max(0, modelPicker.highlightIndex - Math.floor(maxVisible / 2));
-                  const end = Math.min(filtered.length, start + maxVisible);
-                  const adjustedStart = Math.max(0, end - maxVisible);
-                  return filtered.slice(adjustedStart, end).map((m, i) => {
-                    const realIndex = adjustedStart + i;
-                    const isHighlighted = realIndex === modelPicker.highlightIndex;
-                    return (
-                      <text key={m.id} fg={isHighlighted ? '#00ffff' : '#aaa'}>
-                        {isHighlighted ? '\u276F ' : '  '}{m.label}
-                      </text>
-                    );
-                  });
-                })()}
-              </scrollbox>
-              <text fg="#888">{`Enter 确认 ${ICONS.separator} Esc 取消 ${ICONS.separator} ↑↓ 导航 ${ICONS.separator} 输入文字过滤`}</text>
-            </box>
-          ) : editor ? (
-            <box flexDirection="column">
-              <text fg={C.accent}><strong>编辑：{editor.label}</strong></text>
-              {editor.hint && <text fg="#888">{editor.hint}</text>}
-              <box>
-                <text fg={C.accent}>{'\u276F '}</text>
-                <input value={editorValue} onInput={setEditorValue} focused />
+      {!modelPicker && (
+        <box
+          flexDirection="column"
+          marginTop={1}
+          paddingX={2}
+          height={bottomBarPanelHeight}
+          flexShrink={0}
+          overflow="hidden"
+        >
+          <text fg={C.dim}>{'─'.repeat(Math.max(3, termWidth - 4))}</text>
+          {editor ? (
+            <box
+              flexDirection="column"
+              height={bottomBarContentRowCount}
+              overflow="hidden"
+            >
+              <text fg={C.accent}>
+                <strong>
+                  {fitModelPickerSingleLine(`编辑：${editor.label}`, bottomBarTextWidth)}
+                </strong>
+              </text>
+              {editor.hint && (
+                <text fg="#888">
+                  {fitModelPickerSingleLine(editor.hint, bottomBarTextWidth)}
+                </text>
+              )}
+              <box
+                flexDirection="row"
+                width="100%"
+                height={1}
+                flexShrink={0}
+                overflow="hidden"
+              >
+                <text fg={C.accent}>{`${ICONS.selectorArrow} `}</text>
+                <input
+                  value={editorValue}
+                  onInput={setEditorValue}
+                  flexGrow={1}
+                  minWidth={1}
+                  focused
+                />
               </box>
               <text fg="#888">{`Enter 保存 ${ICONS.separator} Esc 取消`}</text>
             </box>
           ) : (
-            <text fg="#888">{`${ICONS.arrowUp}${ICONS.arrowDown} 选择  ${ICONS.arrowLeft}${ICONS.arrowRight} 切换  1~${sections.length} 分栏  Space 开关  Enter 编辑/执行  A 新增  D 删除  S 保存  R 重载  Esc 返回${onFetchAvailableModels ? '  F 拉取模型' : ''}`}</text>
+            <box
+              flexDirection="column"
+              height={bottomBarContentRowCount}
+              overflow="hidden"
+            >
+              <text fg="#888">
+                {selectedDescription
+                  ? fitModelPickerSingleLine(selectedDescription, bottomBarTextWidth)
+                  : ' '}
+              </text>
+              <text fg={getStatusColor(statusKind)}>
+                {statusText
+                  ? fitModelPickerSingleLine(statusText, bottomBarTextWidth)
+                  : ' '}
+              </text>
+              <text fg="#888">{shortcutHelp}</text>
+            </box>
           )}
         </box>
-      </box>
+      )}
+      {modelPicker && (
+        <box
+          position="absolute"
+          left={0}
+          bottom={0}
+          zIndex={100}
+          width="100%"
+          height={pickerPanelHeight}
+          shouldFill
+          flexDirection="column"
+          backgroundColor={C.panelBg}
+          border
+          borderStyle="single"
+          borderColor={C.border}
+          paddingX={1}
+        >
+          <box width="100%" height={1} flexShrink={0} overflow="hidden">
+            <text fg={C.accent}><strong>{pickerHeaderText}</strong></text>
+          </box>
+          <box width="100%" height={1} flexShrink={0} overflow="hidden">
+            <text fg="#888">{pickerPromptText}</text>
+          </box>
+          <box flexDirection="column" height={pickerVisibleRowCount}>
+            {modelPicker.phase === 'loading' ? (
+              <text fg={C.dim}>  拉取中...</text>
+            ) : filteredPickerModels.length === 0 ? (
+              <text fg={C.dim}>  没有匹配的模型</text>
+            ) : (
+              pickerWindow.entries.map((entry, index) => {
+                const realIndex = pickerWindow.startIndex + index;
+                const isHighlighted = realIndex === modelPicker.highlightIndex;
+                return (
+                  <box key={entry.id} width="100%" height={1} overflow="hidden">
+                    <text fg={isHighlighted ? '#00ffff' : '#aaa'}>
+                      {isHighlighted ? `${ICONS.selectorArrow} ` : '  '}
+                      {fitModelPickerSingleLine(entry.label, pickerLabelWidth)}
+                    </text>
+                  </box>
+                );
+              })
+            )}
+          </box>
+          <box width="100%" height={1} flexShrink={0} overflow="hidden">
+            <text fg="#888">{pickerFooterText}</text>
+          </box>
+        </box>
+      )}
     </box>
   );
 }

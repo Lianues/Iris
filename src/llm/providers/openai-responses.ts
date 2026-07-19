@@ -18,7 +18,7 @@ export function createOpenAIResponsesProvider(config: LLMConfig): LLMProvider {
   const url = `${baseUrl}/responses`;
 
   return new LLMProvider(
-    new OpenAIResponsesFormat(config.model),
+    new OpenAIResponsesFormat(config.model, config.promptCaching),
     {
       url,
       headers: {

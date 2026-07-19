@@ -17,7 +17,7 @@ export function createOpenAICompatibleProvider(config: LLMConfig): LLMProvider {
   const baseUrl = (config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
 
   return new LLMProvider(
-    new OpenAICompatibleFormat(model),
+    new OpenAICompatibleFormat(model, config.promptCaching),
     {
       url: `${baseUrl}/chat/completions`,
       headers: { 'Authorization': `Bearer ${config.apiKey}`, ...config.headers },

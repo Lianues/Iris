@@ -345,14 +345,136 @@ function candidateMatchesAlias(candidate: VscodeCliCandidate, alias: string): bo
   return expected ? candidate.label === expected : false;
 }
 
-async function tryExec(command: string, args: string[], timeout = 15_000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+function normalizeTarget(target?: string): string | undefined {
+  const normalized = target?.trim().replace(/^['"]|['"]$/g, '');
+  return normalized || undefined;
+}
+
+function getEnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  if (env[name] !== undefined) return env[name];
+  if (process.platform !== 'win32') return undefined;
+  const matched = Object.keys(env).find((key) => key.toLowerCase() === name.toLowerCase());
+  return matched ? env[matched] : undefined;
+}
+
+function canonicalizeCommandPath(command: string): string {
   try {
-    const { stdout, stderr } = await execFile(command, args, {
+    return fs.realpathSync.native(command);
+  } catch {
+    try {
+      return fs.realpathSync(command);
+    } catch {
+      return path.resolve(command);
+    }
+  }
+}
+
+function isExecutableFile(filepath: string): boolean {
+  try {
+    if (!fs.statSync(filepath).isFile()) return false;
+    if (process.platform !== 'win32') fs.accessSync(filepath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getCommandNames(command: string, env: NodeJS.ProcessEnv): string[] {
+  if (process.platform !== 'win32' || path.extname(command)) return [command];
+  const pathExt = getEnvValue(env, 'PATHEXT') || '.COM;.EXE;.BAT;.CMD';
+  return pathExt
+    .split(';')
+    .map((extension) => extension.trim())
+    .filter(Boolean)
+    .map((extension) => command + (extension.startsWith('.') ? extension : `.${extension}`));
+}
+
+/**
+ * 将命令解析为 PATH 中所有真实文件，而不是只信任第一个裸命令。
+ * 这样即使 Cursor 的 code shim 排在前面，后面的真实 VS Code CLI 仍会进入候选集。
+ */
+export function resolveCommandPaths(command: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  const trimmed = normalizeTarget(command);
+  if (!trimmed) return [];
+
+  const hasPathSeparator = process.platform === 'win32'
+    ? /[\\/]/.test(trimmed)
+    : trimmed.includes('/');
+  const searchDirs = path.isAbsolute(trimmed) || hasPathSeparator
+    ? ['']
+    : (getEnvValue(env, 'PATH') || '').split(path.delimiter);
+  const names = getCommandNames(trimmed, env);
+  const seen = new Set<string>();
+  const resolved: string[] = [];
+
+  for (const rawDir of searchDirs) {
+    const dir = rawDir.trim().replace(/^"(.*)"$/, '$1') || process.cwd();
+    for (const name of names) {
+      const filepath = searchDirs.length === 1 && searchDirs[0] === ''
+        ? path.resolve(name)
+        : path.resolve(dir, name);
+      if (!isExecutableFile(filepath)) continue;
+      const realPath = canonicalizeCommandPath(filepath);
+      const key = process.platform === 'win32' ? realPath.toLowerCase() : realPath;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      resolved.push(realPath);
+    }
+  }
+
+  return resolved;
+}
+
+function quoteWindowsCommandToken(value: string): string {
+  // cmd.exe 即使在双引号内也会展开 %VAR%。拒绝这些字符比静默执行错误路径更安全。
+  if (/[%"\r\n\0]/.test(value)) {
+    throw new Error(`Windows 命令路径或参数包含不支持的字符: ${value}`);
+  }
+  return `"${value}"`;
+}
+
+interface CommandInvocation {
+  command: string;
+  args: string[];
+  windowsVerbatimArguments?: boolean;
+}
+
+/**
+ * .cmd/.bat 必须经 cmd.exe 执行；其它可执行文件一律直接 execFile，
+ * 避免 shell=true 丢失带空格路径的引号，也避免把用户目标拼进 shell。
+ */
+export function createCommandInvocation(
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): CommandInvocation {
+  if (process.platform !== 'win32' || !/\.(?:cmd|bat)$/i.test(command)) {
+    return { command, args };
+  }
+
+  const tokens = [command, ...args].map(quoteWindowsCommandToken);
+  return {
+    command: getEnvValue(env, 'ComSpec') || 'cmd.exe',
+    args: ['/d', '/v:off', '/s', '/c', `"${tokens.join(' ')}"`],
+    windowsVerbatimArguments: true,
+  };
+}
+
+async function tryExec(
+  command: string,
+  args: string[],
+  timeout = 15_000,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  try {
+    const invocation = createCommandInvocation(command, args, env);
+    const { stdout, stderr } = await execFile(invocation.command, invocation.args, {
       timeout,
       windowsHide: true,
       maxBuffer: 1024 * 1024,
-      // Windows 上 VS Code CLI 通常是 .cmd；shell=true 能兼容 PATH/PATHEXT 与带空格路径。
-      shell: process.platform === 'win32',
+      shell: false,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+      env,
     });
     return { ok: true, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') };
   } catch (error: any) {
@@ -361,7 +483,7 @@ async function tryExec(command: string, args: string[], timeout = 15_000): Promi
 }
 
 function resolveCandidate(target?: string): VscodeCliCandidate[] {
-  const trimmed = target?.trim().replace(/^['"]|['"]$/g, '');
+  const trimmed = normalizeTarget(target);
   if (!trimmed) return getDefaultCandidates();
   const aliased = getDefaultCandidates().filter((candidate) => candidateMatchesAlias(candidate, trimmed));
   if (aliased.length > 0) return aliased;
@@ -369,24 +491,10 @@ function resolveCandidate(target?: string): VscodeCliCandidate[] {
 }
 
 /**
- * 解析裸命令的真实绝对路径。
- * Windows: where.exe <command>；POSIX: which <command>。
- * 失败时返回 undefined，不影响原有流程。
- */
-async function resolveRealCommandPath(command: string): Promise<string | undefined> {
-  if (path.isAbsolute(command)) return command;
-  const tool = process.platform === 'win32' ? 'where.exe' : 'which';
-  const result = await tryExec(tool, [command], 5_000);
-  if (!result.ok) return undefined;
-  const firstLine = result.stdout.split(/\r?\n/g).find((line) => line.trim());
-  return firstLine?.trim() || undefined;
-}
-
-/**
  * 根据真实路径关键词纠正候选的 label。
  * Cursor 安装时会创建伪装的 code.cmd，需要通过路径区分真实编辑器。
  */
-function relabelCandidateByPath(candidate: VscodeCliCandidate, realPath: string): VscodeCliCandidate {
+export function relabelCandidateByPath(candidate: VscodeCliCandidate, realPath: string): VscodeCliCandidate {
   const lower = realPath.toLowerCase().replace(/\\/g, '/');
   if (lower.includes('/cursor')) return { ...candidate, label: 'Cursor' };
   if (lower.includes('/windsurf')) return { ...candidate, label: 'Windsurf' };
@@ -401,41 +509,61 @@ function relabelCandidateByPath(candidate: VscodeCliCandidate, realPath: string)
  * 无 target 安装时，优先选择绝对路径的真 VS Code 候选。
  * 避免裸 `code` 命令被 Cursor 劫持后误选。
  */
-function selectBestCandidate(candidates: VscodeCliCandidate[], target?: string): VscodeCliCandidate | undefined {
+export function selectBestCandidate(candidates: VscodeCliCandidate[], target?: string): VscodeCliCandidate | undefined {
   if (candidates.length === 0) return undefined;
   if (target) {
-    // 有 target 时，根据 alias 推导期望 label，优先选 relabel 后标签仍匹配的候选
-    const expectedLabel = aliasToLabel(target);
+    // 显式 alias 是严格约束；找不到指定编辑器时不得回退到其它产品。
+    const expectedLabel = aliasToLabel(normalizeTarget(target) ?? target);
     if (expectedLabel) {
-      const matching = candidates.filter((c) => c.label === expectedLabel);
-      if (matching.length > 0) {
-        return matching.find((c) => path.isAbsolute(c.command)) ?? matching[0];
-      }
+      return candidates.find((candidate) => candidate.label === expectedLabel);
     }
     return candidates[0];
   }
-  // 无 target：优先绝对路径的真 VS Code，避免裸 code 被 Cursor 劫持
-  const vscodeAbs = candidates.find((c) => c.label === 'VS Code' && path.isAbsolute(c.command));
-  if (vscodeAbs) return vscodeAbs;
-  const vscodeBare = candidates.find((c) => c.label === 'VS Code');
-  if (vscodeBare) return vscodeBare;
-  return candidates[0];
+
+  // 无 target：VS Code 是稳定默认值；只有一个产品族时也可安全自动选择。
+  const vscode = candidates.find((candidate) => candidate.label === 'VS Code');
+  if (vscode) return vscode;
+  const labels = new Set(candidates.map((candidate) => candidate.label));
+  return labels.size === 1 ? candidates[0] : undefined;
+}
+
+export async function detectVscodeCliCandidates(
+  candidates: VscodeCliCandidate[],
+  expectedLabel?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<VscodeCliCandidate[]> {
+  const detected: VscodeCliCandidate[] = [];
+  const seen = new Set<string>();
+  const workingLabels = new Set<string>();
+
+  for (const candidate of candidates) {
+    for (const command of resolveCommandPaths(candidate.command, env)) {
+      const key = process.platform === 'win32' ? command.toLowerCase() : command;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      // CLI wrapper 已验证可用后，不再探测同产品的 GUI .exe，避免无谓启动 Electron 进程。
+      if (/\.exe$/i.test(command) && workingLabels.has(candidate.label)) continue;
+
+      const result = await tryExec(command, ['--version'], 15_000, env);
+      if (!result.ok) continue;
+      const resolved = relabelCandidateByPath({
+        ...candidate,
+        command,
+        version: result.stdout.split(/\r?\n/g).find((line) => line.trim()),
+      }, command);
+      if (expectedLabel && resolved.label !== expectedLabel) continue;
+      detected.push(resolved);
+      workingLabels.add(resolved.label);
+    }
+  }
+
+  return detected;
 }
 
 export async function detectVscodeCliCommands(target?: string): Promise<VscodeCliCandidate[]> {
-  const detected: VscodeCliCandidate[] = [];
-  for (const candidate of resolveCandidate(target)) {
-    const result = await tryExec(candidate.command, ['--version']);
-    if (!result.ok) continue;
-    let resolved = { ...candidate, version: result.stdout.split(/\r?\n/g).find(Boolean) };
-    // 解析真实路径，纠正可能被 Cursor/Windsurf 劫持的 label
-    const realPath = await resolveRealCommandPath(candidate.command);
-    if (realPath) {
-      resolved = relabelCandidateByPath(resolved, realPath);
-    }
-    detected.push(resolved);
-  }
-  return detected;
+  const normalizedTarget = normalizeTarget(target);
+  const expectedLabel = normalizedTarget ? aliasToLabel(normalizedTarget) : undefined;
+  return detectVscodeCliCandidates(resolveCandidate(normalizedTarget), expectedLabel);
 }
 
 async function getInstalledExtensionVersion(command: string): Promise<string | undefined> {
@@ -477,16 +605,30 @@ async function activateInstalledExtension(command: string): Promise<{ attempted:
 export async function installVscodeExtension(options: InstallVscodeExtensionOptions): Promise<InstallVscodeExtensionResult> {
   const candidates = await detectVscodeCliCommands(options.target);
   if (candidates.length === 0) {
+    const requested = normalizeTarget(options.target);
     return {
       success: false,
       message: [
-        '未找到可用的 VS Code / Cursor / Windsurf 命令。',
+        requested
+          ? `未找到指定的 VS Code 系编辑器或命令：${requested}`
+          : '未找到可用的 VS Code / Cursor / Windsurf 命令。',
         '已尝试 PATH 与常见安装目录；如果仍失败，请使用 /ide install <命令路径> 指定 code.cmd / Code.exe / cursor.cmd 等路径。',
       ].join('\n'),
     };
   }
 
-  const candidate = selectBestCandidate(candidates, options.target) ?? candidates[0];
+  const candidate = selectBestCandidate(candidates, options.target);
+  if (!candidate) {
+    const labels = [...new Set(candidates.map((item) => item.label))];
+    return {
+      success: false,
+      message: [
+        `检测到多个可用编辑器：${labels.join('、')}。`,
+        '请明确指定安装目标，例如 /ide install code、/ide install cursor 或 /ide install windsurf。',
+      ].join('\n'),
+    };
+  }
+
   try {
     const extensionDir = getBundledVscodeExtensionDir(options.extensionRootDir);
     const bundledPackage = await readBundledVscodeExtensionPackage(extensionDir);
