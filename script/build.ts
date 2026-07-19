@@ -416,6 +416,13 @@ function isNativeFileForOtherPlatform(fileName: string, target: Target): boolean
   return false
 }
 
+function isPrebuildDirectoryForOtherTarget(dirPath: string, target: Target): boolean {
+  if (path.basename(path.dirname(dirPath)).toLowerCase() !== "prebuilds") return false
+  const match = /^(win32|linux|darwin)-(.+)$/i.exec(path.basename(dirPath))
+  if (!match) return false
+  return match[1].toLowerCase() !== target.os || match[2].toLowerCase() !== target.arch
+}
+
 function isWithinDirectory(candidatePath: string, parentDir: string): boolean {
   const relative = path.relative(parentDir, candidatePath)
   return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative))
@@ -462,12 +469,21 @@ function pruneDistributionArtifacts(targetDir: string, target: Target): Distribu
           removeDirectory(fullPath)
           continue
         }
+        if (inNodeModules && isPrebuildDirectoryForOtherTarget(fullPath, target)) {
+          removeDirectory(fullPath)
+          continue
+        }
         visit(fullPath)
       } else if (entry.isFile()) {
         const isSourceMap = entry.name.endsWith(".map")
         const isDeclarationFile = entry.name.endsWith(".d.ts")
+        const isDebugSymbol = entry.name.toLowerCase().endsWith(".pdb")
         const isOtherPlatformNative = inNodeModules && isNativeFileForOtherPlatform(entry.name, target)
-        if (distributionPruneLockfiles.has(entry.name) || (inNodeModules && (isSourceMap || isDeclarationFile || isOtherPlatformNative))) {
+        if (
+          entry.name === ".gitignore"
+          || distributionPruneLockfiles.has(entry.name)
+          || (inNodeModules && (isSourceMap || isDeclarationFile || isDebugSymbol || isOtherPlatformNative))
+        ) {
           removeFile(fullPath)
         }
       }
@@ -495,6 +511,11 @@ function hasInstallableRuntimeDependencies(targetDir: string): boolean {
     optionalDependencies?: Record<string, string>
   }
   return [pkg.dependencies, pkg.optionalDependencies].some((deps) => !!deps && Object.keys(deps).length > 0)
+}
+
+function isFloatingExternalDependencySpec(spec: string): boolean {
+  const normalized = spec.trim().toLowerCase()
+  return normalized === "*" || normalized === "latest"
 }
 
 function installExternalDependenciesForTarget(targetDir: string, target: Target, extension: EmbeddedExtensionBuildTarget): void {
@@ -571,7 +592,13 @@ function copyEmbeddedExtensions(extensions: EmbeddedExtensionBuildTarget[], targ
           // 只保留：external 列表里的依赖（运行时仍需 require）。
           // 删除：file: 本地依赖（路径已失效）+ 已被 bundle 的 registry 依赖。
           const isExternal = field !== "devDependencies" && externalSet.has(name)
-          if (!isExternal) {
+          if (isExternal) {
+            if (typeof version !== "string" || isFloatingExternalDependencySpec(version)) {
+              throw new Error(
+                `extension "${extension.name}" 的 external 依赖 ${name} 必须使用受控版本，不能使用 ${JSON.stringify(version)}`,
+              )
+            }
+          } else {
             delete deps[name]
             pkgModified = true
           }
@@ -683,6 +710,10 @@ for (const target of targets) {
         null,
         2,
       ),
+    )
+    fs.writeFileSync(
+      path.join(outDir, ".npmignore"),
+      "# 发布包需要保留 extensions/*/node_modules 中的运行时依赖。\n",
     )
 
     binaries[npmPackageName] = version

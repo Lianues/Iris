@@ -138,6 +138,7 @@ jobs:
       - name: Validate package artifacts
         run: |
           npx tsx script/validate-native-assets.ts dist/bin/iris-${{ matrix.platform }}-${{ matrix.arch }}
+          npx tsx script/validate-extension-runtime.ts --npm-pack dist/bin/iris-${{ matrix.platform }}-${{ matrix.arch }}
           npx tsx script/check-package-size.ts --fail-mb 125 dist/bin/iris-${{ matrix.platform }}-${{ matrix.arch }}
 
       - name: Archive (Linux/macOS)

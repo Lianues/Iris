@@ -7,10 +7,10 @@
   },
   "dependencies": {
     "irises-extension-sdk": "file:../../packages/extension-sdk",
-    "@opentui/core": "*",
-    "@opentui/react": "*",
-    "react": "*",
-    "tokenx": "*"
+    "@opentui/core": "0.1.88",
+    "@opentui/react": "0.1.88",
+    "react": "19.2.5",
+    "tokenx": "^1.3.0"
   },
   "devDependencies": {
     "@types/react": "^19.1.0"

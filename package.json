@@ -1,6 +1,6 @@
 {
   "name": "iris",
-  "version": "1.0.41",
+  "version": "1.0.42",
   "description": "模块化、可解耦的 AI 聊天框架，支持多平台、多 LLM、工具调用",
   "license": "GPL-3.0-only",
   "type": "module",
@@ -49,8 +49,8 @@
     "yaml": "^2.8.2"
   },
   "optionalDependencies": {
-    "@opentui/core": "^0.1.88",
-    "@opentui/react": "latest",
+    "@opentui/core": "0.1.88",
+    "@opentui/react": "0.1.88",
     "libreoffice-convert": "^1.8.1"
   },
   "devDependencies": {
