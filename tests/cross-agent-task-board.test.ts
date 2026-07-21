@@ -1326,6 +1326,28 @@ describe('CrossAgentTaskBoard', () => {
       board.dispose();
     });
 
+    it('recurring executor 缺少 nextTimeResolver 时快速失败', () => {
+      const board = new CrossAgentTaskBoard();
+      const executor: TaskExecutor = async () => 'done';
+
+      expect(() => board.register({
+        taskId: 'sched_missing_resolver',
+        sourceAgent: 'a',
+        sourceSessionId: 's1',
+        targetAgent: 'a',
+        type: 'cron',
+        description: 'bad recurring',
+        schedule: {
+          type: 'recurring',
+          nextRunAt: Date.now(),
+          source: { kind: 'interval', intervalMs: 50 },
+        },
+        executor,
+      })).toThrow('Recurring scheduled tasks require nextTimeResolver');
+
+      board.dispose();
+    });
+
     it('recurring 模式：完成后自动排下一次', async () => {
       const board = new CrossAgentTaskBoard();
       let executionCount = 0;

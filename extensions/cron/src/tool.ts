@@ -114,6 +114,19 @@ export function clearScheduler(): void {
   scheduler = null;
 }
 
+// LLM 工具入口只接受完整的正整数毫秒字符串，避免 parseInt 把 "10abc" 这类输入截断成合法值。
+function parseIntervalMs(value: string): { ms: number } | { error: string } {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return { error: `无效的间隔值: "${value}"，应为正整数毫秒数` };
+  }
+  const ms = Number(trimmed);
+  if (!Number.isSafeInteger(ms) || ms <= 0) {
+    return { error: `无效的间隔值: "${value}"，应为正整数毫秒数` };
+  }
+  return { ms };
+}
+
 /**
  * 设置当前 turn 的 sessionId
  * 由插件入口通过 onBeforeChat 钩子在每次 chat 前调用。
@@ -262,11 +275,11 @@ export const manageScheduledTasksTool: ToolDefinition = {
             schedule = { type: 'cron', expression: scheduleValue };
             break;
           case 'interval': {
-            const ms = parseInt(scheduleValue, 10);
-            if (isNaN(ms) || ms <= 0) {
-              return { error: `无效的间隔值: "${scheduleValue}"，应为正整数毫秒数` };
+            const result = parseIntervalMs(scheduleValue);
+            if ('error' in result) {
+              return { error: result.error };
             }
-            schedule = { type: 'interval', ms };
+            schedule = { type: 'interval', ms: result.ms };
             break;
           }
           case 'once': {
@@ -355,9 +368,14 @@ export const manageScheduledTasksTool: ToolDefinition = {
             case 'cron':
               updateParams.schedule = { type: 'cron', expression: sv };
               break;
-            case 'interval':
-              updateParams.schedule = { type: 'interval', ms: parseInt(sv, 10) };
+            case 'interval': {
+              const result = parseIntervalMs(sv);
+              if ('error' in result) {
+                return { error: result.error };
+              }
+              updateParams.schedule = { type: 'interval', ms: result.ms };
               break;
+            }
             case 'once': {
               // [once 时间解析] update 时也走同一套解析逻辑
               const result = parseOnceScheduleValue(sv);

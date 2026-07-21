@@ -1,6 +1,6 @@
-// node_modules/irises-extension-sdk/dist/scheduler.js
+// ../../packages/extension-sdk/dist/scheduler.js
 var SCHEDULER_SERVICE_ID = "scheduler.tasks";
-// node_modules/irises-extension-sdk/dist/logger.js
+// ../../packages/extension-sdk/dist/logger.js
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -32,7 +32,7 @@ function createExtensionLogger(extensionName, tag) {
   };
 }
 
-// node_modules/irises-extension-sdk/dist/plugin/context.js
+// ../../packages/extension-sdk/dist/plugin/context.js
 function createPluginLogger(pluginName, tag) {
   const scope = tag ? `Plugin:${pluginName}:${tag}` : `Plugin:${pluginName}`;
   return createExtensionLogger(scope);
@@ -41,7 +41,7 @@ function definePlugin(plugin) {
   return plugin;
 }
 
-// node_modules/irises-extension-sdk/dist/plugin/service.js
+// ../../packages/extension-sdk/dist/plugin/service.js
 function waitForServiceAndRegister(services, serviceId, register, timeoutMs = 1e4) {
   let disposed = false;
   let registration;
@@ -57,14 +57,15 @@ function waitForServiceAndRegister(services, serviceId, register, timeoutMs = 1e
     }
   };
 }
-// node_modules/irises-extension-sdk/dist/runtime-paths.js
+// ../../packages/extension-sdk/dist/runtime-paths.js
 import os from "node:os";
 import path from "node:path";
 function resolveDefaultDataDir(customDataDir) {
   return path.resolve(customDataDir || process.env.IRIS_DATA_DIR || path.join(os.homedir(), ".iris"));
 }
-// ../console/src/settings-tab-service.ts
-var CONSOLE_SETTINGS_TAB_SERVICE_ID = "console:settings-tab";
+// ../../packages/extension-sdk/dist/console.js
+var CONSOLE_SETTINGS_TAB_SERVICE_ID2 = "console:settings-tab";
+
 // src/scheduler.ts
 import * as fs from "fs";
 import * as path2 from "path";
@@ -1078,6 +1079,27 @@ function generateId() {
     return v2.toString(16);
   });
 }
+function getNextCronTime(expression, after) {
+  const job = new E(expression);
+  const next = after ? job.nextRun(after) : job.nextRun();
+  if (!next) {
+    throw new Error(`未找到匹配的 cron 触发时间: "${expression}"`);
+  }
+  return next;
+}
+function assertValidSchedule(schedule) {
+  if (schedule.type === "interval" && (!Number.isSafeInteger(schedule.ms) || schedule.ms <= 0)) {
+    throw new Error(`无效 interval 值: ${schedule.ms}`);
+  }
+}
+function resolveNextTaskBoardRunAt(source) {
+  switch (source.kind) {
+    case "interval":
+      return Date.now() + source.intervalMs;
+    case "cron":
+      return getNextCronTime(source.expression).getTime();
+  }
+}
 var cronTaskCounter = 0;
 function createCronTaskId() {
   return `cron_task_${++cronTaskCounter}_${Date.now()}`;
@@ -1156,6 +1178,7 @@ class CronScheduler {
     logger2.info("调度器已停止");
   }
   createJob(params) {
+    assertValidSchedule(params.schedule);
     const job = {
       id: generateId(),
       name: params.name,
@@ -1187,6 +1210,9 @@ class CronScheduler {
     const job = this.jobs.get(id);
     if (!job)
       return null;
+    if (params.schedule !== undefined) {
+      assertValidSchedule(params.schedule);
+    }
     if (params.name !== undefined)
       job.name = params.name;
     if (params.schedule !== undefined)
@@ -1353,12 +1379,7 @@ class CronScheduler {
       return this.executeCronJob(job, taskId2, signal);
     };
     this.executorJobMap.set(executor, job);
-    const nextTimeResolver = job.schedule.type === "cron" ? (source) => {
-      if (source.kind !== "cron")
-        return null;
-      const next = new E(source.expression).nextRun();
-      return next?.getTime() ?? null;
-    } : undefined;
+    const nextTimeResolver = schedule.type === "recurring" ? resolveNextTaskBoardRunAt : undefined;
     const taskId = createCronTaskId();
     const targetSessionId = job.delivery.sessionId ?? job.sessionId;
     this.taskBoard.register({
@@ -1377,6 +1398,7 @@ class CronScheduler {
     this.debouncePersist();
   }
   buildScheduleConfig(job) {
+    assertValidSchedule(job.schedule);
     switch (job.schedule.type) {
       case "cron": {
         const next = new E(job.schedule.expression).nextRun();
@@ -1880,6 +1902,17 @@ function injectScheduler(s2) {
 function clearScheduler() {
   scheduler = null;
 }
+function parseIntervalMs(value) {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return { error: `无效的间隔值: "${value}"，应为正整数毫秒数` };
+  }
+  const ms = Number(trimmed);
+  if (!Number.isSafeInteger(ms) || ms <= 0) {
+    return { error: `无效的间隔值: "${value}"，应为正整数毫秒数` };
+  }
+  return { ms };
+}
 function setCurrentSessionId(sid) {
   currentSessionId = sid;
 }
@@ -1996,11 +2029,11 @@ var manageScheduledTasksTool = {
             schedule = { type: "cron", expression: scheduleValue };
             break;
           case "interval": {
-            const ms = parseInt(scheduleValue, 10);
-            if (isNaN(ms) || ms <= 0) {
-              return { error: `无效的间隔值: "${scheduleValue}"，应为正整数毫秒数` };
+            const result = parseIntervalMs(scheduleValue);
+            if ("error" in result) {
+              return { error: result.error };
             }
-            schedule = { type: "interval", ms };
+            schedule = { type: "interval", ms: result.ms };
             break;
           }
           case "once": {
@@ -2078,9 +2111,14 @@ var manageScheduledTasksTool = {
             case "cron":
               updateParams.schedule = { type: "cron", expression: sv };
               break;
-            case "interval":
-              updateParams.schedule = { type: "interval", ms: parseInt(sv, 10) };
+            case "interval": {
+              const result = parseIntervalMs(sv);
+              if ("error" in result) {
+                return { error: result.error };
+              }
+              updateParams.schedule = { type: "interval", ms: result.ms };
               break;
+            }
             case "once": {
               const result = parseOnceScheduleValue(sv);
               if ("error" in result) {
@@ -2341,7 +2379,7 @@ function createCronSchedulerService(scheduler2, api) {
 // src/index.ts
 var logger4 = createPluginLogger("cron");
 function registerSettingsTabWithConsoleService(api, tab) {
-  return waitForServiceAndRegister(api.services, CONSOLE_SETTINGS_TAB_SERVICE_ID, (service) => service.register(tab), 5000);
+  return waitForServiceAndRegister(api.services, CONSOLE_SETTINGS_TAB_SERVICE_ID2, (service) => service.register(tab), 5000);
 }
 var schedulerInstance = null;
 var schedulerServiceDisposable;

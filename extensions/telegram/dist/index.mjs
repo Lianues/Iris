@@ -10728,6 +10728,7 @@ var TYPING_REFRESH_MS = 4000;
 var UNSUPPORTED_MEDIA_NOTICE = "当前阶段暂不支持直接处理图片、文件或语音消息，请附带文字说明后再次发送。";
 var BUFFERED_NOTICE = `\uD83D\uDCE5 消息已暂存，等 AI 回复结束后自动发送。
 发送 /flush 可立即处理，/stop 可中止当前回复。`;
+var BUSY_COMMAND_NOTICE = "ℹ️ 当前正在回复中，请先 /stop。";
 var MESSAGE_DEDUP_MAX_SIZE = 500;
 var MESSAGE_EXPIRE_MS = 30000;
 var DEDUP_CLEANUP_INTERVAL_MS = 60000;
@@ -11389,11 +11390,12 @@ ${content}`;
       const parsed = this.messageHandler.parseIncomingText(ctx);
       if (!parsed)
         return;
-      if (this.messageDedup.has(parsed.messageId)) {
-        logger5.debug(`跳过重复消息: message_id=${parsed.messageId}`);
+      const dedupKey = `${parsed.session.chatKey}:${parsed.messageId}`;
+      if (this.messageDedup.has(dedupKey)) {
+        logger5.debug(`跳过重复消息: ${dedupKey}`);
         return;
       }
-      this.messageDedup.add(parsed.messageId);
+      this.messageDedup.add(dedupKey);
       this.cleanupDedupIfNeeded();
       const messageDate = typeof ctx.message?.date === "number" ? ctx.message.date * 1000 : 0;
       if (messageDate > 0) {
@@ -11474,36 +11476,41 @@ ${content}`;
         return;
       const command = data.substring(0, colonIdx);
       const arg = data.substring(colonIdx + 1);
+      const activeCs = this.chatStates.get(target.chatKey);
       let resultText = "";
-      switch (command) {
-        case "model": {
-          try {
-            const result = this.backend.switchModel(arg, "telegram");
-            resultText = `✅ 模型已切换为 ${result.modelName} → ${result.modelId}`;
-          } catch {
-            resultText = `❌ 未找到模型 "${arg}"。`;
+      if (activeCs?.busy) {
+        resultText = BUSY_COMMAND_NOTICE;
+      } else {
+        switch (command) {
+          case "model": {
+            try {
+              const result = this.backend.switchModel(arg, "telegram");
+              resultText = `✅ 模型已切换为 ${result.modelName} → ${result.modelId}`;
+            } catch {
+              resultText = `❌ 未找到模型 "${arg}"。`;
+            }
+            break;
           }
-          break;
-        }
-        case "session": {
-          const index = parseInt(arg, 10);
-          const metas = await this.backend.listSessionMetas();
-          if (isNaN(index) || index < 1 || index > metas.length) {
-            resultText = `❌ 会话编号无效。`;
-          } else {
-            const meta = metas[index - 1];
-            this.activeSessions.set(target.chatKey, meta.id);
-            resultText = `✅ 已切换到会话：${meta.title || "(无标题)"}`;
+          case "session": {
+            const index = parseInt(arg, 10);
+            const metas = await this.backend.listSessionMetas();
+            if (isNaN(index) || index < 1 || index > metas.length) {
+              resultText = `❌ 会话编号无效。`;
+            } else {
+              const meta = metas[index - 1];
+              this.activeSessions.set(target.chatKey, meta.id);
+              resultText = `✅ 已切换到会话：${meta.title || "(无标题)"}`;
+            }
+            break;
           }
-          break;
+          case "mode": {
+            const ok = this.backend.switchMode?.(arg);
+            resultText = ok ? `✅ 已切换到 Mode "${arg}"。` : `❌ 未找到 Mode "${arg}"。`;
+            break;
+          }
+          default:
+            resultText = `❌ 未知操作: ${command}`;
         }
-        case "mode": {
-          const ok = this.backend.switchMode?.(arg);
-          resultText = ok ? `✅ 已切换到 Mode "${arg}"。` : `❌ 未找到 Mode "${arg}"。`;
-          break;
-        }
-        default:
-          resultText = `❌ 未知操作: ${command}`;
       }
       await this.client.editText(target, messageId, resultText);
       await this.client.answerCallbackQuery(callbackQueryId);
@@ -11516,6 +11523,10 @@ ${content}`;
     if (!cmd)
       return false;
     const reply = (content) => this.sendToChat(cs, content, { trackMessage: false });
+    if (cs.busy && cmd.name !== "stop" && cmd.name !== "flush" && cmd.name !== "help") {
+      await reply(BUSY_COMMAND_NOTICE);
+      return true;
+    }
     switch (cmd.name) {
       case "new": {
         const newSid = `telegram-${cs.target.chatKey.replace(/:/g, "-")}-${Date.now()}`;
@@ -11586,6 +11597,7 @@ ${content}`;
           await reply("ℹ️ 当前没有正在进行的回复。");
           return true;
         }
+        cs.pendingMessages.splice(0);
         cs.stopped = true;
         this.stopTypingIndicator(cs);
         this.backend.abortChat(cs.sessionId);
@@ -11616,10 +11628,6 @@ ${content}`;
         return true;
       }
       case "undo": {
-        if (cs.busy) {
-          await reply("ℹ️ 当前正在回复中，请先 /stop。");
-          return true;
-        }
         if (typeof this.backend.undo !== "function") {
           await reply("❌ 当前宿主未提供撤销能力。");
           return true;
@@ -11633,10 +11641,6 @@ ${content}`;
         return true;
       }
       case "redo": {
-        if (cs.busy) {
-          await reply("ℹ️ 当前正在回复中，请先 /stop。");
-          return true;
-        }
         if (typeof this.backend.redo !== "function") {
           await reply("❌ 当前宿主未提供恢复能力。");
           return true;
@@ -11807,7 +11811,17 @@ ${list}`);
             documents = [...documents || [], voice];
         }
       }
-      await this.backend.chat(cs.sessionId, message.text, images, documents, "telegram");
+      const sessionId = cs.sessionId;
+      const turnTrace = cs.turnTrace;
+      this.backend.chat(sessionId, message.text, images, documents, "telegram").catch((err) => {
+        logger5.error(`Telegram 回合执行失败 (session=${sessionId}):`, err);
+        if (cs.sessionId !== sessionId || cs.turnTrace !== turnTrace)
+          return;
+        this.stopTypingIndicator(cs);
+        this.cleanupStream(cs);
+        cs.turnTrace = null;
+        cs.busy = false;
+      });
     } catch (err) {
       logger5.error(`Telegram 回合分发失败 (session=${cs.sessionId}):`, err);
       this.stopTypingIndicator(cs);
