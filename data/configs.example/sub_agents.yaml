@@ -34,7 +34,7 @@ types:
     excludedTools:
       - sub_agent
     stream: true
-    parallel: false
+    parallel: true           # ← false → true
     # modelName: gemini_flash
     maxToolRounds: 200
 
@@ -49,6 +49,7 @@ types:
       - list_files
       - shell              # Windows; Linux/macOS 会自动映射为 bash
       - bash               # Linux/macOS; Windows 会自动映射为 shell
+      - sub_agent          # 允许 explore 嵌套开孙代理（孙代理工具集继承 explore 只读集，强制同步内联结果）
     stream: true
     parallel: true
     # modelName: gpt4o_mini
