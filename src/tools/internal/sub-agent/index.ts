@@ -125,6 +125,28 @@ const MAX_CONCURRENT_ASYNC_AGENTS = 5;
 /** 主会话交互工具不应暴露给临时 sub_agent。 */
 const MAIN_SESSION_INTERACTIVE_TOOL_NAMES = ['EnterPlanMode', 'ExitPlanMode', 'read_plan', 'write_plan', 'AskQuestionFirst'];
 
+/**
+ * 子代理无权访问的特权工具（写记忆、定时任务、跨 Agent 委派）。
+ * 不含 sub_agent——它走 per-type 的 allowedTools/excludedTools 配置控制。
+ */
+const SUB_AGENT_PRIVILEGED_TOOL_NAMES = [
+  'memory_add', 'memory_update', 'memory_delete',
+  'manage_scheduled_tasks', 'delegate_to_agent',
+];
+
+/**
+ * 子代理为非交互上下文，需显式放行才能直接执行的工具。
+ * - 写代码工具：autoApprove:false 会在非交互上下文被拦截，这里强制放行。
+ * - sub_agent 自身：explore 嵌套开孙代理时，孙代理的 sub_agent 调用必须放行，
+ *   否则在非交互上下文会因 autoApprove:false 返回 error（general-purpose 工具集
+ *   不含 sub_agent，放行对它无效，不会破坏"不可嵌套"语义）。
+ * delete_file 不纳入（保持拒绝，由 shell rm 受 handler 把关）。
+ */
+const SUB_AGENT_AUTO_APPROVE_TOOLS = [
+  'write_file', 'apply_diff', 'insert_code', 'delete_code', 'create_directory',
+  'sub_agent',
+];
+
 function getSubAgentTypeName(args: Record<string, unknown>): string {
   const type = args.type;
   return typeof type === 'string' && type.trim() ? type : 'general-purpose';
@@ -141,12 +163,17 @@ function formatTypeSuffix(type: SubAgentTypeConfig): string {
 function resolveInheritedToolsConfig(deps: SubAgentToolDeps): ToolsConfig {
   // [兼容修复] 先走新的 getToolsConfig；若旧调用点仍只传 getToolPolicies，
   // 则回退成最小可用配置，避免热修期间同步/异步子代理直接崩溃。
-  if (deps.getToolsConfig) {
-    return deps.getToolsConfig();
+  const base = deps.getToolsConfig
+    ? deps.getToolsConfig()
+    : { permissions: deps.getToolPolicies ? deps.getToolPolicies() : {} };
+  // 子代理为非交互上下文：对写代码工具强制 autoApprove + 关闭审批视图，
+  // 使其在子代理 ToolLoop 内直接 executing，跳过 awaiting_approval 永久阻塞。
+  // 此 config 仅传给子代理 ToolLoop，主会话 toolsConfig 不受影响。
+  const permissions = { ...base.permissions };
+  for (const name of SUB_AGENT_AUTO_APPROVE_TOOLS) {
+    permissions[name] = { ...(permissions[name] ?? {}), autoApprove: true, showApprovalView: false };
   }
-  return {
-    permissions: deps.getToolPolicies ? deps.getToolPolicies() : {},
-  };
+  return { ...base, permissions };
 }
 
 function isJsonParseFailure(err: unknown): boolean {
@@ -229,7 +256,7 @@ function createStreamingLLMCaller(
  * 所有子代理引导信息（使用原则、异步说明、可用类型列表）全部放在工具描述中，
  * 不注入系统提示词，与 Skill 等工具的做法保持一致。
  */
-export function createSubAgentTool(deps: SubAgentToolDeps, currentDepth: number = 0): ToolDefinition {
+export function createSubAgentTool(deps: SubAgentToolDeps, currentDepth: number = 0, inheritedTools?: ToolRegistry): ToolDefinition {
   const typeDescriptions = deps.subAgentTypes.getAll()
     .map(t => `  - ${t.name}: ${t.description}（${formatTypeSuffix(t)}）`)
     .join('\n');
@@ -322,29 +349,40 @@ ${typeDescriptions}
         ? args.run_in_background === true
         : typeConfig.background === true;
 
+      // 嵌套层强制同步：孙代理 run_in_background 被忽略，结果作为 functionResponse
+      // 内联回父 ToolLoop，不产生异步通知 → 规避 #2（孙代理通知路由回主会话）。
+      const isNested = currentDepth > 0;
       // 判断是否走异步路径
-      const shouldRunAsync = asyncCapable && runInBackground;
+      const shouldRunAsync = asyncCapable && runInBackground && !isNested;
 
       // 构建子工具集（同步/异步共用）
+      // 基座取父级已过滤的工具集（嵌套场景），否则取顶层注册表。
+      // 孙代理工具集 ⊆ 父级，无法越权访问已被剥离的工具。
       // shell/bash 名称归一化已在 ToolRegistry.createSubset/createFiltered 中处理
+      const baseTools = inheritedTools ?? deps.tools;
       let subTools: ToolRegistry;
       if (typeConfig.allowedTools) {
-        subTools = deps.tools.createSubset(typeConfig.allowedTools);
+        subTools = baseTools.createSubset(typeConfig.allowedTools);
       } else if (typeConfig.excludedTools) {
-        subTools = deps.tools.createFiltered(typeConfig.excludedTools);
+        subTools = baseTools.createFiltered(typeConfig.excludedTools);
       } else {
-        subTools = deps.tools.createFiltered([]);
+        subTools = baseTools.createFiltered([]);
       }
 
-      // 注入深度递增的 sub_agent 工具（实现嵌套自我调用）
-      if (currentDepth + 1 < deps.maxDepth) {
+      // 注入深度递增的 sub_agent 工具（实现嵌套自我调用）。
+      // 仅当配置允许 sub_agent（白名单含它 / 黑名单未排除它）且未到 maxDepth 时注入，
+      // 否则保持注销 ——
+      //   general-purpose（excludedTools:[sub_agent]）→ subTools 不含 sub_agent → 不可嵌套；
+      //   explore（allowedTools 含 sub_agent）→ 可嵌套，孙代理继承 explore 工具集。
+      if (currentDepth + 1 < deps.maxDepth && subTools.get(TOOL_NAME)) {
         subTools.unregister(TOOL_NAME);
-        subTools.register(createSubAgentTool(deps, currentDepth + 1));
+        subTools.register(createSubAgentTool(deps, currentDepth + 1, subTools));
       } else {
         subTools.unregister(TOOL_NAME);
       }
 
-      for (const toolName of MAIN_SESSION_INTERACTIVE_TOOL_NAMES) {
+      // 剥离主会话交互工具 + 子代理特权工具（防越权）
+      for (const toolName of [...MAIN_SESSION_INTERACTIVE_TOOL_NAMES, ...SUB_AGENT_PRIVILEGED_TOOL_NAMES]) {
         subTools.unregister(toolName);
       }
 
@@ -373,11 +411,18 @@ ${typeDescriptions}
 
         logger.info(`异步子代理启动: taskId=${taskId} type=${typeName} depth=${currentDepth + 1}/${deps.maxDepth}`);
 
-        // fire-and-forget 启动子代理
+        // fire-and-forget 启动子代理。
+        // #4 兜底：runSubAgentAsync 任何阶段抛错（含 PromptAssembler/ToolLoop/
+        // createStreamingLLMCaller 等前置构造）都经 .catch 转 failed，
+        // 避免任务永久卡在 running 喂给 #1 的通知合并死锁。
         void runSubAgentAsync(
           deps, typeConfig, subTools, fullPrompt, taskId, sessionId, description,
           task?.abortController?.signal,
-        );
+        ).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.error(`异步子代理启动失败: taskId=${taskId}, error="${msg}"`);
+          deps.taskBoard?.fail(taskId, '子代理启动失败: ' + msg);
+        });
 
         // 立即返回 async_launched
         return {
@@ -469,7 +514,14 @@ ${typeDescriptions}
         const runResult = await loop.run(
           [{ role: 'user', parts: [{ text: fullPrompt }] }],
           callLLM,
-          { modelName: tc.modelName, signal: context?.signal },
+          {
+            modelName: tc.modelName,
+            signal: context?.signal,
+            // 带 cross-agent: 前缀 → canUseInteractiveApproval 返回 false：
+            // 同步子代理走非交互审批策略——autoApprove 放行 / 非 handler 返回 error /
+            // handler-managed 走分类器 fall through，不触发任何人工审批（#5）。
+            sessionId: `cross-agent:sub-agent:${currentDepth + 1}`,
+          },
         );
 
         if (runResult.error) {
@@ -504,59 +556,69 @@ async function runSubAgentAsync(
   // 的日志自动携带 [Module|taskId] 前缀，解决子代理工具执行日志
   // 无法区分来源的问题。
   return agentContext.run(taskId, async () => {
-  const startTime = Date.now();
-
-  const subPrompt = new PromptAssembler();
-  subPrompt.setSystemPrompt(typeConfig.systemPrompt);
-
-  const loop = new ToolLoop(subTools, subPrompt, {
-    maxRounds: typeConfig.maxToolRounds,
-    // [权限修复] 异步子代理与同步子代理保持一致，继承完整 toolsConfig。
-    // 这样后台子代理会遵守与父级相同的全局审批策略，而不是只拿到局部 permissions。
-    toolsConfig: resolveInheritedToolsConfig(deps),
-    retryOnError: deps.retryOnError,
-    maxRetries: deps.maxRetries,
-  });
-
-  // 使用共用的流式 LLM 调用器，回调指向 taskBoard（驱动 StatusBar）
-  const callLLM = createStreamingLLMCaller(
-    deps, typeConfig,
-    () => deps.taskBoard?.emitChunkHeartbeat(taskId),
-    (tokens) => deps.taskBoard?.updateTokens(taskId, tokens),
-  );
-
-  try {
-    const result = await loop.run(
-      [{ role: 'user', parts: [{ text: prompt }] }],
-      callLLM,
-      { modelName: typeConfig.modelName, signal },
-    );
-
-    const durationMs = Date.now() - startTime;
-
-    if (result.error) {
-      // ToolLoop 返回了错误（如 LLM 调用失败、轮次超限）——由 board 统一处理通知
-      deps.taskBoard!.fail(taskId, result.error);
-      logger.error(`异步子代理失败: taskId=${taskId}, error="${result.error}"`);
+    // #4 防御性 guard：asyncCapable 已保证 taskBoard/getSessionId/agentName 齐全，
+    // 此处显式校验而非靠 `!` 断言，避免被破坏时静默抛错。
+    const taskBoard = deps.taskBoard;
+    if (!taskBoard || !deps.getSessionId || !deps.agentName) {
+      logger.error(`异步子代理前置条件缺失，跳过执行: taskId=${taskId}`);
       return;
     }
 
-    // 成功完成——由 board 统一处理通知
-    deps.taskBoard!.complete(taskId, result.text);
-    logger.info(`异步子代理完成: taskId=${taskId}, duration=${durationMs}ms`);
+    // #4 try 覆盖到函数体最前——new PromptAssembler/ToolLoop/createStreamingLLMCaller
+    // 等前置构造一旦抛错也由 catch 兜底转 failed，不再让任务卡在 running。
+    try {
+      const startTime = Date.now();
 
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
+      const subPrompt = new PromptAssembler();
+      subPrompt.setSystemPrompt(typeConfig.systemPrompt);
 
-    // 检查是否是 abort
-    if (signal?.aborted) {
-      deps.taskBoard!.kill(taskId);
-      logger.info(`异步子代理已中止: taskId=${taskId}`);
-      return;
+      const loop = new ToolLoop(subTools, subPrompt, {
+        maxRounds: typeConfig.maxToolRounds,
+        // [权限修复] 异步子代理与同步子代理保持一致，继承完整 toolsConfig。
+        // 这样后台子代理会遵守与父级相同的全局审批策略，而不是只拿到局部 permissions。
+        toolsConfig: resolveInheritedToolsConfig(deps),
+        retryOnError: deps.retryOnError,
+        maxRetries: deps.maxRetries,
+      });
+
+      // 使用共用的流式 LLM 调用器，回调指向 taskBoard（驱动 StatusBar）
+      const callLLM = createStreamingLLMCaller(
+        deps, typeConfig,
+        () => taskBoard.emitChunkHeartbeat(taskId),
+        (tokens) => taskBoard.updateTokens(taskId, tokens),
+      );
+
+      const result = await loop.run(
+        [{ role: 'user', parts: [{ text: prompt }] }],
+        callLLM,
+        { modelName: typeConfig.modelName, signal },
+      );
+
+      const durationMs = Date.now() - startTime;
+
+      if (result.error) {
+        // ToolLoop 返回了错误（如 LLM 调用失败、轮次超限）——由 board 统一处理通知
+        taskBoard.fail(taskId, result.error);
+        logger.error(`异步子代理失败: taskId=${taskId}, error="${result.error}"`);
+        return;
+      }
+
+      // 成功完成——由 board 统一处理通知
+      taskBoard.complete(taskId, result.text);
+      logger.info(`异步子代理完成: taskId=${taskId}, duration=${durationMs}ms`);
+
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+
+      // 检查是否是 abort
+      if (signal?.aborted) {
+        taskBoard.kill(taskId);
+        logger.info(`异步子代理已中止: taskId=${taskId}`);
+        return;
+      }
+
+      taskBoard.fail(taskId, errorMsg);
+      logger.error(`异步子代理异常: taskId=${taskId}, error="${errorMsg}"`);
     }
-
-    deps.taskBoard!.fail(taskId, errorMsg);
-    logger.error(`异步子代理异常: taskId=${taskId}, error="${errorMsg}"`);
-  }
   }); // agentContext.run() 结束
 }
