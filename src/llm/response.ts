@@ -41,6 +41,8 @@ export async function* processStreamResponse(
     if (sse.event) (payload as any).event = sse.event;
     yield format.decodeStreamChunk(payload, state);
   }
+  const finalChunk = format.finalizeStream?.(state);
+  if (finalChunk) yield finalChunk;
 }
 
 // ============ SSE 解析 ============

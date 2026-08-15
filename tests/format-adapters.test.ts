@@ -1261,6 +1261,33 @@ describe('OpenAICompatibleFormat: decodeResponse — reasoning_content', () => {
     expect((resp.content.parts[0] as any).text).toBe('answer');
     expect((resp.content.parts[0] as any).thought).toBeUndefined();
   });
+
+  it('accepts message.reasoning as a non-standard thinking alias', () => {
+    const raw = {
+      choices: [{
+        message: { reasoning: 'alias thinking', content: 'answer' },
+        finish_reason: 'stop',
+      }],
+    };
+    const resp = fmt.decodeResponse(raw);
+    expect(resp.content.parts[0]).toEqual({ text: 'alias thinking', thought: true });
+    expect(resp.content.parts[1]).toEqual({ text: 'answer' });
+  });
+
+  it('prefers reasoning_content when both thinking fields are present', () => {
+    const raw = {
+      choices: [{
+        message: {
+          reasoning_content: 'standard thinking',
+          reasoning: 'alias thinking',
+          content: 'answer',
+        },
+        finish_reason: 'stop',
+      }],
+    };
+    const resp = fmt.decodeResponse(raw);
+    expect(resp.content.parts[0]).toEqual({ text: 'standard thinking', thought: true });
+  });
 });
 
 describe('OpenAICompatibleFormat: stream decode — reasoning_content', () => {
@@ -1277,6 +1304,23 @@ describe('OpenAICompatibleFormat: stream decode — reasoning_content', () => {
     expect(thoughtDelta.text).toBe('thinking...');
     // 不应该有 textDelta（textDelta 只包含可见文本）
     expect(chunk.textDelta).toBeUndefined();
+  });
+
+  it('accepts delta.reasoning as a non-standard streaming thinking alias', () => {
+    const state = fmt.createStreamState();
+    const chunk = fmt.decodeStreamChunk({
+      choices: [{ delta: { reasoning: 'alias stream thinking' } }],
+    }, state);
+    expect(chunk.partsDelta).toEqual([{ text: 'alias stream thinking', thought: true }]);
+    expect(chunk.textDelta).toBeUndefined();
+  });
+
+  it('prefers delta.reasoning_content when both streaming fields are present', () => {
+    const state = fmt.createStreamState();
+    const chunk = fmt.decodeStreamChunk({
+      choices: [{ delta: { reasoning_content: 'standard', reasoning: 'alias' } }],
+    }, state);
+    expect(chunk.partsDelta).toEqual([{ text: 'standard', thought: true }]);
   });
 
   it('reasoning_content 后接 content → 分别输出', () => {

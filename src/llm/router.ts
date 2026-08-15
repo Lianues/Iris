@@ -37,6 +37,7 @@ export class LLMRouter {
   private configs = new Map<LLMModelName, LLMConfig>();
   private order: LLMModelName[] = [];
   private currentModelName: LLMModelName;
+  private loggingDir?: string;
 
   constructor(config: LLMRouterConfig) {
     if (!Array.isArray(config.models) || config.models.length === 0) {
@@ -69,6 +70,7 @@ export class LLMRouter {
     this.providers.set(entry.modelName, entry.provider);
     this.configs.set(entry.modelName, entry.config);
     this.order.push(entry.modelName);
+    if (this.loggingDir) entry.provider.setLogging(this.loggingDir);
   }
 
   /** 动态移除一个模型（供插件使用） */
@@ -143,6 +145,29 @@ export class LLMRouter {
 
   listModels(): LLMModelInfo[] {
     return this.order.map(modelName => this.getModelInfo(modelName));
+  }
+
+  /** 对当前及后续动态注册的所有 Provider 统一设置请求日志。 */
+  setLogging(logsDir?: string): void {
+    this.loggingDir = logsDir;
+    for (const provider of this.providers.values()) {
+      if (logsDir) provider.setLogging(logsDir);
+      else provider.clearLogging?.();
+    }
+  }
+
+  /**
+   * 原地替换模型池，保留 Router 对象身份。
+   *
+   * Backend、memory 和扩展会共享启动时的 Router 引用；热重载若直接替换对象，
+   * 这些调用方会分裂到新旧两个模型池。原地更新可确保所有调用方同步生效。
+   */
+  replaceWith(next: LLMRouter): void {
+    this.providers = new Map(next.providers);
+    this.configs = new Map(next.configs);
+    this.order = [...next.order];
+    this.currentModelName = next.currentModelName;
+    this.setLogging(next.loggingDir);
   }
 
   /** 非流式调用（按模型名称，可省略以使用当前模型） */

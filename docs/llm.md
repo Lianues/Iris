@@ -198,6 +198,10 @@ models.<modelName>.model -> 提供商真实模型 id
 
 DeepSeek Provider 复用这一套 Chat Completions 兼容格式，但固定使用官方 `https://api.deepseek.com/v1/chat/completions`，不读取用户配置的 `baseUrl`。
 
+默认 `native` 模式仍发送 API 原生 `tools/tool_calls`。Iris 会拦截空响应、只有“我来检查……”但没有真实调用的伪完成，以及缺失工具名或 `arguments` JSON 被截断的损坏调用。对于纯损坏调用，TUI 不展示、不写入历史、也不执行半截参数，而是最多用同一原生协议做两次非流式重生；仍失败时返回明确错误并建议切换 `tagged-json`。这个恢复过程不会自动改变模型配置或把原生调用改成正文 JSON。
+
+OpenAI Compatible 和 DeepSeek 还支持模型级 `toolCallProtocol: tagged-json`。该模式不发送 API 的 `tools` 字段，而是把工具 schema 注入 system prompt；模型正文中的 `<tool_call>{JSON}</tool_call>` 会被解析回内部 `functionCall`，工具结果则以 `<tool_result>{JSON}</tool_result>` 回传。解析器支持标签被任意流式分片拆开、单轮多个调用和带调用 ID 的历史重放，也兼容“整条正文仅为严格调用 JSON”以及部分 Kimi 兼容渠道泄漏的完整 DSML 调用边界。普通未闭合标签、不完整 JSON 或夹杂额外尾部的 DSML 块仍只按普通文本返回，不会执行。
+
 
 ### Claude
 

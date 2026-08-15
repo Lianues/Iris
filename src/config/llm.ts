@@ -66,6 +66,9 @@ export function parseSingleLLMConfig(raw: any = {}): LLMConfig {
         : DEFAULT_AUTO_SUMMARY_THRESHOLD,
     headers: source.headers && typeof source.headers === 'object' && !Array.isArray(source.headers) ? source.headers : undefined,
     requestBody: source.requestBody && typeof source.requestBody === 'object' && !Array.isArray(source.requestBody) ? source.requestBody : undefined,
+    toolCallProtocol: source.toolCallProtocol === 'native' || source.toolCallProtocol === 'tagged-json'
+      ? source.toolCallProtocol
+      : undefined,
     promptCaching: typeof source.promptCaching === 'boolean' ? source.promptCaching : undefined,
     autoCaching: typeof source.autoCaching === 'boolean' ? source.autoCaching : undefined,
     thinkingControl: typeof source.thinkingControl === 'boolean' ? source.thinkingControl : undefined,

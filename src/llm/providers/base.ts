@@ -106,7 +106,10 @@ export interface LLMCallOptions {
 }
 
 export interface LLMProviderLike {
+  /** 传入目录启用请求日志。 */
   setLogging(logsDir: string): void;
+  /** 关闭请求日志；可选以兼容第三方 Provider。 */
+  clearLogging?(): void;
   chat(request: LLMRequest, signal?: AbortSignal, options?: LLMCallOptions): Promise<LLMResponse>;
   chatStream(request: LLMRequest, signal?: AbortSignal, options?: LLMCallOptions): AsyncGenerator<LLMStreamChunk>;
   /** 运行时深合并 requestBody 覆盖（递归合并嵌套对象） */
@@ -159,6 +162,10 @@ export class LLMProvider implements LLMProviderLike {
   /** 启用请求日志，日志写入指定目录 */
   setLogging(logsDir: string): void {
     this.loggingDir = logsDir;
+  }
+
+  clearLogging(): void {
+    this.loggingDir = undefined;
   }
 
   /** 非流式调用 */

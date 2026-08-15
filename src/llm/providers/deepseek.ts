@@ -25,7 +25,7 @@ export function createDeepSeekProvider(config: LLMConfig): LLMProvider {
   const model = normalizeDeepSeekModel(config.model);
 
   return new LLMProvider(
-    new OpenAICompatibleFormat(model),
+    new OpenAICompatibleFormat(model, undefined, config.toolCallProtocol),
     {
       // DeepSeek 官方 API baseURL 固定为 https://api.deepseek.com/v1；
       // 用户配置中的 baseUrl 在 deepseek provider 下会被忽略，避免误填或代理地址。

@@ -7,6 +7,9 @@
 import { Content, Part, UsageMetadata, FunctionCallPart } from './message';
 import { FunctionDeclaration } from './tool';
 
+/** 模型与 Iris 之间使用的工具调用传输协议。 */
+export type ToolCallProtocol = 'native' | 'tagged-json';
+
 /** 统一生成参数（允许 provider 扩展字段） */
 export interface LLMGenerationConfig {
   temperature?: number;

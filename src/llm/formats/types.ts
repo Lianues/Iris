@@ -24,4 +24,10 @@ export interface FormatAdapter {
 
   /** 创建流式解码状态（每次流式调用前调用） */
   createStreamState(): StreamDecodeState;
+
+  /**
+   * SSE 正常结束后的可选冲刷钩子。
+   * 用于没有 finish_reason 的兼容服务，释放格式适配器缓存的尾部文本或结构块。
+   */
+  finalizeStream?(state: StreamDecodeState): LLMStreamChunk | undefined;
 }
