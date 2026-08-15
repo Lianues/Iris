@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { filterToolDeclarationsForPlanMode, isAllowedPlanModeTool } from '../src/plan-mode/guard';
 import { planModePlugin } from '../src/plan-mode/plugin';
+import { agentContext } from '../src/logger';
+import { sessionContext } from '../src/core/backend/session-context';
 
 describe('Plan Mode guard', () => {
   it('允许只读 memory_search', () => {
@@ -47,5 +49,39 @@ describe('Plan Mode guard', () => {
 
     const enterTool = registeredTools.find(tool => tool.declaration.name === 'EnterPlanMode');
     expect(enterTool?.approvalMode).toBe('handler');
+  });
+
+  it('Skill fork 沿用普通 sessionId 时仍隐藏主会话 Plan 工具', async () => {
+    let planHook: any;
+    const context = {
+      registerTools() {},
+      getServiceRegistry() {
+        return { register: () => ({ dispose() {} }) };
+      },
+      addHook(hook: unknown) { planHook = hook; },
+      trackDisposable() {},
+    };
+    planModePlugin.activate(context as any);
+    const request: any = {
+      contents: [],
+      tools: [{
+        functionDeclarations: [
+          { name: 'EnterPlanMode' },
+          { name: 'write_plan' },
+          { name: 'AskQuestionFirst' },
+          { name: 'read_file' },
+        ],
+      }],
+    };
+
+    await sessionContext.run(
+      { sessionId: 'ordinary-parent-session', cwd: process.cwd() },
+      () => agentContext.run(
+        'skill-fork:test-skill',
+        () => planHook.onBeforeLLMCall({ request, round: 1 }),
+      ),
+    );
+
+    expect(request.tools[0].functionDeclarations.map((item: any) => item.name)).toEqual(['read_file']);
   });
 });

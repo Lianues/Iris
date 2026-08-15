@@ -3,6 +3,7 @@
  */
 
 import type { CallmeAttributionConfig } from '../git/callme';
+import type { ToolCallProtocol } from '../types/llm';
 
 
 /**
@@ -41,6 +42,16 @@ export interface LLMConfig {
   headers?: Record<string, string>;
   /** 自定义请求体，会深合并到 provider 编码后的最终请求体，支持嵌套参数 */
   requestBody?: Record<string, unknown>;
+  /**
+   * 工具调用传输协议。
+   *
+   * - native（默认）：使用 Provider 原生 tools/tool_calls 协议。
+   * - tagged-json：通过 <tool_call>{JSON}</tool_call> 文本块调用工具。
+   *
+   * tagged-json 当前用于 OpenAI-compatible / DeepSeek Chat Completions 渠道，
+   * 适配不支持原生 function calling 的本地或兼容模型。
+   */
+  toolCallProtocol?: ToolCallProtocol;
   /**
    * Provider 级 Prompt Caching 开关。
    *
@@ -203,13 +214,27 @@ export interface ToolsConfig {
 export interface SkillContextModifier {
   /** 临时自动放行的工具名称列表 */
   autoApproveTools?: string[];
+  /**
+   * Per-tool policy additions that are valid only for the activating turn.
+   * Used by compatibility adapters for scoped grants such as
+   * `Bash(git status:*)` without broadening the whole shell tool.
+   */
+  permissionOverrides?: Record<string, Partial<ToolPolicyConfig>>;
   /** 后续 LLM 调用的模型覆盖 */
   modelOverride?: string;
   /** 注入系统提示词的额外文本 */
   systemPromptInjection?: string;
 }
 
-export type SkillSource = 'inline' | 'global' | 'project' | 'builtin' | 'unknown';
+export type SkillSource =
+  | 'inline'
+  | 'global'
+  | 'project'
+  | 'claude-global'
+  | 'claude-project'
+  | 'builtin'
+  | 'unknown';
+export type SkillDialect = 'iris' | 'claude-code';
 export type SkillResourceKind = 'script' | 'reference' | 'asset' | 'other';
 export type SkillDiagnosticSeverity = 'fatal' | 'warning' | 'info';
 
@@ -244,6 +269,8 @@ export interface SkillDefinition {
    * 正则：^[a-zA-Z0-9_-]{1,64}$
    */
   name: string;
+  /** Optional frontmatter display name. Invocation always uses `name`. */
+  displayName?: string;
   /** Skill 描述 */
   description?: string;
   /** Skill 提示词内容（通过 invoke_skill / read_skill 工具按需返回） */
@@ -257,6 +284,8 @@ export interface SkillDefinition {
   path: string;
   /** Skill 来源，用于诊断/TUI 展示和同名覆盖排障 */
   source?: SkillSource;
+  /** Parser/runtime dialect used by this Skill. */
+  dialect?: SkillDialect;
   /** 文件系统 Skill 的根目录，仅后端内部解析资源使用 */
   basePath?: string;
   /** 文件系统 Skill 根目录 realpath 规范化结果，仅后端内部使用 */
@@ -274,6 +303,14 @@ export interface SkillDefinition {
   allowedTools?: string[];
   /** 模型覆盖（使用此 skill 时切换到指定模型） */
   model?: string;
+  /** Claude Code shell selected for embedded prompt commands. */
+  shell?: 'bash' | 'powershell';
+  /** Claude Code fork-agent hint (stored for compatibility diagnostics/runtime use). */
+  agent?: string;
+  /** Claude Code effort hint. */
+  effort?: string | number;
+  /** Optional Skill version from frontmatter. */
+  version?: string;
   /** 执行模式：'inline'（注入对话，默认）或 'fork'（独立子代理） */
   mode?: 'inline' | 'fork';
   /** 命名参数列表（如 ['file', 'branch']） */

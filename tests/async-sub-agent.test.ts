@@ -217,6 +217,10 @@ describe('async-sub-agent: 异步路径', () => {
         usageMetadata: { totalTokenCount: 42 },
       })),
       chatStream: vi.fn(async function* () {
+        yield {
+          partsDelta: [{ text: 'partial stream' }],
+          usageMetadata: { totalTokenCount: 10 },
+        };
         throw new Error('Failed to parse JSON');
       }),
       getCurrentModelName: vi.fn(() => 'mock-model'),
@@ -235,6 +239,7 @@ describe('async-sub-agent: 异步路径', () => {
 
     const result = await consumeHandler(tool.handler!({ prompt: '探索任务', type: 'stream-explore' }));
     expect(result.result).toBe('fallback result');
+    expect(result.usage).toEqual({ totalTokens: 52 });
     expect(fallbackRouter.chatStream).toHaveBeenCalledTimes(1);
     expect(fallbackRouter.chat).toHaveBeenCalledTimes(1);
   });

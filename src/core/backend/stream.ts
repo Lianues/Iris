@@ -10,6 +10,10 @@ import { markLLMErrorPartialOutput } from '../context-overflow';
 
 const logger = createLogger('Backend');
 
+function isProtocolErrorFunctionCall(part: Part): boolean {
+  return 'functionCall' in part && part.functionCall.protocolError !== undefined;
+}
+
 // ============ Thought Timing ============
 
 export interface ThoughtTimingState {
@@ -126,6 +130,10 @@ export async function callLLMStream(
       streamOutputChunkCount++;
       for (const part of deltaParts) {
         const merged = appendMergedPart(parts, part, now, thoughtTiming);
+        // 协议损坏的原生调用先只保留在内部聚合结果中。Backend 会优先用
+        // 非流式请求重生该调用；若这里提前发给 UI/StreamingToolExecutor，
+        // 用户会先看到一个假的空工具，且恢复成功后也无法撤回。
+        if (isProtocolErrorFunctionCall(part)) continue;
         // appendMergedPart 返回的是 parts 数组中累积后的对象引用（原地拼接），
         // 不能直接作为增量发送，否则前端会收到全量内容导致重复。
         // 这里用原始的 delta part 浅拷贝作为增量发送。
@@ -137,7 +145,9 @@ export async function callLLMStream(
         }
         emittedParts.push(delta);
       }
-      emitter.emit('stream:parts', sessionId, emittedParts);
+      if (emittedParts.length > 0) {
+        emitter.emit('stream:parts', sessionId, emittedParts);
+      }
 
       // 流式边执行工具：每当一个完整的 functionCall part 出现在 deltaParts 中，
       // 立即通知外部启动工具执行。functionCall part 不会被 appendMergedPart 合并
@@ -145,7 +155,7 @@ export async function callLLMStream(
       // 都是一个完整的独立调用。
       if (onFunctionCallReady) {
         for (const part of deltaParts) {
-          if ('functionCall' in part) {
+          if ('functionCall' in part && !isProtocolErrorFunctionCall(part)) {
             onFunctionCallReady(part as import('../../types').FunctionCallPart);
           }
         }

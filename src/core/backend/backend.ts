@@ -25,10 +25,20 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { spawnSync, type SpawnSyncReturns } from 'child_process';
 import { loadSkillsFromFilesystemWithDiagnostics } from '../../config/skill-loader';
-import type { LLMConfig, ToolsConfig, ToolPolicyConfig, SkillDefinition, SkillDiagnostic } from '../../config/types';
+import { cloneToolsConfig } from '../../config/clone-tools-config';
+import { applySkillContextModifierToToolsConfig } from '../../config/skill-permissions';
+import type { LLMConfig, ToolsConfig, ToolPolicyConfig, SkillDefinition, SkillDiagnostic, SkillContextModifier } from '../../config/types';
 import type { SummaryConfig } from '../../config/types';
 import { updatePlatformLastModel } from '../../config/platform';
 import { LLMRouter } from '../../llm/router';
+import {
+  buildTaggedJsonToolRepairPrompt,
+} from '../../llm/formats/tagged-json-tools';
+import {
+  buildNativeMalformedToolRetryPrompt,
+  buildNativeToolRepairPrompt,
+  isLikelyUnfulfilledToolIntentPreamble,
+} from '../../llm/tool-intent-guard';
 import { isDocumentMimeType } from '../../llm/vision';
 import type { PluginHook } from '../../extension';
 import { StorageProvider, SessionMeta } from '../../storage/base';
@@ -41,17 +51,19 @@ import { ToolLoop, ToolLoopConfig, LLMCaller, type ContextCheckpointRequest } fr
 import { createLogger } from '../../logger';
 import { sanitizeHistory } from '../history-sanitizer';
 import { estimateTokenCount } from 'tokenx';
-import { extractText, isTextPart, isInlineDataPart } from '../../types';
-import type { Content, Part, UsageMetadata, LLMRequest } from '../../types';
+import { extractText, isTextPart, isInlineDataPart, isFunctionCallPart } from '../../types';
+import type { Content, Part, UsageMetadata, LLMRequest, FunctionCallPart } from '../../types';
 import { summarizeHistory } from '../summarizer';
 import { resetConfigToDefaults as doResetConfigToDefaults } from '../../config/index';
 import { MessageQueue } from '../message-queue';
 import type { QueuedMessage } from '../message-queue';
 import { TurnLock } from '../turn-lock';
 import { StreamingToolExecutor } from '../../tools/streaming-executor';
+import { executeToolWithScheduler } from '../../tools/scheduler';
 import type { CrossAgentTaskBoard, TaskRecord } from '../cross-agent-task-board';
 import { ToolExecutionHandle } from '../../tools/handle';
 import { buildToolDiffPreview } from '../../tools/diff-preview';
+import type { SkillForkExecutionRequest } from '../../tools/internal/invoke_skill';
 
 import type { BackendConfig, ImageInput, DocumentInput, AudioInput, VideoInput, UndoScope, UndoOperationResult, RedoOperationResult, NotificationPayload, RewindCheckpoint, RewindOperationResult, RewindTargetMode } from './types';
 import { dataDir as defaultDataDir } from '../../paths';
@@ -85,6 +97,14 @@ import { AgentsMdManager, type AgentsMdReloadResult } from '../agents-md';
 const logger = createLogger('Backend');
 const RUN_COMMAND_TIMEOUT_MS = 30000;
 const MAX_IN_TURN_COMPACTIONS = 8;
+const MAX_TOOL_INTENT_REPAIRS = 2;
+const MAX_NATIVE_PROTOCOL_RECOVERIES = 2;
+const SKILL_FORK_FORBIDDEN_TOOLS = [
+  'invoke_skill', 'read_skill', 'sub_agent',
+  'EnterPlanMode', 'ExitPlanMode', 'read_plan', 'write_plan', 'AskQuestionFirst',
+  'memory_add', 'memory_update', 'memory_delete',
+  'manage_scheduled_tasks', 'delegate_to_agent', 'query_delegated_task',
+];
 
 export function formatRunCommandFailureMessage(
   result: Pick<SpawnSyncReturns<string>, 'status' | 'signal' | 'error'>,
@@ -110,20 +130,35 @@ export function formatRunCommandFailureMessage(
 function skillSignature(skill: SkillDefinition): string {
   return JSON.stringify({
     name: skill.name,
+    displayName: skill.displayName,
+    dialect: skill.dialect,
     path: skill.path,
+    source: skill.source,
     description: skill.description,
+    enabled: skill.enabled,
     mode: skill.mode,
     whenToUse: skill.whenToUse,
     argumentHint: skill.argumentHint,
+    arguments: skill.arguments,
+    paths: skill.paths,
+    userInvocable: skill.userInvocable,
     disableModelInvocation: skill.disableModelInvocation,
     allowedTools: skill.allowedTools,
     model: skill.model,
+    shell: skill.shell,
+    agent: skill.agent,
+    effort: skill.effort,
+    version: skill.version,
+    contextModifier: skill.contextModifier,
     content: skill.content,
     resources: skill.resources?.map(item => ({
       relativePath: item.relativePath,
+      kind: item.kind,
+      size: item.size,
       sha256: item.sha256,
       textReadable: item.textReadable,
       maybeExecutable: item.maybeExecutable,
+      truncatedReason: item.truncatedReason,
     })),
   });
 }
@@ -167,7 +202,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private configDir?: string;
   private globalConfigDir?: string;
   private rememberPlatformModel: boolean;
-  private toolLoop: ToolLoop;
   private toolLoopConfig: ToolLoopConfig;
   private toolState: ToolStateManager;
   private callmeConfig?: CallmeAttributionConfig;
@@ -193,6 +227,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   private pluginHooks: PluginHook[] = [];
   /** Skill 定义列表 */
   private skills: SkillDefinition[] = [];
+  /** Hidden Skills explicitly activated by the user, keyed by session. */
+  private userInvokedSkills = new Map<string, Set<string>>();
   /** Skill 加载/解析诊断 */
   private skillDiagnostics: SkillDiagnostic[] = [];
   /** 最近一次 Skill 文件系统重载上下文，用于 TUI 手动 refresh。 */
@@ -284,8 +320,6 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       retryOnError: config?.retryOnError ?? true,
       maxRetries: config?.maxRetries ?? 3,
     };
-    this.toolLoop = new ToolLoop(tools, prompt, this.toolLoopConfig, toolState);
-
     // 转发工具状态事件
     this.setupToolStateForwarding();
 
@@ -310,6 +344,42 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.toolLoopConfig.afterToolExec = hookConfig.afterToolExec;
     this.toolLoopConfig.beforeLLMCall = hookConfig.beforeLLMCall;
     this.toolLoopConfig.afterLLMCall = hookConfig.afterLLMCall;
+  }
+
+  /**
+   * Execute a tool for an explicit UI command (for example `/workflow run`).
+   * The user's command approves only this outer tool. Nested tools retain the
+   * normal cloned policy and their own approval/diff boundaries.
+   */
+  async executeUserApprovedTool(
+    sessionId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    if (!sessionId) throw new Error('A session id is required for direct tool execution');
+    const mode = this.resolveMode();
+    let registry = mode?.tools ? applyToolFilter(mode, this.tools) : this.tools;
+    const disabledTools = this.toolLoopConfig.toolsConfig.disabledTools;
+    if (disabledTools?.length) registry = registry.createFiltered(disabledTools);
+    if (!registry.get(toolName)) throw new Error(`Tool is not available in the current mode: ${toolName}`);
+
+    const executionContext: SessionExecutionContext = {
+      sessionId,
+      cwd: getRememberedCwd(sessionId),
+    };
+    return sessionContext.run(executionContext, () => agentContext.run('main', () =>
+      executeToolWithScheduler(toolName, args, {
+        registry,
+        toolsConfig: cloneToolsConfig(this.toolLoopConfig.toolsConfig),
+        toolState: this.toolState,
+        beforeToolExec: this.toolLoopConfig.beforeToolExec,
+        afterToolExec: this.toolLoopConfig.afterToolExec,
+        onAttachments: (attachments) => this.emit('attachments', sessionId, attachments),
+        runtimeApprovalContext: this.createRuntimeApprovalContext(sessionId),
+        sessionId,
+        flags: { preApproved: true },
+      }),
+    ));
   }
 
   private async enqueueMetaUpdate<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
@@ -520,6 +590,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.turnLock.clear(sessionId);
     // 清空会话级 Auto Edit 状态
     this.autoEdit.clear(sessionId);
+    this.userInvokedSkills.delete(sessionId);
     this.emit('auto-edit:update', sessionId, false);
 
     for (const hook of this.pluginHooks) {
@@ -1056,18 +1127,21 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     this.reloadSkillsFromFilesystem(this.skillReloadContext.dataDir, this.skillReloadContext.inlineSkills);
   }
 
-  listSkills(): { name: string; path: string; description?: string; mode?: string; whenToUse?: string; argumentHint?: string; disableModelInvocation?: boolean; skillUri?: string; resources?: SkillDefinition['resources']; source?: SkillDefinition['source'] }[] {
+  listSkills(): { name: string; displayName?: string; path: string; description?: string; mode?: string; whenToUse?: string; argumentHint?: string; disableModelInvocation?: boolean; userInvocable?: boolean; skillUri?: string; resources?: SkillDefinition['resources']; source?: SkillDefinition['source']; dialect?: SkillDefinition['dialect'] }[] {
     return this.skills.map(s => ({
       name: s.name,
+      displayName: s.displayName,
       path: s.path,
       description: s.description,
       mode: s.mode,
       whenToUse: s.whenToUse,
       argumentHint: s.argumentHint,
       disableModelInvocation: s.disableModelInvocation,
+      userInvocable: s.userInvocable,
       skillUri: s.skillUri,
       resources: s.resources,
       source: s.source,
+      dialect: s.dialect,
     }));
   }
 
@@ -1103,6 +1177,189 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
 
   getSkillByName(name: string): SkillDefinition | undefined {
     return this.skills.find(s => s.name === name);
+  }
+
+  isSkillModelAccessible(name: string, sessionId?: string): boolean {
+    const skill = this.getSkillByName(name);
+    if (!skill) return false;
+    if (!skill.disableModelInvocation) return true;
+    return !!sessionId && this.userInvokedSkills.get(sessionId)?.has(name) === true;
+  }
+
+  private createRuntimeApprovalContext(sessionId: string) {
+    const planModeActive = this.isPlanModeActive?.(sessionId) === true;
+    const autoEditActive = this.autoEdit.isActive(sessionId);
+    return {
+      sessionId,
+      cwd: getSessionCwd(),
+      autoEditActive,
+      planModeActive,
+      isAutoEditActive: (sid: string | undefined) => this.autoEdit.isActive(sid),
+      isPlanModeActive: (sid: string | undefined) => this.isPlanModeActive?.(sid) === true,
+      trackFileEdit: (toolName: string, args: Record<string, unknown>) =>
+        this.fileHistory.trackToolEdit(sessionId, getSessionCwd(), toolName, args),
+    };
+  }
+
+  private async prepareUserSkillInvocation(
+    text: string,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<{ text: string; modifier?: SkillContextModifier } | undefined> {
+    const trimmed = text.trim();
+    if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return undefined;
+    const separator = trimmed.search(/\s/);
+    const name = trimmed.slice(1, separator < 0 ? undefined : separator);
+    const skill = this.getSkillByName(name);
+    if (!skill) return undefined;
+    if (skill.userInvocable === false) {
+      throw new Error(`Skill "${name}" is not available for direct user invocation.`);
+    }
+
+    const invokeTool = this.tools.get('invoke_skill');
+    if (!invokeTool) throw new Error('invoke_skill runtime is not available.');
+    const args = separator < 0 ? '' : trimmed.slice(separator).trim();
+    const mode = this.resolveMode();
+    let invocationTools = mode?.tools ? applyToolFilter(mode, this.tools) : this.tools;
+    const disabledTools = this.toolLoopConfig.toolsConfig.disabledTools;
+    if (disabledTools?.length) invocationTools = invocationTools.createFiltered(disabledTools);
+    const activated = this.userInvokedSkills.get(sessionId) ?? new Set<string>();
+    const wasAlreadyActive = activated.has(name);
+    // Fork Skills may need their guarded resources while invoke_skill itself
+    // is still running. Grant provisional session access and roll it back if
+    // expansion/fork execution does not complete successfully.
+    if (!wasAlreadyActive) activated.add(name);
+    this.userInvokedSkills.set(sessionId, activated);
+    try {
+      const rawResult = await executeToolWithScheduler('invoke_skill', { skill: name, args }, {
+        registry: invocationTools,
+        toolsConfig: cloneToolsConfig(this.toolLoopConfig.toolsConfig),
+        toolState: this.toolState,
+        signal,
+        beforeToolExec: this.toolLoopConfig.beforeToolExec,
+        afterToolExec: this.toolLoopConfig.afterToolExec,
+        onAttachments: (attachments) => this.emit('attachments', sessionId, attachments),
+        runtimeApprovalContext: this.createRuntimeApprovalContext(sessionId),
+        sessionId,
+        flags: {
+          // Typing `/name` is the user's explicit approval of invoke_skill
+          // itself, but nested commands still run their own scheduler policy.
+          preApproved: true,
+          directUserSkillInvocation: true,
+        },
+      });
+      const result = rawResult as Record<string, unknown> | undefined;
+      if (!result) throw new Error(`Skill "${name}" returned no content.`);
+      if (typeof result.error === 'string') throw new Error(result.error);
+
+      const response = result.__response as Record<string, unknown> | undefined;
+      const forkResult = typeof result.result === 'string' ? result.result : undefined;
+      const content = typeof response?.content === 'string' ? response.content : forkResult;
+      if (!content) throw new Error(`Skill "${name}" returned no usable content.`);
+      return {
+        text: `[User invoked Skill /${name}${args ? ` ${args}` : ''}]\n\n${content}`,
+        modifier: result.__contextModifier as SkillContextModifier | undefined,
+      };
+    } catch (error) {
+      if (!wasAlreadyActive) {
+        activated.delete(name);
+        if (activated.size === 0) this.userInvokedSkills.delete(sessionId);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Run a fork Skill as a real child execution owned by this Backend.
+   *
+   * The child inherits the current Agent prompt, per-turn tool policy, plugin
+   * hooks, runtime approval/file-history context, session identity and abort
+   * signal. Main-session interactive and privileged tools are removed before
+   * the child sees the registry.
+   */
+  async runSkillFork(request: SkillForkExecutionRequest): Promise<string> {
+    const sessionId = request.sessionId;
+    const mode = this.resolveMode();
+    let childTools = request.availableToolNames
+      ? this.tools.createSubset(request.availableToolNames)
+      : (mode?.tools ? applyToolFilter(mode, this.tools) : this.tools.createFiltered([]));
+
+    const toolsConfig = cloneToolsConfig(request.toolsConfig ?? this.toolLoopConfig.toolsConfig);
+    if (request.skill.contextModifier) {
+      applySkillContextModifierToToolsConfig(toolsConfig, request.skill.contextModifier);
+    }
+    if (toolsConfig.disabledTools?.length) {
+      childTools = childTools.createFiltered(toolsConfig.disabledTools);
+    }
+    childTools = childTools.createFiltered(SKILL_FORK_FORBIDDEN_TOOLS);
+
+    const extraParts: Part[] = [];
+    if (mode?.systemPrompt) extraParts.push({ text: mode.systemPrompt });
+    if (sessionId) {
+      const agentsMdState = await this.agentsMd.ensureLoaded(sessionId, getSessionCwd());
+      if (agentsMdState.part) extraParts.push(agentsMdState.part);
+    }
+
+    const interactiveMainSession = !!sessionId
+      && !sessionId.startsWith('cross-agent:')
+      && !request.sourceAgent;
+    const childToolState = interactiveMainSession ? this.toolState : undefined;
+    const runtimeApprovalContext = sessionId
+      ? this.createRuntimeApprovalContext(sessionId)
+      : undefined;
+    const loop = new ToolLoop(childTools, this.prompt, {
+      ...this.toolLoopConfig,
+      maxRounds: Math.min(this.toolLoopConfig.maxRounds, 20),
+      toolsConfig,
+    }, childToolState);
+
+    const parentHandle = request.parentInvocationId
+      ? this.toolState.getHandle(request.parentInvocationId)
+      : undefined;
+    const onChildHandle = (childHandle: ToolExecutionHandle) => {
+      if (!parentHandle || childHandle.id === parentHandle.id) return;
+      const snapshot = childHandle.getSnapshot();
+      if (sessionId && snapshot.sessionId !== sessionId) return;
+      Object.defineProperty(childHandle, '_parentId', { value: parentHandle.id, writable: true });
+      Object.defineProperty(childHandle, '_depth', { value: parentHandle.depth + 1, writable: true });
+      parentHandle.addChild(childHandle);
+    };
+    if (childToolState && parentHandle) childToolState.on('handle:created', onChildHandle);
+
+    const callLLM: LLMCaller = async (llmRequest, modelName, signal) => {
+      const response = await this.router.chat(llmRequest, modelName, signal);
+      const content = response.content;
+      content.modelName = modelName || this.router.getCurrentModelName();
+      content.createdAt = Date.now();
+      if (response.usageMetadata) content.usageMetadata = response.usageMetadata;
+      return content;
+    };
+    const history: Content[] = [{
+      role: 'user',
+      parts: [{
+        text: `${request.processedContent}\n\nTask arguments: ${request.rawArgs || '(none)'}`,
+      }],
+    }];
+
+    try {
+      return await agentContext.run(`skill-fork:${request.skill.name}`, async () => {
+        const result = await loop.run(history, callLLM, {
+          sessionId,
+          signal: request.signal,
+          modelName: request.modelName,
+          extraParts,
+          runtimeApprovalContext,
+          onAttachments: sessionId
+            ? (attachments) => this.emit('attachments', sessionId, attachments)
+            : undefined,
+        });
+        if (result.aborted) throw new Error('Skill fork execution was aborted.');
+        if (result.error) throw new Error(result.error);
+        return result.text;
+      });
+    } finally {
+      if (childToolState && parentHandle) childToolState.off('handle:created', onChildHandle);
+    }
   }
 
   reloadSkillsFromFilesystem(dataDir: string, inlineSkills?: SkillDefinition[]): void {
@@ -1265,9 +1522,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
   // ============ 热重载 ============
 
   reloadLLM(newRouter: LLMRouter): void {
-    this.router = newRouter;
-    this.currentLLMConfig = newRouter.getCurrentConfig();
-    const modelsDesc = newRouter.listModels()
+    this.router.replaceWith(newRouter);
+    this.currentLLMConfig = this.router.getCurrentConfig();
+    const modelsDesc = this.router.listModels()
       .map(model => `${model.current ? '*' : '-'}${model.modelName}=${model.modelId}`)
       .join(' ');
     logger.info(`LLM 已热重载: [${modelsDesc}]`);
@@ -1559,6 +1816,9 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     // 清除本会话上一轮残留的工具调用记录
     this.toolState.clearSession(sessionId);
 
+    const userSkillInvocation = await this.prepareUserSkillInvocation(text, sessionId, signal);
+    if (userSkillInvocation) text = userSkillInvocation.text;
+
     // 构建用户消息 parts — hook 优先，兜底最小化处理
     let storedUserParts: Part[] | undefined;
     for (const hook of this.pluginHooks) {
@@ -1690,6 +1950,7 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       postCompact: !preTurnCompacted,
       storedUserParts,
       platformName,
+      initialContextModifier: userSkillInvocation?.modifier,
       initialContextRecovery: hasStableCompactBoundary(stableHistoryForTurn)
         ? async (reason, beforeTokens, requestTemplate) => {
           await this.compactUnlocked(
@@ -1742,6 +2003,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       beforeTokens: number,
       requestTemplate: LLMRequest,
     ) => Promise<Content[] | undefined>;
+    /** Skill context activated by an explicit /skill-name user command. */
+    initialContextModifier?: SkillContextModifier;
   }): Promise<void> {
     const { sessionId, turnId, history, signal } = options;
     const startTime = Date.now();
@@ -1756,21 +2019,19 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
     if (agentsMdState.part) {
       extraParts.push(agentsMdState.part);
     }
-    const planModeActive = this.isPlanModeActive?.(sessionId) === true;
-    const autoEditActive = this.autoEdit.isActive(sessionId);
-    const runtimeApprovalContext = {
-      sessionId,
-      cwd: getSessionCwd(),
-      autoEditActive,
-      planModeActive,
-      isAutoEditActive: (sid: string | undefined) => this.autoEdit.isActive(sid),
-      isPlanModeActive: (sid: string | undefined) => this.isPlanModeActive?.(sid) === true,
-      trackFileEdit: (toolName: string, args: Record<string, unknown>) => this.fileHistory.trackToolEdit(sessionId, getSessionCwd(), toolName, args),
-    };
+    const runtimeApprovalContext = this.createRuntimeApprovalContext(sessionId);
+    const { planModeActive, autoEditActive } = runtimeApprovalContext;
 
     // 2. 构建 LLM 调用函数
     let lastCallTotalTokens = 0;
     let lastCallRequest: LLMRequest | undefined;
+
+    // Every turn owns its policy objects. Skill activation may mutate this
+    // copy, and the streaming/non-streaming paths intentionally share it.
+    const turnLoopConfig: ToolLoopConfig = {
+      ...this.toolLoopConfig,
+      toolsConfig: cloneToolsConfig(this.toolLoopConfig.toolsConfig),
+    };
 
     // 流式模式下创建 StreamingToolExecutor，在 LLM 流式输出过程中
     // 通过 onFunctionCallReady 回调提前启动工具执行。
@@ -1783,8 +2044,8 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       if (this.stream) {
         // 每轮 LLM 调用创建新的 StreamingToolExecutor
         streamingExecutor = new StreamingToolExecutor(
-          requestTools, this.toolState, this.toolLoopConfig.toolsConfig,
-          callSignal, this.toolLoopConfig.beforeToolExec, this.toolLoopConfig.afterToolExec,
+          requestTools, this.toolState, turnLoopConfig.toolsConfig,
+          callSignal, turnLoopConfig.beforeToolExec, turnLoopConfig.afterToolExec,
           (attachments) => { this.emit('attachments', sessionId, attachments); },
           runtimeApprovalContext,
           sessionId,
@@ -1807,20 +2068,113 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
           if (response.usageMetadata.totalTokenCount) lastCallTotalTokens = response.usageMetadata.totalTokenCount;
         }
       }
+
+      const protocolErrorCalls = content.parts.filter(
+        (part): part is FunctionCallPart => isFunctionCallPart(part)
+          && part.functionCall.protocolError !== undefined,
+      );
+      const validFunctionCalls = content.parts.filter(
+        (part): part is FunctionCallPart => isFunctionCallPart(part)
+          && part.functionCall.protocolError === undefined,
+      );
+
+      if (protocolErrorCalls.length > 0 && validFunctionCalls.length === 0) {
+        let recovered = false;
+        for (let recoveryAttempt = 1;
+          recoveryAttempt <= MAX_NATIVE_PROTOCOL_RECOVERIES;
+          recoveryAttempt++) {
+          const reason = this.stream
+            ? '原生工具调用参数在流式响应中不完整，正在改用非流式重试'
+            : '原生工具调用参数不完整，正在重新生成完整调用';
+          logger.warn(
+            `原生工具协议恢复: session=${sessionId}, `
+            + `attempt=${recoveryAttempt}/${MAX_NATIVE_PROTOCOL_RECOVERIES}`,
+          );
+          this.emit(
+            'retry', sessionId, recoveryAttempt,
+            MAX_NATIVE_PROTOCOL_RECOVERIES, reason,
+          );
+
+          const recoveryRequest: LLMRequest = {
+            ...request,
+            systemInstruction: {
+              parts: [
+                ...(request.systemInstruction?.parts ?? []),
+                { text: buildNativeMalformedToolRetryPrompt(recoveryAttempt) },
+              ],
+            },
+          };
+          lastCallRequest = recoveryRequest;
+          let recoveredContent: Content | undefined;
+          try {
+            const response = await this.router.chat(
+              recoveryRequest,
+              modelName,
+              callSignal,
+            );
+            recoveredContent = response.content;
+            recoveredContent.modelName = modelName || this.router.getCurrentModelName();
+            recoveredContent.createdAt = Date.now();
+            if (response.usageMetadata) {
+              recoveredContent.usageMetadata = response.usageMetadata;
+              this.emit('usage', sessionId, response.usageMetadata);
+              if (response.usageMetadata.totalTokenCount) {
+                lastCallTotalTokens = response.usageMetadata.totalTokenCount;
+              }
+            }
+          } catch (error) {
+            if (callSignal?.aborted) throw error;
+            const detail = error instanceof Error ? error.message : String(error);
+            logger.warn(`原生工具非流式恢复请求失败: session=${sessionId}: ${detail}`);
+            continue;
+          }
+
+          const recoveredProtocolErrors = recoveredContent.parts.filter(
+            (part): part is FunctionCallPart => isFunctionCallPart(part)
+              && part.functionCall.protocolError !== undefined,
+          );
+          const recoveredHasUsableOutput = recoveredContent.parts.some(
+            part => isFunctionCallPart(part) && part.functionCall.protocolError === undefined,
+          ) || extractText(recoveredContent.parts).trim().length > 0
+            || recoveredContent.parts.some(isInlineDataPart);
+
+          if (recoveredHasUsableOutput && recoveredProtocolErrors.length === 0) {
+            content = recoveredContent;
+            recovered = true;
+            break;
+          }
+        }
+
+        // 坏调用不会进入历史、UI 或真实工具调度。恢复仍失败时给出明确结果，
+        // 避免模型用相同的空调用耗尽整个工具循环。
+        if (!recovered) {
+          content = {
+            role: 'model',
+            modelName: modelName || this.router.getCurrentModelName(),
+            createdAt: Date.now(),
+            parts: [{
+              text: 'Iris 已停止本轮原生工具调用：渠道连续截断了 tool_calls.arguments，两次非流式恢复也没有得到完整参数，因此没有执行任何半截命令。请重试，或将该模型切换为 JSON 工具协议。',
+            }],
+          };
+        }
+        streamingExecutor = undefined;
+      } else if (protocolErrorCalls.length > 0 && streamingExecutor) {
+        // 极少数流式响应同时包含有效调用和损坏调用。有效调用可能已经启动，
+        // 把协议错误也交给 executor 以保持 call/response 数量严格配对。
+        for (const call of protocolErrorCalls) streamingExecutor.addTool(call);
+      }
       return content;
     };
 
     // 3. 解析模式工具过滤 + 全局禁用工具
     let requestTools = mode?.tools ? applyToolFilter(mode, this.tools) : this.tools;
-    const disabled = this.toolLoopConfig.toolsConfig.disabledTools;
+    const disabled = turnLoopConfig.toolsConfig.disabledTools;
     if (disabled && disabled.length > 0) {
       requestTools = requestTools.createFiltered(disabled);
     }
 
-    let loop = this.toolLoop;
-    if (mode?.tools || (disabled && disabled.length > 0)) {
-      loop = new ToolLoop(requestTools, this.prompt, this.toolLoopConfig, this.toolState);
-    }
+    const loop = new ToolLoop(requestTools, this.prompt, turnLoopConfig, this.toolState);
+    let toolIntentRepairCount = 0;
 
     let inTurnCompactCount = 0;
     const onContextCheckpoint = async (
@@ -1909,11 +2263,66 @@ export class Backend extends TypedEventEmitter<BackendEvents> {
       get streamingToolExecutor() { return streamingExecutor; },
       onMessageAppend: (content) => this.storage.addMessage(sessionId, content),
       onModelContent: (content) => { this.emit('assistant:content', sessionId, content); },
+      beforeFinalResponse: (content, round) => {
+        // 测试替身和第三方 Router-like 实现未必暴露 getModelConfig；此时沿用
+        // Backend 已保存的当前配置。没有任何配置时守卫应无操作，而不是破坏回答。
+        let modelConfig = this.currentLLMConfig;
+        const getModelConfig = (this.router as Partial<LLMRouter>).getModelConfig;
+        if (content.modelName && typeof getModelConfig === 'function') {
+          try {
+            modelConfig = getModelConfig.call(this.router, content.modelName);
+          } catch {
+            // 模型别名可能来自插件或临时 override；回退到当前配置即可。
+          }
+        }
+
+        const visibleText = extractText(content.parts);
+        const usesTaggedJson = modelConfig?.toolCallProtocol === 'tagged-json';
+        const shouldRepair = modelConfig !== undefined
+          && requestTools.getDeclarations().length > 0
+          && isLikelyUnfulfilledToolIntentPreamble(visibleText);
+        if (!shouldRepair) return false;
+
+        if (toolIntentRepairCount >= MAX_TOOL_INTENT_REPAIRS) {
+          const protocolName = usesTaggedJson ? 'Tagged JSON' : '原生工具调用';
+          logger.warn(
+            `${protocolName}协议纠偏失败: session=${sessionId}, round=${round}, `
+            + `model=${content.modelName ?? this.router.getCurrentModelName()}`,
+          );
+          content.parts = [{
+            text: usesTaggedJson
+              ? 'Iris 已阻止一条不完整的 Tagged JSON 工具响应：模型连续只说明“准备调用工具”，但没有返回任何完整的 <tool_call> JSON。请重试，或切换到能稳定遵守该协议的模型/渠道。'
+              : 'Iris 已阻止一条未履行的原生工具响应：模型连续只说明“准备调用工具”，但没有通过 Provider 原生 tool/function call 返回调用。请重试；如果这是不支持原生 tools 的 OpenAI 兼容渠道，请切换到 JSON 协议。',
+          }];
+          return false;
+        }
+
+        toolIntentRepairCount++;
+        extraParts.push({
+          text: usesTaggedJson
+            ? buildTaggedJsonToolRepairPrompt(toolIntentRepairCount)
+            : buildNativeToolRepairPrompt(toolIntentRepairCount),
+        });
+        const reason = usesTaggedJson
+          ? '模型只返回了工具调用计划，没有输出完整的 Tagged JSON 工具调用'
+          : '模型只返回了工具调用计划，没有输出 Provider 原生工具调用';
+        const protocolName = usesTaggedJson ? 'Tagged JSON' : '原生工具调用';
+        logger.warn(
+          `${protocolName}协议自动纠偏: session=${sessionId}, round=${round}, `
+          + `attempt=${toolIntentRepairCount}/${MAX_TOOL_INTENT_REPAIRS}`,
+        );
+        this.emit(
+          'retry', sessionId, toolIntentRepairCount,
+          MAX_TOOL_INTENT_REPAIRS, reason,
+        );
+        return true;
+      },
       onAttachments: (attachments) => {
         this.emit('attachments', sessionId, attachments);
       },
       signal,
       runtimeApprovalContext,
+      initialContextModifier: options.initialContextModifier,
       onRetry: (attempt, maxRetries, error) => {
         this.emit('retry', sessionId, attempt, maxRetries, error);
       },

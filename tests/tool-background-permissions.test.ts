@@ -130,6 +130,113 @@ describe('background tool permissions', () => {
     expect(result.result).toBe('sub agent done');
   });
 
+  it('sub_agent 可见工具必须与父级 availableToolNames 求交集', async () => {
+    let visibleToolNames: string[] = [];
+    const tools = createRegistry([
+      { name: 'safe_tool', handler: async () => ({ result: 'safe' }) },
+      { name: 'write_file', handler: async () => ({ result: 'wrote' }) },
+    ]);
+    const subAgentTypes = new SubAgentTypeRegistry();
+    subAgentTypes.register({
+      name: 'bounded-worker',
+      description: '只能继承父级可见工具',
+      systemPrompt: 'bounded worker',
+      allowedTools: ['safe_tool', 'write_file'],
+      parallel: false,
+      maxToolRounds: 2,
+      stream: false,
+    });
+    const fakeRouter = {
+      chat: async (request: any): Promise<{ content: Content }> => {
+        visibleToolNames = request.tools?.flatMap((tool: any) =>
+          tool.functionDeclarations.map((declaration: any) => declaration.name)) ?? [];
+        return { content: { role: 'model', parts: [{ text: 'bounded' }] } };
+      },
+    };
+    const subAgentTool = createSubAgentTool({
+      getRouter: () => fakeRouter as any,
+      getToolsConfig: () => ({ autoApproveAll: true, permissions: {} }),
+      retryOnError: false,
+      maxRetries: 0,
+      tools,
+      subAgentTypes,
+      maxDepth: 3,
+    });
+
+    const result = await subAgentTool.handler(
+      { prompt: 'inspect only', type: 'bounded-worker' },
+      {
+        availableToolNames: ['safe_tool'],
+        effectiveToolsConfig: { autoApproveAll: true, permissions: {} },
+      },
+    ) as Record<string, unknown>;
+
+    expect(visibleToolNames).toContain('safe_tool');
+    expect(visibleToolNames).not.toContain('write_file');
+    expect(result.result).toBe('bounded');
+  });
+
+  it('sub_agent 不得用 Backend 全局配置放大父级未授权的写权限', async () => {
+    let writeCalled = false;
+    let llmRound = 0;
+    const tools = createRegistry([{
+      name: 'write_file',
+      handler: async () => {
+        writeCalled = true;
+        return { result: 'must-not-write' };
+      },
+    }]);
+    const subAgentTypes = new SubAgentTypeRegistry();
+    subAgentTypes.register({
+      name: 'write-worker',
+      description: '尝试写入的测试代理',
+      systemPrompt: 'write worker',
+      allowedTools: ['write_file'],
+      parallel: false,
+      maxToolRounds: 3,
+      stream: false,
+    });
+    const fakeRouter = {
+      chat: async (): Promise<{ content: Content }> => {
+        llmRound++;
+        if (llmRound === 1) {
+          return { content: { role: 'model', parts: [fc('write_file', {
+            files: [{ path: 'forbidden.txt', content: 'no' }],
+          })] } };
+        }
+        return { content: { role: 'model', parts: [{ text: 'write was denied' }] } };
+      },
+    };
+    const subAgentTool = createSubAgentTool({
+      getRouter: () => fakeRouter as any,
+      // 如果实现错误地重新读取全局配置，这个开关会让写入被放行。
+      getToolsConfig: () => ({
+        autoApproveAll: true,
+        permissions: { write_file: { autoApprove: true } },
+      }),
+      retryOnError: false,
+      maxRetries: 0,
+      tools,
+      subAgentTypes,
+      maxDepth: 3,
+    });
+
+    const result = await subAgentTool.handler(
+      { prompt: 'try to write', type: 'write-worker' },
+      {
+        availableToolNames: ['write_file'],
+        effectiveToolsConfig: {
+          autoApproveAll: false,
+          permissions: { write_file: { autoApprove: false } },
+        },
+      },
+    ) as Record<string, unknown>;
+
+    expect(writeCalled).toBe(false);
+    expect(llmRound).toBe(2);
+    expect(result.result).toBe('write was denied');
+  });
+
   it('cross-agent 隐藏会话下，已自动授权的 write_file 不应再被 diff 审批卡死', async () => {
     let handlerCalled = false;
     const registry = createRegistry([

@@ -12,6 +12,7 @@
 
 import { exec } from 'child_process';
 import { ToolDefinition } from '@/types';
+import type { ToolExecutionContext, ToolPreflightResult } from '@/types';
 import { resolveProjectPath, getProjectRoot } from '../../utils';
 import { getToolLimits } from '../../tool-limits';
 import { classifyCommand, getDenyReason } from './whitelist';
@@ -200,6 +201,89 @@ function maybeLearnAfterExec(
   void tryLearnFromInstall(command, result.stdout, deps, 'bash');
 }
 
+function rejectedCommand(command: string, stderr: string): ToolPreflightResult {
+  return {
+    allowed: false,
+    result: { command, exitCode: 1, killed: false, stdout: '', stderr },
+  };
+}
+
+/** Side-effect-free authorization shared by local and remote transports. */
+async function preflightBashCommand(
+  args: Record<string, unknown>,
+  context: ToolExecutionContext | undefined,
+  deps?: BashToolDeps,
+): Promise<ToolPreflightResult> {
+  let command = args.command as string;
+  const cwd = args.cwd as string | undefined;
+  const force = args.force === true;
+  const commandWithCallme = maybeAddCallmeTrailerToGitCommit(command, 'bash', deps?.getCallmeConfig?.());
+  if (commandWithCallme !== command) {
+    logger.info(`已按 /callme 配置为 git commit 注入链接署名: ${command.slice(0, 100)}`);
+    command = commandWithCallme;
+  }
+  const normalizedArgs = { ...args, command };
+  const skillAccessRejection = getSkillAccessPreflightRejection(command, cwd);
+  if (skillAccessRejection) return rejectedCommand(command, skillAccessRejection);
+
+  const staticResult = classifyCommand(command);
+  if (staticResult === 'deny') {
+    if (context?.approvedByUser) {
+      logger.info(`Bash 命令黑名单已被 autoApprove 配置跳过: ${command.slice(0, 100)}`);
+    } else {
+      const reason = getDenyReason(command) ?? '命令被安全策略拒绝';
+      logger.warn(`Bash 命令被拒绝: ${command.slice(0, 100)} | 理由: ${reason}`);
+      return rejectedCommand(command, `安全拒绝: ${reason}\n此操作在黑名单中，force 参数也无法绕过。请在 tools.yaml 中开启 autoApproveAll 或 bash.autoApprove 以解除限制。`);
+    }
+  }
+  if (staticResult === 'allow') {
+    logger.info(`Bash 命令白名单放行: ${command.slice(0, 100)}`);
+    return { allowed: true, args: normalizedArgs };
+  }
+  if (context?.approvedByUser) {
+    logger.info(`Bash 命令已获用户批准，跳过分类器: ${command.slice(0, 100)}`);
+    return { allowed: true, args: normalizedArgs };
+  }
+  if (force && !context?.requestApproval) {
+    logger.info(`Bash 命令 force 执行（用户已在对话中确认）: ${command.slice(0, 100)}`);
+    return { allowed: true, args: normalizedArgs };
+  }
+
+  const classifierConfig = deps?.classifierConfig;
+  if (!deps || !classifierConfig?.enabled) {
+    const fallback = classifierConfig?.fallbackPolicy ?? 'deny';
+    if (fallback === 'deny') {
+      if (context?.requestApproval) {
+        logger.info(`Bash 命令不在白名单且分类器未启用，请求用户确认: ${command.slice(0, 100)}`);
+        const approved = await context.requestApproval();
+        if (approved) return { allowed: true, args: normalizedArgs };
+        return rejectedCommand(command, '用户已拒绝执行该命令。');
+      }
+      logger.warn(`Bash 命令不在白名单且分类器未启用，拒绝执行: ${command.slice(0, 100)}`);
+      return rejectedCommand(command, '命令不在安全白名单中且分类器未启用，拒绝执行。请使用只读命令（如 ls, cat, grep, git status 等），或请用户确认后使用 force: true。');
+    }
+    logger.info(`Bash 命令不在白名单，分类器未启用，兜底放行: ${command.slice(0, 100)}`);
+    return { allowed: true, args: normalizedArgs };
+  }
+
+  const projectRoot = getProjectRoot();
+  logger.info(`Bash 命令进入 AI 分类器: ${command.slice(0, 100)}`);
+  const classifierResult = await classifyWithLLM(command, deps.getRouter(), classifierConfig, getShell(), projectRoot);
+  const decision = resolveClassifierDecision(classifierResult, classifierConfig);
+  if (decision.allow) {
+    logger.info(`Bash 命令分类器放行: ${command.slice(0, 100)} | 理由: ${decision.reason}`);
+    return { allowed: true, args: normalizedArgs };
+  }
+  if (context?.requestApproval) {
+    logger.info(`Bash 命令分类器拒绝，请求用户确认: ${command.slice(0, 100)} | 理由: ${decision.reason}`);
+    const approved = await context.requestApproval();
+    if (approved) return { allowed: true, args: normalizedArgs };
+    return rejectedCommand(command, '用户已拒绝执行该命令。');
+  }
+  logger.warn(`Bash 命令分类器拒绝: ${command.slice(0, 100)} | 理由: ${decision.reason}`);
+  return rejectedCommand(command, `AI 安全分类器拒绝执行: ${decision.reason}\n如果用户确认需要执行此命令，可以设置 force: true 重试。`);
+}
+
 /**
  * 创建 bash 工具。
  *
@@ -209,6 +293,7 @@ function maybeLearnAfterExec(
 export function createBashTool(deps?: BashToolDeps): ToolDefinition {
   return {
     approvalMode: 'handler',
+    preflight: (args, context) => preflightBashCommand(args, context, deps),
     declaration: {
       name: 'bash',
       description: `在项目目录下后台执行非交互 Bash/Shell 命令。返回 stdout、stderr 和退出码。
@@ -264,146 +349,22 @@ force 参数规则：
       },
     },
     handler: async (args, context) => {
+      const preflight = await preflightBashCommand(args, context, deps);
+      if (!preflight.allowed) return preflight.result;
+      const effectiveArgs = preflight.args ?? args;
       const limits = getToolLimits().shell;
-
-      let command = args.command as string;
-      const cwd = args.cwd as string | undefined;
-      const timeout = resolveCommandTimeout(args.timeout, limits.defaultTimeout);
-      const force = args.force === true;
-
-      const commandWithCallme = maybeAddCallmeTrailerToGitCommit(command, 'bash', deps?.getCallmeConfig?.());
-      if (commandWithCallme !== command) {
-        logger.info(`已按 /callme 配置为 git commit 注入链接署名: ${command.slice(0, 100)}`);
-        command = commandWithCallme;
-      }
-
+      const command = effectiveArgs.command as string;
+      const cwd = effectiveArgs.cwd as string | undefined;
+      const timeout = resolveCommandTimeout(effectiveArgs.timeout, limits.defaultTimeout);
       const projectRoot = getProjectRoot();
       const workDir = cwd ? resolveProjectPath(cwd) : projectRoot;
       const skillAccessRejection = getSkillAccessPreflightRejection(command, cwd, workDir);
       if (skillAccessRejection) {
         return { command, exitCode: 1, killed: false, stdout: '', stderr: skillAccessRejection };
       }
-
-      // ---- 安全检查 ----
-      const staticResult = classifyCommand(command);
-
-      // 1. 黑名单拒绝
-      // 当用户通过 tools.yaml 配置 autoApproveAll 或 bash.autoApprove 时，
-      // approvedByUser 为 true，跳过黑名单限制，允许所有指令运行。
-      if (staticResult === 'deny') {
-        if (context?.approvedByUser) {
-          logger.info(`Bash 命令黑名单已被 autoApprove 配置跳过: ${command.slice(0, 100)}`);
-        } else {
-          const reason = getDenyReason(command) ?? '命令被安全策略拒绝';
-          logger.warn(`Bash 命令被拒绝: ${command.slice(0, 100)} | 理由: ${reason}`);
-          return {
-            command,
-            exitCode: 1,
-            killed: false,
-            stdout: '',
-            stderr: `安全拒绝: ${reason}\n此操作在黑名单中，force 参数也无法绕过。请在 tools.yaml 中开启 autoApproveAll 或 bash.autoApprove 以解除限制。`,
-          };
-        }
-      }
-
-      // 2. 白名单放行
-      if (staticResult === 'allow') {
-        logger.info(`Bash 命令白名单放行: ${command.slice(0, 100)}`);
-        const result = await executeCommand(command, workDir, timeout, limits.maxBuffer, limits.maxOutputChars, context?.signal);
-        maybeLearnAfterExec(command, result, deps);
-        return annotateResult(result);
-      }
-
-      // 2.5. 用户已通过调度器审批
-      if (context?.approvedByUser) {
-        logger.info(`Bash 命令已获用户批准，跳过分类器: ${command.slice(0, 100)}`);
-        const result = await executeCommand(command, workDir, timeout, limits.maxBuffer, limits.maxOutputChars, context?.signal);
-        maybeLearnAfterExec(command, result, deps);
-        return annotateResult(result);
-      }
-
-      // 2.75. force=true → 仅在非交互上下文（无 Y/N 弹窗）中生效
-      if (force && !context?.requestApproval) {
-        logger.info(`Bash 命令 force 执行（用户已在对话中确认）: ${command.slice(0, 100)}`);
-        const result = await executeCommand(command, workDir, timeout, limits.maxBuffer, limits.maxOutputChars, context?.signal);
-        maybeLearnAfterExec(command, result, deps);
-        return annotateResult(result);
-      }
-
-      // 3. unknown → 分类器判定
-      const classifierConfig = deps?.classifierConfig;
-
-      if (!deps || !classifierConfig?.enabled) {
-        const fallback = classifierConfig?.fallbackPolicy ?? 'deny';
-        if (fallback === 'deny') {
-          // 尝试通过 Y/N 弹窗请求用户确认
-          if (context?.requestApproval) {
-            logger.info(`Bash 命令不在白名单且分类器未启用，请求用户确认: ${command.slice(0, 100)}`);
-            const approved = await context.requestApproval();
-            if (approved) {
-              logger.info(`Bash 命令用户已批准: ${command.slice(0, 100)}`);
-              const result = await executeCommand(command, workDir, timeout, limits.maxBuffer, limits.maxOutputChars, context?.signal);
-              maybeLearnAfterExec(command, result, deps);
-              return annotateResult(result);
-            }
-            return {
-              command, exitCode: 1, killed: false, stdout: '',
-              stderr: '用户已拒绝执行该命令。',
-            };
-          }
-          // 非交互上下文：返回错误，保留 force 对话确认作为后备
-          logger.warn(`Bash 命令不在白名单且分类器未启用，拒绝执行: ${command.slice(0, 100)}`);
-          return {
-            command,
-            exitCode: 1,
-            killed: false,
-            stdout: '',
-            stderr: '命令不在安全白名单中且分类器未启用，拒绝执行。请使用只读命令（如 ls, cat, grep, git status 等），或请用户确认后使用 force: true。',
-          };
-        }
-        logger.info(`Bash 命令不在白名单，分类器未启用，兜底放行: ${command.slice(0, 100)}`);
-        const result = await executeCommand(command, workDir, timeout, limits.maxBuffer, limits.maxOutputChars, context?.signal);
-        maybeLearnAfterExec(command, result, deps);
-        return annotateResult(result);
-      }
-
-      // 调用 AI 分类器
-      logger.info(`Bash 命令进入 AI 分类器: ${command.slice(0, 100)}`);
-      const classifierResult = await classifyWithLLM(command, deps.getRouter(), classifierConfig, getShell(), projectRoot);
-      const decision = resolveClassifierDecision(classifierResult, classifierConfig);
-
-      if (decision.allow) {
-        logger.info(`Bash 命令分类器放行: ${command.slice(0, 100)} | 理由: ${decision.reason}`);
-        const result = await executeCommand(command, workDir, timeout, limits.maxBuffer, limits.maxOutputChars, context?.signal);
-        maybeLearnAfterExec(command, result, deps);
-        return annotateResult(result);
-      }
-
-      // 分类器拒绝 → 尝试通过 Y/N 弹窗请求用户确认
-      if (context?.requestApproval) {
-        logger.info(`Bash 命令分类器拒绝，请求用户确认: ${command.slice(0, 100)} | 理由: ${decision.reason}`);
-        const approved = await context.requestApproval();
-        if (approved) {
-          logger.info(`Bash 命令用户已批准（分类器拒绝后）: ${command.slice(0, 100)}`);
-          const result = await executeCommand(command, workDir, timeout, limits.maxBuffer, limits.maxOutputChars, context?.signal);
-          maybeLearnAfterExec(command, result, deps);
-          return annotateResult(result);
-        }
-        return {
-          command, exitCode: 1, killed: false, stdout: '',
-          stderr: '用户已拒绝执行该命令。',
-        };
-      }
-
-      // 非交互上下文：返回错误，保留 force 对话确认作为后备
-      logger.warn(`Bash 命令分类器拒绝: ${command.slice(0, 100)} | 理由: ${decision.reason}`);
-      return {
-        command,
-        exitCode: 1,
-        killed: false,
-        stdout: '',
-        stderr: `AI 安全分类器拒绝执行: ${decision.reason}\n如果用户确认需要执行此命令，可以设置 force: true 重试。`,
-      };
+      const result = await executeCommand(command, workDir, timeout, limits.maxBuffer, limits.maxOutputChars, context?.signal);
+      maybeLearnAfterExec(command, result, deps);
+      return annotateResult(result);
     },
   };
 }

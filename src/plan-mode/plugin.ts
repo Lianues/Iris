@@ -271,9 +271,11 @@ export const planModePlugin: IrisPlugin = {
         const sessionId = getActiveSessionId();
         if (!sessionId) return undefined;
 
-        // delegate_to_agent 创建的后台跨 Agent 会话没有前台审批 UI。
-        // 为避免目标 Agent 误入 Plan Mode 后卡在无人审批状态，隐藏 Plan Mode 工具。
-        if (sessionId.startsWith('cross-agent:')) {
+        // 所有子执行上下文（sub_agent、Skill fork、delegate）都没有主会话
+        // 的 Plan 生命周期所有权。即使 Skill fork 为了隐藏资源访问而沿用父
+        // sessionId，也必须按子 Agent 处理，不能暴露 Plan 主会话工具。
+        const currentAgentContext = agentContext.getStore();
+        if (sessionId.startsWith('cross-agent:') || (currentAgentContext && currentAgentContext !== 'main')) {
           filterOutPlanTools(request);
           return { request };
         }

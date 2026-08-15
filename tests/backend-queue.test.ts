@@ -136,6 +136,154 @@ describe('Backend: 队列化调度', () => {
     expect(router.chat).toHaveBeenCalled();
   });
 
+  it('tagged JSON 模型只返回工具计划时自动注入纠偏并丢弃伪完成文本', async () => {
+    const taggedConfig = {
+      provider: 'openai-compatible' as const,
+      apiKey: 'test-key',
+      model: 'mock-model',
+      baseUrl: 'https://example.invalid/v1',
+      toolCallProtocol: 'tagged-json' as const,
+    };
+    const taggedRouter = createMockRouter();
+    (taggedRouter as any).getModelConfig = vi.fn(() => taggedConfig);
+    taggedRouter.chat.mockReset();
+    taggedRouter.chat
+      .mockResolvedValueOnce({
+        content: {
+          role: 'model' as const,
+          parts: [{ text: '我来查看当前 git 的同步情况。先检查状态和远程配置。' }] as Part[],
+        },
+        usageMetadata: { totalTokenCount: 100 },
+      })
+      .mockResolvedValueOnce({
+        content: {
+          role: 'model' as const,
+          parts: [{ text: '当前分支已经同步，工作区干净。' }] as Part[],
+        },
+        usageMetadata: { totalTokenCount: 110 },
+      });
+
+    tools.register({
+      declaration: {
+        name: 'inspect_git',
+        description: 'Inspect repository state',
+        parameters: { type: 'object', properties: {} },
+      },
+      handler: async () => ({ clean: true }),
+    });
+    const taggedBackend = new Backend(
+      taggedRouter, storage as any, tools, toolState, prompt,
+      { stream: false, maxToolRounds: 5, currentLLMConfig: taggedConfig },
+    );
+    taggedBackend.on('error', () => {});
+    const retrySpy = vi.fn();
+    taggedBackend.on('retry', retrySpy);
+
+    await taggedBackend.chat('tagged-repair', '检查 git 同步情况');
+
+    expect(taggedRouter.chat).toHaveBeenCalledTimes(2);
+    const repairedRequest = taggedRouter.chat.mock.calls[1][0] as LLMRequest;
+    const repairedSystemText = repairedRequest.systemInstruction?.parts
+      .map(part => ('text' in part ? part.text : ''))
+      .join('\n') ?? '';
+    expect(repairedSystemText).toContain('[Tagged JSON protocol repair, attempt 1]');
+    expect(retrySpy).toHaveBeenCalledWith(
+      'tagged-repair', 1, 2,
+      '模型只返回了工具调用计划，没有输出完整的 Tagged JSON 工具调用',
+    );
+
+    const savedModels = (storage._histories.get('tagged-repair') ?? [])
+      .filter(message => message.role === 'model');
+    expect(savedModels).toHaveLength(1);
+    expect((savedModels[0].parts[0] as any).text).toBe('当前分支已经同步，工作区干净。');
+  });
+
+  it('native 模型只返回工具计划时纠偏为真实原生调用且不切换协议', async () => {
+    const nativeConfig = {
+      provider: 'openai-compatible' as const,
+      apiKey: 'test-key',
+      model: 'mock-model',
+      baseUrl: 'https://example.invalid/v1',
+      toolCallProtocol: 'native' as const,
+    };
+    const nativeRouter = createMockRouter();
+    (nativeRouter as any).getModelConfig = vi.fn(() => nativeConfig);
+    nativeRouter.chat.mockReset();
+    nativeRouter.chat
+      .mockResolvedValueOnce({
+        content: {
+          role: 'model' as const,
+          parts: [{ text: '我来看看当前工作区的情况，先了解一下目录结构。' }] as Part[],
+        },
+        usageMetadata: { totalTokenCount: 100 },
+      })
+      .mockResolvedValueOnce({
+        content: {
+          role: 'model' as const,
+          parts: [{
+            functionCall: {
+              name: 'inspect_workspace',
+              args: {},
+              callId: 'native_call_1',
+            },
+          }] as Part[],
+        },
+        usageMetadata: { totalTokenCount: 110 },
+      })
+      .mockResolvedValueOnce({
+        content: {
+          role: 'model' as const,
+          parts: [{ text: '检查完成，工作区包含 2 个文件。' }] as Part[],
+        },
+        usageMetadata: { totalTokenCount: 120 },
+      });
+
+    const handler = vi.fn(async () => ({ files: 2 }));
+    tools.register({
+      declaration: {
+        name: 'inspect_workspace',
+        description: 'Inspect workspace',
+        parameters: { type: 'object', properties: {} },
+      },
+      handler,
+    });
+    const nativeBackend = new Backend(
+      nativeRouter, storage as any, tools, toolState, prompt,
+      {
+        stream: false,
+        maxToolRounds: 5,
+        currentLLMConfig: nativeConfig,
+        toolsConfig: {
+          permissions: { inspect_workspace: { autoApprove: true } },
+        },
+      },
+    );
+    nativeBackend.on('error', () => {});
+    const retrySpy = vi.fn();
+    nativeBackend.on('retry', retrySpy);
+
+    await nativeBackend.chat('native-repair', '审阅当前工作区');
+
+    expect(nativeRouter.chat).toHaveBeenCalledTimes(3);
+    expect(handler).toHaveBeenCalledTimes(1);
+    const repairedRequest = nativeRouter.chat.mock.calls[1][0] as LLMRequest;
+    const repairedSystemText = repairedRequest.systemInstruction?.parts
+      .map(part => ('text' in part ? part.text : ''))
+      .join('\n') ?? '';
+    expect(repairedSystemText).toContain('[Native tool-call repair, attempt 1]');
+    expect(repairedRequest.tools?.[0].functionDeclarations
+      .some(declaration => declaration.name === 'inspect_workspace')).toBe(true);
+    expect(retrySpy).toHaveBeenCalledWith(
+      'native-repair', 1, 2,
+      '模型只返回了工具调用计划，没有输出 Provider 原生工具调用',
+    );
+
+    const saved = storage._histories.get('native-repair') ?? [];
+    expect(JSON.stringify(saved)).not.toContain('我来看看当前工作区的情况');
+    expect(JSON.stringify(saved)).toContain('native_call_1');
+    expect(JSON.stringify(saved)).toContain('检查完成，工作区包含 2 个文件。');
+  });
+
   // ---- 同一 session 不并发 ----
 
   it('turn 进行中入队的消息等 turn 结束后再处理（不并发）', async () => {
@@ -351,5 +499,86 @@ describe('Backend: 队列化调度', () => {
     // 允许一定的调度开销（200ms 上限，实际单个 turn 约 30ms）
     expect(elapsed).toBeLessThan(200);
     expect(parallelRouter.chat).toHaveBeenCalledTimes(2);
+  });
+
+  it('不同 session 并发时 Skill 临时权限和模型覆盖不会串线', async () => {
+    let probeExecutions = 0;
+    tools.register({
+      declaration: { name: 'activate_skill_context', description: 'activate temporary context' },
+      handler: async (_args, context) => ({
+        __contextModifier: {
+          autoApproveTools: ['probe_permission'],
+          modelOverride: context?.sessionId === 'cross-agent:a' ? 'model-a' : 'unexpected-model',
+        },
+        __response: { ok: true },
+      }),
+    });
+    tools.register({
+      declaration: { name: 'probe_permission', description: 'records execution' },
+      handler: async () => { probeExecutions++; return { ok: true }; },
+    });
+
+    const toolsConfig = {
+      permissions: {
+        activate_skill_context: { autoApprove: true },
+        probe_permission: { autoApprove: false },
+      },
+    };
+    const concurrentRouter = createMockRouter();
+    const modelsA: Array<string | undefined> = [];
+    const modelsB: Array<string | undefined> = [];
+    let callsA = 0;
+    let callsB = 0;
+    let markAContextApplied!: () => void;
+    let releaseA!: () => void;
+    const aContextApplied = new Promise<void>(resolve => { markAContextApplied = resolve; });
+    const aMayFinish = new Promise<void>(resolve => { releaseA = resolve; });
+
+    concurrentRouter.chat.mockImplementation(async (request: LLMRequest, modelName?: string) => {
+      const serialized = JSON.stringify(request);
+      const isA = serialized.includes('grant-session-a');
+      if (isA) {
+        modelsA.push(modelName);
+        callsA++;
+        if (callsA === 1) {
+          return {
+            content: { role: 'model', parts: [{ functionCall: { name: 'activate_skill_context', args: {}, callId: 'activate-a' } }] },
+            usageMetadata: { totalTokenCount: 100 },
+          };
+        }
+        markAContextApplied();
+        await aMayFinish;
+        return { content: { role: 'model', parts: [{ text: 'a-done' }] }, usageMetadata: { totalTokenCount: 100 } };
+      }
+
+      modelsB.push(modelName);
+      callsB++;
+      if (callsB === 1) {
+        return {
+          content: { role: 'model', parts: [{ functionCall: { name: 'probe_permission', args: {}, callId: 'probe-b' } }] },
+          usageMetadata: { totalTokenCount: 100 },
+        };
+      }
+      return { content: { role: 'model', parts: [{ text: 'b-done' }] }, usageMetadata: { totalTokenCount: 100 } };
+    });
+
+    const concurrentBackend = new Backend(concurrentRouter, storage as any, tools, toolState, prompt, {
+      stream: false,
+      maxToolRounds: 5,
+      toolsConfig,
+    });
+    concurrentBackend.on('error', () => {});
+
+    const turnA = concurrentBackend.chat('cross-agent:a', 'grant-session-a');
+    await aContextApplied;
+    const turnB = concurrentBackend.chat('cross-agent:b', 'plain-session-b');
+    await turnB;
+    releaseA();
+    await turnA;
+
+    expect(probeExecutions).toBe(0);
+    expect(modelsA).toEqual([undefined, 'model-a']);
+    expect(modelsB).toEqual([undefined, undefined]);
+    expect(toolsConfig.permissions.probe_permission.autoApprove).toBe(false);
   });
 });

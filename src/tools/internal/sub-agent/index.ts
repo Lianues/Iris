@@ -19,6 +19,7 @@ import type { Content, Part, LLMRequest, UsageMetadata, ToolExecutionContext, To
 import { TERMINAL_TOOL_STATUSES } from '@/types';
 import { appendMergedPart } from '@/core/backend/stream';
 import type { ToolsConfig } from '@/config';
+import { cloneToolsConfig } from '@/config/clone-tools-config';
 import { LLMRouter } from '@/llm/router';
 import { agentContext } from '@/logger';
 import { ToolRegistry } from '../../registry';
@@ -131,20 +132,7 @@ const MAIN_SESSION_INTERACTIVE_TOOL_NAMES = ['EnterPlanMode', 'ExitPlanMode', 'r
  */
 const SUB_AGENT_PRIVILEGED_TOOL_NAMES = [
   'memory_add', 'memory_update', 'memory_delete',
-  'manage_scheduled_tasks', 'delegate_to_agent',
-];
-
-/**
- * 子代理为非交互上下文，需显式放行才能直接执行的工具。
- * - 写代码工具：autoApprove:false 会在非交互上下文被拦截，这里强制放行。
- * - sub_agent 自身：explore 嵌套开孙代理时，孙代理的 sub_agent 调用必须放行，
- *   否则在非交互上下文会因 autoApprove:false 返回 error（general-purpose 工具集
- *   不含 sub_agent，放行对它无效，不会破坏"不可嵌套"语义）。
- * delete_file 不纳入（保持拒绝，由 shell rm 受 handler 把关）。
- */
-const SUB_AGENT_AUTO_APPROVE_TOOLS = [
-  'write_file', 'apply_diff', 'insert_code', 'delete_code', 'create_directory',
-  'sub_agent',
+  'manage_scheduled_tasks', 'delegate_to_agent', 'workflow',
 ];
 
 function getSubAgentTypeName(args: Record<string, unknown>): string {
@@ -160,20 +148,17 @@ function formatTypeSuffix(type: SubAgentTypeConfig): string {
   return segments.join('，');
 }
 
-function resolveInheritedToolsConfig(deps: SubAgentToolDeps): ToolsConfig {
+function resolveInheritedToolsConfig(deps: SubAgentToolDeps, context?: ToolExecutionContext): ToolsConfig {
   // [兼容修复] 先走新的 getToolsConfig；若旧调用点仍只传 getToolPolicies，
   // 则回退成最小可用配置，避免热修期间同步/异步子代理直接崩溃。
-  const base = deps.getToolsConfig
+  // 优先继承当前 ToolLoop 的实际策略副本。它包含本轮已激活 Skill
+  // 的临时授权；重新读取 Backend 全局配置会同时丢失这些授权并放大权限。
+  const base = context?.effectiveToolsConfig ?? (deps.getToolsConfig
     ? deps.getToolsConfig()
-    : { permissions: deps.getToolPolicies ? deps.getToolPolicies() : {} };
-  // 子代理为非交互上下文：对写代码工具强制 autoApprove + 关闭审批视图，
-  // 使其在子代理 ToolLoop 内直接 executing，跳过 awaiting_approval 永久阻塞。
-  // 此 config 仅传给子代理 ToolLoop，主会话 toolsConfig 不受影响。
-  const permissions = { ...base.permissions };
-  for (const name of SUB_AGENT_AUTO_APPROVE_TOOLS) {
-    permissions[name] = { ...(permissions[name] ?? {}), autoApprove: true, showApprovalView: false };
-  }
-  return { ...base, permissions };
+    : { permissions: deps.getToolPolicies ? deps.getToolPolicies() : {} });
+  // 不再为写工具隐式提权。非交互子代理中未获授权的写操作应明确失败，
+  // 由父 Agent 或显式 tools.yaml / Skill allowed-tools 决定是否授权。
+  return cloneToolsConfig(base as ToolsConfig);
 }
 
 function isJsonParseFailure(err: unknown): boolean {
@@ -196,8 +181,19 @@ function createStreamingLLMCaller(
   onChunk?: (textDelta?: string) => void,
   onTokens?: (tokens: number) => void,
 ): LLMCaller {
+  // Providers report usage per LLM request. Keep a cumulative total across
+  // every ToolLoop round so parents can enforce a real run-level budget.
+  let cumulativeTokens = 0;
   return async (request, modelName, signal) => {
     const router = deps.getRouter();
+    let requestTokens = 0;
+    const reportUsage = (usage?: UsageMetadata) => {
+      const next = usage?.totalTokenCount ?? usage?.candidatesTokenCount ?? 0;
+      if (next <= requestTokens) return;
+      cumulativeTokens += next - requestTokens;
+      requestTokens = next;
+      onTokens?.(cumulativeTokens);
+    };
 
     if (typeConfig.stream) {
       try {
@@ -226,11 +222,7 @@ function createStreamingLLMCaller(
           onChunk?.(textDelta);
           if (chunk.usageMetadata) {
             usageMetadata = chunk.usageMetadata;
-            // token 更新回调：实时推送 token 计数
-            const tokens = usageMetadata.totalTokenCount ?? usageMetadata.candidatesTokenCount ?? 0;
-            if (tokens > 0) {
-              onTokens?.(tokens);
-            }
+            reportUsage(usageMetadata);
           }
         }
         if (parts.length === 0) parts.push({ text: '' });
@@ -240,12 +232,17 @@ function createStreamingLLMCaller(
       } catch (err) {
         if (signal?.aborted || !isJsonParseFailure(err)) throw err;
         logger.warn(`子代理流式 LLM 返回非 JSON/SSE 数据，降级为非流式调用: ${err instanceof Error ? err.message : String(err)}`);
+        // The fallback is a separate billable request. Reset the per-request
+        // watermark while retaining cumulative usage from the failed stream.
+        requestTokens = 0;
         const response = await router.chat(request, modelName, signal);
+        reportUsage(response.usageMetadata ?? response.content.usageMetadata);
         return response.content;
       }
     }
 
     const response = await router.chat(request, modelName, signal);
+    reportUsage(response.usageMetadata ?? response.content.usageMetadata);
     return response.content;
   };
 }
@@ -355,11 +352,15 @@ ${typeDescriptions}
       // 判断是否走异步路径
       const shouldRunAsync = asyncCapable && runInBackground && !isNested;
 
-      // 构建子工具集（同步/异步共用）
-      // 基座取父级已过滤的工具集（嵌套场景），否则取顶层注册表。
+      // 构建子工具集（同步/异步共用）。顶层与嵌套层都必须从当前
+      // 调度上下文可见的工具集开始，不能重新回到全局注册表。
       // 孙代理工具集 ⊆ 父级，无法越权访问已被剥离的工具。
       // shell/bash 名称归一化已在 ToolRegistry.createSubset/createFiltered 中处理
-      const baseTools = inheritedTools ?? deps.tools;
+      const inheritedBase = inheritedTools ?? deps.tools;
+      const baseTools = context?.availableToolNames
+        ? inheritedBase.createSubset(context.availableToolNames)
+        : inheritedBase;
+      const childToolsConfig = resolveInheritedToolsConfig(deps, context);
       let subTools: ToolRegistry;
       if (typeConfig.allowedTools) {
         subTools = baseTools.createSubset(typeConfig.allowedTools);
@@ -367,6 +368,9 @@ ${typeDescriptions}
         subTools = baseTools.createFiltered(typeConfig.excludedTools);
       } else {
         subTools = baseTools.createFiltered([]);
+      }
+      if (childToolsConfig.disabledTools?.length) {
+        subTools = subTools.createFiltered(childToolsConfig.disabledTools);
       }
 
       // 注入深度递增的 sub_agent 工具（实现嵌套自我调用）。
@@ -416,7 +420,7 @@ ${typeDescriptions}
         // createStreamingLLMCaller 等前置构造）都经 .catch 转 failed，
         // 避免任务永久卡在 running 喂给 #1 的通知合并死锁。
         void runSubAgentAsync(
-          deps, typeConfig, subTools, fullPrompt, taskId, sessionId, description,
+          deps, typeConfig, subTools, childToolsConfig, fullPrompt, taskId, sessionId, description,
           task?.abortController?.signal,
         ).catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
@@ -490,7 +494,7 @@ ${typeDescriptions}
           // [权限修复] 子代理需要继承完整 toolsConfig，而不是只有 permissions。
           // 否则 autoApproveAll / autoApproveDiff / disabledTools 等全局开关会丢失，
           // 导致父级已经授权的后台工具在子代理里重新被拦截或行为失真。
-          toolsConfig: resolveInheritedToolsConfig(deps),
+          toolsConfig: childToolsConfig,
           retryOnError: deps.retryOnError,
           maxRetries: deps.maxRetries,
         }, childToolState);
@@ -525,11 +529,22 @@ ${typeDescriptions}
         );
 
         if (runResult.error) {
+          const partial = runResult.text?.trim() || textBuffer.trim();
+          const terminalProviderFailure = /rate[ _-]?limit|overload|server[ _-]?error|service unavailable|upstream|\b5\d\d\b/i.test(runResult.error);
+          if (partial && terminalProviderFailure) {
+            logger.warn(`子代理在上游终止后返回部分结果: type=${typeName} error="${runResult.error}"`);
+            return {
+              result: partial,
+              usage: { totalTokens: tokens },
+              incomplete: true,
+              error: runResult.error,
+            };
+          }
           throw new Error(runResult.error);
         }
 
         logger.info(`子代理完成: type=${typeName}`);
-        return { result: runResult.text };
+        return { result: runResult.text, usage: { totalTokens: tokens } };
       }) as unknown;
     },
   };
@@ -545,6 +560,7 @@ async function runSubAgentAsync(
   deps: SubAgentToolDeps,
   typeConfig: SubAgentTypeConfig,
   subTools: ToolRegistry,
+  toolsConfig: ToolsConfig,
   prompt: string,
   taskId: string,
   sessionId: string,
@@ -576,7 +592,7 @@ async function runSubAgentAsync(
         maxRounds: typeConfig.maxToolRounds,
         // [权限修复] 异步子代理与同步子代理保持一致，继承完整 toolsConfig。
         // 这样后台子代理会遵守与父级相同的全局审批策略，而不是只拿到局部 permissions。
-        toolsConfig: resolveInheritedToolsConfig(deps),
+        toolsConfig,
         retryOnError: deps.retryOnError,
         maxRetries: deps.maxRetries,
       });

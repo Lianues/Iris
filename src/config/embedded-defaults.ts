@@ -38,6 +38,8 @@ models:
   #   apiKey: your-api-key-here
   #   model: gpt-4o-mini
   #   baseUrl: https://api.openai.com/v1
+  #   # 仅当模型不支持原生 tools/tool_calls、而是在正文输出调用时启用：
+  #   # toolCallProtocol: tagged-json
 
   # gpt56:
   #   provider: openai-responses

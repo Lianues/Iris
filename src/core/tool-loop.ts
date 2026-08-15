@@ -21,8 +21,9 @@ import { ToolRegistry } from '../tools/registry';
 import { ToolStateManager } from '../tools/state';
 import { buildExecutionPlan, executePlan } from '../tools/scheduler';
 import type { StreamingToolExecutor } from '../tools/streaming-executor';
-import { ToolsConfig, ToolPolicyConfig } from '../config';
+import { ToolsConfig } from '../config';
 import type { SkillContextModifier } from '../config/types';
+import { applySkillContextModifierToToolsConfig } from '../config/skill-permissions';
 import { PromptAssembler } from '../prompt/assembler';
 import { sanitizeLLMRequest } from '../prompt/request-sanitizer';
 import type {
@@ -147,26 +148,15 @@ export interface ToolLoopRunOptions {
   streamingToolExecutor?: StreamingToolExecutor;
   /** 当前 turn 的运行时审批上下文（例如 Auto Edit 是否开启）。 */
   runtimeApprovalContext?: RuntimeApprovalContext;
+  /** Context already activated before the first LLM call (for user slash Skills). */
+  initialContextModifier?: SkillContextModifier;
+}
+
+interface ToolLoopRunState {
+  modelOverride?: string;
 }
 
 export class ToolLoop {
-  /** Skill 调用后的模型覆盖（本轮 run() 内有效） */
-  private _modelOverride?: string;
-
-  /**
-   * run() 入口时 permissions 对象的快照，用于 run() 退出时恢复。
-   *
-   * 设计说明：Iris 的 toolsConfig 是 Backend 级共享引用，StreamingToolExecutor
-   * 在 Backend 中创建时也直接引用该对象。为使两条执行路径（streaming / non-streaming）
-   * 都能感知 skill 的权限覆盖，extractAndApplyContextModifiers 直接原地修改
-   * 共享的 permissions 对象（合并而非替换，保留 classifier 等原有字段）。
-   *
-   * run() 退出时（通过 try/finally）用快照恢复原始值，保证修改不泄漏到
-   * 下一次 run() 调用（跨 turn / 跨 session）。
-   * TurnLock 保证同 session 不会并发 run()。
-   */
-  private _permissionsSnapshot?: Record<string, ToolPolicyConfig>;
-
   constructor(
     private tools: ToolRegistry,
     private prompt: PromptAssembler,
@@ -191,34 +181,20 @@ export class ToolLoop {
     callLLM: LLMCaller,
     options?: ToolLoopRunOptions,
   ): Promise<ToolLoopResult> {
-    this._modelOverride = undefined;
-
-    // 只有主 ToolLoop（有 toolState）才做 permissions 快照/恢复。
-    //
-    // 子代理 ToolLoop 无 toolState，不参与此机制：
-    //   - 同步子代理：父级被阻塞，子代理的 skill 修改会被父级的 finally 清理。
-    //   - 异步子代理：若参与快照/恢复，其恢复时机晚于父级，会把父级已清理的
-    //     修改重新写回共享 permissions（stale snapshot 覆盖问题）。
-    //   - fork 子代理（invoke_skill）：已在创建时浅拷贝 toolsConfig，天然隔离。
-    const shouldManagePermissions = !!this.toolState;
-    if (shouldManagePermissions) {
-      this._permissionsSnapshot = { ...this.config.toolsConfig.permissions };
+    const state: ToolLoopRunState = {
+      modelOverride: options?.initialContextModifier?.modelOverride,
+    };
+    if (options?.initialContextModifier) {
+      applySkillContextModifierToToolsConfig(this.config.toolsConfig, options.initialContextModifier);
     }
-
-    try {
-      return await this.runInner(history, callLLM, options);
-    } finally {
-      if (shouldManagePermissions && this._permissionsSnapshot) {
-        this.config.toolsConfig.permissions = this._permissionsSnapshot;
-        this._permissionsSnapshot = undefined;
-      }
-    }
+    return this.runInner(history, callLLM, options, state);
   }
 
   private async runInner(
     history: Content[],
     callLLM: LLMCaller,
     options?: ToolLoopRunOptions,
+    state: ToolLoopRunState = {},
   ): Promise<ToolLoopResult> {
     const signal = options?.signal;
     let rounds = 0;
@@ -301,7 +277,7 @@ export class ToolLoop {
         // 调用 LLM（具体方式由 callLLM 决定）。context overflow 只有在本次请求
         // 尚无任何模型输出、且本 round 尚未 compact 时才允许检查点恢复一次。
         try {
-          modelContent = await this.callLLMWithRetry(callLLM, request, options, rounds, signal);
+          modelContent = await this.callLLMWithRetry(callLLM, request, options, rounds, signal, state);
           break;
         } catch (err) {
           if (signal?.aborted) {
@@ -422,7 +398,7 @@ export class ToolLoop {
       }
 
       // 提取并应用 Skill 上下文修改器（在写入历史前执行，避免内部对象进入 LLM 上下文）
-      this.extractAndApplyContextModifiers(responseParts);
+      this.extractAndApplyContextModifiers(responseParts, state);
 
       const toolResponseContent: Content = { role: 'user', parts: responseParts };
       history.push(toolResponseContent);
@@ -450,6 +426,7 @@ export class ToolLoop {
     options: ToolLoopRunOptions | undefined,
     round: number,
     signal?: AbortSignal,
+    state: ToolLoopRunState = {},
   ): Promise<Content> {
     const maxRetries = this.config.retryOnError ? (this.config.maxRetries ?? 3) : 0;
     let lastError: Error | undefined;
@@ -465,7 +442,14 @@ export class ToolLoop {
       }
 
       try {
-        return await callLLM(request, options?.modelName ?? this._modelOverride, signal);
+        const content = await callLLM(request, options?.modelName ?? state.modelOverride, signal);
+        const hasFunctionCall = content.parts.some(isFunctionCallPart);
+        const hasVisibleText = extractText(content.parts).trim().length > 0;
+        const hasInlineData = content.parts.some(part => 'inlineData' in part);
+        if (!hasFunctionCall && !hasVisibleText && !hasInlineData) {
+          throw new Error('LLM 返回了空响应（没有可见文本或工具调用）');
+        }
+        return content;
       } catch (err) {
         if (signal?.aborted) throw err;
         lastError = err instanceof Error ? err : new Error(String(err));
@@ -521,37 +505,35 @@ export class ToolLoop {
   /**
    * 从工具响应中提取并应用 Skill 上下文修改器。
    *
-   * 当 invoke_skill 工具返回 __contextModifier 时：
-   *   1. 自动放行指定工具（原地修改共享 toolsConfig.permissions，合并保留原有字段）
-   *   2. 覆盖后续 LLM 调用的模型
-   *
-   * permissions 的修改对 StreamingToolExecutor 也可见（共享引用），
-   * 通过 run() 的 try/finally 在退出时从快照恢复，保证不泄漏。
+   * The ToolLoop and StreamingToolExecutor for a turn share the same
+   * execution-local ToolsConfig. Applying grants in place therefore affects
+   * later tool calls in either path without touching Backend configuration.
    *
    * 提取后从响应中删除 __contextModifier，防止内部对象进入 LLM 历史。
    */
-  private extractAndApplyContextModifiers(responseParts: FunctionResponsePart[]): void {
+  private extractAndApplyContextModifiers(
+    responseParts: FunctionResponsePart[],
+    state: ToolLoopRunState,
+  ): void {
     for (const part of responseParts) {
       const resp = part.functionResponse.response as Record<string, unknown> | undefined;
       if (!resp?.__contextModifier) continue;
 
       const mod = resp.__contextModifier as SkillContextModifier;
 
-      // 1. 自动放行工具（原地修改共享 permissions，合并保留 classifier 等原有字段）
-      if (mod.autoApproveTools) {
-        const permissions = this.config.toolsConfig.permissions;
-        for (const toolName of mod.autoApproveTools) {
-          permissions[toolName] = {
-            ...(permissions[toolName] ?? { autoApprove: false }),
-            autoApprove: true,
-          };
-        }
-        logger.info(`Skill 上下文修改: 自动放行工具 [${mod.autoApproveTools.join(', ')}]`);
+      // 1. Apply broad and fine-grained temporary grants to the turn-local config.
+      applySkillContextModifierToToolsConfig(this.config.toolsConfig, mod);
+      const grantedNames = new Set([
+        ...(mod.autoApproveTools ?? []),
+        ...Object.keys(mod.permissionOverrides ?? {}),
+      ]);
+      if (grantedNames.size > 0) {
+        logger.info(`Skill 上下文修改: 临时工具策略 [${Array.from(grantedNames).join(', ')}]`);
       }
 
       // 2. 模型覆盖
       if (mod.modelOverride) {
-        this._modelOverride = mod.modelOverride;
+        state.modelOverride = mod.modelOverride;
         logger.info(`Skill 上下文修改: 模型覆盖为 ${mod.modelOverride}`);
       }
 
@@ -568,6 +550,9 @@ export class ToolLoop {
     runtimeApprovalContext?: RuntimeApprovalContext,
   ): Promise<FunctionResponsePart[]> {
     const plan = buildExecutionPlan(calls, this.tools);
+    const effectiveRuntimeApprovalContext = sessionId === undefined
+      ? runtimeApprovalContext
+      : { ...(runtimeApprovalContext ?? {}), sessionId };
 
     if (this.toolState) {
       // 有状态管理：创建 invocation 实例，追踪生命周期
@@ -590,7 +575,7 @@ export class ToolLoop {
         this.config.beforeToolExec,
         this.config.afterToolExec,
         onAttachments,
-        runtimeApprovalContext,
+        effectiveRuntimeApprovalContext,
       );
     }
 
@@ -606,7 +591,7 @@ export class ToolLoop {
       this.config.beforeToolExec,
       this.config.afterToolExec,
       onAttachments,
-      runtimeApprovalContext,
+      effectiveRuntimeApprovalContext,
     );
   }
 }

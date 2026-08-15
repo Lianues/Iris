@@ -1,6 +1,44 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+const REDACTED_HEADER_VALUE = '[REDACTED]';
+const SENSITIVE_REQUEST_HEADERS = new Set([
+  'authorization',
+  'proxy-authorization',
+  'x-api-key',
+  'x-goog-api-key',
+  'api-key',
+  'x-auth-token',
+  'x-access-token',
+  'cookie',
+  'set-cookie',
+]);
+
+/** 请求日志必须保留排障所需结构，但不能把可直接使用的凭据写入磁盘。 */
+function redactRequestHeaders(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [
+      name,
+      SENSITIVE_REQUEST_HEADERS.has(name.toLowerCase()) ? REDACTED_HEADER_VALUE : value,
+    ]),
+  );
+}
+
+function redactRequestUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    const sensitiveParams = new Set(['key', 'api_key', 'apikey', 'token', 'access_token']);
+    for (const name of Array.from(url.searchParams.keys())) {
+      if (sensitiveParams.has(name.toLowerCase())) {
+        url.searchParams.set(name, REDACTED_HEADER_VALUE);
+      }
+    }
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 /**
  * 确保日志目录存在
  */
@@ -32,7 +70,11 @@ export function logRequest(logsDir: string, details: {
     ensureLogDir(logsDir);
     const filename = `request_${timestamp}.json`;
     const filePath = path.join(logsDir, filename);
-    const content = JSON.stringify(details, null, 2);
+    const content = JSON.stringify({
+      ...details,
+      url: redactRequestUrl(details.url),
+      headers: redactRequestHeaders(details.headers),
+    }, null, 2);
     fs.writeFileSync(filePath, content, 'utf-8');
   } catch (err) {
     console.error('Failed to log request:', err);

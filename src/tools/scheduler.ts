@@ -21,15 +21,121 @@ import type { ToolParameterSchema } from './coerce-args';
 import { validateToolArgs } from './validate-args';
 import { FunctionCallPart, FunctionResponsePart, InlineDataPart, TERMINAL_TOOL_STATUSES } from '../types';
 import { agentContext, createLogger } from '../logger';
-import type { ToolAttachment, ToolExecutionContext, ToolInvocation } from '../types';
+import type { NestedToolExecutionOptions, ToolAttachment, ToolExecutionContext, ToolInvocation } from '../types';
 import { ToolPolicyConfig, ToolsConfig } from '../config';
+import { cloneToolsConfig } from '../config/clone-tools-config';
 import type { BeforeToolExecInterceptor, AfterToolExecInterceptor } from '../extension';
 import { evaluateAutoEditApproval } from '../auto-edit/evaluate';
 import type { RuntimeApprovalContext } from '../auto-edit/types';
 import type { ToolExecutionHandle } from './handle';
 import { buildToolDiffPreview } from './diff-preview';
+import { sessionContext, getSessionCwd } from '../core/backend/session-context';
 
 const logger = createLogger('ToolScheduler');
+let scheduledCallCounter = 0;
+
+interface SchedulerExecutionFlags {
+  /** The caller has already provided explicit approval for this outer call. */
+  preApproved?: boolean;
+  /** Backend-only marker for an explicit `/skill` command. */
+  directUserSkillInvocation?: boolean;
+  /** Ask alternate transports to execute the original local handler. */
+  forceLocalExecution?: boolean;
+}
+
+export interface ScheduledToolExecutionOptions {
+  registry: ToolRegistry;
+  toolsConfig: ToolsConfig;
+  toolState?: ToolStateManager;
+  signal?: AbortSignal;
+  beforeToolExec?: BeforeToolExecInterceptor;
+  afterToolExec?: AfterToolExecInterceptor;
+  onAttachments?: (attachments: ToolAttachment[]) => void;
+  runtimeApprovalContext?: RuntimeApprovalContext;
+  sessionId?: string;
+  parentInvocationId?: string;
+  permissionOverride?: Partial<ToolPolicyConfig>;
+  onProgress?: (data: Record<string, unknown>) => void;
+  disabledDescendantTools?: string[];
+  flags?: SchedulerExecutionFlags;
+}
+
+function attachNestedHandle(
+  toolState: ToolStateManager | undefined,
+  parentInvocationId: string | undefined,
+  childInvocationId: string | undefined,
+): void {
+  if (!toolState || !parentInvocationId || !childInvocationId) return;
+  const parent = toolState.getHandle(parentInvocationId);
+  const child = toolState.getHandle(childInvocationId);
+  if (!parent || !child) return;
+  Object.defineProperty(child, '_parentId', { value: parent.id, writable: true });
+  Object.defineProperty(child, '_depth', { value: parent.depth + 1, writable: true });
+  parent.addChild(child);
+}
+
+function unwrapScheduledToolResult(part: FunctionResponsePart): unknown {
+  const response = part.functionResponse.response as Record<string, unknown>;
+  if (typeof response.error === 'string' && response.error) {
+    throw new Error(response.error);
+  }
+  if ('__contextModifier' in response) {
+    const cleanResponse = { ...response };
+    const modifier = cleanResponse.__contextModifier;
+    delete cleanResponse.__contextModifier;
+    return { __response: cleanResponse, __contextModifier: modifier };
+  }
+  if ('result' in response) return response.result;
+  return response;
+}
+
+/**
+ * Execute one tool through the full scheduler boundary and return the original
+ * handler-level result. Handlers use the same function recursively through
+ * ToolExecutionContext.executeTool.
+ */
+export async function executeToolWithScheduler(
+  toolName: string,
+  args: Record<string, unknown>,
+  options: ScheduledToolExecutionOptions,
+): Promise<unknown> {
+  if (!options.registry.get(toolName)) throw new Error(`工具未找到: ${toolName}`);
+  const toolsConfig = options.permissionOverride
+    ? (() => {
+        const cloned = cloneToolsConfig(options.toolsConfig);
+        cloned.permissions[toolName] = {
+          ...(cloned.permissions[toolName] ?? { autoApprove: false }),
+          ...options.permissionOverride,
+        };
+        return cloned;
+      })()
+    : options.toolsConfig;
+  const call: FunctionCallPart = {
+    functionCall: {
+      name: toolName,
+      args,
+      callId: `scheduled_${++scheduledCallCounter}_${Date.now()}`,
+    },
+  };
+  const invocation = options.toolState?.create(toolName, args, 'queued', options.sessionId);
+  attachNestedHandle(options.toolState, options.parentInvocationId, invocation?.id);
+  const response = await executeSingle(
+    call,
+    options.registry,
+    options.toolState,
+    invocation?.id,
+    toolsConfig,
+    options.signal,
+    options.beforeToolExec,
+    options.afterToolExec,
+    options.onAttachments,
+    options.runtimeApprovalContext,
+    options.flags,
+    options.onProgress,
+    options.disabledDescendantTools,
+  );
+  return unwrapScheduledToolResult(response);
+}
 
 // ============ Shell 命令模式匹配 ============
 
@@ -73,7 +179,7 @@ function patternToRegex(pattern: string): RegExp {
 /**
  * 检查命令是否匹配模式列表中的任一规则。
  */
-function matchesAnyPattern(command: string, patterns: string[]): boolean {
+export function matchesCommandPatterns(command: string, patterns: string[]): boolean {
   for (const pattern of patterns) {
     try {
       if (patternToRegex(pattern).test(command)) return true;
@@ -167,7 +273,7 @@ function shouldAutoApprove(
     if (isCommandToolName(call.functionCall.name)) {
     // denyPatterns 匹配 → 不自动批准（触发 scheduler Y/N）
       const command = extractShellCommand(call);
-      if (policy.denyPatterns?.length && matchesAnyPattern(command, policy.denyPatterns)) {
+      if (policy.denyPatterns?.length && matchesCommandPatterns(command, policy.denyPatterns)) {
         return false;
       }
     }
@@ -616,6 +722,9 @@ async function executeSingle(
   afterToolExec?: AfterToolExecInterceptor,
   onAttachments?: (attachments: ToolAttachment[]) => void,
   runtimeApprovalContext?: RuntimeApprovalContext,
+  executionFlags?: SchedulerExecutionFlags,
+  onProgress?: (data: Record<string, unknown>) => void,
+  disabledDescendantTools?: string[],
 ): Promise<FunctionResponsePart> {
   const toolName = call.functionCall.name;
   const handle = toolState && invocationId ? toolState.getHandle(invocationId) : undefined;
@@ -627,6 +736,33 @@ async function executeSingle(
   if (effectiveSignal?.aborted) {
     markInvocationAborted(toolState, invocationId);
     return createAbortResponse(call);
+  }
+
+  // Provider/格式适配器已确认该调用的协议载荷损坏。此类调用只能作为
+  // FunctionResponse 错误反馈给模型修正，绝不能进入审批、插件或 handler。
+  const protocolError = call.functionCall.protocolError;
+  if (protocolError) {
+    const error = `工具调用协议错误：${protocolError.message}`;
+    if (toolState && invocationId) {
+      toolState.transition(invocationId, 'error', { error });
+    }
+    logger.warn(`${toolName}: ${error}`);
+    return {
+      functionResponse: {
+        name: toolName,
+        callId: call.functionCall.callId,
+        response: {
+          error,
+          protocolError: protocolError.code,
+          ...(protocolError.rawArgumentsPreview !== undefined
+            ? { rawArgumentsPreview: protocolError.rawArgumentsPreview }
+            : {}),
+          ...(protocolError.rawArgumentsLength !== undefined
+            ? { rawArgumentsLength: protocolError.rawArgumentsLength }
+            : {}),
+        },
+      },
+    };
   }
 
   // 检查工具策略
@@ -648,7 +784,7 @@ async function executeSingle(
   const autoEditAccepted = autoEditDecision.allowed === true;
 
   const policyAutoApproved = globalSkipConfirmation || shouldAutoApprove(call, effectivePolicy, registry);
-  const autoApproved = autoEditAccepted || policyAutoApproved;
+  const autoApproved = executionFlags?.preApproved === true || autoEditAccepted || policyAutoApproved;
   const interactiveApproval = canUseInteractiveApproval(toolState, invocationId);
   const willUseDiffApprovalView = interactiveApproval && !globalSkipDiff && !autoEditAccepted && shouldShowDiffPreview(call, effectivePolicy);
 
@@ -657,7 +793,7 @@ async function executeSingle(
   }
 
   // 追踪用户是否通过交互审批明确批准了此次调用（用于 handler-managed 工具）
-  let userExplicitlyApproved = false;
+  let userExplicitlyApproved = executionFlags?.preApproved === true;
 
   // 对非命令类工具：autoApprove 跳过审批时，标记为用户已批准。
   // 对 handler-managed 的命令类工具：以下场景设置 approvedByUser，让 handler 跳过 AI 分类器：
@@ -680,7 +816,7 @@ async function executeSingle(
     // 仅在 denyPatterns 未匹配时（policyAutoApproved = true）才检查 allowPatterns，
     // 确保 denyPatterns 优先级高于 allowPatterns。
     const command = extractShellCommand(call);
-    if (matchesAnyPattern(command, effectivePolicy.allowPatterns)) {
+    if (matchesCommandPatterns(command, effectivePolicy.allowPatterns)) {
       userExplicitlyApproved = true;
     }
   } else if (handlerManagedApproval && globalSkipConfirmation) {
@@ -856,11 +992,58 @@ async function executeSingle(
     if (toolState && invocationId) {
       progressCtx = createThrottledReportProgress(toolState, invocationId);
     }
+    const executionSessionId = toolState && invocationId
+      ? toolState.get(invocationId)?.sessionId
+      : runtimeApprovalContext?.sessionId;
+    const inheritedForceLocalExecution = sessionContext.getStore()?.forceLocalExecution === true;
+    const forceLocalExecution = executionFlags?.forceLocalExecution === true || inheritedForceLocalExecution;
+    const descendantRegistry = disabledDescendantTools?.length
+      ? registry.createFiltered(disabledDescendantTools)
+      : registry;
     const executionContext: ToolExecutionContext = {
-      reportProgress: progressCtx?.reportProgress,
+      reportProgress: progressCtx || onProgress
+        ? (data) => {
+            progressCtx?.reportProgress(data);
+            try { onProgress?.(data); } catch { /* observers cannot break a tool */ }
+          }
+        : undefined,
       signal: effectiveSignal,
-      sessionId: toolState && invocationId ? toolState.get(invocationId)?.sessionId : undefined,
+      sessionId: executionSessionId,
+      cwd: getSessionCwd(),
       sourceAgent: agentContext.getStore() === 'main' ? undefined : agentContext.getStore(),
+      availableToolNames: descendantRegistry.listTools(),
+      effectiveToolsConfig: toolsConfig,
+      directUserSkillInvocation: executionFlags?.directUserSkillInvocation,
+      forceLocalExecution: forceLocalExecution || undefined,
+      executeTool: (nestedToolName, nestedArgs, nestedOptions?: NestedToolExecutionOptions) => {
+        const executeNested = () => executeToolWithScheduler(nestedToolName, nestedArgs, {
+          registry: descendantRegistry,
+          toolsConfig,
+          toolState,
+          signal: combineAbortSignals(effectiveSignal, nestedOptions?.signal),
+          beforeToolExec,
+          afterToolExec,
+          onAttachments,
+          runtimeApprovalContext,
+          sessionId: executionSessionId,
+          parentInvocationId: invocationId,
+          permissionOverride: nestedOptions?.permissionOverride,
+          onProgress: nestedOptions?.onProgress,
+          disabledDescendantTools: nestedOptions?.disabledDescendantTools,
+          flags: { forceLocalExecution: nestedOptions?.forceLocalExecution },
+        });
+        const current = sessionContext.getStore();
+        const nestedForceLocalExecution = nestedOptions?.forceLocalExecution === true
+          || current?.forceLocalExecution === true;
+        const needsContextOverride = !!nestedOptions?.cwd
+          || (nestedOptions?.forceLocalExecution === true && current?.forceLocalExecution !== true);
+        if (!needsContextOverride) return executeNested();
+        return sessionContext.run({
+          sessionId: executionSessionId ?? current?.sessionId ?? 'nested-tool',
+          cwd: nestedOptions?.cwd || current?.cwd || getSessionCwd(),
+          forceLocalExecution: nestedForceLocalExecution || undefined,
+        }, executeNested);
+      },
       approvedByUser: userExplicitlyApproved || undefined,
       // requestApproval: handler 执行过程中可调用此方法请求 Y/N 弹窗确认。
       // 仅在可交互上下文（Console 前台会话）中提供。

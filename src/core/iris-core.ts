@@ -41,6 +41,7 @@ import { ModeRegistry, DEFAULT_MODE, DEFAULT_MODE_NAME } from '../modes';
 import { PromptAssembler } from '../prompt/assembler';
 import { CrossAgentTaskBoard } from './cross-agent-task-board';
 import { ToolLoop } from './tool-loop';
+import { cloneToolsConfig } from '../config/clone-tools-config';
 import { createHistorySearchTool } from '../tools/internal/history_search';
 import { createReadSkillTool } from '../tools/internal/read_skill';
 import { createReadSkillResourceTool } from '../tools/internal/read_skill_resource';
@@ -274,12 +275,8 @@ export class IrisCore {
     const router = createLLMRouter(config.llm, undefined, extensions.llmProviders);
 
     // ---- 1.5 配置请求日志 ----
-    if (config.system.logRequests) {
-      const effectiveLogsDir = agentPaths?.logsDir || globalLogsDir;
-      for (const model of router.listModels()) {
-        router.resolve(model.modelName).setLogging(effectiveLogsDir);
-      }
-    }
+    const effectiveLogsDir = agentPaths?.logsDir || globalLogsDir;
+    router.setLogging(config.system.logRequests ? effectiveLogsDir : undefined);
 
     // ---- 2. 创建存储 ----
     const storageFactory = extensions.storageProviders.get(config.storage.type);
@@ -428,8 +425,11 @@ export class IrisCore {
       tools.unregister('read_skill');
       tools.unregister('read_skill_resource');
       tools.unregister('execute_skill_script');
-      const hasModelReadableSkills = skillsList.some(s => !s.disableModelInvocation);
-      if (skillsList.length > 0 && hasModelReadableSkills) {
+      // Keep resource tools registered even when every Skill is user-only.
+      // An explicit `/skill` activation makes that Skill accessible to the
+      // model for the rest of the session, while each handler still enforces
+      // the session-scoped accessibility check.
+      if (skillsList.length > 0) {
         tools.register(createReadSkillTool({
           getBackend: () => backend,
         }));
@@ -445,14 +445,13 @@ export class IrisCore {
     const rebuildInvokeSkillTool = () => {
       tools.unregister('invoke_skill');
       const skillsList = backend.listSkills();
-      // 仅在有模型可调用的 skill 时注册（全部 disableModelInvocation 时不注册）
-      const hasInvocableSkills = skillsList.some(s => !s.disableModelInvocation);
-      if (skillsList.length > 0 && hasInvocableSkills) {
+      if (skillsList.length > 0) {
         tools.register(createInvokeSkillTool({
           getBackend: () => backend,
           getRouter: () => backend.getRouter(),
           tools,
           getToolsConfig: () => backend.getToolsConfig(),
+          runFork: (request) => backend.runSkillFork(request),
           retryOnError: config.system.retryOnError,
           maxRetries: config.system.maxRetries,
         }));
@@ -569,6 +568,7 @@ export class IrisCore {
             const ctx: RuntimeConfigReloadContext = {
               backend, pluginManager,  extensions,
               dataDir: effectiveDataDir,
+              logsDir: effectiveLogsDir,
               deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
               onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
             };
@@ -612,7 +612,10 @@ export class IrisCore {
         applyRuntimeConfigReload: async (mergedConfig: Record<string, unknown>) => {
           try {
             const ctx: RuntimeConfigReloadContext = {
-              backend, pluginManager,  extensions, deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
+              backend, pluginManager,  extensions,
+              dataDir: effectiveDataDir,
+              logsDir: effectiveLogsDir,
+              deliveryRegistry: serviceRegistry.get(DELIVERY_REGISTRY_SERVICE_ID) as DeliveryRegistry | undefined,
               onCallmeConfigReload: (callme) => { callmeAttributionRef.current = callme; },
             };
             await applyRuntimeConfigReload(ctx, mergedConfig);
@@ -686,7 +689,7 @@ export class IrisCore {
         loopPrompt.setSystemPrompt(loopOptions.systemPrompt);
         const loopConfig = {
           maxRounds: loopOptions.maxRounds ?? 15,
-          toolsConfig: config.tools ?? {},
+          toolsConfig: cloneToolsConfig(config.tools),
           retryOnError: true,
           maxRetries: 2,
         };

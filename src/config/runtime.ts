@@ -3,6 +3,7 @@
  */
 
 import { Backend } from '../core/backend';
+import * as path from 'path';
 import { dataDir } from '../paths';
 import { createLLMRouter } from '../llm/factory';
 import { parseLLMConfig } from './llm';
@@ -21,6 +22,8 @@ export interface RuntimeConfigReloadContext {
   pluginManager?: PluginManager;
   /** Skill 文件系统扫描使用的数据目录（多 Agent 模式下为 agent 专属目录） */
   dataDir?: string;
+  /** 当前 Agent 的请求日志目录。 */
+  logsDir?: string;
   extensions?: Pick<BootstrapExtensionRegistry, 'llmProviders'>;
   deliveryRegistry?: DeliveryRegistry;
   /** 配置热重载后同步 /callme 运行时状态（按 Agent 的 shell/bash 工具实例隔离）。 */
@@ -41,16 +44,18 @@ export async function applyRuntimeConfigReload(
 ): Promise<RuntimeConfigSummary> {
   const llmConfig = parseLLMConfig(mergedConfig.llm);
   const toolsConfig = parseToolsConfig(mergedConfig.tools);
+  const effectiveDataDir = context.dataDir ?? dataDir;
+  const systemConfig = parseSystemConfig(mergedConfig.system, effectiveDataDir);
   const previousModelName = context.backend.getCurrentModelName();
   const newRouter = createLLMRouter(llmConfig, previousModelName, context.extensions?.llmProviders);
+  const effectiveLogsDir = context.logsDir ?? path.join(effectiveDataDir, 'logs');
+  newRouter.setLogging(systemConfig.logRequests ? effectiveLogsDir : undefined);
   const currentModel = newRouter.getCurrentModelInfo();
 
   context.backend.reloadLLM(newRouter);
   // 解析 system 配置（提取技能定义，避免重复调用 parseSystemConfig）
   // 修复：优先使用 context 中传入的 agent 专属 dataDir，
   // 避免多 Agent 热重载时错误地扫描全局 skills 目录。
-  const effectiveDataDir = context.dataDir ?? dataDir;
-  const systemConfig = parseSystemConfig(mergedConfig.system, effectiveDataDir);
   const summaryConfig = parseSummaryConfig(mergedConfig.summary);
   context.onCallmeConfigReload?.(systemConfig.callme);
   context.backend.reloadConfig({

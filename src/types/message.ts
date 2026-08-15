@@ -36,12 +36,28 @@ export interface InlineDataPart {
 }
 
 /** 函数调用部分（由模型发出） */
+export type ToolCallProtocolErrorCode =
+  | 'invalid_arguments_json'
+  | 'arguments_not_object'
+  | 'missing_name'
+  | 'missing_tool_call';
+
+export interface ToolCallProtocolError {
+  code: ToolCallProtocolErrorCode;
+  message: string;
+  /** 仅保留有限长度的原始参数预览，供模型和日志定位截断位置。 */
+  rawArgumentsPreview?: string;
+  rawArgumentsLength?: number;
+}
+
 export interface FunctionCallPart {
   functionCall: {
     name: string;
     args: Record<string, unknown>;
     /** provider 原生工具调用 ID（OpenAI tool_call.id / Responses call_id / Claude tool_use.id） */
     callId?: string;
+    /** Iris 检出的协议级损坏调用；scheduler 必须反馈错误，禁止执行工具。 */
+    protocolError?: ToolCallProtocolError;
   };
 }
 

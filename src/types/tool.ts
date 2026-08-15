@@ -124,8 +124,24 @@ export interface ToolExecutionContext {
   signal?: AbortSignal;
   /** 当前工具调用所属 sessionId（可用于扩展工具做会话级状态更新） */
   sessionId?: string;
+  /** Effective per-session working directory for this async execution chain. */
+  cwd?: string;
   /** 当前执行上下文的 Agent 标识；子代理内部可能是 `${agent}:subtask` 形式 */
   sourceAgent?: string;
+  /** Tool names visible in the registry that dispatched this invocation. */
+  availableToolNames?: string[];
+  /** Execution-local policy snapshot. Child runtimes must treat it as read-only. */
+  effectiveToolsConfig?: ExecutionToolsConfig;
+  /** Execute a nested tool through the same scheduler boundary. */
+  executeTool?: (
+    name: string,
+    args: Record<string, unknown>,
+    options?: NestedToolExecutionOptions,
+  ) => Promise<unknown>;
+  /** Force alternate transports such as remote-exec to use the local handler. */
+  forceLocalExecution?: boolean;
+  /** Internal marker used only when Backend expands an explicit `/skill` user command. */
+  directUserSkillInvocation?: boolean;
   /** 当前工具的 invocation ID（handler 可用于关联） */
   invocationId?: string;
   /**
@@ -140,6 +156,37 @@ export interface ToolExecutionContext {
    * 用于双向通信场景（如交互式 shell 输入）。
    */
   onMessage?: (listener: (type: string, data?: unknown) => void) => (() => void);
+}
+
+export interface NestedToolExecutionOptions {
+  /** Override only the nested tool policy on a cloned execution config. */
+  permissionOverride?: ExecutionToolPolicy;
+  /** Keep this nested call local even when a remote execution environment is active. */
+  forceLocalExecution?: boolean;
+  /** Hide these tools from the nested handler and any async descendants it creates. */
+  disabledDescendantTools?: string[];
+  /** Additional child-scoped cancellation signal, combined with the parent. */
+  signal?: AbortSignal;
+  /** Run only this nested call (and its async descendants) from this working directory. */
+  cwd?: string;
+  /** Observe progress emitted by the nested tool without bypassing ToolState. */
+  onProgress?: (data: Record<string, unknown>) => void;
+}
+
+export interface ExecutionToolPolicy {
+  autoApprove?: boolean;
+  showApprovalView?: boolean;
+  allowPatterns?: string[];
+  denyPatterns?: string[];
+}
+
+export interface ExecutionToolsConfig {
+  limits?: unknown;
+  autoApproveAll?: boolean;
+  autoApproveConfirmation?: boolean;
+  autoApproveDiff?: boolean;
+  permissions: Record<string, ExecutionToolPolicy>;
+  disabledTools?: string[];
 }
 
 /**
@@ -160,10 +207,21 @@ export type ToolParallelPolicy = boolean | ToolParallelResolver;
 /** 工具审批模式 */
 export type ToolApprovalMode = 'scheduler' | 'handler';
 
+export type ToolPreflightResult =
+  | { allowed: true; args?: Record<string, unknown> }
+  | { allowed: false; result: unknown };
+
+export type ToolPreflight = (
+  args: Record<string, unknown>,
+  context?: ToolExecutionContext,
+) => Promise<ToolPreflightResult> | ToolPreflightResult;
+
 /** 完整的工具定义 = 声明 + 执行器 */
 export interface ToolDefinition {
   declaration: FunctionDeclaration;
   handler: ToolHandler;
+  /** Authorization/normalization hook for alternate physical transports. */
+  preflight?: ToolPreflight;
   /**
    * 是否允许与相邻的同样标记为 parallel 的工具并行执行。
    * 可以是固定布尔值，也可以按本次调用参数动态判定。

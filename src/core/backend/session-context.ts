@@ -21,6 +21,8 @@ export interface SessionExecutionContext {
   sessionId: string;
   /** per-session 工作目录 */
   cwd: string;
+  /** Keep this async subtree on local tool handlers (for local worktrees/staging). */
+  forceLocalExecution?: boolean;
 }
 
 // ============ 全局状态 ============

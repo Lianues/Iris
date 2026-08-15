@@ -195,6 +195,7 @@ iris models remove old_model
 | `baseUrl` | `string` | 否 | 未填时使用 provider 默认地址 |
 | `contextWindow` | `number` | 否 | 仅用于 TUI 上下文占用显示 |
 | `supportsVision` | `boolean` | 否 | 显式声明模型是否支持图片输入 |
+| `toolCallProtocol` | `native \| tagged-json` | 否 | OpenAI Compatible / DeepSeek 的工具调用编码；默认 `native` |
 | `headers` | `Record<string,string>` | 否 | 覆盖/追加请求头 |
 | `requestBody` | `Record<string,unknown>` | 否 | 深合并到最终请求体 |
 
@@ -205,6 +206,22 @@ iris models remove old_model
 - 子代理类型可以通过 `modelName` 固定使用某个模型；不写时跟随当前活动模型
 - `provider: deepseek` 固定使用官方 API 地址，配置界面不会提供 `baseUrl` 输入；即使手动写入也会被忽略
 - `provider: deepseek` 的 `model` 只能是 `deepseek-v4-flash` 或 `deepseek-v4-pro`，配置界面会以二选一方式呈现
+- `toolCallProtocol: tagged-json` 适用于不支持 API 原生 `tools/tool_calls`、但能按文本协议输出工具调用的 OpenAI Compatible 或 DeepSeek 模型；标准接口保持默认 `native`
+- `native` 模式遇到被截断的 `tool_calls.arguments` 时会先保持原生协议做两次非流式恢复；不会执行半截参数，也不会静默切换成 JSON。若渠道仍连续失败，TUI 会明确提示改用 `tagged-json`
+
+标签 JSON 示例：
+
+```yaml
+models:
+  local_text_tools:
+    provider: openai-compatible
+    apiKey: your-api-key
+    model: your-model
+    baseUrl: http://127.0.0.1:8000/v1
+    toolCallProtocol: tagged-json
+```
+
+启用后，Iris 会把工具声明写入 system prompt，并用 `<tool_call>{"name":"...","arguments":{...}}</tool_call>` 与 `<tool_result>...</tool_result>` 编码调用和结果。流式、多工具调用与历史回传仍会转换为 Iris 内部的标准工具事件；严格的裸调用 JSON 和完整 DSML 调用边界也会安全恢复，残缺或混入额外文本的块不会执行。
 
 ### `supportsVision` 的作用
 
