@@ -144,7 +144,7 @@ export function ToolDetailView({ data, breadcrumb, onNavigateChild, onClose, onA
     return (
       <box flexDirection="column" width="100%">
         <BreadcrumbBar breadcrumb={breadcrumb} toolName={toolName} />
-        {DetailRenderer({ invocation, output, children, onNavigateChild }) as React.ReactNode}
+        {DetailRenderer({ invocation, output, children, onNavigateChild, selectedChildIndex: selectedIdx }) as React.ReactNode}
         <FooterBar isFinal={isFinal} hasAbort={!!onAbort} hasChildren={children.length > 0} />
       </box>
     );

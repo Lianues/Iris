@@ -16,9 +16,11 @@ import {
 } from './service-contracts.js';
 import {
   CONSOLE_DISPATCH_SLASH_COMMAND_METHOD,
+  CONSOLE_DISPATCH_INPUT_MODE_METHOD,
   CONSOLE_GET_SETTINGS_TABS_METHOD,
   CONSOLE_LIST_SLASH_COMMANDS_METHOD,
   CONSOLE_LIST_STATUS_SEGMENTS_METHOD,
+  CONSOLE_RESOLVE_INPUT_MODE_METHOD,
   CONSOLE_PROGRESS_LOAD_HISTORY_METHOD,
   CONSOLE_PROGRESS_LOAD_LATEST_METHOD,
   CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD,
@@ -53,8 +55,8 @@ export function getConsoleToolDisplayService(apiLike: ConsoleServiceApiLike): Co
   return getConsoleService<ConsoleToolDisplayService>(apiLike, CONSOLE_TOOL_DISPLAY_SERVICE_ID);
 }
 
-export function getConsoleProgressProvider(apiLike: ConsoleServiceApiLike) {
-  return getConsoleService<ConsoleProgressService>(apiLike, CONSOLE_PROGRESS_SERVICE_ID)?.getActiveProvider?.();
+export function getConsoleProgressProvider(apiLike: ConsoleServiceApiLike, sessionId?: string) {
+  return getConsoleService<ConsoleProgressService>(apiLike, CONSOLE_PROGRESS_SERVICE_ID)?.getActiveProvider?.(sessionId);
 }
 
 export function renderConsoleToolDisplay(apiLike: ConsoleServiceApiLike, toolName: string, mode: unknown, input: unknown): string | undefined {
@@ -70,6 +72,8 @@ const CONSOLE_BRIDGE_METHOD_SET = new Set<string>([
   CONSOLE_GET_SETTINGS_TABS_METHOD,
   CONSOLE_LIST_SLASH_COMMANDS_METHOD,
   CONSOLE_DISPATCH_SLASH_COMMAND_METHOD,
+  CONSOLE_RESOLVE_INPUT_MODE_METHOD,
+  CONSOLE_DISPATCH_INPUT_MODE_METHOD,
   CONSOLE_RESOLVE_PATH_DISPLAY_METHOD,
   CONSOLE_LIST_STATUS_SEGMENTS_METHOD,
   CONSOLE_RENDER_TOOL_DISPLAY_METHOD,
@@ -91,20 +95,37 @@ export async function dispatchConsoleBridgeMethod(apiLike: ConsoleServiceApiLike
       return getConsoleSlashCommandService(apiLike)?.list?.() ?? [];
     case CONSOLE_DISPATCH_SLASH_COMMAND_METHOD:
       return await getConsoleSlashCommandService(apiLike)?.dispatch?.(String(params[0] ?? ''), (params[1] ?? {}) as { sessionId?: string });
+    case CONSOLE_RESOLVE_INPUT_MODE_METHOD:
+      return getConsoleSlashCommandService(apiLike)?.resolveInputMode?.((params[0] ?? {}) as { sessionId?: string });
+    case CONSOLE_DISPATCH_INPUT_MODE_METHOD:
+      return await getConsoleSlashCommandService(apiLike)?.dispatchInput?.((params[0] ?? {}) as {
+        sessionId?: string;
+        text: string;
+        pendingFileCount?: number;
+        isGenerating?: boolean;
+      });
     case CONSOLE_RESOLVE_PATH_DISPLAY_METHOD:
       return getConsolePathDisplayService(apiLike)?.resolve?.(params[0] ?? {});
     case CONSOLE_LIST_STATUS_SEGMENTS_METHOD:
       return getConsoleStatusSegmentService(apiLike)?.list?.(params[0] ?? {}, (params[1] as 'left' | 'right' | undefined) ?? 'right') ?? [];
     case CONSOLE_RENDER_TOOL_DISPLAY_METHOD:
       return renderConsoleToolDisplay(apiLike, String(params[0] ?? ''), params[1], params[2]);
-    case CONSOLE_PROGRESS_LOAD_LATEST_METHOD:
-      return await getConsoleProgressProvider(apiLike)?.loadLatest?.(String(params[0] ?? ''));
-    case CONSOLE_PROGRESS_LOAD_HISTORY_METHOD:
-      return await getConsoleProgressProvider(apiLike)?.loadHistory?.(String(params[0] ?? '')) ?? [];
-    case CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD:
-      return await getConsoleProgressProvider(apiLike)?.loadUiState?.(String(params[0] ?? ''));
-    case CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD:
-      return await getConsoleProgressProvider(apiLike)?.saveUiState?.(String(params[0] ?? ''), params[1] as { expanded: boolean; snapshotUpdatedAt?: number });
+    case CONSOLE_PROGRESS_LOAD_LATEST_METHOD: {
+      const sessionId = String(params[0] ?? '');
+      return await getConsoleProgressProvider(apiLike, sessionId)?.loadLatest?.(sessionId);
+    }
+    case CONSOLE_PROGRESS_LOAD_HISTORY_METHOD: {
+      const sessionId = String(params[0] ?? '');
+      return await getConsoleProgressProvider(apiLike, sessionId)?.loadHistory?.(sessionId) ?? [];
+    }
+    case CONSOLE_PROGRESS_LOAD_UI_STATE_METHOD: {
+      const sessionId = String(params[0] ?? '');
+      return await getConsoleProgressProvider(apiLike, sessionId)?.loadUiState?.(sessionId);
+    }
+    case CONSOLE_PROGRESS_SAVE_UI_STATE_METHOD: {
+      const sessionId = String(params[0] ?? '');
+      return await getConsoleProgressProvider(apiLike, sessionId)?.saveUiState?.(sessionId, params[1] as { expanded: boolean; snapshotUpdatedAt?: number });
+    }
     default:
       throw new Error(`未知 Console bridge 方法: ${method}`);
   }

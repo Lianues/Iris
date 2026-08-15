@@ -10,6 +10,9 @@ import type {
   ConsoleProgressUiStateLike,
 } from './progress-service';
 import type {
+  ConsoleInputModeContext,
+  ConsoleInputModeHandlerInput,
+  ConsoleInputModeSnapshot,
   ConsoleSlashCommandDispatchContext,
   ConsoleSlashCommandResult,
   ConsoleSlashCommandService,
@@ -71,6 +74,8 @@ export function createRemoteConsoleServicesBundle(api: ConsoleRemoteBridgeApi): 
   const pathPending = new Set<string>();
   const statusCache = new Map<string, ConsoleStatusSegmentSnapshot[]>();
   const statusPending = new Set<string>();
+  const inputModeCache = new Map<string, ConsoleInputModeSnapshot | undefined>();
+  const inputModePending = new Set<string>();
 
   const getSlashCommands = () => getCachedConsoleRemoteSlashCommands(api);
   const matchSlashCommand = createMatchCommand(getSlashCommands);
@@ -105,6 +110,20 @@ export function createRemoteConsoleServicesBundle(api: ConsoleRemoteBridgeApi): 
     } finally {
       statusPending.delete(key);
       statusChanged.emit();
+    }
+  };
+
+  const fetchInputMode = async (context?: ConsoleInputModeContext) => {
+    const key = contextKey(context);
+    if (inputModePending.has(key) || !api.__consoleResolveInputMode) return;
+    inputModePending.add(key);
+    try {
+      inputModeCache.set(key, await api.__consoleResolveInputMode(context));
+    } catch {
+      inputModeCache.set(key, undefined);
+    } finally {
+      inputModePending.delete(key);
+      slashChanged.emit();
     }
   };
 
@@ -184,6 +203,9 @@ export function createRemoteConsoleServicesBundle(api: ConsoleRemoteBridgeApi): 
       register() {
         return { dispose() {} };
       },
+      registerInputMode() {
+        return { dispose() {} };
+      },
       list() {
         return getSlashCommands();
       },
@@ -193,9 +215,21 @@ export function createRemoteConsoleServicesBundle(api: ConsoleRemoteBridgeApi): 
       async dispatch(raw, context) {
         const result = await api.__consoleDispatchSlashCommand?.(raw, context);
         await refreshSlashCommands().catch(() => {});
+        await fetchInputMode({ sessionId: context?.sessionId });
         pathCache.delete(contextKey({ sessionId: context?.sessionId }));
         void fetchPathDisplay({ sessionId: context?.sessionId });
         void fetchStatusSegments({ sessionId: context?.sessionId }, 'right');
+        return result ?? {};
+      },
+      resolveInputMode(context = {}) {
+        const key = contextKey(context);
+        if (!inputModeCache.has(key) && !inputModePending.has(key)) void fetchInputMode(context);
+        return inputModeCache.get(key);
+      },
+      async dispatchInput(input: ConsoleInputModeHandlerInput) {
+        const result = await api.__consoleDispatchInputMode?.(input);
+        await fetchInputMode({ sessionId: input.sessionId });
+        void fetchStatusSegments({ sessionId: input.sessionId }, 'right');
         return result ?? {};
       },
       onDidChange(listener) {
@@ -233,6 +267,7 @@ export function createRemoteConsoleServicesBundle(api: ConsoleRemoteBridgeApi): 
     progress: progressService,
     async refreshSession(sessionId) {
       await refreshSlashCommands().catch(() => {});
+      await fetchInputMode({ sessionId });
       await fetchPathDisplay({ sessionId });
       await fetchStatusSegments({ sessionId }, 'right');
     },

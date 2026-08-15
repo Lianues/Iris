@@ -18,7 +18,7 @@ import type { MemoryItem, MemoryFilter } from '../components/MemoryListView';
 import type { SkillLoadReport } from '../components/SkillListView';
 import type { ConsoleSlashCommandService } from '../slash-command-service';
 import { buildGitCommitPrompt, isGitPorcelainEmpty, parseGitCommitCommandArg } from '../commit-command';
-import { isSlashCommandInput, normalizeSlashCommandInput } from '../input-commands';
+import { isSlashCommandInput, normalizeSlashCommandInput, parseSkillCommandInput } from '../input-commands';
 
 type SetMessages = Dispatch<SetStateAction<ChatMessage[]>>;
 type SetMemoryList = Dispatch<SetStateAction<MemoryItem[]>>;
@@ -37,6 +37,7 @@ interface UseCommandDispatchOptions {
   /** 当前是否正在生成；用于把命令反馈插到活跃 assistant 回复之前，避免破坏流式挂载目标 */
   isGenerating?: boolean;
   slashCommandService?: ConsoleSlashCommandService;
+  pendingFileCount?: number;
   /** 附加文件（图片/文档/音频/视频）到下一条消息 */
   onFileAttach: (filePath: string) => void;
   /** 打开文件浏览器视图 */
@@ -145,6 +146,7 @@ export function useCommandDispatch({
   onSubmit,
   isGenerating,
   slashCommandService,
+  pendingFileCount,
   onFileAttach,
   onOpenFileBrowser,
   getCurrentSessionId,
@@ -400,17 +402,29 @@ export function useCommandDispatch({
       return;
     }
 
-    // ── /skills 命令 — 显示 Skill 列表与诊断 ──
-    if (text === '/skills' || text === '/skill') {
+    // ── /skill [name] — 显示 Skill 列表，或直接定位某个 Skill 的详情 ──
+    const skillCommand = parseSkillCommandInput(text);
+    if (skillCommand) {
       if (!onListSkills) {
         appendCommandMessage(setMessages, 'Skill list service not available.');
         return;
       }
       void onListSkills().then((report) => {
+        const requestedIndex = skillCommand.skillName
+          ? report.loaded.findIndex(item => item.skill.name === skillCommand.skillName)
+          : 0;
         setSkillReport(report);
-        setSelectedIndex(0);
+        setSelectedIndex(requestedIndex >= 0 ? requestedIndex : 0);
         setSkillDetailsExpanded(true);
         setViewMode('skill-list');
+        if (skillCommand.skillName && requestedIndex < 0) {
+          const available = report.loaded.map(item => item.skill.name).join(', ') || '(none)';
+          appendCommandMessage(
+            setMessages,
+            `Skill "${skillCommand.skillName}" not found. Available: ${available}`,
+            { isError: true, label: 'skill' },
+          );
+        }
       }).catch((err) => {
         appendCommandMessage(setMessages, `Failed to load skills: ${err}`, { isError: true });
       });
@@ -735,6 +749,29 @@ export function useCommandDispatch({
       return;
     }
 
+    const sessionId = getCurrentSessionId?.();
+    if (slashCommandService?.resolveInputMode({ sessionId })) {
+      void slashCommandService.dispatchInput({
+        text: rawText,
+        sessionId,
+        pendingFileCount,
+        isGenerating,
+      }).then((result) => {
+        if (!result?.message) return;
+        appendCommandMessage(setMessages, result.message, {
+          isError: result.isError,
+          label: result.label ?? 'mode',
+        });
+      }).catch((err) => {
+        appendCommandMessage(
+          setMessages,
+          `输入模式执行失败: ${err instanceof Error ? err.message : String(err)}`,
+          { isError: true, label: 'mode' },
+        );
+      });
+      return;
+    }
+
     resetRedo(undoRedoRef, onClearRedoStack);
     onSubmit(rawText);
   }, [
@@ -756,6 +793,7 @@ export function useCommandDispatch({
     isRemote,
     remoteHost,
     slashCommandService,
+    pendingFileCount,
     onResetConfig,
     isGenerating,
     onRunCommand,

@@ -21,6 +21,7 @@ import { C } from '../theme';
 import { ICONS } from '../terminal-compat';
 import type { ConsoleStatusSegmentSnapshot } from '../status-segment-service';
 import type { ConsolePathDisplaySnapshot } from '../path-display-service';
+import type { ConsoleInputModeSnapshot } from '../slash-command-service';
 
 interface BottomPanelProps {
   hasMessages: boolean;
@@ -88,6 +89,7 @@ interface BottomPanelProps {
   /** 获取当前会话 cwd 下可用于 @ 文件补全的相对文件路径 */
   onListFileMentionFiles?: () => readonly string[] | Promise<readonly string[]>;
   dynamicCommands?: Command[];
+  inputMode?: ConsoleInputModeSnapshot;
   /** 右侧状态栏扩展片段（显示在 ctx 右侧） */
   statusSegments?: ConsoleStatusSegmentSnapshot[];
   supportsHeadlessTransition?: boolean;
@@ -144,6 +146,7 @@ export function BottomPanel({
   onRemoveFile,
   onListFileMentionFiles,
   dynamicCommands,
+  inputMode,
   statusSegments,
   supportsHeadlessTransition,
   inputControllerRef,
@@ -207,11 +210,19 @@ export function BottomPanel({
           <box
             flexDirection="column"
             borderStyle="single"
-            borderColor={isGenerating ? C.warn : C.border}
+            borderColor={isGenerating ? C.warn : inputMode?.color ?? C.border}
             paddingX={1}
             paddingTop={0}
             paddingBottom={0}
           >
+            {inputMode ? (
+              <box flexDirection="row" height={1}>
+                <text>
+                  <strong><span fg={inputMode.color ?? C.accent}>◇ {inputMode.label}</span></strong>
+                  <span fg={C.dim}> · {inputMode.description ?? '下一条输入将交给此模式处理'}</span>
+                </text>
+              </box>
+            ) : null}
             <ThinkingIndicator level={thinkingEffort} providerLevels={providerLevels} showHint={!hasMessages} isRemote={isRemote} thinkingControlEnabled={thinkingControlEnabled} />
             <InputBar
               disabled={inputDisabled || !!noteEditorOpen}
@@ -226,6 +237,7 @@ export function BottomPanel({
               onListFileMentionFiles={onListFileMentionFiles}
               isRemote={isRemote}
               dynamicCommands={dynamicCommands}
+              inputMode={inputMode}
               supportsHeadlessTransition={supportsHeadlessTransition}
               thinkingControlEnabled={thinkingControlEnabled}
               inputControllerRef={inputControllerRef}

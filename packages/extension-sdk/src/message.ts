@@ -28,6 +28,13 @@ export interface FunctionCallPart {
     name: string;
     args: Record<string, unknown>;
     callId?: string;
+    /** Host 检出的协议级损坏调用；该调用不会执行。 */
+    protocolError?: {
+      code: 'invalid_arguments_json' | 'arguments_not_object' | 'missing_name' | 'missing_tool_call';
+      message: string;
+      rawArgumentsPreview?: string;
+      rawArgumentsLength?: number;
+    };
   };
 }
 

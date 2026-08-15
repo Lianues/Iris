@@ -56,10 +56,61 @@ export interface ToolExecutionContext {
   signal?: AbortSignal;
   /** 当前工具调用所属 sessionId（可用于扩展工具做会话级状态更新） */
   sessionId?: string;
+  /** Effective per-session working directory for this async execution chain. */
+  cwd?: string;
   /** 当前执行上下文的 Agent 标识；子代理内部可能是 `${agent}:subtask` 形式 */
   sourceAgent?: string;
+  /** Tool names visible in the registry that dispatched this invocation. */
+  availableToolNames?: string[];
+  /** Execution-local policy snapshot. Treat as read-only. */
+  effectiveToolsConfig?: ExecutionToolsConfig;
+  /** Execute a nested tool through the host scheduler. */
+  executeTool?: (
+    name: string,
+    args: Record<string, unknown>,
+    options?: NestedToolExecutionOptions,
+  ) => Promise<unknown>;
+  /** Force alternate transports such as remote-exec to use the local handler. */
+  forceLocalExecution?: boolean;
+  /** Internal marker used only when Backend expands an explicit `/skill` user command. */
+  directUserSkillInvocation?: boolean;
+  /** True only when this exact outer tool invocation was explicitly approved by the user/UI. */
+  approvedByUser?: boolean;
   /** 当前工具的 invocation ID（handler 可用于关联） */
   invocationId?: string;
+  /** Append an immutable entry to the tool's detail output stream. */
+  appendOutput?: (entry: Omit<ToolOutputEntry, 'timestamp'>) => void;
+  /** Listen for upstream UI messages; returns an unsubscribe callback. */
+  onMessage?: (listener: (type: string, data?: unknown) => void) => (() => void);
+}
+
+export interface NestedToolExecutionOptions {
+  permissionOverride?: ExecutionToolPolicy;
+  forceLocalExecution?: boolean;
+  /** Hide these tools from the nested handler's async descendants. */
+  disabledDescendantTools?: string[];
+  /** Additional child-scoped cancellation signal, combined with the parent. */
+  signal?: AbortSignal;
+  /** Run the nested tool in an isolated per-async-call working directory. */
+  cwd?: string;
+  /** Observe the nested tool's throttled progress snapshots. */
+  onProgress?: (data: Record<string, unknown>) => void;
+}
+
+export interface ExecutionToolPolicy {
+  autoApprove?: boolean;
+  showApprovalView?: boolean;
+  allowPatterns?: string[];
+  denyPatterns?: string[];
+}
+
+export interface ExecutionToolsConfig {
+  limits?: unknown;
+  autoApproveAll?: boolean;
+  autoApproveConfirmation?: boolean;
+  autoApproveDiff?: boolean;
+  permissions: Record<string, ExecutionToolPolicy>;
+  disabledTools?: string[];
 }
 
 export type ToolHandler = (args: Record<string, unknown>, context?: ToolExecutionContext) => Promise<unknown> | AsyncIterable<unknown>;
@@ -67,9 +118,20 @@ export type ToolParallelResolver = (args: Record<string, unknown>) => boolean;
 export type ToolParallelPolicy = boolean | ToolParallelResolver;
 export type ToolApprovalMode = 'scheduler' | 'handler';
 
+export type ToolPreflightResult =
+  | { allowed: true; args?: Record<string, unknown> }
+  | { allowed: false; result: unknown };
+
+export type ToolPreflight = (
+  args: Record<string, unknown>,
+  context?: ToolExecutionContext,
+) => Promise<ToolPreflightResult> | ToolPreflightResult;
+
 export interface ToolDefinition {
   declaration: FunctionDeclaration;
   handler: ToolHandler;
+  /** Authorization/normalization hook for alternate physical transports. */
+  preflight?: ToolPreflight;
   parallel?: ToolParallelPolicy;
   approvalMode?: ToolApprovalMode;
 }

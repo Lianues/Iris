@@ -79,12 +79,15 @@ export const COMMANDS: Command[] = [
   { name: '/disconnect', description: '断开远程连接', remoteOnly: true, color: '#fdcb6e' },
   { name: '/agent',    description: '切换 Agent（多 Agent 模式）' },
   { name: '/memory',   description: '查看长期记忆' },
-  { name: '/skill',    description: '查看 Skill 列表、资源 manifest 与加载诊断' },
-  { name: '/skills',   description: '查看 Skill 列表、资源 manifest 与加载诊断' },
+  {
+    name: '/skill',
+    description: '查看 Skill 列表；传入名称可直接定位详情',
+    acceptsArgs: true,
+  },
   { name: '/extension', description: '管理扩展插件（查看/启用/禁用/Git拉取/升级/删除）' },
   { name: '/dream',    description: '整理长期记忆（合并冗余、清理过时）' },
   { name: '/queue',    description: '查看/管理排队消息' },
-  { name: '/file',     description: '附加文件（图片/文档/音频/视频）  clear 清空' },
+  { name: '/file',     description: '附件：Alt+V 粘贴  Alt+D 删除末项  clear 清空' },
   { name: '/headless', description: '关闭 TUI 并保留 Core / IPC 后台运行', requiresHeadlessSupport: true },
   { name: '/detach',   description: '同 /headless，分离当前 TUI', requiresHeadlessSupport: true },
   {
@@ -104,6 +107,18 @@ export function isSlashCommandInput(value: string): boolean {
 
 export function normalizeSlashCommandInput(value: string): string {
   return value.startsWith('、') ? `/${value.slice(1)}` : value;
+}
+
+export interface ParsedSkillCommandInput {
+  skillName?: string;
+}
+
+/** Parse the canonical TUI Skill browser command without matching /skills or /skill-name. */
+export function parseSkillCommandInput(value: string): ParsedSkillCommandInput | null {
+  if (value === '/skill') return {};
+  if (!value.startsWith('/skill ')) return null;
+  const skillName = value.slice('/skill '.length).trim();
+  return skillName ? { skillName } : {};
 }
 
 export function getCommandInput(cmd: Command): string {

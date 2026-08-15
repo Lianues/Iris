@@ -20,6 +20,7 @@ export interface ConsoleProgressUiStateLike {
 export interface ConsoleProgressProvider {
   id: string;
   priority?: number;
+  isActive?(sessionId?: string): boolean;
   loadLatest(sessionId: string): Promise<ProgressSnapshotLike | undefined> | ProgressSnapshotLike | undefined;
   loadHistory?(sessionId: string): Promise<ConsoleProgressArchiveLike[]> | ConsoleProgressArchiveLike[];
   loadUiState?(sessionId: string): Promise<ConsoleProgressUiStateLike | undefined> | ConsoleProgressUiStateLike | undefined;
@@ -30,7 +31,7 @@ export interface ConsoleProgressProvider {
 export interface ConsoleProgressService {
   register(provider: ConsoleProgressProvider): Disposable;
   getProvider(id: string): ConsoleProgressProvider | undefined;
-  getActiveProvider(): ConsoleProgressProvider | undefined;
+  getActiveProvider(sessionId?: string): ConsoleProgressProvider | undefined;
   listProviders(): ConsoleProgressProvider[];
   onDidChange(listener: () => void): Disposable;
   onDidUpdate(listener: (providerId: string, sessionId: string, snapshot: ProgressSnapshotLike) => void): Disposable;
@@ -72,8 +73,11 @@ export function createConsoleProgressService(): ConsoleProgressService {
     getProvider(id) {
       return providers.get(id);
     },
-    getActiveProvider() {
-      return orderedProviders()[0];
+    getActiveProvider(sessionId) {
+      return orderedProviders().find((provider) => {
+        try { return provider.isActive?.(sessionId) !== false; }
+        catch { return false; }
+      });
     },
     listProviders() {
       return orderedProviders();

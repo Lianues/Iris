@@ -5,12 +5,20 @@ import type { ConsolePathDisplayContext, ConsolePathDisplaySnapshot } from './pa
 import type { ConsoleProgressArchiveLike, ConsoleProgressUiStateLike } from './progress-service';
 import type { ProgressSnapshotLike } from './progress-types';
 import type { ConsoleSettingsTabDefinition } from './settings-tab-service';
-import type { ConsoleSlashCommandDispatchContext, ConsoleSlashCommandResult } from './slash-command-service';
+import type {
+  ConsoleInputModeContext,
+  ConsoleInputModeHandlerInput,
+  ConsoleInputModeSnapshot,
+  ConsoleSlashCommandDispatchContext,
+  ConsoleSlashCommandResult,
+} from './slash-command-service';
 import type { ConsoleStatusContext, ConsoleStatusSegmentSnapshot } from './status-segment-service';
 
 export const CONSOLE_GET_SETTINGS_TABS_METHOD = 'console.getSettingsTabs';
 export const CONSOLE_LIST_SLASH_COMMANDS_METHOD = 'console.listSlashCommands';
 export const CONSOLE_DISPATCH_SLASH_COMMAND_METHOD = 'console.dispatchSlashCommand';
+export const CONSOLE_RESOLVE_INPUT_MODE_METHOD = 'console.resolveInputMode';
+export const CONSOLE_DISPATCH_INPUT_MODE_METHOD = 'console.dispatchInputMode';
 export const CONSOLE_RESOLVE_PATH_DISPLAY_METHOD = 'console.resolvePathDisplay';
 export const CONSOLE_LIST_STATUS_SEGMENTS_METHOD = 'console.listStatusSegments';
 export const CONSOLE_RENDER_TOOL_DISPLAY_METHOD = 'console.renderToolDisplay';
@@ -24,6 +32,8 @@ export interface ConsoleRemoteBridgeApi {
   __consoleGetSettingsTabs?(): unknown[];
   __consoleGetSlashCommands?(): Command[];
   __consoleDispatchSlashCommand?(raw: string, context?: ConsoleSlashCommandDispatchContext): Promise<ConsoleSlashCommandResult | undefined>;
+  __consoleResolveInputMode?(context?: ConsoleInputModeContext): Promise<ConsoleInputModeSnapshot | undefined>;
+  __consoleDispatchInputMode?(input: ConsoleInputModeHandlerInput): Promise<ConsoleSlashCommandResult | undefined>;
   __consoleResolvePathDisplay?(context?: ConsolePathDisplayContext): Promise<ConsolePathDisplaySnapshot | undefined>;
   __consoleListStatusSegments?(context?: ConsoleStatusContext, align?: 'left' | 'right'): Promise<ConsoleStatusSegmentSnapshot[]>;
   __consoleRenderToolDisplay?(toolName: string, kind: 'args' | 'progress' | 'result', input: Record<string, unknown>): Promise<string | undefined>;
@@ -75,6 +85,12 @@ export function attachConsoleRemoteBridge<T extends Record<string, any>>(
     },
     __consoleDispatchSlashCommand(raw: string, context?: ConsoleSlashCommandDispatchContext) {
       return callBridge(CONSOLE_DISPATCH_SLASH_COMMAND_METHOD, [raw, context]) as Promise<ConsoleSlashCommandResult | undefined>;
+    },
+    __consoleResolveInputMode(context?: ConsoleInputModeContext) {
+      return callBridge(CONSOLE_RESOLVE_INPUT_MODE_METHOD, [context]) as Promise<ConsoleInputModeSnapshot | undefined>;
+    },
+    __consoleDispatchInputMode(input: ConsoleInputModeHandlerInput) {
+      return callBridge(CONSOLE_DISPATCH_INPUT_MODE_METHOD, [input]) as Promise<ConsoleSlashCommandResult | undefined>;
     },
     __consoleResolvePathDisplay(context?: ConsolePathDisplayContext) {
       return callBridge(CONSOLE_RESOLVE_PATH_DISPLAY_METHOD, [context]) as Promise<ConsolePathDisplaySnapshot | undefined>;

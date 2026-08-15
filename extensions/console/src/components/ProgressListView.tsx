@@ -93,6 +93,15 @@ function controlHintText(collapsed: boolean, canScroll: boolean): string {
   return parts.join(` ${ICONS.separator} `);
 }
 
+function workflowMetadata(items: ProgressItemLike[]): Record<string, unknown> | undefined {
+  return items.find((item) => item.metadata?.provider === 'workflow')?.metadata;
+}
+
+function metadataNumber(metadata: Record<string, unknown> | undefined, key: string): number {
+  const value = metadata?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 export function ProgressListView({
   snapshot,
   maxItems = PROGRESS_PANEL_MAX_ITEMS,
@@ -103,6 +112,8 @@ export function ProgressListView({
 }: ProgressListViewProps) {
   const items = snapshot?.items ?? [];
   const stats = snapshot?.stats;
+  const workflowMeta = workflowMetadata(items);
+  const isWorkflow = !!workflowMeta;
   const isCompletedSnapshot = items.length > 0 && (stats?.open ?? 0) === 0;
   const itemLimit = isCompletedSnapshot ? Math.max(1, items.length) : normalizeMaxItems(maxItems);
   const canCollapse = (stats?.open ?? 0) > 0;
@@ -138,6 +149,38 @@ export function ProgressListView({
     const currentText = currentItem
       ? truncate(currentItem.status === 'in_progress' ? (currentItem.activeForm ?? currentItem.title) : currentItem.title, 72)
       : '暂无进度';
+    if (isWorkflow) {
+      const workflowName = String(workflowMeta?.workflowName ?? 'workflow');
+      const runTokens = metadataNumber(workflowMeta, 'runTokens');
+      const runAgents = metadataNumber(workflowMeta, 'runAgents');
+      const runFailures = metadataNumber(workflowMeta, 'runFailures');
+      const runMaxTokens = metadataNumber(workflowMeta, 'runMaxTokens');
+      const runMaxAgents = metadataNumber(workflowMeta, 'runMaxAgents');
+      const runMaxFailures = metadataNumber(workflowMeta, 'runMaxFailures');
+      const hasRunMaxFailures = typeof workflowMeta?.runMaxFailures === 'number';
+      return (
+        <text>
+          <span fg={C.primaryLight}>◇ Workflow</span>
+          <span fg={C.text}> <strong>{workflowName}</strong></span>
+          {showControls && canCollapse ? <span fg={C.dim}> {ICONS.separator} {controlHintText(effectiveCollapsed, canScroll)}</span> : null}
+          <span fg={C.dim}> {ICONS.separator} </span>
+          <span fg={C.text}><strong>{stats.completed}</strong>/{stats.total}</span>
+          <span fg={C.dim}> steps</span>
+          {stats.inProgress > 0 ? <span fg={C.accent}> {ICONS.separator} {stats.inProgress} running</span> : null}
+          {stats.blocked > 0 ? <span fg={C.warn}> {ICONS.separator} {stats.blocked} blocked</span> : null}
+          {runMaxAgents > 0 ? <span fg={C.dim}> {ICONS.separator} {runAgents}/{runMaxAgents} agents</span> : null}
+          {runMaxTokens > 0 ? <span fg={C.dim}> {ICONS.separator} {runTokens.toLocaleString()}/{runMaxTokens.toLocaleString()}tk</span> : null}
+          {hasRunMaxFailures ? <span fg={runFailures > 0 ? C.warn : C.dim}> {ICONS.separator} {runFailures}/{runMaxFailures} failures</span> : null}
+          {effectiveCollapsed ? (
+            <>
+              <span fg={C.dim}> {ICONS.separator} </span>
+              {currentIcon ? <span fg={currentIcon.color}>{currentIcon.icon} </span> : null}
+              <span fg={C.textSec}>{currentText}</span>
+            </>
+          ) : null}
+        </text>
+      );
+    }
     return (
       <text>
         <span fg={C.primaryLight}>Iris 进度</span>
@@ -178,19 +221,24 @@ export function ProgressListView({
         const isActive = item.status === 'in_progress';
         const isDim = isCompleted || item.status === 'cancelled';
         const title = truncate(item.title, 90);
+        const workflowDepth = isWorkflow ? Math.max(0, Math.min(8, metadataNumber(item.metadata, 'depth'))) : 0;
+        const workflowType = isWorkflow && typeof item.metadata?.stepType === 'string' ? item.metadata.stepType : '';
+        const workflowCached = isWorkflow && item.metadata?.cached === true;
         return (
           <box key={`${effectiveScrollOffset + index}:${item.createdAt}:${item.title}`} flexDirection="column">
             <text>
-              <span fg={C.dim}>  </span>
+              <span fg={C.dim}>{isWorkflow ? `  ${'  '.repeat(workflowDepth)}${workflowDepth > 0 ? '└─' : '  '}` : '  '}</span>
               <span fg={color}>{icon}</span>
               <span fg={C.dim}> </span>
               <span fg={isDim ? C.dim : isActive ? C.text : C.textSec}>
                 {isActive ? <strong>{title}</strong> : title}
               </span>
+              {workflowType ? <span fg={C.dim}> [{workflowType}]</span> : null}
+              {workflowCached ? <span fg={C.primaryLight}> cached</span> : null}
               {item.status !== 'pending' && item.status !== 'completed' ? <span fg={C.dim}> [{statusLabel(item.status)}]</span> : null}
             </text>
             {isActive && item.activeForm ? (
-              <text fg={C.dim}>    {truncate(item.activeForm, 100)}{ICONS.ellipsis}</text>
+              <text fg={C.dim}>    {'  '.repeat(workflowDepth)}{truncate(item.activeForm, 100)}{ICONS.ellipsis}</text>
             ) : null}
           </box>
         );

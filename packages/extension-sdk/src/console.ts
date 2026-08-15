@@ -86,15 +86,49 @@ export interface ConsoleSlashCommandHandlerInput {
 
 export type ConsoleSlashCommandDispatchContext = Pick<ConsoleSlashCommandHandlerInput, 'sessionId'>;
 
+/** A session-scoped input route exposed by an extension (for example Workflow mode). */
+export interface ConsoleInputModeSnapshot {
+  id: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  prompt?: string;
+  color?: string;
+  priority?: number;
+}
+
+export interface ConsoleInputModeContext {
+  sessionId?: string;
+}
+
+export interface ConsoleInputModeHandlerInput extends ConsoleInputModeContext {
+  text: string;
+  /** Attachments remain owned by Console; modes must reject them if they cannot consume them. */
+  pendingFileCount?: number;
+  /** True while the regular chat turn is streaming/queued. */
+  isGenerating?: boolean;
+}
+
+export interface ConsoleInputModeProvider {
+  id: string;
+  priority?: number;
+  getSnapshot(context: ConsoleInputModeContext): ConsoleInputModeSnapshot | undefined;
+  handle(input: ConsoleInputModeHandlerInput): ConsoleSlashCommandResult | Promise<ConsoleSlashCommandResult | void> | void;
+  onDidChange?(listener: () => void): Disposable;
+}
+
 export interface ConsoleSlashCommandDefinition extends ConsoleSlashCommandListItem {
   handle(input: ConsoleSlashCommandHandlerInput): ConsoleSlashCommandResult | Promise<ConsoleSlashCommandResult | void> | void;
 }
 
 export interface ConsoleSlashCommandService {
   register(command: ConsoleSlashCommandDefinition): Disposable;
+  registerInputMode(provider: ConsoleInputModeProvider): Disposable;
   list(): ConsoleSlashCommandListItem[];
   canHandle(raw: string): boolean;
   dispatch(raw: string, context?: ConsoleSlashCommandDispatchContext): Promise<ConsoleSlashCommandResult | undefined>;
+  resolveInputMode(context?: ConsoleInputModeContext): ConsoleInputModeSnapshot | undefined;
+  dispatchInput(input: ConsoleInputModeHandlerInput): Promise<ConsoleSlashCommandResult | undefined>;
   onDidChange(listener: () => void): Disposable;
 }
 
@@ -239,6 +273,8 @@ export interface ConsoleProgressUiStateLike {
 export interface ConsoleProgressProvider {
   id: string;
   priority?: number;
+  /** Return false when this provider has no progress for the requested session. */
+  isActive?(sessionId?: string): boolean;
   loadLatest(sessionId: string): Promise<ConsoleProgressSnapshotLike | undefined> | ConsoleProgressSnapshotLike | undefined;
   loadHistory?(sessionId: string): Promise<ConsoleProgressArchiveLike[]> | ConsoleProgressArchiveLike[];
   loadUiState?(sessionId: string): Promise<ConsoleProgressUiStateLike | undefined> | ConsoleProgressUiStateLike | undefined;
@@ -249,7 +285,7 @@ export interface ConsoleProgressProvider {
 export interface ConsoleProgressService {
   register(provider: ConsoleProgressProvider): Disposable;
   getProvider(id: string): ConsoleProgressProvider | undefined;
-  getActiveProvider(): ConsoleProgressProvider | undefined;
+  getActiveProvider(sessionId?: string): ConsoleProgressProvider | undefined;
   listProviders(): ConsoleProgressProvider[];
   onDidChange(listener: () => void): Disposable;
   onDidUpdate(listener: (providerId: string, sessionId: string, snapshot: ConsoleProgressSnapshotLike) => void): Disposable;

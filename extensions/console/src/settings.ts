@@ -72,6 +72,16 @@ export const CONSOLE_MCP_TRANSPORT_OPTIONS = [
 
 export type ConsoleLLMProvider = typeof CONSOLE_LLM_PROVIDER_OPTIONS[number];
 export type ConsoleMCPTransport = typeof CONSOLE_MCP_TRANSPORT_OPTIONS[number];
+export type ConsoleToolCallProtocol = 'native' | 'tagged-json';
+
+export const CONSOLE_TOOL_CALL_PROTOCOL_OPTIONS: readonly ConsoleToolCallProtocol[] = [
+  'native',
+  'tagged-json',
+];
+
+export function supportsConsoleToolCallProtocol(provider: string): boolean {
+  return provider === 'openai-compatible' || provider === 'deepseek';
+}
 
 const CONSOLE_LLM_PROVIDER_DEFAULTS: Record<ConsoleLLMProvider, Record<string, unknown>> = {
   deepseek: {
@@ -121,6 +131,8 @@ export interface ConsoleModelSettings {
   promptCaching?: boolean;
   /** Claude 顶层自动缓存策略的兼容字段；TUI 会确保它与 promptCaching 互斥。 */
   autoCaching?: boolean;
+  /** 工具调用编码：默认使用 API 原生 tools；tagged-json 使用文本标签协议。 */
+  toolCallProtocol?: ConsoleToolCallProtocol;
   baseUrl: string;
 }
 
@@ -303,6 +315,7 @@ export function createEmptyModel(
     contextWindow: typeof providerDefaults.contextWindow === 'number' ? providerDefaults.contextWindow : undefined,
     autoSummaryEnabled: true,
     autoSummaryThreshold: '90%',
+    toolCallProtocol: 'native',
     baseUrl: (providerDefaults.baseUrl as string) ?? '',
   };
 }
@@ -335,6 +348,9 @@ export function applyModelProviderChange(
     apiKey: model.apiKey,
     modelId,
     baseUrl,
+    toolCallProtocol: supportsConsoleToolCallProtocol(nextProvider)
+      ? model.toolCallProtocol ?? 'native'
+      : 'native',
   };
   const cacheKindChanged = getConsolePromptCacheKind(model) !== getConsolePromptCacheKind(nextModel);
 
@@ -388,6 +404,10 @@ function buildModelPayload(model: ConsoleModelSettings): Record<string, unknown>
     payload.promptCaching = null;
     payload.autoCaching = null;
   }
+  payload.toolCallProtocol = supportsConsoleToolCallProtocol(model.provider)
+    && model.toolCallProtocol === 'tagged-json'
+    ? 'tagged-json'
+    : null;
 
   return payload;
 }
@@ -598,6 +618,10 @@ export class ConsoleSettingsController {
           : String(model.autoSummaryThreshold ?? '90%'),
         promptCaching: typeof model.promptCaching === 'boolean' ? model.promptCaching : undefined,
         autoCaching: typeof model.autoCaching === 'boolean' ? model.autoCaching : undefined,
+        toolCallProtocol: supportsConsoleToolCallProtocol(model.provider)
+          && model.toolCallProtocol === 'tagged-json'
+          ? 'tagged-json'
+          : 'native',
         baseUrl: model.provider === 'deepseek' ? DEEPSEEK_BASE_URL : model.baseUrl,
       })),
       modelOriginalNames: (llm.models ?? []).map((model: any) => model.modelName),

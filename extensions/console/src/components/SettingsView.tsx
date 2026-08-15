@@ -27,6 +27,7 @@ import {
   CONSOLE_CLAUDE_PROMPT_CACHE_MODES,
   CONSOLE_LLM_PROVIDER_OPTIONS,
   CONSOLE_MCP_TRANSPORT_OPTIONS,
+  CONSOLE_TOOL_CALL_PROTOCOL_OPTIONS,
   ConsoleClaudePromptCacheMode,
   ConsoleLLMProvider,
   ConsoleMCPTransport,
@@ -37,6 +38,7 @@ import {
   getConsoleClaudePromptCacheMode,
   getConsolePromptCacheKind,
   isConsolePromptCachingEnabled,
+  supportsConsoleToolCallProtocol,
 } from '../settings';
 import { getConsoleDiffApprovalViewDescription, supportsConsoleDiffApprovalViewSetting } from '../diff-approval';
 import type { ModelCatalogResultLike } from 'irises-extension-sdk';
@@ -64,6 +66,7 @@ type RowTarget =
   | { kind: 'modelAutoCompact'; modelIndex: number }
   | { kind: 'modelPromptCaching'; modelIndex: number }
   | { kind: 'modelClaudePromptCacheMode'; modelIndex: number }
+  | { kind: 'modelToolCallProtocol'; modelIndex: number }
   | { kind: 'systemField'; field: 'systemPrompt' | 'maxToolRounds' | 'stream' | 'retryOnError' | 'maxRetries' | 'logRequests' | 'maxAgentDepth' | 'defaultMode' | 'asyncSubAgents' }
   | { kind: 'toolPolicy'; toolIndex: number }
   | { kind: 'toolApprovalView'; toolIndex: number }
@@ -101,6 +104,7 @@ function isInlineCycleTarget(target: RowTarget): boolean {
   return target.kind === 'modelProvider'
     || target.kind === 'deepseekModel'
     || target.kind === 'modelClaudePromptCacheMode'
+    || target.kind === 'modelToolCallProtocol'
     || target.kind === 'toolPolicy'
     || (target.kind === 'mcpField' && target.field === 'transport');
 }
@@ -124,6 +128,10 @@ function formatClaudePromptCacheMode(mode: ConsoleClaudePromptCacheMode): string
   if (mode === 'automatic') return '自动（推荐）';
   if (mode === 'explicit') return '显式断点';
   return '关闭';
+}
+
+function formatToolCallProtocol(protocol: 'native' | 'tagged-json' | undefined): string {
+  return protocol === 'tagged-json' ? '标签 JSON（文本）' : '原生 tools（默认）';
 }
 
 interface EditorState {
@@ -290,6 +298,14 @@ function buildRows(snapshot: ConsoleSettingsSnapshot, termWidth: number): Settin
     pushField(`model.${index}.apiKey`, 'general', 'API Key', model.apiKey || '未配置', { kind: 'modelField', modelIndex: index, field: 'apiKey' }, undefined, 6);
     if (model.provider !== 'deepseek') {
       pushField(`model.${index}.baseUrl`, 'general', 'Base URL', model.baseUrl || '(空)', { kind: 'modelField', modelIndex: index, field: 'baseUrl' }, '回车编辑。', 6);
+    }
+    if (supportsConsoleToolCallProtocol(model.provider)) {
+      pushField(
+        `model.${index}.toolCallProtocol`, 'general', '工具调用协议',
+        formatToolCallProtocol(model.toolCallProtocol),
+        { kind: 'modelToolCallProtocol', modelIndex: index },
+        '原生 tools 适用于标准 API；标签 JSON 适用于只能在正文输出工具调用的模型。Enter 或 → 切换。', 6,
+      );
     }
     const promptCacheKind = getConsolePromptCacheKind(model);
     if (promptCacheKind === 'claude') {
@@ -701,6 +717,16 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
         snapshot.models[target.modelIndex] = applyConsoleClaudePromptCacheMode(model, next);
         return;
       }
+      if (target.kind === 'modelToolCallProtocol') {
+        const model = snapshot.models[target.modelIndex];
+        if (!model) return;
+        model.toolCallProtocol = cycleValue(
+          CONSOLE_TOOL_CALL_PROTOCOL_OPTIONS,
+          model.toolCallProtocol ?? 'native',
+          direction,
+        );
+        return;
+      }
       if (target.kind === 'mcpField' && target.field === 'transport') {
         const current = snapshot.mcpServers[target.serverIndex]?.transport;
         if (!current) return;
@@ -944,6 +970,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       && selectedRow.target.kind !== 'modelAutoCompact'
       && selectedRow.target.kind !== 'modelPromptCaching'
       && selectedRow.target.kind !== 'modelClaudePromptCacheMode'
+      && selectedRow.target.kind !== 'modelToolCallProtocol'
       && selectedRow.target.kind !== 'deepseekModel'
     ) {
       setStatus('请先选中某个模型字段后再删除', 'warning');
@@ -1227,7 +1254,7 @@ export function SettingsView({ initialSection = 'general', onBack, onLoad, onSav
       return;
     }
     if (key.name === 'space' && selectedRow?.target) {
-      if (selectedRow.target.kind === 'modelClaudePromptCacheMode') {
+      if (selectedRow.target.kind === 'modelClaudePromptCacheMode' || selectedRow.target.kind === 'modelToolCallProtocol') {
         applyCycle(selectedRow.target, 1);
       } else if (isToggleTarget(selectedRow.target)) {
         applyToggle(selectedRow.target);

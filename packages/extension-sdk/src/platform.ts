@@ -203,6 +203,15 @@ export interface IrisBackendLike {
   getToolDiffPreview?(toolId: string): ToolDiffPreviewResponseLike | Promise<ToolDiffPreviewResponseLike>;
   /** 获取指定会话的所有工具 Handle */
   getToolHandles(sessionId: string): ToolExecutionHandleLike[];
+  /**
+   * Execute a tool after an explicit user UI command. Only the outer call is
+   * pre-approved; every nested tool still goes through its own policy.
+   */
+  executeUserApprovedTool?(
+    sessionId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown>;
   /** 查询指定 session 的所有异步子代理任务（只读） */
   getAgentTasks?(sessionId: string): AgentTaskInfoLike[];
   /** 查询指定 session 中正在运行的异步子代理任务（只读） */
@@ -322,6 +331,11 @@ export class BackendHandle implements IrisBackendLike {
 
   getToolHandles(sessionId: string): ToolExecutionHandleLike[] {
     return this._backend.getToolHandles(sessionId);
+  }
+
+  executeUserApprovedTool(sessionId: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
+    return this._backend.executeUserApprovedTool?.(sessionId, toolName, args)
+      ?? Promise.reject(new Error('Direct user-approved tool execution is not supported by this backend'));
   }
 
   // ── 可选方法代理 ──

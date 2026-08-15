@@ -72,6 +72,11 @@ interface UseAppKeyboardOptions {
   onAddCommandPattern?: (toolName: string, command: string, type: 'allow' | 'deny') => void;
   onPlanCommand?: (arg: string) => Promise<{ ok: boolean; message: string; followupPrompt?: string }>;
   onAutoEditCommand?: (arg: string) => Promise<{ ok: boolean; message: string }>;
+  /** 从系统剪贴板附加复制的文件或截图。 */
+  onClipboardFileAttach?: () => void;
+  /** 删除最后一个待发送附件。 */
+  onRemoveLastPendingFile?: () => void;
+  pendingFileCount?: number;
   sessionList: SessionMeta[];
   modelList: LLMModelInfo[];
   defaultModelName: string;
@@ -278,6 +283,9 @@ export function useAppKeyboard({
   onAddCommandPattern,
   onPlanCommand,
   onAutoEditCommand,
+  onClipboardFileAttach,
+  onRemoveLastPendingFile,
+  pendingFileCount = 0,
   sessionList,
   modelList,
   defaultModelName,
@@ -468,6 +476,26 @@ export function useAppKeyboard({
 
     if (key.ctrl && key.name === 'o') {
       onToggleThoughts();
+      return;
+    }
+
+    const canAttachClipboard = viewMode === 'chat'
+      && !pendingConfirm
+      && !askQuestionActive
+      && pendingApprovals.length === 0
+      && pendingApplies.length === 0;
+
+    if (canAttachClipboard && isAltLetterShortcut(key, 'v')) {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      onClipboardFileAttach?.();
+      return;
+    }
+
+    if (canAttachClipboard && pendingFileCount > 0 && isAltLetterShortcut(key, 'd')) {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      onRemoveLastPendingFile?.();
       return;
     }
 

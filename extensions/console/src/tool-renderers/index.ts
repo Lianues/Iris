@@ -20,6 +20,7 @@ import { DeleteCodeRenderer } from './delete-code';
 import { InsertCodeRenderer } from './insert-code';
 import { AskQuestionFirstRenderer } from './ask-question-first';
 import { SkillRenderer } from './skill';
+import { WorkflowDetailRenderer, WorkflowRenderer } from './workflow';
 
 const renderers: Record<string, FC<ToolRendererProps>> = {
   shell: ShellRenderer,
@@ -37,6 +38,7 @@ const renderers: Record<string, FC<ToolRendererProps>> = {
   execute_skill_script: SkillRenderer,
   invoke_skill: SkillRenderer,
   AskQuestionFirst: AskQuestionFirstRenderer,
+  workflow: WorkflowRenderer,
 };
 
 export function getToolRenderer(toolName: string): FC<ToolRendererProps> {
@@ -58,9 +60,13 @@ export interface ToolDetailRendererProps {
   children: ToolInvocation[];
   /** 请求打开子工具详情 */
   onNavigateChild?: (toolId: string) => void;
+  /** Index controlled by ToolDetailView's shared keyboard navigation. */
+  selectedChildIndex?: number;
 }
 
-const detailRenderers: Record<string, FC<ToolDetailRendererProps>> = {};
+const detailRenderers: Record<string, FC<ToolDetailRendererProps>> = {
+  workflow: WorkflowDetailRenderer,
+};
 
 /**
  * 注册工具的自定义详情渲染器。

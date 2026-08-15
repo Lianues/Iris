@@ -11100,23 +11100,12 @@ var require_bcrypt_pbkdf = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/cpu-features/build/Release/cpufeatures.node
-var require_cpufeatures = __commonJS((exports, module) => {
-  module.exports = __require("./cpufeatures-2c04nnbs.node");
-});
-
-// node_modules/cpu-features/lib/index.js
-var require_lib2 = __commonJS((exports, module) => {
-  var binding = require_cpufeatures();
-  module.exports = binding.getCPUInfo;
-});
-
 // node_modules/ssh2/lib/protocol/constants.js
 var require_constants = __commonJS((exports, module) => {
   var crypto = __require("crypto");
   var cpuInfo;
   try {
-    cpuInfo = require_lib2()();
+    cpuInfo = (()=>{throw new Error("Cannot require module "+"cpu-features");})()();
   } catch {}
   var { bindingAvailable, CIPHER_INFO, MAC_INFO } = require_crypto();
   var eddsaSupported = (() => {
@@ -11713,14 +11702,9 @@ var require_utils = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/ssh2/lib/protocol/crypto/build/Release/sshcrypto.node
-var require_sshcrypto = __commonJS((exports, module) => {
-  module.exports = __require("./sshcrypto-qj2ah1zq.node");
-});
-
 // node_modules/ssh2/lib/protocol/crypto/poly1305.js
 var require_poly1305 = __commonJS((exports, module) => {
-  var __dirname = "F:\\111\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib\\protocol\\crypto", __filename = "F:\\111\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib\\protocol\\crypto\\poly1305.js";
+  var __dirname = "D:\\code\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib\\protocol\\crypto", __filename = "D:\\code\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib\\protocol\\crypto\\poly1305.js";
   var createPoly1305 = function() {
     var _scriptDir = typeof document !== "undefined" && document.currentScript ? document.currentScript.src : undefined;
     if (typeof __filename !== "undefined")
@@ -12204,7 +12188,7 @@ var require_crypto = __commonJS((exports, module) => {
   var ChaChaPolyDecipher;
   var GenericDecipher;
   try {
-    binding = require_sshcrypto();
+    binding = (()=>{throw new Error("Cannot require module "+"./crypto/build/Release/sshcrypto.node");})();
     ({
       AESGCMCipher,
       ChaChaPolyCipher,
@@ -14493,7 +14477,7 @@ ${formatted}-----END ${type} KEY-----`;
 
 // node_modules/ssh2/lib/agent.js
 var require_agent = __commonJS((exports, module) => {
-  var __dirname = "F:\\111\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib";
+  var __dirname = "D:\\code\\Iris\\extensions\\remote-exec\\node_modules\\ssh2\\lib";
   var { Socket } = __require("net");
   var { Duplex } = __require("stream");
   var { resolve } = __require("path");
@@ -25759,7 +25743,7 @@ var require_keygen = __commonJS((exports, module) => {
 });
 
 // node_modules/ssh2/lib/index.js
-var require_lib3 = __commonJS((exports, module) => {
+var require_lib2 = __commonJS((exports, module) => {
   var {
     AgentProtocol,
     BaseAgent,
@@ -26036,7 +26020,7 @@ function numberField(v) {
 }
 
 // src/transport.ts
-var import_ssh2 = __toESM(require_lib3(), 1);
+var import_ssh2 = __toESM(require_lib2(), 1);
 import { promises as fs } from "node:fs";
 
 class SshTransport {
@@ -27498,14 +27482,13 @@ class RemoteBashEndpoint {
     };
   }
 }
-// ../console/src/slash-command-service.ts
-var CONSOLE_SLASH_COMMAND_SERVICE_ID = "console:slash-command";
-// ../console/src/path-display-service.ts
-var CONSOLE_PATH_DISPLAY_SERVICE_ID = "console:path-display";
-// ../console/src/status-segment-service.ts
-var CONSOLE_STATUS_SEGMENT_SERVICE_ID = "console:status-segment";
-// ../console/src/tool-display-service.ts
-var CONSOLE_TOOL_DISPLAY_SERVICE_ID = "console:tool-display";
+
+// node_modules/irises-extension-sdk/dist/console.js
+var CONSOLE_SLASH_COMMAND_SERVICE_ID2 = "console:slash-command";
+var CONSOLE_PATH_DISPLAY_SERVICE_ID2 = "console:path-display";
+var CONSOLE_STATUS_SEGMENT_SERVICE_ID2 = "console:status-segment";
+var CONSOLE_TOOL_DISPLAY_SERVICE_ID2 = "console:tool-display";
+
 // src/console-display.ts
 var displayRegistration;
 var displayRegistering = false;
@@ -27546,7 +27529,7 @@ function registerTransferFilesDisplay(api) {
   if (displayRegistration || displayRegistering)
     return;
   displayRegistering = true;
-  api.services.waitFor(CONSOLE_TOOL_DISPLAY_SERVICE_ID, 5000).then((service) => {
+  api.services.waitFor(CONSOLE_TOOL_DISPLAY_SERVICE_ID2, 5000).then((service) => {
     if (displayRegistration)
       return;
     displayRegistration = service.register("transfer_files", {
@@ -27568,7 +27551,7 @@ function registerEnvironmentSlashCommands(api, envMgr) {
   if (slashRegistrations.length > 0 || slashRegistering)
     return;
   slashRegistering = true;
-  api.services.waitFor(CONSOLE_SLASH_COMMAND_SERVICE_ID, 5000).then((service) => {
+  api.services.waitFor(CONSOLE_SLASH_COMMAND_SERVICE_ID2, 5000).then((service) => {
     if (slashRegistrations.length > 0)
       return;
     const switchTo = async (name, sessionId) => {
@@ -27637,7 +27620,7 @@ function registerEnvironmentStatusSegment(api, envMgr) {
   if (statusRegistration || statusRegistering)
     return;
   statusRegistering = true;
-  api.services.waitFor(CONSOLE_STATUS_SEGMENT_SERVICE_ID, 5000).then((service) => {
+  api.services.waitFor(CONSOLE_STATUS_SEGMENT_SERVICE_ID2, 5000).then((service) => {
     if (statusRegistration)
       return;
     statusRegistration = service.register({
@@ -27666,7 +27649,7 @@ function registerEnvironmentPathDisplay(api, envMgr) {
   if (pathDisplayRegistration || pathDisplayRegistering)
     return;
   pathDisplayRegistering = true;
-  api.services.waitFor(CONSOLE_PATH_DISPLAY_SERVICE_ID, 5000).then((service) => {
+  api.services.waitFor(CONSOLE_PATH_DISPLAY_SERVICE_ID2, 5000).then((service) => {
     if (pathDisplayRegistration)
       return;
     pathDisplayRegistration = service.register({
@@ -31325,6 +31308,7 @@ function listSupportedTools() {
 }
 
 // src/wrap.ts
+var REMOTE_UNSUPPORTED_LOCAL_TOOLS = new Set(["execute_skill_script"]);
 function installToolWrappers(p) {
   const { api, envMgr, getConfig, getTransport, logger } = p;
   const wrappedTools = new WeakSet;
@@ -31333,12 +31317,15 @@ function installToolWrappers(p) {
     if (!tool || wrappedTools.has(tool))
       return;
     const translator = getTranslator(toolName);
-    if (!translator)
+    const remoteUnsupported = REMOTE_UNSUPPORTED_LOCAL_TOOLS.has(toolName);
+    if (!translator && !remoteUnsupported)
       return;
     const original = tool.handler;
     const wrapped = async (args, context) => {
       const cfg = getConfig();
       if (!cfg.enabled)
+        return original(args, context);
+      if (context?.forceLocalExecution)
         return original(args, context);
       const activeName = envMgr.getActive();
       if (activeName === LOCAL_ENV)
@@ -31350,7 +31337,14 @@ function installToolWrappers(p) {
       }
       const remoteCwd = server.workdir ?? cfg.remoteWorkdir;
       try {
-        return await translator(args, {
+        if (remoteUnsupported || !translator) {
+          throw new Error(`${toolName} cannot run in a remote environment; switch the session to local or use an explicitly transferred remote script.`);
+        }
+        const preflight = tool.preflight ? await tool.preflight(args, context) : undefined;
+        if (preflight && !preflight.allowed)
+          return preflight.result;
+        const effectiveArgs = preflight?.args ?? args;
+        return await translator(effectiveArgs, {
           transport: getTransport(),
           serverAlias: activeName,
           remoteCwd,
@@ -31371,7 +31365,7 @@ function installToolWrappers(p) {
     logger.info(`已为工具安装 remote-exec wrapper: ${toolName}`);
   };
   const applyToExistingTools = () => {
-    const supported = new Set(listSupportedTools());
+    const supported = new Set([...listSupportedTools(), ...REMOTE_UNSUPPORTED_LOCAL_TOOLS]);
     const names = api.tools.listTools?.() ?? [];
     for (const name of names) {
       if (!supported.has(name))
@@ -31386,7 +31380,7 @@ function installToolWrappers(p) {
     registry.register = function(tool) {
       const ret = originalRegister(tool);
       const name = tool?.declaration?.name;
-      if (name && getTranslator(name)) {
+      if (name && (getTranslator(name) || REMOTE_UNSUPPORTED_LOCAL_TOOLS.has(name))) {
         queueMicrotask(() => wrapToolObject(name, api.tools.get?.(name) ?? tool));
       }
       return ret;

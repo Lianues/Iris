@@ -38,6 +38,7 @@ import { useCommandDispatch } from './hooks/use-command-dispatch';
 import { useExitConfirm } from './hooks/use-exit-confirm';
 import { useMessageQueue } from './hooks/use-message-queue';
 import { useModelState } from './hooks/use-model-state';
+import { useQueuedMessageHandoff } from './hooks/use-queued-message-handoff';
 import { useTextInput } from './hooks/use-text-input';
 import { createUndoRedoStack, type UndoRedoStack } from './undo-redo';
 import { writeClipboardText } from './terminal-compat';
@@ -257,6 +258,7 @@ export function App({
 
   const [runtimePluginSettingsTabs, setRuntimePluginSettingsTabs] = useState(pluginSettingsTabs ?? []);
   const [runtimeSlashCommands, setRuntimeSlashCommands] = useState<Command[]>(() => slashCommandService?.list() ?? []);
+  const [slashServiceVersion, setSlashServiceVersion] = useState(0);
   useEffect(() => {
     setRuntimePluginSettingsTabs(pluginSettingsTabs ?? []);
   }, [pluginSettingsTabs]);
@@ -265,7 +267,10 @@ export function App({
       setRuntimeSlashCommands([]);
       return;
     }
-    const disposable = slashCommandService.onDidChange(() => setRuntimeSlashCommands(slashCommandService.list()));
+    const disposable = slashCommandService.onDidChange(() => {
+      setRuntimeSlashCommands(slashCommandService.list());
+      setSlashServiceVersion((version) => version + 1);
+    });
     setRuntimeSlashCommands(slashCommandService.list());
     return () => disposable.dispose();
   }, [slashCommandService]);
@@ -474,10 +479,21 @@ export function App({
     onFileAttach?.('__open_browser__');
   }, [onFileAttach]);
 
+  const handleClipboardFileAttach = useCallback(() => {
+    onFileAttach?.('__clipboard__');
+  }, [onFileAttach]);
+
+  const handleRemoveLastPendingFile = useCallback(() => {
+    if (pendingFiles.length > 0) {
+      onRemoveFileProp?.(pendingFiles.length - 1);
+    }
+  }, [onRemoveFileProp, pendingFiles.length]);
+
   const handleSubmit = useCommandDispatch({
     onSubmit: queueAwareSubmit,
     isGenerating: appState.isGenerating,
     slashCommandService,
+    pendingFileCount: pendingFiles.length,
     onFileAttach: handleFileAttach,
     onOpenFileBrowser: handleOpenFileBrowser,
     getCurrentSessionId,
@@ -562,18 +578,15 @@ export function App({
     return () => { selectionRenderer.off?.('selection', handleSelection); };
   }, [renderer, copyMode]);
 
-  // 离开 queue-list 视图时：如果当前空闲且队列非空，自动发送队首消息恢复排流。
-  const prevViewModeRef = useRef(viewMode);
-  useEffect(() => {
-    const prev = prevViewModeRef.current;
-    prevViewModeRef.current = viewMode;
-    if (prev === 'queue-list' && viewMode === 'chat' && !appState.isGenerating && messageQueue.size > 0) {
-      const next = messageQueue.dequeue();
-      if (next) {
-        onSubmit(next.text);
-      }
-    }
-  }, [viewMode, appState.isGenerating, messageQueue, onSubmit]);
+  // compact 等独立前台操作结束后，若 TUI 已真正空闲，则交接队首消息恢复排流。
+  // queue-list 仍保持暂停；退出该视图后同一逻辑会自动恢复。
+  useQueuedMessageHandoff({
+    isGenerating: appState.isGenerating,
+    paused: viewMode === 'queue-list',
+    queueSize: messageQueue.size,
+    dequeue: messageQueue.dequeue,
+    onSubmit,
+  });
 
   useEffect(() => {
     const total = appState.progressSnapshot?.items.length ?? 0;
@@ -689,6 +702,9 @@ export function App({
     onAddCommandPattern,
     onPlanCommand,
     onAutoEditCommand,
+    onClipboardFileAttach: handleClipboardFileAttach,
+    onRemoveLastPendingFile: handleRemoveLastPendingFile,
+    pendingFileCount: pendingFiles.length,
     sessionList,
     modelList,
     setModelList,
@@ -812,6 +828,10 @@ export function App({
   const consolePathDisplay = useMemo(
     () => pathDisplayService?.resolve({ sessionId: getCurrentSessionId?.() }),
     [pathDisplayVersion, pathDisplayService, getCurrentSessionId, viewMode, appState.messages.length],
+  );
+  const activeInputMode = useMemo(
+    () => slashCommandService?.resolveInputMode({ sessionId: getCurrentSessionId?.() }),
+    [slashCommandService, slashServiceVersion, getCurrentSessionId, viewMode, appState.messages.length],
   );
 
   if (viewMode === 'settings') {
@@ -1042,6 +1062,7 @@ export function App({
         onRemoveFile={handleRemoveFile}
         onListFileMentionFiles={onListFileMentionFiles}
         dynamicCommands={dynamicCommands}
+        inputMode={activeInputMode}
         statusSegments={rightStatusSegments}
         supportsHeadlessTransition={supportsHeadlessTransition}
         inputControllerRef={promptInputControllerRef}

@@ -13,6 +13,10 @@ export {
   type ConsoleSlashCommandHandlerInput,
   type ConsoleSlashCommandResult,
   type ConsoleSlashCommandService,
+  type ConsoleInputModeContext,
+  type ConsoleInputModeHandlerInput,
+  type ConsoleInputModeProvider,
+  type ConsoleInputModeSnapshot,
 } from './slash-command-service.js';
 
 export {

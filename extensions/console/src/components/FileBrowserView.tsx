@@ -57,7 +57,7 @@ export function FileBrowserView({ currentPath, entries, selectedIndex, showHidde
   return (
     <box flexDirection="column" width="100%" height="100%">
       {/* 标题 + 路径 + 操作提示 */}
-      <box flexDirection="column" paddingX={1} paddingTop={1}>
+      <box flexDirection="column" paddingX={1} paddingTop={1} flexShrink={0}>
         <text>
           <span fg={C.primary}>文件浏览器</span>
           <span fg={C.dim}>{`  ${ICONS.arrowUp}${ICONS.arrowDown} 导航  Enter 选择/进入  Backspace 上级  `}</span>

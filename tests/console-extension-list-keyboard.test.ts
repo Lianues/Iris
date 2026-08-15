@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parseSkillCommandInput } from '../extensions/console/src/input-commands';
 
 describe('console /extension keyboard regressions', () => {
   it('Enter 只修改扩展开关草稿，S 才调用 onToggleExtension 保存并热重载', () => {
@@ -84,7 +85,7 @@ describe('console /extension keyboard regressions', () => {
     expect(dispatchSource).toContain('canOpenLoverSettings');
   });
 
-  it('/skills 应打开 Skill 列表与诊断面板', () => {
+  it('/skill [name] 应打开 Skill 列表并可定位详情，不再暴露重复的 /skills', () => {
     const commandsSource = readFileSync(
       path.resolve(__dirname, '../extensions/console/src/input-commands.ts'),
       'utf8',
@@ -103,8 +104,11 @@ describe('console /extension keyboard regressions', () => {
     );
 
     expect(commandsSource).toContain("name: '/skill'");
-    expect(commandsSource).toContain("name: '/skills'");
-    expect(dispatchSource).toContain("text === '/skills' || text === '/skill'");
+    expect(commandsSource).not.toContain("name: '/skills'");
+    expect(commandsSource).toContain('acceptsArgs: true');
+    expect(dispatchSource).toContain('parseSkillCommandInput(text)');
+    expect(dispatchSource).toContain('report.loaded.findIndex');
+    expect(dispatchSource).not.toContain("text === '/skills'");
     expect(appSource).toContain("viewMode === 'skill-list'");
     expect(appSource).toContain('SkillListView');
     expect(appSource).toContain('detailsExpanded={skillDetailsExpanded}');
@@ -112,6 +116,14 @@ describe('console /extension keyboard regressions', () => {
     expect(keyboardSource).toContain('setSkillDetailsExpanded((prev) => !prev)');
     expect(keyboardSource).toContain('onListSkills({ refresh: true })');
     expect(keyboardSource).toContain('Failed to refresh skills');
+  });
+
+  it('/skill 命令解析只接受规范入口，并保留完整 Skill 名称', () => {
+    expect(parseSkillCommandInput('/skill')).toEqual({});
+    expect(parseSkillCommandInput('/skill review-code')).toEqual({ skillName: 'review-code' });
+    expect(parseSkillCommandInput('/skill   review-code  ')).toEqual({ skillName: 'review-code' });
+    expect(parseSkillCommandInput('/skills')).toBeNull();
+    expect(parseSkillCommandInput('/skill-name')).toBeNull();
   });
 
   it('动态命令应基于已保存状态过滤，保存后刷新插件 settings tabs', () => {

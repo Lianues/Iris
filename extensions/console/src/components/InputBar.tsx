@@ -99,6 +99,7 @@ interface InputBarProps {
   /** 当前是否处于远程连接状态 */
   isRemote?: boolean;
   dynamicCommands?: Command[];
+  inputMode?: import('../slash-command-service').ConsoleInputModeSnapshot;
   supportsHeadlessTransition?: boolean;
   inputControllerRef?: MutableRefObject<PromptInputController | null>;
   /** 外部请求恢复输入框文本（如 rewind 后把旧用户消息放回输入框） */
@@ -112,7 +113,7 @@ function isPrioritySubmitShortcut(key: any): boolean {
   return key.ctrl && (key.name === 'return' || key.name === 'enter');
 }
 
-export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onAbort, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed, onOverlayActiveChange }: InputBarProps) {
+export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPrioritySubmit, onAbort, onCycleThinkingEffort, pendingFiles, onRemoveFile, onListFileMentionFiles, isRemote, dynamicCommands = [], inputMode, supportsHeadlessTransition, thinkingControlEnabled, inputControllerRef, restoreInputText, onRestoreInputConsumed, onOverlayActiveChange }: InputBarProps) {
   const [inputState, inputActions] = useTextInput('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [fileSelectedIndex, setFileSelectedIndex] = useState(0);
@@ -458,8 +459,8 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
       return;
     }
 
-    // Backspace + 输入框为空 + 有待发送附件 → 移除最后一个附件
-    if (key.name === 'backspace' && !value && pendingFiles.length > 0) {
+    // Backspace / Delete + 输入框为空 + 有待发送附件 → 移除最后一个附件
+    if ((key.name === 'backspace' || key.name === 'delete') && !value && pendingFiles.length > 0) {
       key.preventDefault?.();
       onRemoveFile(pendingFiles.length - 1);
       return;
@@ -518,11 +519,17 @@ export function InputBar({ disabled, isGenerating, queueSize, onSubmit, onPriori
   const MAX_VISIBLE_INPUT_LINES = 8;
 
   // 提示符样式和 placeholder 根据状态变化
-  const promptColor = inputDisabled ? C.dim : isQueueMode ? C.warn : C.accent;
+  const promptColor = inputDisabled ? C.dim : isGenerating ? C.warn : inputMode?.color ?? (isQueueMode ? C.warn : C.accent);
   const queuePromptChar = HOURGLASS_SPINNER_FRAMES[queuePromptFrame % HOURGLASS_SPINNER_FRAMES.length];
-  const promptText = isQueueMode ? `${queuePromptChar}  ` : `${ICONS.selectorArrow}  `;
+  const promptText = inputMode
+    ? `${inputMode.prompt ?? '◇'} ${inputMode.label} › `
+    : isQueueMode ? `${queuePromptChar}  ` : `${ICONS.selectorArrow}  `;
   const promptVisualWidth = getTextWidth(promptText);
-  const placeholder = isQueueMode ? `输入消息（将排队发送）${ICONS.ellipsis}` : `输入消息${ICONS.ellipsis}`;
+  const placeholder = inputMode
+    ? isGenerating
+      ? `模式已暂停，请等待当前回复完成${ICONS.ellipsis}`
+      : inputMode.placeholder ?? `描述要编排的任务${ICONS.ellipsis}`
+    : isQueueMode ? `输入消息（将排队发送）${ICONS.ellipsis}` : `输入消息${ICONS.ellipsis}`;
   const inputChromeWidth = 6 + promptVisualWidth;
   const baseAvailableWidth = Math.max(1, termWidth - inputChromeWidth);
 

@@ -51,6 +51,7 @@ import { ConsoleSettingsController, ConsoleSettingsSaveResult, ConsoleSettingsSn
 import { configureBundledOpenTuiTreeSitter } from './opentui-runtime';
 import { attachCompiledResizeWatcher } from './resize-watcher';
 import { ICONS } from './terminal-compat';
+import { readClipboardAttachments } from './clipboard-attachments';
 import type { ConsoleConfig } from './console-config';
 import { resolveConsoleConfig } from './console-config';
 import { CONSOLE_TOOL_DISPLAY_SERVICE_ID, createConsoleToolDisplayService, type ConsoleToolDisplayService } from './tool-display-service';
@@ -871,8 +872,8 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
     try { this.progressServiceUpdateDisposable?.dispose(); } catch { /* ignore */ }
     const progressService = this.getLocalProgressService();
     this.progressServiceChangeDisposable = progressService?.onDidChange(() => { void this.syncProgress(); });
-    this.progressServiceUpdateDisposable = progressService?.onDidUpdate((_providerId, sid, snapshot) => {
-      if (sid === this.sessionId) this.appHandle?.setProgress(snapshot);
+    this.progressServiceUpdateDisposable = progressService?.onDidUpdate((_providerId, sid, _snapshot) => {
+      if (sid === this.sessionId) void this.syncProgress();
     });
   }
 
@@ -977,7 +978,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async syncProgress(): Promise<void> {
     try {
-      const provider = this.getLocalProgressService()?.getActiveProvider();
+      const provider = this.getLocalProgressService()?.getActiveProvider(this.sessionId);
       const snapshot = await provider?.loadLatest?.(this.sessionId);
       this.appHandle?.setProgress(snapshot ?? null);
     } catch {
@@ -2267,7 +2268,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async loadProgressArchives(sessionId: string): Promise<ConsoleProgressArchiveLike[]> {
     try {
-      return await this.getLocalProgressService()?.getActiveProvider()?.loadHistory?.(sessionId) ?? [];
+      return await this.getLocalProgressService()?.getActiveProvider(sessionId)?.loadHistory?.(sessionId) ?? [];
     } catch {
       return [];
     }
@@ -2275,7 +2276,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async loadProgressUiState(sessionId: string): Promise<{ expanded: boolean; updatedAt?: number; snapshotUpdatedAt?: number } | undefined> {
     try {
-      return await this.getLocalProgressService()?.getActiveProvider()?.loadUiState?.(sessionId);
+      return await this.getLocalProgressService()?.getActiveProvider(sessionId)?.loadUiState?.(sessionId);
     } catch {
       return undefined;
     }
@@ -2283,7 +2284,7 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
 
   private async saveProgressUiState(sessionId: string, state: { expanded: boolean; snapshotUpdatedAt?: number }): Promise<void> {
     try {
-      await this.getLocalProgressService()?.getActiveProvider()?.saveUiState?.(sessionId, state);
+      await this.getLocalProgressService()?.getActiveProvider(sessionId)?.saveUiState?.(sessionId, state);
     } catch {
       // UI 偏好保存失败不影响对话主流程。
     }
@@ -3272,9 +3273,31 @@ export class ConsolePlatform extends PlatformAdapter implements ForegroundPlatfo
   /**
    * 处理 /file 命令：
    * - '__open_browser__' → 打开文件浏览器
+   * - '__clipboard__' → 从系统剪贴板附加文件或截图
    * - 具体路径 → 直接附加文件
    */
   private handleFileAttach(filePath: string): void {
+    if (filePath === '__clipboard__') {
+      const clipboard = readClipboardAttachments();
+      if (clipboard.paths.length === 0) {
+        this.appHandle?.addCommandMessage(
+          clipboard.error ?? '剪贴板中没有可附加的文件或图片。',
+          { label: 'file', isError: true },
+        );
+        clipboard.cleanup();
+        return;
+      }
+
+      try {
+        // handleFileAttach 会同步读取并 Base64 编码，因此截图临时文件可在循环后立即清理。
+        for (const attachmentPath of clipboard.paths) {
+          this.handleFileAttach(attachmentPath);
+        }
+      } finally {
+        clipboard.cleanup();
+      }
+      return;
+    }
     if (filePath === '__open_browser__') {
       const realProcess = require('process') as typeof import('process');
       this.openFileBrowser(realProcess.cwd());

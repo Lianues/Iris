@@ -20,20 +20,53 @@ export interface ConsoleSlashCommandHandlerInput {
 
 export type ConsoleSlashCommandDispatchContext = Pick<ConsoleSlashCommandHandlerInput, 'sessionId'>;
 
+export interface ConsoleInputModeSnapshot {
+  id: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  prompt?: string;
+  color?: string;
+  priority?: number;
+}
+
+export interface ConsoleInputModeContext {
+  sessionId?: string;
+}
+
+export interface ConsoleInputModeHandlerInput extends ConsoleInputModeContext {
+  text: string;
+  pendingFileCount?: number;
+  isGenerating?: boolean;
+}
+
+export interface ConsoleInputModeProvider {
+  id: string;
+  priority?: number;
+  getSnapshot(context: ConsoleInputModeContext): ConsoleInputModeSnapshot | undefined;
+  handle(input: ConsoleInputModeHandlerInput): ConsoleSlashCommandResult | Promise<ConsoleSlashCommandResult | void> | void;
+  onDidChange?(listener: () => void): Disposable;
+}
+
 export interface ConsoleSlashCommandDefinition extends Command {
   handle(input: ConsoleSlashCommandHandlerInput): ConsoleSlashCommandResult | Promise<ConsoleSlashCommandResult | void> | void;
 }
 
 export interface ConsoleSlashCommandService {
   register(command: ConsoleSlashCommandDefinition): Disposable;
+  registerInputMode(provider: ConsoleInputModeProvider): Disposable;
   list(): Command[];
   canHandle(raw: string): boolean;
   dispatch(raw: string, context?: ConsoleSlashCommandDispatchContext): Promise<ConsoleSlashCommandResult | undefined>;
+  resolveInputMode(context?: ConsoleInputModeContext): ConsoleInputModeSnapshot | undefined;
+  dispatchInput(input: ConsoleInputModeHandlerInput): Promise<ConsoleSlashCommandResult | undefined>;
   onDidChange(listener: () => void): Disposable;
 }
 
 export function createConsoleSlashCommandService(): ConsoleSlashCommandService {
   const commands = createKeyedRegistry<ConsoleSlashCommandDefinition>();
+  const inputModes = createKeyedRegistry<ConsoleInputModeProvider>();
+  const modeSubscriptions = new Map<string, { provider: ConsoleInputModeProvider; disposable: Disposable }>();
   const changes = createListenerSignal<[]>();
 
   function matchCommand(rawInput: string): { command: ConsoleSlashCommandDefinition; arg: string } | undefined {
@@ -52,6 +85,15 @@ export function createConsoleSlashCommandService(): ConsoleSlashCommandService {
     return best;
   }
 
+  function resolveInputMode(context: ConsoleInputModeContext = {}): ConsoleInputModeSnapshot | undefined {
+    const snapshots: ConsoleInputModeSnapshot[] = [];
+    for (const provider of inputModes.values()) {
+      const snapshot = provider.getSnapshot(context);
+      if (snapshot) snapshots.push({ ...snapshot, priority: snapshot.priority ?? provider.priority });
+    }
+    return snapshots.sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))[0];
+  }
+
   return {
     register(command) {
       commands.replace(command.name, command);
@@ -64,6 +106,34 @@ export function createConsoleSlashCommandService(): ConsoleSlashCommandService {
           if (commands.deleteIf(command.name, command)) {
             changes.emit();
           }
+        },
+      };
+    },
+    registerInputMode(provider) {
+      const previous = modeSubscriptions.get(provider.id);
+      previous?.disposable.dispose();
+      inputModes.replace(provider.id, provider);
+      if (provider.onDidChange) {
+        modeSubscriptions.set(provider.id, {
+          provider,
+          disposable: provider.onDidChange(() => changes.emit()),
+        });
+      } else {
+        modeSubscriptions.delete(provider.id);
+      }
+      changes.emit();
+      let disposed = false;
+      return {
+        dispose() {
+          if (disposed) return;
+          disposed = true;
+          if (!inputModes.deleteIf(provider.id, provider)) return;
+          const subscription = modeSubscriptions.get(provider.id);
+          if (subscription?.provider === provider) {
+            subscription.disposable.dispose();
+            modeSubscriptions.delete(provider.id);
+          }
+          changes.emit();
         },
       };
     },
@@ -82,6 +152,15 @@ export function createConsoleSlashCommandService(): ConsoleSlashCommandService {
         arg: matched.arg,
         sessionId: context?.sessionId,
       });
+      return result ?? {};
+    },
+    resolveInputMode,
+    async dispatchInput(input) {
+      const snapshot = resolveInputMode(input);
+      if (!snapshot) return undefined;
+      const provider = inputModes.get(snapshot.id);
+      if (!provider) return undefined;
+      const result = await provider.handle(input);
       return result ?? {};
     },
     onDidChange(listener) {
