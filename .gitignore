@@ -218,3 +218,32 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Iris / Node.js
+node_modules/
+src/platforms/web/web-ui/
+logs/
+limcode/
+.limcode/
+.iris/
+
+# Runtime data (local configuration and session history)
+data/configs/
+data/sessions/
+
+# Portable Node.js (downloaded by the startup script)
+node/
+node-download.zip
+一键启动.bat
+
+# Claude Code and local AI tooling
+.claude/
+claude-code-source/
+gemini_2026-03-24T02-37-01.html
+opentui-main/
+opentui-skill-main/
+
+# Project-local temporary files
+.tmp-*
+nul
+npm-fast-tavern/
