@@ -9,6 +9,7 @@ const MAX_RESOURCE_TEXT_CHARS = 300_000;
 export interface ReadSkillResourceDeps {
   getBackend: () => {
     getSkillByName(name: string): SkillDefinition | undefined;
+    isSkillModelAccessible?(name: string, sessionId?: string): boolean;
   };
 }
 
@@ -39,7 +40,7 @@ function buildDeclaration(): FunctionDeclaration {
 export function createReadSkillResourceTool(deps: ReadSkillResourceDeps): ToolDefinition {
   return {
     declaration: buildDeclaration(),
-    handler: async (args) => {
+    handler: async (args, context) => {
       const name = typeof args.name === 'string' ? args.name.trim() : '';
       const relativePathInput = typeof args.relativePath === 'string' ? args.relativePath.trim() : '';
       if (!name || !relativePathInput) {
@@ -50,7 +51,7 @@ export function createReadSkillResourceTool(deps: ReadSkillResourceDeps): ToolDe
       if (!skill) {
         return { success: false, error: `Skill not found: ${name}` };
       }
-      if (skill.disableModelInvocation) {
+      if (skill.disableModelInvocation && !deps.getBackend().isSkillModelAccessible?.(skill.name, context?.sessionId)) {
         return { success: false, error: `Skill "${skill.name}" is not available for model invocation.` };
       }
       if (!skill.canonicalBasePath) {

@@ -15,10 +15,22 @@ import { createSkillUri } from '../../config/skill-resource-manifest';
 import type { SkillDefinition, SkillContextModifier, ToolsConfig } from '../../config/types';
 import { parseSkillArguments, substituteSkillParams } from './skill-params';
 import { ToolRegistry } from '../registry';
-import { PromptAssembler } from '../../prompt/assembler';
-import { ToolLoop } from '../../core/tool-loop';
 import type { LLMRouter } from '../../llm/router';
-import type { Content, Part, LLMRequest } from '../../types';
+import type { ToolExecutionContext } from '../../types';
+import { expandClaudeCodeSkillContent } from './skill-content-expansion';
+
+export interface SkillForkExecutionRequest {
+  skill: SkillDefinition;
+  processedContent: string;
+  rawArgs: string;
+  availableToolNames?: string[];
+  toolsConfig?: ToolsConfig;
+  sessionId?: string;
+  signal?: AbortSignal;
+  sourceAgent?: string;
+  parentInvocationId?: string;
+  modelName?: string;
+}
 
 export interface InvokeSkillDeps {
   getBackend: () => {
@@ -28,6 +40,8 @@ export interface InvokeSkillDeps {
   getRouter: () => LLMRouter;
   tools: ToolRegistry;
   getToolsConfig: () => ToolsConfig;
+  /** Execute fork Skills through the owning Backend's child-agent runner. */
+  runFork?: (request: SkillForkExecutionRequest) => Promise<string>;
   retryOnError?: boolean;
   maxRetries?: number;
 }
@@ -123,17 +137,6 @@ function buildDeclaration(skills: SkillListItem[]): FunctionDeclaration {
   };
 }
 
-/**
- * 为 fork 模式创建 LLM 调用函数。
- */
-function createForkLLMCaller(router: LLMRouter, modelName?: string) {
-  return async (request: LLMRequest, requestModelName?: string, signal?: AbortSignal): Promise<Content> => {
-    const effectiveModel = requestModelName ?? modelName;
-    const response = await router.chat(request, effectiveModel, signal);
-    return response.content;
-  };
-}
-
 /** 创建 invoke_skill 工具。 */
 export function createInvokeSkillTool(deps: InvokeSkillDeps): ToolDefinition {
   const backend = deps.getBackend();
@@ -141,7 +144,7 @@ export function createInvokeSkillTool(deps: InvokeSkillDeps): ToolDefinition {
 
   return {
     declaration: buildDeclaration(skills),
-    handler: async (args) => {
+    handler: async (args, context) => {
       const skillName = typeof args.skill === 'string' ? args.skill.trim() : '';
       if (!skillName) {
         return { error: 'Missing required parameter: skill' };
@@ -151,18 +154,47 @@ export function createInvokeSkillTool(deps: InvokeSkillDeps): ToolDefinition {
       if (!skill) {
         return { error: `Skill not found: ${skillName}` };
       }
-      if (skill.disableModelInvocation) {
+      // This must come from Backend execution context, never model-controlled
+      // tool arguments. The scheduler does not set this marker.
+      const userInvocation = context?.directUserSkillInvocation === true;
+      if (userInvocation && skill.userInvocable === false) {
+        return { error: `Skill "${skill.name}" is not available for user invocation.` };
+      }
+      if (skill.disableModelInvocation && !userInvocation) {
         return { error: `Skill "${skill.name}" is not available for model invocation.` };
       }
 
       // 参数解析与替换
       const rawArgs = typeof args.args === 'string' ? args.args : '';
       const parsedArgs = parseSkillArguments(rawArgs, skill.arguments);
-      const processedContent = substituteSkillParams(skill.content, parsedArgs, skill.arguments);
+      let processedContent = substituteSkillParams(skill.content, parsedArgs, skill.arguments);
+      if (skill.dialect === 'claude-code') {
+        try {
+          const invocationTools = context?.availableToolNames
+            ? deps.tools.createSubset(context.availableToolNames)
+            : deps.tools;
+          processedContent = await expandClaudeCodeSkillContent({
+            skill,
+            content: processedContent,
+            sessionId: context?.sessionId,
+            tools: invocationTools,
+            toolsConfig: deps.getToolsConfig(),
+            context,
+          });
+        } catch (error) {
+          return { error: `Claude Code Skill expansion failed: ${error instanceof Error ? error.message : String(error)}` };
+        }
+      }
 
       // Fork 模式：在独立子代理中执行
       if (skill.mode === 'fork') {
-        return await executeForkMode(deps, skill, processedContent, rawArgs);
+        return await executeForkMode(
+          deps,
+          skill,
+          processedContent,
+          rawArgs,
+          context,
+        );
       }
 
       // Inline 模式（默认）：返回内容 + 上下文修改器
@@ -205,59 +237,25 @@ async function executeForkMode(
   skill: SkillDefinition,
   processedContent: string,
   rawArgs: string,
+  context?: ToolExecutionContext,
 ): Promise<unknown> {
   try {
-    // 构建子工具集。
-    //
-    // 重要：deps.tools 是 bootstrap 时的全局 ToolRegistry，而非当前 ToolLoop 的 registry。
-    // 如果 invoke_skill 在 sub-agent 中被调用，sub-agent 可能通过 allowedTools/excludedTools
-    // 限制了可用工具集。但 deps.tools 仍是全局的，fork 子 agent 会绕过 sub-agent 的过滤。
-    //
-    // 安全策略：fork 模式下 **必须** 通过 skill 的 allowed-tools 显式声明可用工具。
-    // 未声明 allowed-tools 时，fork 子 agent 仅获得空工具集（只能纯对话），
-    // 避免意外继承全局工具导致权限逃逸。
-    let subTools: ToolRegistry;
-    if (skill.allowedTools && skill.allowedTools.length > 0) {
-      subTools = deps.tools.createSubset(skill.allowedTools);
-    } else {
-      // 未指定 allowed-tools：创建空 registry，fork 子 agent 只能纯对话
-      subTools = new ToolRegistry();
+    if (!deps.runFork) {
+      return { error: 'Skill fork runner is unavailable; fork execution must be owned by Backend.' };
     }
-    subTools.unregister('invoke_skill');
-    subTools.unregister('read_skill');
-
-    // 创建独立的 PromptAssembler
-    const subPrompt = new PromptAssembler();
-    subPrompt.setSystemPrompt(processedContent);
-
-    // 创建独立的 ToolLoop（浅拷贝 toolsConfig，防止 fork 内的 skill 修改泄漏回父级）
-    const parentConfig = deps.getToolsConfig();
-    const loop = new ToolLoop(subTools, subPrompt, {
-      maxRounds: 20,
-      toolsConfig: {
-        ...parentConfig,
-        permissions: { ...parentConfig.permissions },
-      },
-      retryOnError: deps.retryOnError,
-      maxRetries: deps.maxRetries,
+    const result = await deps.runFork({
+      skill,
+      processedContent,
+      rawArgs,
+      availableToolNames: context?.availableToolNames,
+      toolsConfig: context?.effectiveToolsConfig as ToolsConfig | undefined,
+      sessionId: context?.sessionId,
+      signal: context?.signal,
+      sourceAgent: context?.sourceAgent,
+      parentInvocationId: context?.invocationId,
+      modelName: validateModel(deps.getRouter(), skill.model),
     });
-
-    // 创建 LLM 调用函数（校验模型名，无效时回退到当前模型）
-    const validatedModel = validateModel(deps.getRouter(), skill.model);
-    const callLLM = createForkLLMCaller(deps.getRouter(), validatedModel);
-
-    // 用户参数作为 user 消息
-    const userMessage = rawArgs || 'Execute the skill.';
-    const result = await loop.run(
-      [{ role: 'user', parts: [{ text: userMessage }] }],
-      callLLM,
-    );
-
-    if (result.error) {
-      return { error: `Skill fork 执行失败: ${result.error}` };
-    }
-
-    return { result: result.text };
+    return { result };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { error: `Skill fork 执行异常: ${msg}` };

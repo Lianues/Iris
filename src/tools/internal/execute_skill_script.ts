@@ -1,10 +1,11 @@
 import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ToolDefinition, FunctionDeclaration } from '../../types';
 import type { SkillDefinition } from '../../config/types';
-import { hashFileSync, normalizeSkillRelativePath, resolveSkillResourceSync } from '../../config/skill-resource-manifest';
+import { normalizeSkillRelativePath, resolveSkillResourceSync } from '../../config/skill-resource-manifest';
+import { getActiveSessionId } from '../../core/backend/session-context';
+import { stageSkillPackage } from './skill-staging';
 import { resolveProjectPath } from '../utils';
 import { killProcessTree } from './process-tree';
 
@@ -15,6 +16,7 @@ const MAX_OUTPUT_CHARS = 20_000;
 export interface ExecuteSkillScriptDeps {
   getBackend: () => {
     getSkillByName(name: string): SkillDefinition | undefined;
+    isSkillModelAccessible?(name: string, sessionId?: string): boolean;
   };
 }
 
@@ -85,28 +87,25 @@ function resolveRunner(stagedPath: string, relativePath: string): { command: str
   return { error: `Unsupported Skill script extension: ${ext || '(none)'}` };
 }
 
-async function stageScript(sourcePath: string, relativePath: string, expectedSha256: string): Promise<{ dir: string; file: string }> {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'iris-skill-script-'));
-  const stagedName = `script${path.extname(relativePath) || '.txt'}`;
-  const file = path.join(dir, stagedName);
-  await fs.promises.copyFile(sourcePath, file);
-  const stagedHash = hashFileSync(file);
-  if (stagedHash !== expectedSha256) {
-    await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => undefined);
-    throw new Error('Skill script changed before staging. Refresh skills and ask for confirmation again.');
-  }
-  if (process.platform !== 'win32') {
-    await fs.promises.chmod(file, 0o500);
-  }
-  return { dir, file };
-}
-
 function cleanupStaging(dir: string): void {
   fs.promises.rm(dir, { recursive: true, force: true }).catch(() => undefined);
 }
 
+function redactStagingDir(output: string, stagedDir: string): string {
+  const normalizedDir = stagedDir.replace(/\\/g, '/');
+  return output
+    .split(stagedDir).join('[skill-staging]')
+    .split(normalizedDir).join('[skill-staging]');
+}
+
 function redactStagingPaths(output: string, stagedDir: string, stagedFile: string): string {
-  return output.split(stagedFile).join('[skill-script]').split(stagedDir).join('[skill-staging]');
+  const normalizedFile = stagedFile.replace(/\\/g, '/');
+  return redactStagingDir(
+    output
+      .split(stagedFile).join('[skill-script]')
+      .split(normalizedFile).join('[skill-script]'),
+    stagedDir,
+  );
 }
 
 function truncateOutput(output: string): string {
@@ -131,7 +130,7 @@ export function createExecuteSkillScriptTool(deps: ExecuteSkillScriptDeps): Tool
 
       const skill = deps.getBackend().getSkillByName(name);
       if (!skill) return { success: false, error: `Skill not found: ${name}` };
-      if (skill.disableModelInvocation) {
+      if (skill.disableModelInvocation && !deps.getBackend().isSkillModelAccessible?.(skill.name, context?.sessionId)) {
         return { success: false, error: `Skill "${skill.name}" is not available for model invocation.` };
       }
       if (!skill.canonicalBasePath) return { success: false, error: `Skill "${name}" does not have a filesystem resource root.` };
@@ -163,10 +162,20 @@ export function createExecuteSkillScriptTool(deps: ExecuteSkillScriptDeps): Tool
       if (!cwdResolution.ok) return { success: false, error: cwdResolution.error };
 
       let staged: { dir: string; file: string };
+      let stagedDirOnFailure: string | undefined;
       try {
-        staged = await stageScript(resolved.realPath, item.relativePath, item.sha256);
+        const stagedPackage = await stageSkillPackage(skill);
+        stagedDirOnFailure = stagedPackage.dir;
+        const file = stagedPackage.resolve(item.relativePath);
+        const entryStat = await fs.promises.stat(file);
+        if (!entryStat.isFile()) throw new Error(`Staged Skill entry is missing: ${item.relativePath}`);
+        if (process.platform !== 'win32') await fs.promises.chmod(file, 0o500);
+        staged = { dir: stagedPackage.dir, file };
       } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) };
+        const message = error instanceof Error ? error.message : String(error);
+        const redacted = stagedDirOnFailure ? redactStagingDir(message, stagedDirOnFailure) : message;
+        if (stagedDirOnFailure) cleanupStaging(stagedDirOnFailure);
+        return { success: false, error: redacted };
       }
 
       const runner = resolveRunner(staged.file, item.relativePath);
@@ -204,7 +213,13 @@ export function createExecuteSkillScriptTool(deps: ExecuteSkillScriptDeps): Tool
           shell: false,
           windowsHide: true,
           detached: process.platform !== 'win32',
-          env: { ...process.env, IRIS_SKILL_NAME: skill.name, IRIS_SKILL_URI: item.skillUri },
+          env: {
+            ...process.env,
+            IRIS_SKILL_NAME: skill.name,
+            IRIS_SKILL_URI: item.skillUri,
+            CLAUDE_SKILL_DIR: staged.dir,
+            CLAUDE_SESSION_ID: context?.sessionId ?? getActiveSessionId() ?? '',
+          },
         });
 
         let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
@@ -239,7 +254,7 @@ export function createExecuteSkillScriptTool(deps: ExecuteSkillScriptDeps): Tool
         proc.stdout?.on('data', chunk => output.push(String(chunk)));
         proc.stderr?.on('data', chunk => output.push(String(chunk)));
         proc.on('error', error => {
-          finish({ success: false, error: error.message });
+          finish({ success: false, error: redactStagingPaths(error.message, staged.dir, staged.file) });
         });
         proc.on('close', code => {
           const joined = redactStagingPaths(output.join(''), staged.dir, staged.file);

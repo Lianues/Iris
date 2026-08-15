@@ -156,19 +156,19 @@ function extractMarkdownLinks(body: string): string[] {
   return result;
 }
 
-function addManifestItem(skillName: string, canonicalBasePath: string, relativePath: string, items: Map<string, SkillResourceManifestItem>): void {
-  if (items.size >= MAX_MANIFEST_ITEMS) return;
+function addManifestItem(skillName: string, canonicalBasePath: string, relativePath: string, items: Map<string, SkillResourceManifestItem>): boolean {
+  if (items.size >= MAX_MANIFEST_ITEMS) return false;
 
   let normalized: string;
   try {
     normalized = normalizeSkillRelativePath(relativePath);
   } catch {
-    return;
+    return true;
   }
 
   const basename = path.posix.basename(normalized);
-  if (isExcludedName(basename)) return;
-  if (normalized.split('/').some(part => EXCLUDED_DIRS.has(part))) return;
+  if (isExcludedName(basename)) return true;
+  if (normalized.split('/').some(part => EXCLUDED_DIRS.has(part.toLowerCase()))) return true;
 
   try {
     const resolved = resolveSkillResourceSync(canonicalBasePath, normalized);
@@ -185,34 +185,57 @@ function addManifestItem(skillName: string, canonicalBasePath: string, relativeP
   } catch {
     // Invalid resources are intentionally skipped from the model-visible manifest.
   }
+  return true;
 }
 
 export function buildSkillResourceManifest(skillName: string, canonicalBasePath: string, skillBody: string): SkillResourceManifestItem[] {
   const items = new Map<string, SkillResourceManifestItem>();
+  let truncated = false;
 
   for (const link of extractMarkdownLinks(skillBody)) {
-    addManifestItem(skillName, canonicalBasePath, link, items);
+    if (!addManifestItem(skillName, canonicalBasePath, link, items)) truncated = true;
   }
 
-  for (const dir of ['scripts', 'references', 'assets']) {
-    const absDir = path.join(canonicalBasePath, dir);
+  const walk = (relativeDir: string): void => {
+    const absDir = relativeDir
+      ? path.join(canonicalBasePath, ...relativeDir.split('/'))
+      : canonicalBasePath;
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(absDir, { withFileTypes: true });
     } catch {
-      continue;
+      return;
     }
 
+    entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
-      if (items.size >= MAX_MANIFEST_ITEMS) break;
-      if (!entry.isFile()) continue;
+      if (items.size >= MAX_MANIFEST_ITEMS) {
+        truncated = true;
+        return;
+      }
+      if (entry.isSymbolicLink()) continue;
       if (isExcludedName(entry.name)) continue;
-      addManifestItem(skillName, canonicalBasePath, `${dir}/${entry.name}`, items);
+      if (EXCLUDED_DIRS.has(entry.name.toLowerCase())) continue;
+      const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(relativePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (/^skill\.md$/i.test(entry.name) && !relativeDir) continue;
+      if (!addManifestItem(skillName, canonicalBasePath, relativePath, items)) {
+        truncated = true;
+        return;
+      }
     }
-  }
+  };
+
+  // Claude Code skills may use arbitrary package layouts and relative imports,
+  // so collect the full safe resource tree rather than only three fixed dirs.
+  walk('');
 
   const list = Array.from(items.values()).sort((a, b) => a.relativePath.localeCompare(b.relativePath));
-  if (items.size >= MAX_MANIFEST_ITEMS) {
+  if (truncated) {
     list.push({
       skillUri: createSkillUri(skillName, '__truncated__'),
       relativePath: '__truncated__',

@@ -18,11 +18,13 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'node:os';
 import * as path from 'path';
 import { parse as parseYAML } from 'yaml';
 import { getSessionCwd } from '../core/backend/session-context';
 import type { SkillDefinition, SkillContextModifier, SkillDiagnostic, SkillSource } from './types';
 import { buildSkillResourceManifest, canonicalizeSkillRoot, createSkillUri } from './skill-resource-manifest';
+import { adaptClaudeCodeSkill } from './claude-skill-adapter';
 
 /** Skill 名称校验：仅允许 ASCII 字母、数字、下划线、连字符，1-64 字符 */
 const SKILL_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -30,6 +32,13 @@ const SKILL_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 export interface LoadedSkillsFromFilesystem {
   skills: SkillDefinition[];
   diagnostics: SkillDiagnostic[];
+}
+
+export interface SkillFilesystemLoadOptions {
+  /** Overrides the active session cwd (primarily useful for tests). */
+  cwd?: string;
+  /** Overrides the OS home used for ~/.claude/skills discovery. */
+  homeDir?: string;
 }
 
 let lastFilesystemSkillDiagnostics: SkillDiagnostic[] = [];
@@ -44,14 +53,6 @@ export function getLastFilesystemSkillDiagnostics(): SkillDiagnostic[] {
   return [...lastFilesystemSkillDiagnostics];
 }
 
-/**
- * 将 frontmatter 中的字段值解析为字符串数组。
- *
- * 支持格式：
- *   - YAML 数组：[a, b, c]
- *   - 逗号分隔字符串："a, b, c"
- *   - 单个字符串："a"
- */
 /**
  * 将 frontmatter 中的字段值解析为字符串数组。
  *
@@ -85,6 +86,10 @@ function parseStringArray(value: unknown): string[] | undefined {
  */
 function getField(fields: Record<string, unknown>, kebab: string, camel: string): unknown {
   return fields[kebab] ?? fields[camel];
+}
+
+function parseBooleanFrontmatter(value: unknown): boolean {
+  return value === true || value === 'true';
 }
 
 /**
@@ -141,9 +146,10 @@ export function buildSkillDefinition(
     content,
     path: filePath,
     source,
+    dialect: 'iris',
     basePath,
     canonicalBasePath,
-   skillUri: createSkillUri(name),
+    skillUri: createSkillUri(name),
     resources,
     enabled: fields.enabled === true,
     allowedTools,
@@ -153,8 +159,8 @@ export function buildSkillDefinition(
     argumentHint: typeof argumentHintRaw === 'string' ? argumentHintRaw : undefined,
     whenToUse: typeof whenToUseRaw === 'string' ? whenToUseRaw : undefined,
     paths: parseStringArray(fields.paths),
-    userInvocable: userInvocableRaw !== false,
-    disableModelInvocation: disableModelInvocationRaw === true,
+    userInvocable: userInvocableRaw === undefined ? true : parseBooleanFrontmatter(userInvocableRaw),
+    disableModelInvocation: parseBooleanFrontmatter(disableModelInvocationRaw),
     contextModifier,
   };
 }
@@ -265,6 +271,75 @@ function parseSkillMd(filePath: string, dirName: string, source: SkillSource = '
   }
 }
 
+/** Parse a Claude Code SKILL.md while keeping directory-name invocation semantics. */
+function parseClaudeSkillMd(
+  filePath: string,
+  dirName: string,
+  source: Extract<SkillSource, 'claude-global' | 'claude-project'>,
+): SkillDefinition | undefined {
+  try {
+    if (!SKILL_NAME_RE.test(dirName)) {
+      recordSkillDiagnostic({
+        severity: 'fatal',
+        code: 'claude-skill-invalid-directory-name',
+        message: `Claude Code Skill directory "${dirName}" does not match ${SKILL_NAME_RE}.`,
+        skillName: dirName,
+        filePath,
+        source,
+      });
+      return undefined;
+    }
+
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const fmMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
+    let fields: Record<string, unknown> = {};
+    let content = raw.trim();
+
+    if (fmMatch) {
+      content = fmMatch[2].trim();
+      try {
+        const parsed = parseYAML(fmMatch[1]);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          fields = parsed as Record<string, unknown>;
+        }
+      } catch (error) {
+        recordSkillDiagnostic({
+          severity: 'warning',
+          code: 'claude-skill-frontmatter-parse-failed',
+          message: error instanceof Error ? error.message : String(error),
+          skillName: dirName,
+          filePath,
+          source,
+        });
+      }
+    } else {
+      recordSkillDiagnostic({
+        severity: 'warning',
+        code: 'claude-skill-missing-frontmatter',
+        message: 'Claude Code SKILL.md has no YAML frontmatter; Iris is using the directory name and Markdown description fallback.',
+        skillName: dirName,
+        filePath,
+        source,
+      });
+    }
+
+    if (!content) return undefined;
+    const adapted = adaptClaudeCodeSkill({ directoryName: dirName, fields, content, filePath, source });
+    for (const diagnostic of adapted.diagnostics) recordSkillDiagnostic(diagnostic);
+    return adapted.skill;
+  } catch (error) {
+    recordSkillDiagnostic({
+      severity: 'warning',
+      code: 'claude-skill-read-failed',
+      message: error instanceof Error ? error.message : String(error),
+      skillName: dirName,
+      filePath,
+      source,
+    });
+    return undefined;
+  }
+}
+
 /**
  * 扫描指定目录下的 Skill（一级子目录中的 SKILL.md）。
  *
@@ -295,6 +370,66 @@ function scanSkillsDir(skillsDir: string, source: SkillSource): SkillDefinition[
   return results;
 }
 
+function scanClaudeSkillsDir(
+  skillsDir: string,
+  source: Extract<SkillSource, 'claude-global' | 'claude-project'>,
+): SkillDefinition[] {
+  if (!fs.existsSync(skillsDir)) return [];
+  const results: SkillDefinition[] = [];
+  try {
+    for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
+      if (!fs.existsSync(skillMdPath)) continue;
+      const skill = parseClaudeSkillMd(skillMdPath, entry.name, source);
+      if (skill) results.push(skill);
+    }
+  } catch (error) {
+    recordSkillDiagnostic({
+      severity: 'warning',
+      code: 'claude-skills-directory-read-failed',
+      message: error instanceof Error ? error.message : String(error),
+      filePath: skillsDir,
+      source,
+    });
+  }
+  return results;
+}
+
+function findGitRoot(cwd: string): string | undefined {
+  let cursor = path.resolve(cwd);
+  while (true) {
+    if (fs.existsSync(path.join(cursor, '.git'))) return cursor;
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return undefined;
+    cursor = parent;
+  }
+}
+
+/** Project .claude/skills directories ordered from the outer boundary to cwd. */
+export function getClaudeProjectSkillDirs(cwd: string, homeDir = os.homedir()): string[] {
+  const resolvedCwd = path.resolve(cwd);
+  const gitRoot = findGitRoot(resolvedCwd);
+  const resolvedHome = path.resolve(homeDir);
+  const boundaryKey = (value: string) => {
+    const normalized = path.normalize(value);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  };
+
+  const directories: string[] = [];
+  let cursor = resolvedCwd;
+  while (true) {
+    // ~/.claude/skills is loaded separately as the global source.
+    if (boundaryKey(cursor) === boundaryKey(resolvedHome)) break;
+    directories.push(path.join(cursor, '.claude', 'skills'));
+    if (gitRoot && boundaryKey(cursor) === boundaryKey(gitRoot)) break;
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  return directories.reverse();
+}
+
 /**
  * 从文件系统加载 Skill 定义。
  *
@@ -305,17 +440,25 @@ function scanSkillsDir(skillsDir: string, source: SkillSource): SkillDefinition[
  * @param dataDir  数据目录（默认 ~/.iris/）
  * @returns 扫描到的 SkillDefinition 数组（项目级优先于全局）
  */
-export function loadSkillsFromFilesystemWithDiagnostics(dataDir: string): LoadedSkillsFromFilesystem {
+export function loadSkillsFromFilesystemWithDiagnostics(
+  dataDir: string,
+  options: SkillFilesystemLoadOptions = {},
+): LoadedSkillsFromFilesystem {
   const diagnostics: SkillDiagnostic[] = [];
   const previousActiveDiagnostics = activeDiagnostics;
   activeDiagnostics = diagnostics;
   try {
+    const cwd = options.cwd ?? getSessionCwd();
     const globalDir = path.join(dataDir, 'skills');
-    const projectDir = path.join(getSessionCwd(), '.agents', 'skills');
+    const projectDir = path.join(cwd, '.agents', 'skills');
+    const claudeGlobalDir = path.join(options.homeDir ?? os.homedir(), '.claude', 'skills');
+    const claudeProjectDirs = getClaudeProjectSkillDirs(cwd, options.homeDir ?? os.homedir());
 
     // 全局 Skill 先加载，项目级后加载（同名时项目级覆盖全局）
     const globalSkills = scanSkillsDir(globalDir, 'global');
     const projectSkills = scanSkillsDir(projectDir, 'project');
+    const claudeGlobalSkills = scanClaudeSkillsDir(claudeGlobalDir, 'claude-global');
+    const claudeProjectSkills = claudeProjectDirs.flatMap(dir => scanClaudeSkillsDir(dir, 'claude-project'));
 
     // 合并：项目级覆盖全局同名
     const merged = new Map<string, SkillDefinition>();
@@ -334,6 +477,39 @@ export function loadSkillsFromFilesystemWithDiagnostics(dataDir: string): Loaded
       merged.set(s.name, s);
     }
 
+    // Claude Code compatibility is additive. Native Iris definitions retain
+    // their existing precedence; CC project definitions override only other
+    // CC definitions, with the directory nearest cwd winning.
+    const claudeMerged = new Map<string, SkillDefinition>();
+    for (const s of claudeGlobalSkills) claudeMerged.set(s.name, s);
+    for (const s of claudeProjectSkills) {
+      if (claudeMerged.has(s.name)) {
+        recordSkillDiagnostic({
+          severity: 'warning',
+          code: 'claude-skill-duplicate-shadowed',
+          message: `A nearer Claude Code project Skill "${s.name}" shadows another Claude Code Skill with the same name.`,
+          skillName: s.name,
+          filePath: s.path,
+          source: s.source,
+        });
+      }
+      claudeMerged.set(s.name, s);
+    }
+    for (const s of claudeMerged.values()) {
+      if (merged.has(s.name)) {
+        recordSkillDiagnostic({
+          severity: 'info',
+          code: 'claude-skill-shadowed-by-iris',
+          message: `Claude Code Skill "${s.name}" is ignored because an Iris-native Skill has the same invocation name.`,
+          skillName: s.name,
+          filePath: s.path,
+          source: s.source,
+        });
+        continue;
+      }
+      merged.set(s.name, s);
+    }
+
     const result = { skills: Array.from(merged.values()), diagnostics };
     lastFilesystemSkillDiagnostics = [...diagnostics];
     return result;
@@ -342,20 +518,35 @@ export function loadSkillsFromFilesystemWithDiagnostics(dataDir: string): Loaded
   }
 }
 
-export function loadSkillsFromFilesystem(dataDir: string): SkillDefinition[] {
-  return loadSkillsFromFilesystemWithDiagnostics(dataDir).skills;
+export function loadSkillsFromFilesystem(
+  dataDir: string,
+  options: SkillFilesystemLoadOptions = {},
+): SkillDefinition[] {
+  return loadSkillsFromFilesystemWithDiagnostics(dataDir, options).skills;
 }
 
 /**
  * 获取需要监听的 Skill 目录列表。
  * 返回所有可能存放 SKILL.md 的根目录（全局 + 项目级）。
  */
-export function getSkillWatchDirs(dataDir: string): string[] {
+export function getSkillWatchDirs(
+  dataDir: string,
+  options: SkillFilesystemLoadOptions = {},
+): string[] {
   const dirs: string[] = [];
+  const cwd = options.cwd ?? getSessionCwd();
   const globalDir = path.join(dataDir, 'skills');
-  const projectDir = path.join(getSessionCwd(), '.agents', 'skills');
-  if (fs.existsSync(globalDir)) dirs.push(globalDir);
-  if (fs.existsSync(projectDir)) dirs.push(projectDir);
+  const projectDir = path.join(cwd, '.agents', 'skills');
+  const claudeGlobalDir = path.join(options.homeDir ?? os.homedir(), '.claude', 'skills');
+  const candidates = [
+    globalDir,
+    projectDir,
+    claudeGlobalDir,
+    ...getClaudeProjectSkillDirs(cwd, options.homeDir ?? os.homedir()),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && !dirs.includes(candidate)) dirs.push(candidate);
+  }
   return dirs;
 }
 

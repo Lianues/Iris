@@ -105,7 +105,7 @@ export function createReadSkillTool(deps: ReadSkillDeps): ToolDefinition {
 
   return {
     declaration: buildDeclaration(skills),
-    handler: async (args) => {
+    handler: async (args, context) => {
       const skillName = typeof args.name === 'string' ? args.name.trim() : '';
       const legacyPath = typeof args.path === 'string' ? args.path.trim() : '';
       if (!skillName && !legacyPath) {
@@ -124,7 +124,7 @@ export function createReadSkillTool(deps: ReadSkillDeps): ToolDefinition {
           error: `Skill not found: ${skillName || legacyPath}`,
         };
       }
-      if (skill.disableModelInvocation) {
+      if (skill.disableModelInvocation && !deps.getBackend().isSkillModelAccessible?.(skill.name, context?.sessionId)) {
         return {
           success: false,
           error: `Skill "${skill.name}" is not available for model invocation.`,

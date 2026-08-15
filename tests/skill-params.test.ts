@@ -87,10 +87,21 @@ describe('substituteSkillParams', () => {
     expect(result).toBe('Please review the code.\n\nARGUMENTS: src/core dev');
   });
 
-  it('空参数时不做任何替换', () => {
+  it('空参数时清空兼容占位符', () => {
     const emptyArgs = parseSkillArguments('');
     const result = substituteSkillParams('$ARGUMENTS and $0', emptyArgs);
-    expect(result).toBe('$ARGUMENTS and $0');
+    expect(result).toBe(' and ');
+  });
+
+  it('支持 Claude Code 的 $ARGUMENTS[n] 语法', () => {
+    const args = parseSkillArguments('one "two words"');
+    expect(substituteSkillParams('$ARGUMENTS[0]|$ARGUMENTS[1]|$ARGUMENTS[9]', args))
+      .toBe('one|two words|');
+  });
+
+  it('支持反斜杠转义与空引号参数', () => {
+    const args = parseSkillArguments('one\\ two "" three');
+    expect(args.positional).toEqual(['one two', '', 'three']);
   });
 
   it('防止二次展开：$0 的值包含 $1 时不会再次替换', () => {

@@ -13,6 +13,11 @@ import { describe, expect, it } from 'vitest';
 import { createInvokeSkillTool } from '../src/tools/internal/invoke_skill';
 import type { SkillDefinition } from '../src/config/types';
 import type { FunctionResponsePart } from '../src/types';
+import type { Content } from '../src/types';
+import { ToolRegistry } from '../src/tools/registry';
+import { PromptAssembler } from '../src/prompt/assembler';
+import { ToolLoop } from '../src/core/tool-loop';
+import { cloneToolsConfig } from '../src/config/clone-tools-config';
 
 // ---- invoke_skill 单元测试 ----
 
@@ -146,8 +151,14 @@ describe('createInvokeSkillTool: inline mode', () => {
     ];
 
     const tool = createInvokeSkillTool(createMockDeps(skills));
-    const result = await tool.handler({ skill: 'hidden' }) as any;
+    const result = await tool.handler({ skill: 'hidden', __userInvocation: true }) as any;
     expect(result.error).toContain('not available for model invocation');
+
+    const userResult = await tool.handler(
+      { skill: 'hidden' },
+      { directUserSkillInvocation: true },
+    ) as any;
+    expect(userResult.__response.content).toBe('x');
   });
 });
 
@@ -183,5 +194,56 @@ describe('ToolLoop: extractAndApplyContextModifiers', () => {
     // 其他字段保持不变
     expect(resp.success).toBe(true);
     expect(resp.content).toBe('skill content');
+  });
+
+  it('真实运行中应用细粒度权限与模型覆盖，并剥离内部字段', async () => {
+    const registry = new ToolRegistry();
+    let probeCalls = 0;
+    registry.register({
+      declaration: { name: 'activate', description: 'activate a skill' },
+      handler: async () => ({
+        __contextModifier: {
+          permissionOverrides: { probe: { autoApprove: true } },
+          modelOverride: 'skill-model',
+        },
+        __response: { content: 'instructions' },
+      }),
+    });
+    registry.register({
+      declaration: { name: 'probe', description: 'must be granted' },
+      handler: async () => { probeCalls++; return { ok: true }; },
+    });
+
+    const baseConfig = {
+      permissions: {
+        activate: { autoApprove: true },
+        probe: { autoApprove: false },
+      },
+    };
+    const turnConfig = cloneToolsConfig(baseConfig);
+    const prompt = new PromptAssembler();
+    prompt.setSystemPrompt('test');
+    const loop = new ToolLoop(registry, prompt, { maxRounds: 5, toolsConfig: turnConfig });
+    const models: Array<string | undefined> = [];
+    let round = 0;
+    const result = await loop.run(
+      [{ role: 'user', parts: [{ text: 'go' }] }],
+      async (_request, modelName): Promise<Content> => {
+        models.push(modelName);
+        round++;
+        if (round === 1) return { role: 'model', parts: [{ functionCall: { name: 'activate', args: {}, callId: 'a' } }] };
+        if (round === 2) return { role: 'model', parts: [{ functionCall: { name: 'probe', args: {}, callId: 'p' } }] };
+        return { role: 'model', parts: [{ text: 'done' }] };
+      },
+    );
+
+    expect(result.text).toBe('done');
+    expect(probeCalls).toBe(1);
+    expect(models).toEqual([undefined, 'skill-model', 'skill-model']);
+    expect(baseConfig.permissions.probe.autoApprove).toBe(false);
+    const activateResponse = result.history
+      .flatMap(item => item.parts)
+      .find((part): part is FunctionResponsePart => 'functionResponse' in part && part.functionResponse.name === 'activate');
+    expect((activateResponse?.functionResponse.response as Record<string, unknown>).__contextModifier).toBeUndefined();
   });
 });
